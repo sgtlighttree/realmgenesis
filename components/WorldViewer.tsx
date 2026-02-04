@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Stars, Text } from '@react-three/drei';
 import * as THREE from 'three';
-import { WorldData, ViewMode, Cell } from '../types';
+import { WorldData, ViewMode, Cell, Point } from '../types';
 import { getCellColor } from '../utils/colors';
 import { MousePointer2, EyeOff, ChevronDown, ChevronUp } from 'lucide-react';
 
@@ -13,6 +13,11 @@ const PointLight = 'pointLight' as any;
 const DirectionalLight = 'directionalLight' as any;
 const MeshStandardMaterial = 'meshStandardMaterial' as any;
 const InstancedMesh = 'instancedMesh' as any;
+const CylinderGeometry = 'cylinderGeometry' as any;
+const MeshBasicMaterial = 'meshBasicMaterial' as any;
+const LineSegments = 'lineSegments' as any;
+const LineBasicMaterial = 'lineBasicMaterial' as any;
+const IcosahedronGeometry = 'icosahedronGeometry' as any;
 
 const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ world, viewMode }) => {
     const capitalsRef = useRef<THREE.InstancedMesh>(null);
@@ -52,14 +57,14 @@ const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ world
         <>
             {capitals.length > 0 && (
                 <InstancedMesh ref={capitalsRef} args={[undefined, undefined, capitals.length]} visible={true}>
-                    <cylinderGeometry args={[0.008, 0.008, 0.08, 6]} />
-                    <meshBasicMaterial color="#ef4444" toneMapped={false} />
+                    <CylinderGeometry args={[0.008, 0.008, 0.08, 6]} />
+                    <MeshBasicMaterial color="#ef4444" toneMapped={false} />
                 </InstancedMesh>
             )}
             {towns.length > 0 && (
                 <InstancedMesh ref={townsRef} args={[undefined, undefined, towns.length]} visible={viewMode === 'political'}>
-                    <cylinderGeometry args={[0.005, 0.005, 0.04, 5]} />
-                    <meshBasicMaterial color="#ffffff" toneMapped={false} />
+                    <CylinderGeometry args={[0.005, 0.005, 0.04, 5]} />
+                    <MeshBasicMaterial color="#ffffff" toneMapped={false} />
                 </InstancedMesh>
             )}
         </>
@@ -102,6 +107,72 @@ const CountryLabels: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ wor
             ))}
         </Group>
     );
+};
+
+const FactionBorders: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ world, viewMode }) => {
+  const geometry = useMemo(() => {
+      // Only show for political view
+      if (viewMode !== 'political') return null;
+
+      const positions: number[] = [];
+      const threshold = 0.000001; 
+
+      // Iterate unique pairs of neighbors to find borders
+      world.cells.forEach(cellA => {
+          cellA.neighbors.forEach(nId => {
+              const cellB = world.cells[nId];
+              if (cellA.id >= cellB.id) return; // Process pair once
+              
+              const rA = cellA.regionId;
+              const rB = cellB.regionId;
+              
+              // Draw border if regions are different
+              // This includes border between Faction A and Faction B
+              // AND border between Faction A and Unclaimed (International Waters)
+              if (rA !== rB) {
+                  // Find shared vertices between cellA and cellB to define the edge
+                  const shared: Point[] = [];
+                  for (const vA of cellA.vertices) {
+                      for (const vB of cellB.vertices) {
+                          const distSq = (vA.x - vB.x)**2 + (vA.y - vB.y)**2 + (vA.z - vB.z)**2;
+                          if (distSq < threshold) {
+                              shared.push(vA);
+                              break; 
+                          }
+                      }
+                      if (shared.length === 2) break;
+                  }
+                  
+                  if (shared.length === 2) {
+                      const hA = 1 + (cellA.height * 0.05);
+                      const hB = 1 + (cellB.height * 0.05);
+                      // Slight offset to prevent z-fighting with mesh
+                      const h = Math.max(hA, hB) + 0.002; 
+                      
+                      const p1 = shared[0];
+                      const p2 = shared[1];
+                      
+                      positions.push(p1.x * h, p1.y * h, p1.z * h);
+                      positions.push(p2.x * h, p2.y * h, p2.z * h);
+                  }
+              }
+          });
+      });
+      
+      if (positions.length === 0) return null;
+      
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      return geo;
+  }, [world, viewMode]);
+
+  if (!geometry) return null;
+
+  return (
+    <LineSegments geometry={geometry}>
+      <LineBasicMaterial color="white" linewidth={1} opacity={0.8} transparent depthTest={true} />
+    </LineSegments>
+  );
 };
 
 const WorldMesh: React.FC<{ 
@@ -166,20 +237,22 @@ const WorldMesh: React.FC<{
 
   return (
     <Group>
-        <Mesh 
-          ref={meshRef} 
-          geometry={geometry} 
-          onPointerMove={hudActive ? handlePointerMove : undefined} 
-          onPointerOut={hudActive ? () => onHover(null) : undefined}
-        >
-          <MeshStandardMaterial vertexColors roughness={0.8} metalness={0.1} flatShading side={THREE.FrontSide} />
-          <CityMarkers world={world} viewMode={viewMode} />
-          <CountryLabels world={world} viewMode={viewMode} />
-          {showGrid && <LatLongGrid radius={1.06} />}
-        </Mesh>
+        <Group ref={meshRef}>
+            <Mesh 
+            geometry={geometry} 
+            onPointerMove={hudActive ? handlePointerMove : undefined} 
+            onPointerOut={hudActive ? () => onHover(null) : undefined}
+            >
+            <MeshStandardMaterial vertexColors roughness={0.8} metalness={0.1} flatShading side={THREE.FrontSide} />
+            <CityMarkers world={world} viewMode={viewMode} />
+            <CountryLabels world={world} viewMode={viewMode} />
+            <FactionBorders world={world} viewMode={viewMode} />
+            {showGrid && <LatLongGrid radius={1.06} />}
+            </Mesh>
+        </Group>
         <Mesh ref={coreRef} scale={[0.99, 0.99, 0.99]}>
-            <icosahedronGeometry args={[1, 16]} />
-            <meshBasicMaterial color="#000000" side={THREE.FrontSide} />
+            <IcosahedronGeometry args={[1, 16]} />
+            <MeshBasicMaterial color="#000000" side={THREE.FrontSide} />
         </Mesh>
     </Group>
   );
@@ -318,8 +391,8 @@ const LatLongGrid: React.FC<{ radius: number }> = ({ radius }) => {
       return geo;
   }, [radius]);
   return (
-      <lineSegments geometry={geometry}>
-          <lineBasicMaterial color="#ffffff" opacity={0.15} transparent depthTest={true} />
-      </lineSegments>
+      <LineSegments geometry={geometry}>
+          <LineBasicMaterial color="#ffffff" opacity={0.15} transparent depthTest={true} />
+      </LineSegments>
   );
 };
