@@ -96,7 +96,8 @@ export interface WorldParams {
   civSeed: string; 
   borderRoughness: number; 
   civSizeVariance: number; 
-  waterCrossingCost: number; 
+  waterCrossingCost: number;
+  territorialWaters: number; // Max distance from land to claim water
   capitalSpacing: number; 
   provinceSize: number; // 0.1 (Small) to 1.0 (Huge)
   

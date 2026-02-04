@@ -393,6 +393,20 @@ const Controls: React.FC<ControlsProps> = ({
               </div>
               <div className="p-3 bg-gray-900 rounded border border-gray-800 space-y-3">
                   <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Advanced Terrain</h3>
+                  
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs text-gray-400">
+                      <label>Sea Level</label>
+                      <span>{(params.seaLevel * 100).toFixed(0)}%</span>
+                    </div>
+                    <input
+                      type="range" min="0.1" max="0.9" step="0.05"
+                      value={params.seaLevel}
+                      onChange={(e) => handleChange('seaLevel', parseFloat(e.target.value))}
+                      className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                    />
+                  </div>
+
                   <div className="space-y-1">
                       <div className="flex justify-between text-xs text-gray-400">
                         <label>Planet Radius</label>
@@ -653,6 +667,19 @@ const Controls: React.FC<ControlsProps> = ({
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-400"
                 />
                  <p className="text-[9px] text-gray-500">Left = Landlocked, Right = Seafaring</p>
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <label>Territorial Waters (Range)</label>
+                  <span>{params.territorialWaters?.toFixed(2)}</span>
+                </div>
+                <input
+                  type="range" min="0.01" max="1.0" step="0.01"
+                  value={params.territorialWaters ?? 0.2}
+                  onChange={(e) => handleChange('territorialWaters', parseFloat(e.target.value))}
+                  className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-600"
+                />
               </div>
 
               {/* Lore Level */}
