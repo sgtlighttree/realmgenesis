@@ -103,16 +103,6 @@ function ridgedNoise(simplex: SimplexNoise, x: number, y: number, z: number, oct
     return total / max;
 }
 
-function domainWarp(simplex: SimplexNoise, x: number, y: number, z: number, strength: number): number {
-    if (strength <= 0.01) return fbm(simplex, x, y, z, 4, 0.5, 2.0);
-
-    const qx = fbm(simplex, x, y, z, 2, 0.5, 2.0);
-    const qy = fbm(simplex, x + 5.2, y + 1.3, z + 2.8, 2, 0.5, 2.0);
-    const qz = fbm(simplex, x + 9.2, y + 2.8, z + 11.0, 2, 0.5, 2.0);
-
-    return fbm(simplex, x + strength * qx, y + strength * qy, z + strength * qz, 6, 0.5, 2.0);
-}
-
 // --- EROSION ---
 
 function applyHydraulicErosion(cells: Cell[], iterations: number) {
@@ -292,7 +282,9 @@ export async function generateGeography(params: WorldParams, onProgress?: (msg: 
               const rvx = driftA.x - driftB.x;
               const rvy = driftA.y - driftB.y;
               const rvz = driftA.z - driftB.z;
-              const dot = (rvx*dx + rvy*dy + rvz*dz) * 10; 
+              // Positive dot product implies convergence (plates moving towards point)
+              // We boost this signal
+              const dot = (rvx*dx + rvy*dy + rvz*dz) * 20; 
               if (Math.abs(dot) > Math.abs(maxStress)) maxStress = dot;
           }
       }
@@ -312,37 +304,101 @@ export async function generateGeography(params: WorldParams, onProgress?: (msg: 
   onProgress?.("Generating Terrain...", 60);
   const featureFreq = params.noiseScale || 1.0;
   const warpStr = (params.warpStrength === undefined ? 0.5 : params.warpStrength) * 0.5;
-  const plateInf = (params.plateInfluence === undefined ? 0.5 : params.plateInfluence) * 2.0; 
+  const plateInf = (params.plateInfluence === undefined ? 0.5 : params.plateInfluence); 
   const userRidgeBias = params.ridgeBlend; 
 
-  cells.forEach(c => {
-      let continental = fbm(simplex, c.center.x * featureFreq, c.center.y * featureFreq, c.center.z * featureFreq, 2, 0.5, 2.0);
-      const stress = cellStress[c.id];
-      const stressFactor = Math.min(1, Math.max(0, stress * plateInf)); 
-      const mix = stressFactor + (1 - stressFactor) * userRidgeBias;
-      const localRoughness = params.roughness + stressFactor * 0.5;
-      const warpedX = c.center.x * 2.0;
-      const warpedY = c.center.y * 2.0;
-      const warpedZ = c.center.z * 2.0;
-      const fbmNoise = domainWarp(simplex, warpedX, warpedY, warpedZ, warpStr);
-      const ridgeNoise = ridgedNoise(simplex, warpedX, warpedY, warpedZ, 5, 2.0) * 2 - 0.5;
-      let detail = fbmNoise * (1 - mix) + ridgeNoise * mix;
-      if (params.points > 5000) {
-          const micro = simplex.noise3D(c.center.x * 12, c.center.y * 12, c.center.z * 12);
-          detail += micro * 0.1 * params.roughness;
+  // --- Assign Base Height based on Plate ID ---
+  const plateHeights = new Float32Array(numPlates);
+  const pRng = new RNG(params.seed + '_plates_h');
+  
+  let landChance = 0.45;
+  let landLevel = 0.25;
+  let oceanLevel = -0.5;
+
+  if (params.landStyle === 'Archipelago') { landChance = 0.25; landLevel = 0.1; oceanLevel = -0.3; }
+  if (params.landStyle === 'Islands') { landChance = 0.15; landLevel = 0.2; oceanLevel = -0.6; }
+
+  for (let i = 0; i < numPlates; i++) {
+      const isLand = pRng.next() < landChance;
+      plateHeights[i] = isLand ? (landLevel + pRng.next() * 0.5) : (oceanLevel + pRng.next() * 0.3);
+  }
+
+  // --- Smooth Plate Boundaries (Diffusion) ---
+  const cellBaseHeight = new Float32Array(cells.length);
+  for(let i=0; i<cells.length; i++) cellBaseHeight[i] = plateHeights[cells[i].plateId];
+
+  const tempH = new Float32Array(cells.length);
+  // Fewer passes to keep distinct plate shelves
+  for(let pass=0; pass<3; pass++) {
+      for(let i=0; i<cells.length; i++) {
+          let sum = cellBaseHeight[i];
+          let count = 1;
+          for(const n of cells[i].neighbors) {
+              sum += cellBaseHeight[n];
+              count++;
+          }
+          tempH[i] = sum / count;
       }
-      let height = continental; 
-      height += detail * localRoughness * 0.5;
-      if (stress > 0) height += stress * 0.8; 
-      else if (stress < 0) height += stress * 1.5;
+      tempH.forEach((v,i) => cellBaseHeight[i] = v);
+  }
+
+  cells.forEach(c => {
+      // 1. Structural Noise (Controlled by 'Feature Frequency' / noiseScale)
+      // We use a lower frequency for the main shape to give "Fractality" and variety
+      // This is the "continent shaping" noise
+      const structuralNoise = fbm(simplex, c.center.x, c.center.y, c.center.z, 3, 0.5, 2.0 * featureFreq);
+      
+      // 2. Base Height Mixing
+      // plateInf (0 to 1) controls how much we adhere to the plate map.
+      // We mix the smoothed plate height with the shape noise.
+      // High plate influence -> Landmasses match plates closely.
+      // Low plate influence -> Random blobs.
+      
+      const plateBase = cellBaseHeight[c.id]; 
+      const influence = Math.min(1, Math.max(0.1, plateInf)); 
+      
+      // The core formula:
+      // Start with the Plate Base scaled by influence.
+      // Add Structural Noise to break up the smooth plate boundaries.
+      // The (1.5 - influence) term ensures that as we reduce plate influence, noise takes over more strongly.
+      let height = plateBase * influence + structuralNoise * (1.3 - influence) * 0.7;
+      
+      // 3. Mountain Ranges (Stress)
+      // Stress is usually -1 to 1. Positive = Converging.
+      const stress = cellStress[c.id];
+      const mountainThreshold = 0.15;
+      
+      if (stress > mountainThreshold) {
+          // Mountain building: sharpen the stress curve to make peaks
+          const mountain = Math.pow(stress - mountainThreshold, 1.2); 
+          // Add significant height for mountains (0.0 to ~2.0)
+          height += mountain * 2.0; 
+          
+          // Add specific rocky ridge noise to mountains
+          const ridge = ridgedNoise(simplex, c.center.x, c.center.y, c.center.z, 4, 2.0);
+          height += ridge * 0.3 * mountain;
+      } else if (stress < -mountainThreshold) {
+          // Rifts / Trenches
+          height -= Math.abs(stress) * 0.5;
+      }
+      
+      // 4. Detail / Roughness
+      // High frequency noise for local texture and coastline fuzziness
+      const detail = fbm(simplex, c.center.x * 6, c.center.y * 6, c.center.z * 6, 2, 0.5, 2.0);
+      height += detail * params.roughness * 0.15;
+
+      // Pangea Mask Logic
       if (params.maskType === 'Pangea') {
           const mask = (c.center.x * 0.8 + c.center.y * 0.2 + 1) * 0.5;
           const smoothMask = mask * mask * (3 - 2 * mask);
-          height = height * 0.5 + smoothMask * 0.8 - 0.3;
+          // Blend plate-based height with mask
+          height = height * 0.5 + smoothMask * 0.8 - 0.2;
       }
+      
       c.height = height;
   });
   
+  // Normalize Height
   let minH = Infinity, maxH = -Infinity;
   cells.forEach(c => { if (c.height < minH) minH = c.height; if (c.height > maxH) maxH = c.height; });
   let range = maxH - minH || 1;
