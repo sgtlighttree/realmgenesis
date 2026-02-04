@@ -1,0 +1,5 @@
+{
+  "name": "TerraForge 3D",
+  "description": "A procedural planet generator simulating tectonic plates, climate, and biomes on a 3D spherical Voronoi grid. Features AI-powered lore generation.",
+  "requestFramePermissions": []
+}
