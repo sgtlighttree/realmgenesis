@@ -249,7 +249,6 @@ function determineBiome(height: number, temp: number, moisture: number, seaLevel
 
 function enforceConnectivity(cells: Cell[], numPlates: number) {
     // Robust Region Merging to remove enclaves
-    // 1. Label connected components via BFS
     const componentId = new Int32Array(cells.length).fill(-1);
     const compSize: number[] = [];
     const compPlate: number[] = [];
@@ -280,7 +279,6 @@ function enforceConnectivity(cells: Cell[], numPlates: number) {
         compCount++;
     }
 
-    // 2. Identify "Main Body" (largest component) for each Plate ID
     const largestCompForPlate = new Int32Array(numPlates).fill(-1);
     const maxS = new Int32Array(numPlates).fill(-1);
     
@@ -294,18 +292,14 @@ function enforceConnectivity(cells: Cell[], numPlates: number) {
 
     const isOrphan = (cIdx: number) => {
         const pid = compPlate[cIdx];
-        // If a plate has no components (rare), this check is safe
         return largestCompForPlate[pid] !== cIdx;
     }
 
-    // 3. Collect orphans and adopt them to dominant neighbors
-    // We group cells by component for easy reassignment
     const compCells: number[][] = Array.from({length: compCount}, () => []);
     for(let i=0; i<cells.length; i++) {
         compCells[componentId[i]].push(i);
     }
 
-    // Sort orphans by size (smallest first) to dissolve specks into larger regions
     const orphanIndices: number[] = [];
     for(let c=0; c<compCount; c++) {
         if(isOrphan(c)) orphanIndices.push(c);
@@ -316,7 +310,6 @@ function enforceConnectivity(cells: Cell[], numPlates: number) {
         const myCells = compCells[cIdx];
         const neighborCounts = new Map<number, number>();
         
-        // Scan border to find dominant neighbor plate
         for(const cellId of myCells) {
             for(const nId of cells[cellId].neighbors) {
                 const nComp = componentId[nId];
@@ -334,11 +327,8 @@ function enforceConnectivity(cells: Cell[], numPlates: number) {
         });
 
         if(bestP !== -1) {
-            // Reassign
             for(const cellId of myCells) {
                 cells[cellId].plateId = bestP;
-                // Note: We don't update componentId/compSize on the fly, 
-                // assuming adoption by a massive plate makes intermediate state irrelevant.
             }
         }
     });
@@ -395,26 +385,20 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
 
   onProgress?.("Simulating Tectonics...", 40);
   const numPlates = params.plates;
-  const plateRng = new RNG(params.seed + '_plates_loc'); // Dedicated seed for plate locations
+  const plateRng = new RNG(params.seed + '_plates_loc'); 
   
-  // 1. Plate Centers (Resolution Independent)
-  // We place vectors on the sphere. These are the "soul" of the plates.
+  // 1. Plate Centers 
   const plateVectors: Point[] = [];
   for(let i=0; i<numPlates; i++) {
       plateVectors.push(randomVector(plateRng));
   }
 
-  // 2. Assign Plates (Warped Voronoi) - O(N * Plates)
-  // Much faster than Dijkstra for high N, and Resolution Independent
+  // 2. Assign Plates (Warped Voronoi)
   const warpNoise = new SimplexNoise(new RNG(params.seed + '_warp'));
-  
-  // Lower frequency = smoother larger curves
   const warpFreq = 0.5; 
-  // Lower amplitude scaling = prevents extreme folds/enclaves
   const warpAmp = (params.warpStrength ?? 0.5) * 0.2; 
 
   cells.forEach(cell => {
-      // Warped coordinates
       const nx = warpNoise.noise3D(cell.center.x * warpFreq, cell.center.y * warpFreq, cell.center.z * warpFreq);
       const ny = warpNoise.noise3D(cell.center.y * warpFreq, cell.center.z * warpFreq, cell.center.x * warpFreq);
       const nz = warpNoise.noise3D(cell.center.z * warpFreq, cell.center.x * warpFreq, cell.center.y * warpFreq);
@@ -437,11 +421,10 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
       cell.plateId = bestPlate;
   });
 
-  // 3. Clean up artifacts (Merge disjoint enclaves)
+  // 3. Clean up artifacts 
   enforceConnectivity(cells, numPlates);
 
   // 4. Plate Movement & Stress
-  // These determine mountains/rifts
   const moveRng = new RNG(params.seed + '_plates_move');
   const plateDrift = plateVectors.map(() => ({ 
       x: moveRng.next() - 0.5, 
@@ -452,8 +435,6 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
   const cellStress = new Float32Array(cells.length).fill(0); 
   const distToEdge = new Float32Array(cells.length).fill(0);
 
-  // Calculate stress and "Edge proximity"
-  // We do one pass to find boundary cells
   cells.forEach(c => {
       let isBoundary = false;
       let maxStress = 0;
@@ -462,8 +443,6 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
           const n = cells[nId];
           if (n.plateId !== c.plateId) {
               isBoundary = true;
-              
-              // Stress calculation
               const driftA = plateDrift[c.plateId % plateDrift.length];
               const driftB = plateDrift[n.plateId % plateDrift.length];
               const dx = n.center.x - c.center.x;
@@ -472,7 +451,6 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
               const rvx = driftA.x - driftB.x;
               const rvy = driftA.y - driftB.y;
               const rvz = driftA.z - driftB.z;
-              // Converging = Positive, Diverging = Negative
               const dot = (rvx*dx + rvy*dy + rvz*dz) * 10; 
               if (Math.abs(dot) > Math.abs(maxStress)) maxStress = dot;
           }
@@ -480,15 +458,12 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
       
       if (isBoundary) {
           cellStress[c.id] = maxStress;
-          distToEdge[c.id] = 0; // It is on the edge
+          distToEdge[c.id] = 0; 
       } else {
-          distToEdge[c.id] = 1.0; // Interior
+          distToEdge[c.id] = 1.0; 
       }
   });
 
-  // Diffuse Edge Distance and Stress inwards
-  // Scaling iterations by resolution so mountains have consistent width
-  // Base 4000 points = ~2 iters. 40000 points = ~6 iters
   const spreadIterations = Math.max(2, Math.floor(4 * Math.sqrt(params.points / 4000)));
   
   const nextStress = new Float32Array(cells.length);
@@ -505,17 +480,17 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
               count++;
           });
           nextStress[c.id] = stressSum / count;
-          nextDist[c.id] = distSum / count + 0.1; // Add distance penalty
+          nextDist[c.id] = distSum / count + 0.1; 
       });
       nextStress.forEach((v,k) => cellStress[k] = v);
       nextDist.forEach((v,k) => distToEdge[k] = v);
   }
 
   onProgress?.("Generating Terrain...", 60);
-  const featureFreq = params.noiseScale || 1.0;
+  // FEATURE FREQUENCY: Scale coordinates by frequency for consistent fractal size
+  const freq = params.noiseScale || 1.0;
   const plateInf = (params.plateInfluence === undefined ? 0.5 : params.plateInfluence); 
 
-  // --- Assign Base Height based on Plate ID ---
   const plateHeights = new Float32Array(numPlates);
   const pRng = new RNG(params.seed + '_plates_h');
   
@@ -532,11 +507,18 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
   }
 
   cells.forEach(c => {
-      // 1. Structural Noise (Fractal)
-      const structuralNoise = fbm(simplex, c.center.x, c.center.y, c.center.z, 3, 0.5, 1.5 * featureFreq);
+      // 1. Structural Noise
+      // RIDGE INTENSITY LOGIC: Blend between FBM (rounded) and Ridged (sharp)
+      const fbmVal = fbm(simplex, c.center.x * freq, c.center.y * freq, c.center.z * freq, 3, 0.5, 2.0);
+      const ridgedVal = ridgedNoise(simplex, c.center.x * freq, c.center.y * freq, c.center.z * freq, 3, 2.0);
+      
+      // Map ridged (0..1) to (-1..1) to align with FBM range
+      const ridgedRemapped = (ridgedVal * 2.0) - 1.0;
+      const blend = params.ridgeBlend === undefined ? 0 : params.ridgeBlend;
+      
+      const structuralNoise = fbmVal * (1 - blend) + ridgedRemapped * blend;
       
       // 2. Base Plate Height 
-      // We perform a local average to smooth the sharp transition between plates
       let baseSum = 0; 
       let bCount = 0;
       c.neighbors.forEach(n => { baseSum += plateHeights[cells[n].plateId]; bCount++; });
@@ -545,38 +527,31 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
 
       const influence = Math.min(1, Math.max(0.1, plateInf));
       
-      // Mix Plate Base and Noise
       let height = avgBase * influence + structuralNoise * (1.2 - influence);
       
-      // 3. Tectonic Interaction (Mountains/Rifts)
-      const stress = cellStress[c.id]; // -1 to 1 typically
-      const edgeProx = Math.max(0, 1.0 - distToEdge[c.id] * 0.5); // 1.0 at edge, 0.0 deep inside
+      // 3. Tectonic Interaction
+      const stress = cellStress[c.id]; 
+      const edgeProx = Math.max(0, 1.0 - distToEdge[c.id] * 0.5); 
       
       if (edgeProx > 0) {
           if (stress > 0.05) {
-              // Converging: Mountains
-              // We multiply by edgeProx so mountains only appear near borders
               const mtnHeight = stress * edgeProx * 1.5;
-              const ridge = ridgedNoise(simplex, c.center.x, c.center.y, c.center.z, 4, 2.5);
+              const ridge = ridgedNoise(simplex, c.center.x * freq, c.center.y * freq, c.center.z * freq, 4, 2.5);
               height += mtnHeight + (ridge * 0.3 * mtnHeight);
           } else if (stress < -0.05) {
-              // Diverging: Rifts
               height -= Math.abs(stress) * edgeProx * 1.0;
           }
       }
 
-      // 4. Detail & Roughness
+      // 4. Detail
       const detail = fbm(simplex, c.center.x * 6, c.center.y * 6, c.center.z * 6, 2, 0.5, 2.5);
       height += detail * params.roughness * 0.15;
 
       // 5. Continental Shelf Curve
-      // Flatten values near sea level to create shelves
-      // Soft clamp
       if (height > -0.2 && height < 0.2) {
           height = height * 0.5 + (height > 0 ? 0.05 : -0.05);
       }
 
-      // Pangea Mask Logic
       if (params.maskType === 'Pangea') {
           const mask = (c.center.x * 0.8 + c.center.y * 0.2 + 1) * 0.5;
           const smoothMask = mask * mask * (3 - 2 * mask);
@@ -586,7 +561,6 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
       c.height = height;
   });
   
-  // Normalize Height
   let minH = Infinity, maxH = -Infinity;
   cells.forEach(c => { if (c.height < minH) minH = c.height; if (c.height > maxH) maxH = c.height; });
   let range = maxH - minH || 1;
@@ -595,16 +569,11 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
   if (params.erosionIterations > 0) {
       onProgress?.("Eroding Terrain...", 70);
       await new Promise(r => setTimeout(r, 0));
-      // Scale erosion steps by resolution 
-      // At higher res, water travels less distance per step, so we need more steps
       const resFactor = Math.sqrt(params.points / 5000);
       const hydraulicSteps = Math.ceil(params.erosionIterations * 2 * resFactor);
       const thermalSteps = Math.ceil(params.erosionIterations * 0.5 * resFactor);
-      
       applyHydraulicErosion(cells, hydraulicSteps);
       applyThermalErosion(cells, thermalSteps);
-
-      // Renormalize after erosion
       minH = Infinity; maxH = -Infinity;
       cells.forEach(c => { if (c.height < minH) minH = c.height; if (c.height > maxH) maxH = c.height; });
       range = maxH - minH || 1;
@@ -683,7 +652,6 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onProgres
     const landCells = world.cells.filter(c => c.height >= params.seaLevel && c.biome !== BiomeType.ICE_CAP);
     if (landCells.length === 0) return world;
 
-    // Poisson Disk-ish for Capitals
     for(let i=0; i<numFactions; i++) {
         let bestCell = -1;
         let maxDist = -1;
@@ -692,7 +660,6 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onProgres
             let minDist = Infinity;
             for(const capId of capitals) {
                 const cap = world.cells[capId];
-                // Euclidean dist on sphere is fine for relative comparisons
                 const d = (candidate.center.x - cap.center.x)**2 + (candidate.center.y - cap.center.y)**2 + (candidate.center.z - cap.center.z)**2;
                 if (d < minDist) minDist = d;
             }
@@ -716,7 +683,6 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onProgres
         totalPopulation: 0
     }));
 
-    // Dijkstra Expansion using MinHeap
     const costs = new Float32Array(world.cells.length).fill(Infinity);
     const owner = new Int32Array(world.cells.length).fill(-1);
     const frontier = new MinHeap<{id: number, cost: number, owner: number, waterDist: number}>(x => x.cost);
@@ -747,18 +713,17 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onProgres
                 const limit = params.territorialWaters ?? 0.2;
                 if (newWaterDist > limit) continue;
                 if (params.waterCrossingCost > 0.8) moveCost = 1000; 
-                else moveCost = dist * (5 + (params.waterCrossingCost * 20)); // Scale cost by distance (resolution independent)
+                else moveCost = dist * (5 + (params.waterCrossingCost * 20)); 
             } else {
                  newWaterDist = 0;
                  const hDiff = Math.abs(neighbor.height - cell.height);
-                 moveCost = dist * (1 + hDiff * 50); // Scale cost by distance
+                 moveCost = dist * (1 + hDiff * 50); 
             }
             
             const newCost = current.cost + moveCost;
             if (newCost < costs[nId]) {
                 costs[nId] = newCost;
                 owner[nId] = current.owner;
-                // Optimization: Don't push if cost is excessively high
                 if (newCost < 500) { 
                     frontier.push({ id: nId, cost: newCost, owner: current.owner, waterDist: newWaterDist });
                 }
