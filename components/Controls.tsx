@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { WorldParams, ViewMode, LoreData, LandStyle } from '../types';
-import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Download, Save, FileJson, FolderOpen, Trash2, Image, Satellite } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { WorldParams, ViewMode, LoreData, LandStyle, CivData } from '../types';
+import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Download, Save, FileJson, FolderOpen, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
 import { WorldData } from '../types';
 
@@ -8,8 +8,10 @@ interface ControlsProps {
   params: WorldParams;
   setParams: (p: WorldParams) => void;
   onGenerate: (p?: WorldParams) => void;
-  onUpdateCivs: () => void;
-  onUpdateProvinces: () => void;
+  onLoadWorld: (p: WorldParams, civData?: CivData) => void;
+  onCancel?: () => void;
+  onUpdateCivs: (p?: WorldParams) => void;
+  onUpdateProvinces: (p?: WorldParams) => void;
   viewMode: ViewMode;
   setViewMode: (m: ViewMode) => void;
   lore: LoreData | null;
@@ -17,17 +19,45 @@ interface ControlsProps {
   generatingLore: boolean;
   onGenerateLore: () => void;
   worldData: WorldData | null;
-  progress?: { msg: string, percent: number };
+  logs: string[];
   showGrid: boolean;
   setShowGrid: (b: boolean) => void;
+  showRivers: boolean;
+  setShowRivers: (b: boolean) => void;
 }
 
 type Tab = 'geo' | 'climate' | 'political' | 'system' | 'export';
+
+const ConsoleOutput: React.FC<{ logs: string[]; isOpen: boolean }> = ({ logs, isOpen }) => {
+    const endRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (isOpen) {
+            endRef.current?.scrollIntoView({ behavior: "smooth" });
+        }
+    }, [logs, isOpen]);
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="bg-black border border-gray-800 rounded-b-lg p-2 h-32 overflow-y-auto font-mono text-[10px] space-y-1 shadow-inner relative transition-all">
+            {logs.length === 0 && <div className="text-gray-600 italic text-center mt-10">System Ready</div>}
+            {logs.map((log, i) => (
+                <div key={i} className="text-green-400 break-words border-b border-gray-900/50 pb-0.5 last:border-0">
+                    <span className="text-gray-600 mr-2">[{i+1}]</span>
+                    {log}
+                </div>
+            ))}
+            <div ref={endRef} />
+        </div>
+    );
+};
 
 const Controls: React.FC<ControlsProps> = ({
   params,
   setParams,
   onGenerate,
+  onLoadWorld,
+  onCancel,
   onUpdateCivs,
   onUpdateProvinces,
   viewMode,
@@ -37,13 +67,17 @@ const Controls: React.FC<ControlsProps> = ({
   generatingLore,
   onGenerateLore,
   worldData,
-  progress,
+  logs,
   showGrid,
-  setShowGrid
+  setShowGrid,
+  showRivers,
+  setShowRivers
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('system');
   const [seedLocked, setSeedLocked] = useState(false);
+  const [civSeedLocked, setCivSeedLocked] = useState(false);
   const [autoUpdate, setAutoUpdate] = useState(true);
+  const [consoleOpen, setConsoleOpen] = useState(true);
   
   // Export State
   const [expRes, setExpRes] = useState<ExportResolution>(4096);
@@ -74,6 +108,7 @@ const Controls: React.FC<ControlsProps> = ({
       params.rainfallMultiplier,
       params.moistureTransport,
       params.temperatureVariance,
+      params.axialTilt,
       autoUpdate
   ]);
 
@@ -146,32 +181,43 @@ const Controls: React.FC<ControlsProps> = ({
   const handleRandomizeSeed = () => {
     if (!seedLocked) {
       handleChange('seed', Math.random().toString(36).substring(7));
-      handleChange('civSeed', Math.random().toString(36).substring(7));
+      if (!civSeedLocked) handleChange('civSeed', Math.random().toString(36).substring(7));
+    }
+  };
+  
+  const handleRandomizeCivSeed = () => {
+    if (!civSeedLocked) {
+        handleChange('civSeed', Math.random().toString(36).substring(7));
     }
   };
 
   const handleGenerateClick = () => {
     let p = { ...params };
     if (!seedLocked) {
-       const newSeed = Math.random().toString(36).substring(7);
-       p.seed = newSeed;
-       p.civSeed = newSeed;
-       setParams(p);
+       p.seed = Math.random().toString(36).substring(7);
     }
+    if (!civSeedLocked) {
+       p.civSeed = Math.random().toString(36).substring(7);
+    }
+    setParams(p);
     setTimeout(() => {
         onGenerate(p);
     }, 0);
   };
 
   const handleRerollBorders = () => {
-      const newCivSeed = Math.random().toString(36).substring(7);
-      setParams({ ...params, civSeed: newCivSeed });
-      setTimeout(onUpdateCivs, 50);
+      let newCivSeed = params.civSeed;
+      if (!civSeedLocked) {
+          newCivSeed = Math.random().toString(36).substring(7);
+          setParams({ ...params, civSeed: newCivSeed });
+      }
+      // Pass the updated params explicitly so the callback uses the new seed immediately
+      setTimeout(() => onUpdateCivs({ ...params, civSeed: newCivSeed }), 50);
   };
 
   const handleRerollProvinces = () => {
       // Just triggers the province recalculation logic
-      setTimeout(onUpdateProvinces, 50);
+      setTimeout(() => onUpdateProvinces(), 50);
   };
   
   const handleExport = async () => {
@@ -186,7 +232,8 @@ const Controls: React.FC<ControlsProps> = ({
 
   const handleSaveBrowser = () => {
       if (!saveName) return;
-      if (saveMapToBrowser(saveName, params)) {
+      // Pass civData if available to save lore
+      if (saveMapToBrowser(saveName, params, worldData?.civData)) {
           setSavedMaps(getSavedMaps());
           // Generate next default name
           const now = new Date();
@@ -198,10 +245,11 @@ const Controls: React.FC<ControlsProps> = ({
       }
   };
 
-  const handleLoadBrowser = (entryParams: WorldParams) => {
+  const handleLoadBrowser = (entryParams: WorldParams, civData?: CivData) => {
       if (confirm("Load this map configuration? Unsaved changes will be lost.")) {
           setParams(entryParams);
-          setTimeout(() => onGenerate(entryParams), 50);
+          // Use the dedicated load function that handles restoration
+          setTimeout(() => onLoadWorld(entryParams, civData), 50);
       }
   };
   
@@ -216,8 +264,9 @@ const Controls: React.FC<ControlsProps> = ({
       if (e.target.files && e.target.files[0]) {
           const loaded = await loadMapConfig(e.target.files[0]);
           if (loaded) {
-              setParams(loaded);
-              setTimeout(() => onGenerate(loaded), 50);
+              setParams(loaded.params);
+              // Use the dedicated load function that handles restoration
+              setTimeout(() => onLoadWorld(loaded.params, loaded.civData), 50);
           } else {
               alert("Invalid config file");
           }
@@ -317,19 +366,6 @@ const Controls: React.FC<ControlsProps> = ({
                 className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
               />
             </div>
-
-             <div className="space-y-1">
-                <div className="flex justify-between text-xs text-gray-400">
-                  <label>Axial Tilt (Visual)</label>
-                  <span>{params.axialTilt || 0}°</span>
-                </div>
-                <input
-                  type="range" min="-90" max="90" step="1"
-                  value={params.axialTilt || 0}
-                  onChange={(e) => handleChange('axialTilt', parseFloat(e.target.value))}
-                  className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-400"
-                />
-             </div>
              
              <div className="flex items-center justify-between text-xs text-gray-400 pt-2 border-t border-gray-800">
                  <div className="flex items-center gap-2">
@@ -340,6 +376,19 @@ const Controls: React.FC<ControlsProps> = ({
                     type="checkbox"
                     checked={showGrid}
                     onChange={(e) => setShowGrid(e.target.checked)}
+                    className="rounded bg-gray-700"
+                 />
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-gray-400 pt-2">
+                 <div className="flex items-center gap-2">
+                    <Waves size={12} className={showRivers ? "text-blue-400" : "text-gray-600"}/>
+                    <label>River Network</label>
+                 </div>
+                 <input 
+                    type="checkbox"
+                    checked={showRivers}
+                    onChange={(e) => setShowRivers(e.target.checked)}
                     className="rounded bg-gray-700"
                  />
             </div>
@@ -374,7 +423,8 @@ const Controls: React.FC<ControlsProps> = ({
           </div>
         )}
 
-        {/* --- GEO TAB --- */}
+        {/* ... (Other Tabs omitted for brevity, logic remains identical to previous) ... */}
+        {/* Keeping existing Geo, Climate, Political, Export tabs rendering logic as is */}
         {activeTab === 'geo' && (
            <div className="space-y-4">
               <div className="space-y-1">
@@ -406,8 +456,8 @@ const Controls: React.FC<ControlsProps> = ({
                       className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
                     />
                   </div>
-
-                  <div className="space-y-1">
+                  {/* ... other geo sliders ... */}
+                   <div className="space-y-1">
                       <div className="flex justify-between text-xs text-gray-400">
                         <label>Planet Radius</label>
                         <span>{params.planetRadius} km</span>
@@ -419,7 +469,6 @@ const Controls: React.FC<ControlsProps> = ({
                         className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
                       />
                   </div>
-                  
                   <div className="space-y-1">
                     <div className="flex justify-between text-xs text-gray-400">
                       <label>Tectonic Plates</label>
@@ -432,7 +481,6 @@ const Controls: React.FC<ControlsProps> = ({
                       className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-rose-500"
                     />
                   </div>
-                  
                   <div className="space-y-1">
                     <div className="flex justify-between text-xs text-gray-400">
                       <label>Terrain Roughness</label>
@@ -445,7 +493,6 @@ const Controls: React.FC<ControlsProps> = ({
                       className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-slate-400"
                     />
                   </div>
-
                   <div className="space-y-1">
                     <div className="flex justify-between text-xs text-gray-400">
                       <label>Feature Frequency</label>
@@ -510,9 +557,22 @@ const Controls: React.FC<ControlsProps> = ({
            </div>
         )}
 
-        {/* --- CLIMATE TAB --- */}
+        {/* Climate Tab content */}
         {activeTab === 'climate' && (
            <div className="space-y-5">
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <label>Axial Tilt (Visual & Climatic)</label>
+                  <span>{params.axialTilt || 0}°</span>
+                </div>
+                <input
+                  type="range" min="-90" max="90" step="1"
+                  value={params.axialTilt || 0}
+                  onChange={(e) => handleChange('axialTilt', parseFloat(e.target.value))}
+                  className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-400"
+                />
+             </div>
+             {/* ... (rest of climate sliders) ... */}
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Equator Temp (°C)</label>
@@ -549,10 +609,9 @@ const Controls: React.FC<ControlsProps> = ({
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
                 />
               </div>
-              
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-gray-400">
-                  <label>Wind Strength</label>
+                  <label>Wind Strength / Moisture Transport</label>
                   <span>{(params.moistureTransport * 100).toFixed(0)}%</span>
                 </div>
                 <input
@@ -561,9 +620,8 @@ const Controls: React.FC<ControlsProps> = ({
                   onChange={(e) => handleChange('moistureTransport', parseFloat(e.target.value))}
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-300"
                 />
-                <p className="text-[9px] text-gray-500">Affects moisture spread</p>
+                <p className="text-[9px] text-gray-500">Affects rain shadows & moisture spread</p>
               </div>
-
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Random Temp</label>
@@ -579,29 +637,53 @@ const Controls: React.FC<ControlsProps> = ({
            </div>
         )}
 
-        {/* --- CIV TAB --- */}
+        {/* Civ Tab content */}
         {activeTab === 'political' && (
            <div className="space-y-5">
-              <div className="flex items-center justify-between">
-                <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Parameters</h3>
-                <div className="flex gap-1">
+              {/* Civ Seed Input */}
+             <div className="bg-gray-900 p-3 rounded-lg border border-gray-800">
+                <label className="text-xs text-gray-400 mb-1 block">Civ Seed</label>
+                <div className="flex gap-2">
+                   <input 
+                      type="text" 
+                      value={params.civSeed} 
+                      onChange={(e) => handleChange('civSeed', e.target.value)}
+                      disabled={civSeedLocked}
+                      className="bg-black border border-gray-700 rounded px-2 py-1 text-white text-xs flex-1 disabled:opacity-50"
+                   />
+                   <button 
+                      onClick={() => setCivSeedLocked(!civSeedLocked)} 
+                      className={`${civSeedLocked ? 'text-blue-500' : 'text-gray-400'} hover:text-white transition-colors`}
+                   >
+                      {civSeedLocked ? <Lock size={14}/> : <Unlock size={14}/>}
+                   </button>
+                   <button onClick={handleRandomizeCivSeed} disabled={civSeedLocked} className="text-gray-400 hover:text-white disabled:opacity-50">
+                      <Shuffle size={14} />
+                   </button>
+                </div>
+             </div>
+
+              <div>
+                <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Parameters</h3>
+                <div className="grid grid-cols-2 gap-2">
                     <button 
                       onClick={handleRerollBorders}
                       disabled={loading}
-                      className="flex items-center gap-1 text-[10px] bg-blue-900/40 text-blue-300 px-2 py-1 rounded border border-blue-900/50 hover:bg-blue-800/40"
+                      className="flex items-center justify-center gap-1 text-[10px] bg-blue-900/40 text-blue-300 px-2 py-2 rounded border border-blue-900/50 hover:bg-blue-800/40"
                     >
                       <Shuffle size={10} /> Reroll Borders
                     </button>
                     <button 
                       onClick={handleRerollProvinces}
                       disabled={loading}
-                      className="flex items-center gap-1 text-[10px] bg-teal-900/40 text-teal-300 px-2 py-1 rounded border border-teal-900/50 hover:bg-teal-800/40"
+                      className="flex items-center justify-center gap-1 text-[10px] bg-teal-900/40 text-teal-300 px-2 py-2 rounded border border-teal-900/50 hover:bg-teal-800/40"
                     >
                       <Layers size={10} /> Reroll Provs
                     </button>
                 </div>
               </div>
 
+              {/* ... (rest of civ sliders) ... */}
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Factions</label>
@@ -614,7 +696,6 @@ const Controls: React.FC<ControlsProps> = ({
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
                 />
               </div>
-              
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Capital Spacing</label>
@@ -627,7 +708,6 @@ const Controls: React.FC<ControlsProps> = ({
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-400"
                 />
               </div>
-
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Province Size (Admin Density)</label>
@@ -639,9 +719,7 @@ const Controls: React.FC<ControlsProps> = ({
                   onChange={(e) => handleChange('provinceSize', parseFloat(e.target.value))}
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-teal-400"
                 />
-                <p className="text-[9px] text-gray-500">Small = Many Provinces, Large = Few</p>
               </div>
-
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Country Size Variance</label>
@@ -654,7 +732,6 @@ const Controls: React.FC<ControlsProps> = ({
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-orange-400"
                 />
               </div>
-
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Seafaring (Water Crossing Cost)</label>
@@ -666,9 +743,7 @@ const Controls: React.FC<ControlsProps> = ({
                   onChange={(e) => handleChange('waterCrossingCost', parseFloat(e.target.value))}
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-400"
                 />
-                 <p className="text-[9px] text-gray-500">Left = Landlocked, Right = Seafaring</p>
               </div>
-
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Territorial Waters (Range)</label>
@@ -732,10 +807,11 @@ const Controls: React.FC<ControlsProps> = ({
            </div>
         )}
 
-        {/* --- EXPORT TAB --- */}
+        {/* Export Tab Content */}
         {activeTab === 'export' && (
             <div className="space-y-6">
-                <div className="space-y-2">
+                 {/* ... (export tab same as before) ... */}
+                 <div className="space-y-2">
                     <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Image Export</h3>
                     
                     <div className="space-y-1">
@@ -828,7 +904,7 @@ const Controls: React.FC<ControlsProps> = ({
                                     <span className="text-[10px] text-gray-500">{new Date(entry.date).toLocaleDateString()}</span>
                                 </div>
                                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => handleLoadBrowser(entry.params)} className="text-blue-400 hover:text-white p-1"><FolderOpen size={12}/></button>
+                                    <button onClick={() => handleLoadBrowser(entry.params, entry.civData)} className="text-blue-400 hover:text-white p-1"><FolderOpen size={12}/></button>
                                     <button onClick={() => handleDeleteBrowser(entry.name)} className="text-red-400 hover:text-white p-1"><Trash2 size={12}/></button>
                                 </div>
                             </div>
@@ -840,28 +916,42 @@ const Controls: React.FC<ControlsProps> = ({
       </div>
 
       <div className="p-4 border-t border-gray-800 space-y-2">
-        <button
-          onClick={handleGenerateClick}
-          disabled={loading}
-          className={`w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all relative overflow-hidden ${
-            loading 
-              ? 'bg-gray-700 text-gray-300 cursor-not-allowed' 
-              : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/30'
-          }`}
-        >
-          {loading && (
-             <div className="absolute inset-0 bg-gray-800 flex items-center justify-start">
-                 <div 
-                    className="h-full bg-blue-600 transition-all duration-300 ease-out" 
-                    style={{width: `${progress?.percent || 0}%`}}
-                 ></div>
+         {/* Console Output area */}
+         <div className="mb-2">
+             <div 
+               className="flex items-center justify-between text-xs text-gray-500 mb-1 cursor-pointer hover:text-gray-300"
+               onClick={() => setConsoleOpen(!consoleOpen)}
+             >
+                 <div className="flex items-center gap-1">
+                    <Terminal size={10} />
+                    <span>System Console</span>
+                 </div>
+                 {consoleOpen ? <ChevronDown size={10}/> : <ChevronUp size={10}/>}
              </div>
-          )}
-          <div className="relative flex items-center gap-2 z-10">
-              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-              {loading ? (progress?.msg || 'Forging...') : 'Generate World'}
-          </div>
-        </button>
+             <ConsoleOutput logs={logs} isOpen={consoleOpen} />
+         </div>
+
+         {!loading ? (
+             <button
+              onClick={handleGenerateClick}
+              className={`w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all relative overflow-hidden bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/30`}
+            >
+              <div className="relative flex items-center gap-2 z-10">
+                  <RefreshCw size={16} />
+                  Generate World
+              </div>
+            </button>
+         ) : (
+            <button
+              onClick={onCancel}
+              className={`w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all relative overflow-hidden bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/30`}
+            >
+              <div className="relative flex items-center gap-2 z-10">
+                  <XCircle size={16} />
+                  Cancel Generation
+              </div>
+            </button>
+         )}
       </div>
     </div>
   );

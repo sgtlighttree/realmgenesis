@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Controls from './components/Controls';
 import WorldViewer from './components/WorldViewer';
 import MiniMap from './components/MiniMap';
 import { BiomeLegend } from './components/Legend';
-import { WorldData, WorldParams, ViewMode, LoreData } from './types';
+import { WorldData, WorldParams, ViewMode, LoreData, CivData } from './types';
 import { generateWorld, recalculateCivs, recalculateProvinces } from './utils/worldGen';
 import { generateWorldLore } from './services/gemini';
 import { Menu, X } from 'lucide-react';
@@ -47,59 +47,186 @@ const App: React.FC = () => {
   const [world, setWorld] = useState<WorldData | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('biome');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [progress, setProgress] = useState<{msg: string, percent: number}>({msg: '', percent: 0});
+  const [logs, setLogs] = useState<string[]>([]);
   const [lore, setLore] = useState<LoreData | null>(null);
   const [isLoreLoading, setIsLoreLoading] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
+  const [showRivers, setShowRivers] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  // Controller reference to persist across renders
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const addLog = useCallback((msg: string) => {
+      setLogs(prev => {
+          const lastLog = prev[prev.length - 1];
+          // Check for repetitive progress messages to update in-place
+          if (lastLog && lastLog.startsWith("Rivers: Drainage processed") && msg.startsWith("Rivers: Drainage processed")) {
+              const newLogs = [...prev];
+              newLogs[newLogs.length - 1] = msg;
+              return newLogs;
+          }
+          // Standard append, keeping history limit
+          return [...prev.slice(-49), msg];
+      });
+  }, []);
+
   const handleGenerate = useCallback(async (overrideParams?: WorldParams) => {
+    // Abort previous if running
+    if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+    }
+    
+    // Create new controller
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsGenerating(true);
     setLore(null);
-    setProgress({msg: 'Starting...', percent: 0});
+    setLogs(['--- Starting Generation ---']);
+    const p = overrideParams || params;
+    
+    // Defer execution to let UI update
+    await new Promise(r => setTimeout(r, 100));
+    
+    try {
+        const newWorld = await generateWorld(p, (msg) => addLog(msg), controller.signal);
+        setWorld(newWorld);
+        addLog('World Generation Complete.');
+    } catch (e: any) { 
+        if (e.message === "Generation Cancelled") {
+            addLog('Cancelled by user.');
+        } else {
+            console.error("Generation failed", e);
+            addLog(`Error: ${(e as Error).message}`);
+        }
+    }
+    finally { 
+        // Only clear generating state if this was the active controller
+        if (abortControllerRef.current === controller) {
+            setIsGenerating(false); 
+            abortControllerRef.current = null;
+        }
+    }
+  }, [params, addLog]);
+
+  const handleLoadWorld = useCallback(async (newParams: WorldParams, savedCivData?: CivData) => {
+     if (abortControllerRef.current) abortControllerRef.current.abort();
+     const controller = new AbortController();
+     abortControllerRef.current = controller;
+
+     setIsGenerating(true);
+     setLore(null);
+     setLogs(['--- Loading Map from File ---']);
+     setParams(newParams);
+
+     await new Promise(r => setTimeout(r, 100));
+
+     try {
+         // 1. Regenerate World Geometry & Civs based on Seed
+         const newWorld = await generateWorld(newParams, (msg) => addLog(msg), controller.signal);
+         
+         // 2. Restore Saved Metadata (Names, Descriptions, Colors)
+         if (savedCivData && newWorld.civData) {
+             addLog("Restoring historical records...");
+             savedCivData.factions.forEach(savedF => {
+                 // Match by ID since seed is identical
+                 const genF = newWorld.civData?.factions.find(f => f.id === savedF.id);
+                 if (genF) {
+                     genF.name = savedF.name;
+                     genF.color = savedF.color;
+                     genF.description = savedF.description;
+                     
+                     // Restore province names
+                     savedF.provinces.forEach((savedP, idx) => {
+                         if (genF.provinces[idx]) {
+                             genF.provinces[idx].name = savedP.name;
+                             // Restore town names
+                             savedP.towns.forEach((savedT, tIdx) => {
+                                 if (genF.provinces[idx].towns[tIdx]) {
+                                     genF.provinces[idx].towns[tIdx].name = savedT.name;
+                                 }
+                             });
+                         }
+                     });
+                 }
+             });
+         }
+
+         setWorld(newWorld);
+         addLog('Map Loaded Successfully.');
+     } catch (e: any) {
+        if (e.message === "Generation Cancelled") addLog('Cancelled.');
+        else {
+            console.error("Load failed", e);
+            addLog(`Load Error: ${(e as Error).message}`);
+        }
+     } finally {
+         if (abortControllerRef.current === controller) {
+             setIsGenerating(false);
+             abortControllerRef.current = null;
+         }
+     }
+  }, [addLog]);
+
+  const handleCancel = useCallback(() => {
+      if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+          addLog("Cancelling...");
+      }
+  }, [addLog]);
+
+  const handleUpdateCivs = useCallback(async (overrideParams?: WorldParams) => {
+      if (!world) return;
+      setIsGenerating(true); 
+      addLog('--- Updating Civilizations ---');
+      const p = overrideParams || params;
+      await new Promise(r => setTimeout(r, 50));
+      try {
+          const updatedWorld = recalculateCivs(world, p, (msg) => addLog(msg));
+          setWorld({ ...updatedWorld });
+          if (viewMode !== 'political') setViewMode('political');
+          addLog('Civilizations Updated.');
+      } catch(e) { 
+          console.error("Civ update failed", e); 
+          addLog(`Error: ${(e as Error).message}`);
+      }
+      finally { setIsGenerating(false); }
+  }, [world, params, viewMode, addLog]);
+
+  const handleUpdateProvinces = useCallback(async (overrideParams?: WorldParams) => {
+    if (!world || !world.civData) return;
+    setIsGenerating(true); 
+    addLog('--- Updating Provinces ---');
     const p = overrideParams || params;
     await new Promise(r => setTimeout(r, 50));
     try {
-        const newWorld = await generateWorld(p, (msg, pct) => setProgress({msg, percent: pct}));
-        setWorld(newWorld);
-    } catch (e) { console.error("Generation failed", e); }
-    finally { setIsGenerating(false); setProgress({msg: '', percent: 100}); }
-  }, [params]);
-
-  const handleUpdateCivs = useCallback(async () => {
-      if (!world) return;
-      setIsGenerating(true); setProgress({msg: 'Updating Factions...', percent: 0});
-      await new Promise(r => setTimeout(r, 50));
-      try {
-          const updatedWorld = recalculateCivs(world, params, (msg, pct) => setProgress({msg, percent: pct}));
-          setWorld({ ...updatedWorld });
-          if (viewMode !== 'political') setViewMode('political');
-      } catch(e) { console.error("Civ update failed", e); }
-      finally { setIsGenerating(false); setProgress({msg: '', percent: 100}); }
-  }, [world, params, viewMode]);
-
-  const handleUpdateProvinces = useCallback(async () => {
-    if (!world || !world.civData) return;
-    setIsGenerating(true); setProgress({msg: 'Reshuffling Provinces...', percent: 0});
-    await new Promise(r => setTimeout(r, 50));
-    try {
-        const updatedWorld = recalculateProvinces(world, params);
+        const updatedWorld = recalculateProvinces(world, p);
         setWorld({ ...updatedWorld });
         if (viewMode !== 'political') setViewMode('political');
-    } catch(e) { console.error("Province update failed", e); }
-    finally { setIsGenerating(false); setProgress({msg: '', percent: 100}); }
-  }, [world, params, viewMode]);
+        addLog('Provinces Updated.');
+    } catch(e) { 
+        console.error("Province update failed", e);
+        addLog(`Error: ${(e as Error).message}`); 
+    }
+    finally { setIsGenerating(false); }
+  }, [world, params, viewMode, addLog]);
 
   useEffect(() => { handleGenerate(); }, []);
 
   const handleGenerateLore = async () => {
     if (!world) return;
     setIsLoreLoading(true);
+    addLog('Contacting Gemini API for lore...');
     try {
       const newLore = await generateWorldLore(world);
       setLore(newLore);
       setWorld({ ...world });
-    } catch (e) { console.error("Lore gen failed", e); }
+      addLog('Lore Received.');
+    } catch (e) { 
+        console.error("Lore gen failed", e);
+        addLog(`Lore Error: ${(e as Error).message}`);
+    }
     finally { setIsLoreLoading(false); }
   };
 
@@ -114,11 +241,16 @@ const App: React.FC = () => {
       `}>
         <Controls 
           params={params} setParams={setParams}
-          onGenerate={handleGenerate} onUpdateCivs={handleUpdateCivs} onUpdateProvinces={handleUpdateProvinces}
+          onGenerate={handleGenerate} 
+          onLoadWorld={handleLoadWorld}
+          onCancel={handleCancel}
+          onUpdateCivs={handleUpdateCivs} onUpdateProvinces={handleUpdateProvinces}
           viewMode={viewMode} setViewMode={setViewMode}
-          loading={isGenerating} progress={progress}
+          loading={isGenerating} logs={logs}
           lore={lore} generatingLore={isLoreLoading} onGenerateLore={handleGenerateLore}
-          worldData={world} showGrid={showGrid} setShowGrid={setShowGrid}
+          worldData={world} 
+          showGrid={showGrid} setShowGrid={setShowGrid}
+          showRivers={showRivers} setShowRivers={setShowRivers}
         />
         <button 
           onClick={() => setSidebarOpen(false)}
@@ -140,7 +272,7 @@ const App: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="flex-1 relative h-full overflow-hidden">
-        <WorldViewer world={world} viewMode={viewMode} showGrid={showGrid} />
+        <WorldViewer world={world} viewMode={viewMode} showGrid={showGrid} showRivers={showRivers} />
         
         {/* Overlay HUD elements */}
         <div className="absolute top-4 left-24 bg-black/50 backdrop-blur-md p-3 rounded-lg border border-white/10 text-left pointer-events-none z-10 hidden md:block">

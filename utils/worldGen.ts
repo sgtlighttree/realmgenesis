@@ -160,16 +160,32 @@ function ridgedNoise(simplex: SimplexNoise, x: number, y: number, z: number, oct
 
 // --- EROSION ---
 
-function applyHydraulicErosion(cells: Cell[], iterations: number) {
+// Helper to check for abort signal
+const checkAbort = (signal?: AbortSignal) => {
+    if (signal?.aborted) {
+        throw new Error("Generation Cancelled");
+    }
+};
+
+async function applyHydraulicErosion(cells: Cell[], iterations: number, seaLevel: number, signal?: AbortSignal): Promise<void> {
     cells.forEach(c => c.flux = 0);
     const sorted = [...cells].sort((a, b) => b.height - a.height);
-    // Tuned constants for decent looking rivers
     const erosionRate = 0.02;
     const depositionRate = 0.01;
     const rainAmount = 0.1;
 
+    // Yield every few iterations to keep UI responsive
+    const chunkSize = 5;
+
     for (let iter = 0; iter < iterations; iter++) {
-        sorted.forEach(c => c.flux = rainAmount);
+        if (iter % chunkSize === 0) {
+            await new Promise(r => setTimeout(r, 0));
+            checkAbort(signal);
+        }
+
+        // Only rain on land
+        sorted.forEach(c => c.flux = c.height >= seaLevel ? rainAmount : 0);
+        
         sorted.forEach(c => {
             let lowestH = c.height;
             let targetId = -1;
@@ -186,7 +202,7 @@ function applyHydraulicErosion(cells: Cell[], iterations: number) {
                 const slope = c.height - lowestH;
                 const streamPower = c.flux! * slope * 10; 
                 const erosion = streamPower * erosionRate;
-                const safeErosion = Math.min(erosion, slope * 0.9); // Don't dig pits
+                const safeErosion = Math.min(erosion, slope * 0.9);
                 c.height -= safeErosion;
                 target.height += safeErosion * depositionRate; 
             }
@@ -194,10 +210,16 @@ function applyHydraulicErosion(cells: Cell[], iterations: number) {
     }
 }
 
-function applyThermalErosion(cells: Cell[], iterations: number) {
+async function applyThermalErosion(cells: Cell[], iterations: number, signal?: AbortSignal) {
     const talus = 0.008; // Min slope diff
     const rate = 0.2; 
+    const chunkSize = 5;
+
     for(let iter=0; iter<iterations; iter++) {
+        if (iter % chunkSize === 0) {
+            await new Promise(r => setTimeout(r, 0));
+            checkAbort(signal);
+        }
         cells.forEach(c => {
             let maxDiff = 0;
             let lowestNIndex = -1;
@@ -217,6 +239,135 @@ function applyThermalErosion(cells: Cell[], iterations: number) {
     }
 }
 
+// --- RIVER GENERATION ---
+
+async function generateRivers(cells: Cell[], seaLevel: number, params: WorldParams, onProgress?: (msg: string) => void, signal?: AbortSignal): Promise<Point[][]> {
+    const numCells = cells.length;
+    onProgress?.("Rivers: Initializing drainage map...");
+    await new Promise(r => setTimeout(r, 0));
+    checkAbort(signal);
+    
+    // 1. Depression Filling (Drainage Enforcement)
+    // CRITICAL FIX: Use Float64Array to prevent infinite loops caused by precision mismatch 
+    // between 32-bit storage and 64-bit JS calculations.
+    const waterLevel = new Float64Array(numCells).fill(Infinity);
+    const downstream = new Int32Array(numCells).fill(-1);
+    
+    const heap = new MinHeap<{id: number, lvl: number}>(x => x.lvl);
+    
+    let oceanCount = 0;
+    cells.forEach(c => {
+        if (c.height < seaLevel) {
+            waterLevel[c.id] = c.height;
+            heap.push({id: c.id, lvl: c.height});
+            oceanCount++;
+        }
+    });
+
+    if (oceanCount === 0) {
+        onProgress?.("Warning: No ocean found. River generation skipped.");
+        return [];
+    }
+
+    let processed = 0;
+    
+    onProgress?.(`Rivers: Propagating water levels...`);
+
+    while(heap.size() > 0) {
+        // Safety break and log update
+        if (++processed % 2000 === 0) {
+            await new Promise(r => setTimeout(r, 0));
+            checkAbort(signal);
+            onProgress?.(`Rivers: Drainage processed ${processed} cells...`);
+        }
+
+        const {id, lvl} = heap.pop()!;
+        
+        if (lvl > waterLevel[id]) continue; 
+
+        const c = cells[id];
+        for(const nId of c.neighbors) {
+            const n = cells[nId];
+            const targetLvl = Math.max(n.height, lvl);
+            
+            if (targetLvl < waterLevel[nId]) {
+                waterLevel[nId] = targetLvl;
+                downstream[nId] = id; 
+                heap.push({id: nId, lvl: targetLvl});
+            }
+        }
+    }
+
+    onProgress?.("Rivers: Accumulating flux...");
+    await new Promise(r => setTimeout(r, 0));
+    checkAbort(signal);
+
+    // 2. Accumulate Flux
+    const sortedIndices = Array.from({length: numCells}, (_, i) => i)
+                               .sort((a,b) => waterLevel[b] - waterLevel[a]);
+    
+    const flux = new Float32Array(numCells).fill(0);
+    
+    for(const idx of sortedIndices) {
+        const c = cells[idx];
+        if (c.height < seaLevel) continue;
+        const precip = c.moisture * (params.rainfallMultiplier || 1.0);
+        flux[idx] += precip;
+        const target = downstream[idx];
+        if (target !== -1) flux[target] += flux[idx];
+    }
+    cells.forEach((c, i) => c.flux = flux[i]);
+
+    onProgress?.("Rivers: Tracing paths...");
+    // 3. Trace Rivers
+    const threshold = 1.0; 
+    const visited = new Set<number>();
+    const riverPaths: Point[][] = [];
+    
+    const candidates = sortedIndices.filter(i => flux[i] > threshold && cells[i].height >= seaLevel);
+
+    const getRenderPoint = (c: Cell) => {
+        const r = 1 + c.height * 0.05 + 0.005;
+        return { x: c.center.x * r, y: c.center.y * r, z: c.center.z * r };
+    };
+
+    processed = 0;
+    for (const startId of candidates) {
+        if (visited.has(startId)) continue;
+        if (++processed % 500 === 0) {
+             await new Promise(r => setTimeout(r, 0));
+             checkAbort(signal);
+        }
+        
+        const path: Point[] = [];
+        let curr = startId;
+        let safety = 0;
+        
+        while(curr !== -1 && safety++ < 2000) {
+            path.push(getRenderPoint(cells[curr]));
+            visited.add(curr);
+            
+            const next = downstream[curr];
+            if (next === -1) break; 
+            
+            if (cells[next].height < seaLevel) {
+                path.push(getRenderPoint(cells[next]));
+                break;
+            }
+            if (visited.has(next)) {
+                path.push(getRenderPoint(cells[next]));
+                break;
+            }
+            curr = next;
+        }
+        
+        if (path.length >= 2) riverPaths.push(path);
+    }
+    
+    onProgress?.(`Rivers: Generated ${riverPaths.length} segments.`);
+    return riverPaths;
+}
+
 // --- BIOME ---
 
 function determineBiome(height: number, temp: number, moisture: number, seaLevel: number): BiomeType {
@@ -225,30 +376,31 @@ function determineBiome(height: number, temp: number, moisture: number, seaLevel
     return BiomeType.OCEAN;
   }
   const landH = (height - seaLevel) / (1 - seaLevel);
-  if (landH < 0.02 && temp > 5) return BiomeType.BEACH;
+  if (landH < 0.02 && temp > 15) return BiomeType.BEACH;
   if (landH > 0.85 && temp > -5) return BiomeType.VOLCANIC;
-  if (temp < -5) return BiomeType.ICE_CAP;
-  if (temp < 5) return BiomeType.TUNDRA;
+  if (temp < -10) return BiomeType.ICE_CAP;
+  if (temp < 0) return BiomeType.TUNDRA;
   
-  const aridityThreshold = (temp + 10) / 100; 
-  if (moisture < aridityThreshold) {
-      if (moisture < aridityThreshold * 0.5) return temp > 18 ? BiomeType.HOT_DESERT : BiomeType.COLD_DESERT;
-      else return BiomeType.STEPPE;
+  if (moisture < 0.15) {
+      if (temp > 25) return BiomeType.HOT_DESERT;
+      if (temp > 10) return BiomeType.STEPPE;
+      return BiomeType.COLD_DESERT;
   }
-  if (temp > 18) {
-      if (moisture > 0.6) return BiomeType.TROPICAL_RAINFOREST;
-      return BiomeType.TROPICAL_SAVANNA;
+  if (moisture < 0.4) {
+      if (temp > 25) return BiomeType.TROPICAL_SAVANNA;
+      if (temp > 10) return BiomeType.MEDITERRANEAN;
+      return BiomeType.STEPPE;
   }
-  if (temp < 12) return BiomeType.BOREAL_FOREST;
-  if (moisture < 0.5) return BiomeType.MEDITERRANEAN;
-  if (moisture > 0.75) return BiomeType.TEMPERATE_RAINFOREST;
-  return BiomeType.TEMPERATE_FOREST;
+  
+  if (temp > 25) return BiomeType.TROPICAL_RAINFOREST;
+  if (temp > 15) return BiomeType.TEMPERATE_RAINFOREST;
+  if (temp > 5) return BiomeType.TEMPERATE_FOREST;
+  return BiomeType.BOREAL_FOREST;
 }
 
 // --- TECTONIC HELPERS ---
 
 function enforceConnectivity(cells: Cell[], numPlates: number) {
-    // Robust Region Merging to remove enclaves
     const componentId = new Int32Array(cells.length).fill(-1);
     const compSize: number[] = [];
     const compPlate: number[] = [];
@@ -336,8 +488,8 @@ function enforceConnectivity(cells: Cell[], numPlates: number) {
 
 // --- GEOGRAPHY GENERATION ---
 
-export async function generateWorld(params: WorldParams, onProgress?: (msg: string, pct: number) => void): Promise<WorldData> {
-  onProgress?.("Initializing Grid...", 10);
+export async function generateWorld(params: WorldParams, onLog?: (msg: string) => void, signal?: AbortSignal): Promise<WorldData> {
+  onLog?.(`Initializing Grid (${params.points} cells)...`);
   const macroRng = new RNG(params.seed + '_macro');
   const simplex = new SimplexNoise(new RNG(params.seed));
   
@@ -347,8 +499,10 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
      return [lon, lat]; 
   });
   
-  onProgress?.("Computing Connectivity...", 20);
-  await new Promise(r => setTimeout(r, 0));
+  onLog?.("Computing Connectivity...");
+  await new Promise(r => setTimeout(r, 10)); 
+  checkAbort(signal);
+
   const voronoi = geoVoronoi(geoPoints);
   const polygons = voronoi.polygons();
   const links = voronoi.links().features;
@@ -383,17 +537,18 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
   });
   cells.forEach(c => c.neighbors = [...new Set(c.neighbors)]);
 
-  onProgress?.("Simulating Tectonics...", 40);
+  onLog?.(`Simulating ${params.plates} Tectonic Plates...`);
+  await new Promise(r => setTimeout(r, 0));
+  checkAbort(signal);
+
   const numPlates = params.plates;
   const plateRng = new RNG(params.seed + '_plates_loc'); 
   
-  // 1. Plate Centers 
   const plateVectors: Point[] = [];
   for(let i=0; i<numPlates; i++) {
       plateVectors.push(randomVector(plateRng));
   }
 
-  // 2. Assign Plates (Warped Voronoi)
   const warpNoise = new SimplexNoise(new RNG(params.seed + '_warp'));
   const warpFreq = 0.5; 
   const warpAmp = (params.warpStrength ?? 0.5) * 0.2; 
@@ -421,10 +576,8 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
       cell.plateId = bestPlate;
   });
 
-  // 3. Clean up artifacts 
   enforceConnectivity(cells, numPlates);
 
-  // 4. Plate Movement & Stress
   const moveRng = new RNG(params.seed + '_plates_move');
   const plateDrift = plateVectors.map(() => ({ 
       x: moveRng.next() - 0.5, 
@@ -486,8 +639,7 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
       nextDist.forEach((v,k) => distToEdge[k] = v);
   }
 
-  onProgress?.("Generating Terrain...", 60);
-  // FEATURE FREQUENCY: Scale coordinates by frequency for consistent fractal size
+  onLog?.("Applying Height & Noise...");
   const freq = params.noiseScale || 1.0;
   const plateInf = (params.plateInfluence === undefined ? 0.5 : params.plateInfluence); 
 
@@ -507,32 +659,20 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
   }
 
   cells.forEach(c => {
-      // 1. Structural Noise
-      // RIDGE INTENSITY LOGIC: Blend between FBM (rounded) and Ridged (sharp)
       const fbmVal = fbm(simplex, c.center.x * freq, c.center.y * freq, c.center.z * freq, 3, 0.5, 2.0);
       const ridgedVal = ridgedNoise(simplex, c.center.x * freq, c.center.y * freq, c.center.z * freq, 3, 2.0);
-      
-      // Map ridged (0..1) to (-1..1) to align with FBM range
       const ridgedRemapped = (ridgedVal * 2.0) - 1.0;
       const blend = params.ridgeBlend === undefined ? 0 : params.ridgeBlend;
-      
       const structuralNoise = fbmVal * (1 - blend) + ridgedRemapped * blend;
-      
-      // 2. Base Plate Height 
       let baseSum = 0; 
       let bCount = 0;
       c.neighbors.forEach(n => { baseSum += plateHeights[cells[n].plateId]; bCount++; });
       baseSum += plateHeights[c.plateId]; bCount++;
       const avgBase = baseSum / bCount;
-
       const influence = Math.min(1, Math.max(0.1, plateInf));
-      
       let height = avgBase * influence + structuralNoise * (1.2 - influence);
-      
-      // 3. Tectonic Interaction
       const stress = cellStress[c.id]; 
       const edgeProx = Math.max(0, 1.0 - distToEdge[c.id] * 0.5); 
-      
       if (edgeProx > 0) {
           if (stress > 0.05) {
               const mtnHeight = stress * edgeProx * 1.5;
@@ -542,22 +682,16 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
               height -= Math.abs(stress) * edgeProx * 1.0;
           }
       }
-
-      // 4. Detail
       const detail = fbm(simplex, c.center.x * 6, c.center.y * 6, c.center.z * 6, 2, 0.5, 2.5);
       height += detail * params.roughness * 0.15;
-
-      // 5. Continental Shelf Curve
       if (height > -0.2 && height < 0.2) {
           height = height * 0.5 + (height > 0 ? 0.05 : -0.05);
       }
-
       if (params.maskType === 'Pangea') {
           const mask = (c.center.x * 0.8 + c.center.y * 0.2 + 1) * 0.5;
           const smoothMask = mask * mask * (3 - 2 * mask);
           height = height * 0.5 + smoothMask * 0.8 - 0.2;
       }
-      
       c.height = height;
   });
   
@@ -566,21 +700,27 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
   let range = maxH - minH || 1;
   cells.forEach(c => c.height = (c.height - minH) / range);
 
+  // EROSION
   if (params.erosionIterations > 0) {
-      onProgress?.("Eroding Terrain...", 70);
+      onLog?.(`Eroding Terrain (${params.erosionIterations} iter)...`);
       await new Promise(r => setTimeout(r, 0));
+      checkAbort(signal);
+
       const resFactor = Math.sqrt(params.points / 5000);
       const hydraulicSteps = Math.ceil(params.erosionIterations * 2 * resFactor);
       const thermalSteps = Math.ceil(params.erosionIterations * 0.5 * resFactor);
-      applyHydraulicErosion(cells, hydraulicSteps);
-      applyThermalErosion(cells, thermalSteps);
+      
+      await applyHydraulicErosion(cells, hydraulicSteps, params.seaLevel, signal); 
+      await applyThermalErosion(cells, thermalSteps, signal);
+      
       minH = Infinity; maxH = -Infinity;
       cells.forEach(c => { if (c.height < minH) minH = c.height; if (c.height > maxH) maxH = c.height; });
       range = maxH - minH || 1;
       cells.forEach(c => c.height = (c.height - minH) / range);
   }
 
-  onProgress?.("Calculating Climate...", 80);
+  onLog?.("Calculating Climate (Wind & Rain)...");
+  
   const windVectors = cells.map(c => {
       const tiltRad = (params.axialTilt || 0) * (Math.PI / 180);
       const cosT = Math.cos(tiltRad);
@@ -592,26 +732,50 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
       if (Math.abs(latDeg) < 30) dir = -1; 
       else if (Math.abs(latDeg) < 60) dir = 1; 
       else dir = -1; 
+
       const len = Math.sqrt(c.center.x*c.center.x + c.center.z*c.center.z);
       if (len === 0) return {x:0, y:0, z:0};
+      
       return { x: (-c.center.z / len) * dir, y: 0, z: (c.center.x / len) * dir };
   });
 
-  cells.forEach(c => { if (c.height < params.seaLevel) c.moisture = 1.0; else c.moisture = 0.1 * params.rainfallMultiplier; });
+  cells.forEach(c => { 
+      if (c.height < params.seaLevel) c.moisture = 1.0; 
+      else c.moisture = 0.1 * params.rainfallMultiplier; 
+  });
+  
   const moistureMix = params.moistureTransport === undefined ? 0.5 : params.moistureTransport;
-  for(let pass=0; pass<6; pass++) {
+  
+  for(let pass=0; pass<8; pass++) {
       const newMoisture = new Float32Array(cells.length);
       cells.forEach((c, i) => {
-          if (c.height < params.seaLevel) { newMoisture[i] = 1.0; return; }
-          let incoming = 0; let count = 0;
+          if (c.height < params.seaLevel) { 
+              newMoisture[i] = 1.0; 
+              return; 
+          }
+          let incomingMoisture = 0; 
+          let count = 0;
           c.neighbors.forEach(nId => {
-             const n = cells[nId]; const dx = c.center.x - n.center.x; const dz = c.center.z - n.center.z;
-             const wind = windVectors[nId]; const dot = dx*wind.x + 0 + dz*wind.z; 
-             if (dot > 0) { let carry = n.moisture; if (c.height > n.height + 0.05) carry *= 0.5; incoming += carry; count++; }
+             const n = cells[nId];
+             const wind = windVectors[nId];
+             const dx = c.center.x - n.center.x; 
+             const dy = c.center.y - n.center.y;
+             const dz = c.center.z - n.center.z;
+             const dot = dx*wind.x + dy*wind.y + dz*wind.z; 
+             
+             if (dot > 0) { 
+                 let carry = n.moisture;
+                 const heightDiff = c.height - n.height;
+                 if (heightDiff > 0.02) carry *= 1.5;
+                 else if (heightDiff < -0.02) carry *= 0.2; 
+                 incomingMoisture += carry; 
+                 count++; 
+             }
           });
           if (count === 0) { newMoisture[i] = c.moisture * 0.95; return; }
-          incoming /= count; newMoisture[i] = c.moisture * (1 - moistureMix) + incoming * moistureMix;
-          if (c.height > params.seaLevel + 0.2) newMoisture[i] *= 0.8; 
+          incomingMoisture /= count; 
+          newMoisture[i] = c.moisture * (1 - moistureMix) + incomingMoisture * moistureMix;
+          if (c.height > params.seaLevel) newMoisture[i] *= 0.98; 
       });
       cells.forEach((c, i) => c.moisture = newMoisture[i]);
   }
@@ -623,20 +787,25 @@ export async function generateWorld(params: WorldParams, onProgress?: (msg: stri
       const lat = Math.asin(Math.max(-1, Math.min(1, rotY)));
       const latRatio = Math.abs(lat) / (Math.PI / 2); 
       let temp = params.baseTemperature * (1 - latRatio * latRatio) + params.poleTemperature * (latRatio * latRatio);
-      temp -= Math.max(0, c.height - params.seaLevel) * 50; 
+      const elevation = Math.max(0, c.height - params.seaLevel);
+      temp -= elevation * 60;
       if (tempVariance > 0) temp += simplex.noise3D(c.center.x * 5, c.center.y * 5, c.center.z * 5) * tempVariance;
       c.temperature = temp;
       c.moisture = Math.max(0, Math.min(1, c.moisture * params.rainfallMultiplier));
       c.biome = determineBiome(c.height, c.temperature, c.moisture, params.seaLevel);
   });
 
-  const world: WorldData = { cells, params, geoJson: polygons };
-  return recalculateCivs(world, params, onProgress);
+  const rivers = await generateRivers(cells, params.seaLevel, params, onLog, signal);
+  const world: WorldData = { cells, params, geoJson: polygons, rivers };
+  
+  return recalculateCivs(world, params, onLog);
 }
 
-export function recalculateCivs(world: WorldData, params: WorldParams, onProgress?: (msg: string, pct: number) => void): WorldData {
-    onProgress?.("Placing Civilizations...", 90);
+// ... (recalculateCivs and recalculateProvinces remain unchanged as they are synchronous)
+export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (msg: string) => void): WorldData {
+    onLog?.(`Forging ${params.numFactions} Civilizations...`);
     
+    // Reset
     world.cells.forEach(c => {
         c.regionId = undefined;
         c.provinceId = undefined;
@@ -645,138 +814,219 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onProgres
         c.population = 0;
     });
 
-    const rng = new RNG(params.civSeed);
+    const civRng = new RNG(params.civSeed);
     const numFactions = params.numFactions;
-    const capitals: number[] = [];
+    const factions: FactionData[] = [];
     
-    const landCells = world.cells.filter(c => c.height >= params.seaLevel && c.biome !== BiomeType.ICE_CAP);
-    if (landCells.length === 0) return world;
+    const suitable = world.cells.filter(c => 
+        c.height >= params.seaLevel && 
+        c.biome !== BiomeType.ICE_CAP &&
+        c.biome !== BiomeType.VOLCANIC
+    );
+    
+    const candidates = suitable.length > 0 ? suitable : world.cells.filter(c => c.height >= params.seaLevel);
+    
+    if (candidates.length === 0) {
+        world.civData = { factions: [] };
+        return world;
+    }
 
-    for(let i=0; i<numFactions; i++) {
-        let bestCell = -1;
-        let maxDist = -1;
-        for(let attempt=0; attempt<20; attempt++) {
-            const candidate = landCells[Math.floor(rng.next() * landCells.length)];
-            let minDist = Infinity;
-            for(const capId of capitals) {
-                const cap = world.cells[capId];
-                const d = (candidate.center.x - cap.center.x)**2 + (candidate.center.y - cap.center.y)**2 + (candidate.center.z - cap.center.z)**2;
-                if (d < minDist) minDist = d;
+    const capitals: number[] = [];
+    const minDist = (world.cells.length / numFactions) * params.capitalSpacing * 0.5; 
+    
+    let attempts = 0;
+    while(capitals.length < numFactions && attempts < 1000) {
+        attempts++;
+        const candidate = candidates[Math.floor(civRng.next() * candidates.length)];
+        
+        let tooClose = false;
+        for(const capId of capitals) {
+            const cap = world.cells[capId];
+            const d = (candidate.center.x - cap.center.x)**2 + (candidate.center.y - cap.center.y)**2 + (candidate.center.z - cap.center.z)**2;
+            if (d < minDist * 0.0001) { 
+                tooClose = true;
+                break;
             }
-            if (capitals.length === 0) minDist = Infinity;
-            if (minDist > maxDist) { maxDist = minDist; bestCell = candidate.id; }
         }
-        if (bestCell !== -1) {
-            capitals.push(bestCell);
-            world.cells[bestCell].isCapital = true;
-            world.cells[bestCell].regionId = i;
+        
+        if (!tooClose) {
+            capitals.push(candidate.id);
+            candidate.isCapital = true;
+            candidate.regionId = capitals.length - 1;
+            factions.push({
+                id: capitals.length - 1,
+                name: `Faction ${capitals.length}`,
+                color: '#ffffff', 
+                capitalId: candidate.id,
+                provinces: [],
+                totalPopulation: 0
+            });
         }
     }
 
-    const factionColors = ['#ef4444', '#f97316', '#f59e0b', '#84cc16', '#10b981', '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6', '#d946ef', '#f43f5e', '#e11d48'];
-    const factions: FactionData[] = capitals.map((capId, i) => ({
-        id: i,
-        name: `Faction ${i+1}`,
-        color: factionColors[i % factionColors.length],
-        capitalId: capId,
-        provinces: [],
-        totalPopulation: 0
-    }));
-
-    const costs = new Float32Array(world.cells.length).fill(Infinity);
-    const owner = new Int32Array(world.cells.length).fill(-1);
-    const frontier = new MinHeap<{id: number, cost: number, owner: number, waterDist: number}>(x => x.cost);
-
-    capitals.forEach(id => {
-        costs[id] = 0;
-        owner[id] = world.cells[id].regionId!;
-        frontier.push({ id, cost: 0, owner: world.cells[id].regionId!, waterDist: 0 });
-    });
+    const pq = new MinHeap<{id: number, cost: number, region: number}>(x => x.cost);
+    const costs = new Map<number, number>();
     
-    while(frontier.size() > 0) {
-        const current = frontier.pop()!;
-        if (current.cost > costs[current.id]) continue;
-        
-        const cell = world.cells[current.id];
-        
-        for(const nId of cell.neighbors) {
-            const neighbor = world.cells[nId];
-            let moveCost = 1;
-            
-            const isNeighborWater = neighbor.height < params.seaLevel;
-            let newWaterDist = 0;
+    capitals.forEach((capId, idx) => {
+        pq.push({ id: capId, cost: 0, region: idx });
+        costs.set(capId, 0);
+    });
 
-            const dist = Math.sqrt((cell.center.x - neighbor.center.x)**2 + (cell.center.y - neighbor.center.y)**2 + (cell.center.z - neighbor.center.z)**2);
+    const waterCost = (params.waterCrossingCost || 0.5) * 50; 
+    const landCost = 1;
+    const territorialRange = (params.territorialWaters || 0.2) * 50; 
 
-            if (isNeighborWater) {
-                newWaterDist = current.waterDist + dist;
-                const limit = params.territorialWaters ?? 0.2;
-                if (newWaterDist > limit) continue;
-                if (params.waterCrossingCost > 0.8) moveCost = 1000; 
-                else moveCost = dist * (5 + (params.waterCrossingCost * 20)); 
-            } else {
-                 newWaterDist = 0;
-                 const hDiff = Math.abs(neighbor.height - cell.height);
-                 moveCost = dist * (1 + hDiff * 50); 
-            }
-            
-            const newCost = current.cost + moveCost;
-            if (newCost < costs[nId]) {
-                costs[nId] = newCost;
-                owner[nId] = current.owner;
-                if (newCost < 500) { 
-                    frontier.push({ id: nId, cost: newCost, owner: current.owner, waterDist: newWaterDist });
+    while(pq.size() > 0) {
+        const { id, cost, region } = pq.pop()!;
+        if (world.cells[id].regionId !== undefined && world.cells[id].regionId !== region) continue;
+        world.cells[id].regionId = region;
+        if (cost > 200) continue; 
+        const currCell = world.cells[id];
+        for(const nId of currCell.neighbors) {
+            const nCell = world.cells[nId];
+            let moveCost = landCost;
+            if (nCell.biome === BiomeType.ICE_CAP) moveCost *= 4;
+            if (nCell.biome === BiomeType.HOT_DESERT) moveCost *= 2;
+            if (nCell.biome === BiomeType.VOLCANIC) moveCost *= 5;
+            const slope = Math.abs(nCell.height - currCell.height);
+            moveCost += slope * 20;
+            const isWater = nCell.height < params.seaLevel;
+            if (isWater) moveCost = waterCost;
+            moveCost *= (1 + (civRng.next() * params.borderRoughness)); 
+            const newCost = cost + moveCost;
+            if (isWater && newCost > territorialRange) continue;
+            if (!costs.has(nId) || newCost < costs.get(nId)!) {
+                costs.set(nId, newCost);
+                if (world.cells[nId].regionId === undefined) {
+                     pq.push({ id: nId, cost: newCost, region });
                 }
             }
         }
     }
     
-    world.cells.forEach((c, i) => { if (owner[i] !== -1) c.regionId = owner[i]; });
+    const palette = [
+        '#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#46f0f0', '#f032e6', '#bcf60c', '#fabebe', '#008080', '#e6beff', '#9a6324', '#fffac8', '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#808080', '#ffffff', '#000000'
+    ];
+    for (let i = palette.length - 1; i > 0; i--) {
+        const j = Math.floor(civRng.next() * (i + 1));
+        [palette[i], palette[j]] = [palette[j], palette[i]];
+    }
+    
+    factions.forEach((f, i) => f.color = palette[i % palette.length]);
+    
     world.civData = { factions };
+    
     return recalculateProvinces(world, params);
 }
 
 export function recalculateProvinces(world: WorldData, params: WorldParams): WorldData {
     if (!world.civData) return world;
-    const rng = new RNG(params.civSeed + '_provs');
-    world.cells.forEach(c => { c.provinceId = undefined; c.isTown = false; });
+    const provRng = new RNG(params.civSeed + '_prov');
+
+    world.cells.forEach(c => {
+        let suitability = 0;
+        if (c.height < params.seaLevel) {
+            c.population = 0;
+            return;
+        }
+        switch(c.biome) {
+            case BiomeType.TROPICAL_RAINFOREST: suitability = 0.4; break;
+            case BiomeType.TROPICAL_SAVANNA: suitability = 0.7; break;
+            case BiomeType.HOT_DESERT: suitability = 0.1; break;
+            case BiomeType.COLD_DESERT: suitability = 0.1; break;
+            case BiomeType.TEMPERATE_FOREST: suitability = 0.9; break;
+            case BiomeType.TEMPERATE_RAINFOREST: suitability = 0.8; break;
+            case BiomeType.MEDITERRANEAN: suitability = 1.0; break; 
+            case BiomeType.STEPPE: suitability = 0.5; break;
+            case BiomeType.BOREAL_FOREST: suitability = 0.4; break;
+            case BiomeType.TUNDRA: suitability = 0.2; break;
+            case BiomeType.ICE_CAP: suitability = 0.0; break;
+            case BiomeType.VOLCANIC: suitability = 0.1; break;
+            case BiomeType.BEACH: suitability = 0.6; break;
+            default: suitability = 0.5;
+        }
+        if ((c.flux || 0) > 0.5) suitability += 0.3;
+        if ((c.flux || 0) > 2.0) suitability += 0.2; 
+        let coast = false;
+        for(const nId of c.neighbors) {
+            if (world.cells[nId].height < params.seaLevel) { coast = true; break; }
+        }
+        if (coast) suitability += 0.3;
+        if (c.height > 0.6) suitability -= (c.height - 0.6) * 2;
+        c.population = Math.floor(suitability * 10000 * (0.8 + provRng.next() * 0.4));
+    });
 
     world.civData.factions.forEach(faction => {
-        const factionCells = world.cells.filter(c => c.regionId === faction.id && c.height >= params.seaLevel);
-        if (factionCells.length === 0) return;
-
         faction.provinces = [];
-        const towns: number[] = [faction.capitalId]; 
-        const numProvinces = Math.max(1, Math.floor(factionCells.length * (params.provinceSize * 0.05))); 
+        faction.totalPopulation = 0;
+        const landCells = world.cells.filter(c => c.regionId === faction.id && c.height >= params.seaLevel);
+        if (landCells.length === 0) return;
+        const density = params.provinceSize || 0.5; 
+        const targetSize = 20 + density * 100; 
+        let numProvinces = Math.max(1, Math.ceil(landCells.length / targetSize));
         
-        for(let i=1; i<numProvinces; i++) {
-             const candidate = factionCells[Math.floor(rng.next() * factionCells.length)];
-             towns.push(candidate.id);
-             world.cells[candidate.id].isTown = true;
-        }
-
-        factionCells.forEach(c => {
-            let nearestTown = -1;
-            let minDist = Infinity;
-            towns.forEach((tId, idx) => {
+        const townIds: number[] = [faction.capitalId];
+        const capitalCell = world.cells[faction.capitalId];
+        capitalCell.provinceId = 0; 
+        
+        let attempts = 0;
+        while(townIds.length < numProvinces && attempts < 500) {
+            attempts++;
+            const candidate = landCells[Math.floor(provRng.next() * landCells.length)];
+            if (townIds.includes(candidate.id)) continue;
+            let tooClose = false;
+            for(const tId of townIds) {
                 const t = world.cells[tId];
-                const d = (c.center.x - t.center.x)**2 + (c.center.y - t.center.y)**2 + (c.center.z - t.center.z)**2;
-                if (d < minDist) { minDist = d; nearestTown = idx; }
-            });
-            c.provinceId = nearestTown;
-        });
+                const d = (candidate.center.x - t.center.x)**2 + (candidate.center.y - t.center.y)**2 + (candidate.center.z - t.center.z)**2;
+                if (d < 0.005 * density) { 
+                    tooClose = true;
+                    break;
+                }
+            }
+            if (!tooClose) townIds.push(candidate.id);
+        }
         
-        towns.forEach((tId, idx) => {
-            const isCap = tId === faction.capitalId;
-            const pop = Math.floor(rng.next() * 10000 + (isCap ? 50000 : 5000));
+        townIds.forEach((tId, idx) => {
+            const tCell = world.cells[tId];
+            tCell.isTown = true;
+            tCell.population = (tCell.population || 0) * 5; 
             faction.provinces.push({
                 id: idx,
-                name: isCap ? `Capital Province` : `Province ${idx}`,
-                towns: [{ name: isCap ? `Capital City` : `Town ${idx}`, cellId: tId, population: pop, isCapital: isCap }],
-                totalPopulation: pop
+                name: idx === 0 ? "Capital Region" : `Province ${idx}`,
+                towns: [{ name: idx === 0 ? "Capital City" : "Town", cellId: tId, population: tCell.population || 0, isCapital: tId === faction.capitalId }],
+                totalPopulation: 0
             });
         });
-        faction.totalPopulation = faction.provinces.reduce((s, p) => s + p.totalPopulation, 0);
+
+        const pq = new MinHeap<{id: number, cost: number, provIdx: number}>(x => x.cost);
+        const costs = new Map<number, number>();
+        townIds.forEach((tId, idx) => {
+            pq.push({ id: tId, cost: 0, provIdx: idx });
+            costs.set(tId, 0);
+        });
+
+        const claimed = new Set<number>();
+        while(pq.size() > 0) {
+            const { id, cost, provIdx } = pq.pop()!;
+            if (world.cells[id].regionId !== faction.id) continue;
+            if (world.cells[id].provinceId !== undefined && world.cells[id].provinceId !== provIdx) continue;
+            world.cells[id].provinceId = provIdx;
+            claimed.add(id);
+            faction.provinces[provIdx].totalPopulation += (world.cells[id].population || 0);
+            for(const nId of world.cells[id].neighbors) {
+                if (world.cells[nId].regionId !== faction.id) continue;
+                if (world.cells[nId].provinceId !== undefined) continue;
+                let moveCost = 1;
+                moveCost += Math.abs(world.cells[nId].height - world.cells[id].height) * 10;
+                const newCost = cost + moveCost;
+                if (!costs.has(nId) || newCost < costs.get(nId)!) {
+                    costs.set(nId, newCost);
+                    pq.push({ id: nId, cost: newCost, provIdx });
+                }
+            }
+        }
+        faction.totalPopulation = faction.provinces.reduce((sum, p) => sum + p.totalPopulation, 0);
     });
+
     return world;
 }

@@ -158,12 +158,18 @@ export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number): THRE
           } else {
               color.set(baseColor);
           }
+          // Fix for territorial waters: Blend faction color with deep blue
+          if (cell.height < seaLevel) {
+              color.lerp(new THREE.Color(0x1a237e), 0.65);
+          }
        } else {
-          color.setHex(0x555555); 
-       }
-       if (cell.height < seaLevel) {
-          color.setHex(0x1a237e); 
-          color.multiplyScalar(0.5 + cell.height * 0.5);
+          // Unclaimed territory
+          if (cell.height < seaLevel) {
+              color.setHex(0x1a237e); 
+              color.multiplyScalar(0.5 + cell.height * 0.5);
+          } else {
+              color.setHex(0x555555); 
+          }
        }
        break;
 

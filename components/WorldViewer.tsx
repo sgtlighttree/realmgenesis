@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, Stars, Text } from '@react-three/drei';
+import { OrbitControls, Stars, Text, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import { WorldData, ViewMode, Cell, Point } from '../types';
 import { getCellColor } from '../utils/colors';
@@ -70,6 +70,46 @@ const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ world
         </>
     );
 };
+
+const RiverLines: React.FC<{ world: WorldData; visible: boolean }> = ({ world, visible }) => {
+    const geometry = useMemo(() => {
+        if (!world.rivers || !visible) return null;
+        
+        const positions: number[] = [];
+        
+        // Batch all river segments into a single LineSegments geometry for performance
+        // Rendering thousands of individual <Line> components causes massive overhead/freezes
+        world.rivers.forEach(path => {
+            if (path.length < 2) return;
+            
+            // Create Curve for smoothing
+            const vectors = path.map(p => new THREE.Vector3(p.x, p.y, p.z));
+            const curve = new THREE.CatmullRomCurve3(vectors);
+            
+            // Adaptive sampling based on length, but simple count is safer for perf
+            const points = curve.getPoints(Math.min(50, vectors.length * 4));
+            
+            for (let i = 0; i < points.length - 1; i++) {
+                positions.push(points[i].x, points[i].y, points[i].z);
+                positions.push(points[i+1].x, points[i+1].y, points[i+1].z);
+            }
+        });
+
+        if (positions.length === 0) return null;
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        return geo;
+    }, [world, visible]);
+
+    if (!visible || !geometry) return null;
+
+    return (
+        <LineSegments geometry={geometry}>
+            <LineBasicMaterial color="#38bdf8" opacity={0.8} transparent linewidth={1.5} />
+        </LineSegments>
+    );
+}
 
 const CountryLabels: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ world, viewMode }) => {
     const labels = useMemo(() => {
@@ -181,8 +221,9 @@ const WorldMesh: React.FC<{
   onHover: (cell: Cell | null) => void, 
   paused: boolean, 
   showGrid: boolean,
+  showRivers: boolean, 
   hudActive: boolean 
-}> = ({ world, viewMode, onHover, paused, showGrid, hudActive }) => {
+}> = ({ world, viewMode, onHover, paused, showGrid, showRivers, hudActive }) => {
   const meshRef = useRef<THREE.Mesh>(null);
   const coreRef = useRef<THREE.Mesh>(null);
   const lastUpdate = useRef<number>(0);
@@ -243,11 +284,12 @@ const WorldMesh: React.FC<{
             onPointerMove={hudActive ? handlePointerMove : undefined} 
             onPointerOut={hudActive ? () => onHover(null) : undefined}
             >
-            <MeshStandardMaterial vertexColors roughness={0.8} metalness={0.1} flatShading side={THREE.FrontSide} />
-            <CityMarkers world={world} viewMode={viewMode} />
-            <CountryLabels world={world} viewMode={viewMode} />
-            <FactionBorders world={world} viewMode={viewMode} />
-            {showGrid && <LatLongGrid radius={1.06} />}
+                <MeshStandardMaterial vertexColors roughness={0.8} metalness={0.1} flatShading side={THREE.FrontSide} />
+                <CityMarkers world={world} viewMode={viewMode} />
+                <CountryLabels world={world} viewMode={viewMode} />
+                <FactionBorders world={world} viewMode={viewMode} />
+                <RiverLines world={world} visible={showRivers} />
+                {showGrid && <LatLongGrid radius={1.06} />}
             </Mesh>
         </Group>
         <Mesh ref={coreRef} scale={[0.99, 0.99, 0.99]}>
@@ -258,7 +300,7 @@ const WorldMesh: React.FC<{
   );
 };
 
-const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean }> = ({ world, viewMode, showGrid = false }) => {
+const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean }> = ({ world, viewMode, showGrid = false, showRivers = true }) => {
   const [hoveredCell, setHoveredCell] = useState<Cell | null>(null);
   const [paused, setPaused] = useState(false);
   const [hudActive, setHudActive] = useState(true);
@@ -300,6 +342,7 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
                onHover={setHoveredCell} 
                paused={paused} 
                showGrid={showGrid}
+               showRivers={showRivers}
                hudActive={hudActive} 
              />
           </Group>

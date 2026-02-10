@@ -1,6 +1,6 @@
 import * as d3 from 'd3';
 import { geoWinkel3, geoRobinson, geoMollweide } from 'd3-geo-projection';
-import { WorldData, ViewMode, WorldParams } from '../types';
+import { WorldData, ViewMode, WorldParams, CivData } from '../types';
 import { getCellColor } from './colors';
 
 export type ExportResolution = 4096 | 8192 | 16384 | 32768;
@@ -70,21 +70,22 @@ export const exportMap = async (
 
 // --- CONFIG SAVE/LOAD ---
 
+export interface LoadedMap {
+    params: WorldParams;
+    civData?: CivData;
+}
+
 export const saveMapConfig = (params: WorldParams, world?: WorldData) => {
   const date = new Date();
   const dateStr = date.toISOString().split('T')[0].replace(/-/g, ''); // YYYYMMDD
   
   const content = {
-      version: "1.2",
+      version: "1.4",
       date: date.toISOString(),
       params,
-      civSummary: world?.civData ? {
-          factions: world.civData.factions.map(f => ({
-              name: f.name,
-              population: f.totalPopulation,
-              capital: f.provinces[0]?.towns[0]?.name
-          }))
-      } : null
+      // We only save the metadata (lore/names). 
+      // The geometry (borders/provinces) will be regenerated deterministically from the seed.
+      civData: world?.civData || null,
   };
 
   const dataStr = JSON.stringify(content, null, 2);
@@ -98,16 +99,25 @@ export const saveMapConfig = (params: WorldParams, world?: WorldData) => {
   linkElement.click();
 };
 
-export const loadMapConfig = async (file: File): Promise<WorldParams | null> => {
+export const loadMapConfig = async (file: File): Promise<LoadedMap | null> => {
     return new Promise((resolve) => {
         const reader = new FileReader();
         reader.onload = (event) => {
             try {
                 const json = JSON.parse(event.target?.result as string);
-                // Handle versioning or direct params
-                if (json.params) resolve(json.params); // New format
-                else if (json.points) resolve(json); // Old format
-                else throw new Error("Invalid structure");
+                
+                // Validate minimal structure
+                if (json.params) {
+                    resolve({
+                        params: json.params,
+                        civData: json.civData
+                    });
+                } else if (json.points) {
+                    // Legacy format support
+                    resolve({ params: json });
+                } else {
+                    throw new Error("Invalid structure");
+                }
             } catch (e) {
                 console.error("Failed to parse config", e);
                 resolve(null);
@@ -125,6 +135,7 @@ export interface SavedMapEntry {
     name: string;
     date: number; // timestamp
     params: WorldParams;
+    civData?: CivData;
 }
 
 export const getSavedMaps = (): SavedMapEntry[] => {
@@ -136,11 +147,11 @@ export const getSavedMaps = (): SavedMapEntry[] => {
     }
 };
 
-export const saveMapToBrowser = (name: string, params: WorldParams) => {
+export const saveMapToBrowser = (name: string, params: WorldParams, civData?: CivData) => {
     try {
         const current = getSavedMaps();
         const existingIdx = current.findIndex(m => m.name === name);
-        const entry: SavedMapEntry = { name, date: Date.now(), params };
+        const entry: SavedMapEntry = { name, date: Date.now(), params, civData };
         
         if (existingIdx >= 0) {
             current[existingIdx] = entry;

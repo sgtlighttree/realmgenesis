@@ -1,3 +1,4 @@
+
 export interface Point {
   x: number;
   y: number;
@@ -139,6 +140,7 @@ export interface WorldData {
   params: WorldParams;
   geoJson: any; // Cached for export
   civData?: CivData;
+  rivers?: Point[][]; // Array of paths for smooth river rendering
 }
 
 export type ViewMode = 'biome' | 'height' | 'height_bw' | 'temperature' | 'moisture' | 'plates' | 'political' | 'population' | 'province' | 'satellite';
