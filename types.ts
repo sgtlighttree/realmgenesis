@@ -143,6 +143,7 @@ export interface WorldData {
   rivers?: Point[][]; // Array of paths for smooth river rendering
 }
 
+export type DisplayMode = 'globe' | 'mercator';
 export type ViewMode = 'biome' | 'height' | 'height_bw' | 'temperature' | 'moisture' | 'plates' | 'political' | 'population' | 'province' | 'satellite';
 
 export interface LoreData {

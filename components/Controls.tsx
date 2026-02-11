@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { WorldParams, ViewMode, LoreData, LandStyle, CivData } from '../types';
+import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode } from '../types';
 import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Download, Save, FileJson, FolderOpen, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
 import { WorldData } from '../types';
@@ -14,6 +14,8 @@ interface ControlsProps {
   onUpdateProvinces: (p?: WorldParams) => void;
   viewMode: ViewMode;
   setViewMode: (m: ViewMode) => void;
+  displayMode: DisplayMode;
+  setDisplayMode: (m: DisplayMode) => void;
   lore: LoreData | null;
   loading: boolean;
   generatingLore: boolean;
@@ -62,6 +64,8 @@ const Controls: React.FC<ControlsProps> = ({
   onUpdateProvinces,
   viewMode,
   setViewMode,
+  displayMode,
+  setDisplayMode,
   lore,
   loading,
   generatingLore,
@@ -287,6 +291,19 @@ const Controls: React.FC<ControlsProps> = ({
     </button>
   );
 
+  const DisplayButton = ({ mode, label }: { mode: DisplayMode; label: string }) => (
+    <button
+      onClick={() => setDisplayMode(mode)}
+      className={`px-2 py-1.5 rounded-lg text-xs transition-all flex-1 ${
+        displayMode === mode
+          ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+          : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+      }`}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <div className="w-80 bg-gray-950 border-r border-gray-800 flex flex-col h-full overflow-hidden text-sm relative z-20">
       <div className="p-4 border-b border-gray-800">
@@ -308,6 +325,14 @@ const Controls: React.FC<ControlsProps> = ({
         
         {activeTab === 'system' && (
           <div className="space-y-4">
+             <div className="space-y-1">
+               <label className="text-xs text-gray-400 block">Render Mode</label>
+               <div className="flex gap-2">
+                 <DisplayButton mode="globe" label="3D Globe" />
+                 <DisplayButton mode="mercator" label="2D Mercator" />
+               </div>
+             </div>
+
              {/* Map Name Input */}
              <div className="space-y-1">
                  <label className="text-xs text-gray-400 block">Map Name</label>
