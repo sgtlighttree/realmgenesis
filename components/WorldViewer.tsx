@@ -1,10 +1,9 @@
 import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Stars, Text, Line } from '@react-three/drei';
 import * as THREE from 'three';
-import { WorldData, ViewMode, Cell, Point } from '../types';
+import { WorldData, ViewMode, Cell, Point, InspectMode } from '../types';
 import { getCellColor } from '../utils/colors';
-import { MousePointer2, EyeOff, ChevronDown, ChevronUp } from 'lucide-react';
 
 const Mesh = 'mesh' as any;
 const Group = 'group' as any;
@@ -222,8 +221,9 @@ const WorldMesh: React.FC<{
   paused: boolean, 
   showGrid: boolean,
   showRivers: boolean, 
-  hudActive: boolean 
-}> = ({ world, viewMode, onHover, paused, showGrid, showRivers, hudActive }) => {
+  inspectMode: InspectMode;
+  onInspect: (cellId: number | null) => void;
+}> = ({ world, viewMode, onHover, paused, showGrid, showRivers, inspectMode, onInspect }) => {
   const meshRef = useRef<THREE.Mesh>(null);
   const coreRef = useRef<THREE.Mesh>(null);
   const lastUpdate = useRef<number>(0);
@@ -262,27 +262,54 @@ const WorldMesh: React.FC<{
      return map;
   }, [world]);
 
+  const getTriangleIndex = useCallback((e: any) => {
+      if (e.faceIndex !== undefined && e.faceIndex !== null) return e.faceIndex;
+      if (e.face && e.face.a !== undefined && e.face.a !== null) return Math.floor(e.face.a / 3);
+      return null;
+  }, []);
+
   const handlePointerMove = useCallback((e: any) => {
-      if (!hudActive) return;
+      if (inspectMode !== 'hover') return;
       
       // Throttle lookup to every 100ms for smoother manipulation performance
       const now = Date.now();
       if (now - lastUpdate.current < 80) return; 
       lastUpdate.current = now;
 
-      if (e.faceIndex !== undefined) {
-          const cellId = faceMap[e.faceIndex];
+      const triIndex = getTriangleIndex(e);
+      if (triIndex !== null) {
+          const cellId = faceMap[triIndex];
           if (cellId !== undefined) onHover(world.cells[cellId]);
       } else { onHover(null); }
-  }, [hudActive, faceMap, world.cells, onHover]);
+  }, [inspectMode, faceMap, world.cells, onHover, getTriangleIndex]);
+
+  const handlePointerDown = useCallback((e: any) => {
+      if (inspectMode !== 'click') return;
+      const triIndex = getTriangleIndex(e);
+      if (triIndex !== null) {
+          const cellId = faceMap[triIndex];
+          onInspect(cellId !== undefined ? cellId : null);
+      }
+  }, [inspectMode, faceMap, onInspect, getTriangleIndex]);
+
+  const handleClick = useCallback((e: any) => {
+      if (inspectMode !== 'click') return;
+      const triIndex = getTriangleIndex(e);
+      if (triIndex !== null) {
+          const cellId = faceMap[triIndex];
+          onInspect(cellId !== undefined ? cellId : null);
+      }
+  }, [inspectMode, faceMap, onInspect, getTriangleIndex]);
 
   return (
     <Group>
         <Group ref={meshRef}>
             <Mesh 
             geometry={geometry} 
-            onPointerMove={hudActive ? handlePointerMove : undefined} 
-            onPointerOut={hudActive ? () => onHover(null) : undefined}
+            onPointerMove={inspectMode === 'hover' ? handlePointerMove : undefined}
+            onPointerOut={inspectMode === 'hover' ? () => onHover(null) : undefined}
+            onPointerDown={inspectMode === 'click' ? handlePointerDown : undefined}
+            onClick={inspectMode === 'click' ? handleClick : undefined}
             >
                 <MeshStandardMaterial vertexColors roughness={0.8} metalness={0.1} flatShading side={THREE.FrontSide} />
                 <CityMarkers world={world} viewMode={viewMode} />
@@ -300,36 +327,24 @@ const WorldMesh: React.FC<{
   );
 };
 
-const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean }> = ({ world, viewMode, showGrid = false, showRivers = true }) => {
+const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; }> = ({ world, viewMode, showGrid = false, showRivers = true, inspectMode, onInspect }) => {
   const [hoveredCell, setHoveredCell] = useState<Cell | null>(null);
   const [paused, setPaused] = useState(false);
-  const [hudActive, setHudActive] = useState(true);
-  const [hudCollapsed, setHudCollapsed] = useState(false);
 
-  const factionMap = useMemo(() => {
-    if (!world?.civData) return new Map();
-    return new Map(world.civData.factions.map(f => [f.id, f]));
-  }, [world?.civData]);
-
-  const locationName = useMemo(() => {
-      if (!hoveredCell || !world?.civData || !hudActive) return null;
-      const { regionId, provinceId } = hoveredCell;
-      if (regionId === undefined) return "Unclaimed Land";
-      
-      const faction = factionMap.get(regionId);
-      if (!faction) return `Region ${regionId}`;
-      const province = provinceId !== undefined && faction.provinces[provinceId];
-      return (
-          <div className="flex flex-col">
-            <span className="font-bold text-blue-200">{faction.name}</span>
-            {province && <span className="text-xs text-blue-100/70">{province.name}</span>}
-          </div>
-      );
-  }, [hoveredCell, factionMap, hudActive]);
+  useEffect(() => {
+    if (inspectMode !== 'hover') return;
+    if (hoveredCell) onInspect(hoveredCell.id);
+    else onInspect(null);
+  }, [hoveredCell, inspectMode, onInspect]);
 
   return (
     <div className="w-full h-full bg-black relative group">
-      <Canvas camera={{ position: [0, 0, 2.5], fov: 45 }}>
+      <Canvas
+        camera={{ position: [0, 0, 2.5], fov: 45 }}
+        onPointerMissed={() => {
+          if (inspectMode === 'click') onInspect(null);
+        }}
+      >
         <AmbientLight intensity={0.5} />
         <PointLight position={[10, 10, 10]} intensity={1.5} />
         <DirectionalLight position={[-5, 5, 2]} intensity={0.5} />
@@ -343,65 +358,14 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
                paused={paused} 
                showGrid={showGrid}
                showRivers={showRivers}
-               hudActive={hudActive} 
+               inspectMode={inspectMode}
+               onInspect={onInspect}
              />
           </Group>
         )}
         <OrbitControls enablePan={false} minDistance={1.2} maxDistance={6} />
       </Canvas>
       {!world && <div className="absolute inset-0 flex items-center justify-center text-white/50">Forging World...</div>}
-      
-      {/* HUD - TOP CENTER */}
-      <div className="absolute top-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none z-10">
-          <div className={`bg-black/80 backdrop-blur text-white rounded shadow-xl border border-white/20 transition-all duration-300 pointer-events-auto ${hudCollapsed ? 'w-10 overflow-hidden' : 'min-w-[200px]'}`}>
-              <div className="flex items-center justify-between p-2 border-b border-white/10">
-                  {!hudCollapsed && <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Inspector</span>}
-                  <div className="flex items-center gap-2">
-                      <button 
-                        onClick={() => setHudActive(!hudActive)}
-                        className={`p-1 rounded transition-colors ${hudActive ? 'text-blue-400 hover:bg-blue-900/40' : 'text-gray-600 hover:bg-gray-800'}`}
-                        title={hudActive ? "Disable Hover Info (Performance Boost)" : "Enable Hover Info"}
-                      >
-                        {hudActive ? <MousePointer2 size={12}/> : <EyeOff size={12}/>}
-                      </button>
-                      <button 
-                        onClick={() => setHudCollapsed(!hudCollapsed)}
-                        className="p-1 rounded text-gray-400 hover:bg-gray-800"
-                      >
-                        {hudCollapsed ? <ChevronDown size={12}/> : <ChevronUp size={12}/>}
-                      </button>
-                  </div>
-              </div>
-
-              {!hudCollapsed && hudActive && hoveredCell && (
-                <div className="p-2 text-xs">
-                    <div className="font-bold flex justify-between gap-4 mb-2 border-b border-white/10 pb-1 items-start">
-                        <div className="flex flex-col">
-                          <span>Cell {hoveredCell.id}</span>
-                          {locationName && <div className="mt-1">{locationName}</div>}
-                        </div>
-                        <span style={{color: '#aaa'}}>{hoveredCell.biome}</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                        <div className="text-gray-400">Temp: <span className="text-white">{hoveredCell.temperature.toFixed(1)}°C</span></div>
-                        <div className="text-gray-400">Rain: <span className="text-white">{(hoveredCell.moisture*100).toFixed(0)}%</span></div>
-                        <div className="text-gray-400">Elev: <span className="text-white">{(hoveredCell.height*100).toFixed(0)}%</span></div>
-                        <div className="text-gray-400">Pop: <span className="text-white">{hoveredCell.population?.toLocaleString()}</span></div>
-                    </div>
-                </div>
-              )}
-              {!hudCollapsed && !hudActive && (
-                <div className="p-4 text-[10px] text-gray-500 text-center italic">
-                  Hover Info Disabled
-                </div>
-              )}
-              {!hudCollapsed && hudActive && !hoveredCell && (
-                <div className="p-4 text-[10px] text-gray-500 text-center italic">
-                  Hover over a cell...
-                </div>
-              )}
-          </div>
-      </div>
       
       <div className="absolute top-4 right-4 z-10 flex gap-2">
          <button onClick={() => setPaused(!paused)} className="bg-gray-800/80 text-white p-2 rounded hover:bg-gray-700 backdrop-blur border border-white/10 shadow-lg">{paused ? "▶" : "⏸"}</button>

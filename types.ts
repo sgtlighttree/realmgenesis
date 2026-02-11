@@ -144,6 +144,7 @@ export interface WorldData {
 }
 
 export type DisplayMode = 'globe' | 'mercator';
+export type InspectMode = 'click' | 'off';
 export type ViewMode = 'biome' | 'height' | 'height_bw' | 'temperature' | 'moisture' | 'plates' | 'political' | 'population' | 'province' | 'satellite';
 
 export interface LoreData {

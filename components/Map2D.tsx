@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { WorldData, ViewMode } from '../types';
+import { WorldData, ViewMode, InspectMode } from '../types';
 import { getCellColor } from '../utils/colors';
 
 type Size = { width: number; height: number };
@@ -11,14 +11,17 @@ const MAX_SHARP_DPR = 3;
 const MAX_SHARP_SCALE = 2.5;
 const SETTLE_MS = 200;
 
-const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode }> = ({ world, viewMode }) => {
+const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; }> = ({ world, viewMode, inspectMode, onInspect }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
+  const pickCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const pickCtxRef = useRef<CanvasRenderingContext2D | null>(null);
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const dragging = useRef(false);
+  const dragDistance = useRef(0);
   const lastPos = useRef({ x: 0, y: 0 });
   const [isInteracting, setIsInteracting] = useState(false);
   const [qualityDpr, setQualityDpr] = useState(1);
@@ -26,6 +29,8 @@ const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode }> = ({ worl
   const pendingOffset = useRef<{ x: number; y: number } | null>(null);
   const settleTimer = useRef<number | null>(null);
   const wheelTimer = useRef<number | null>(null);
+  const hoverRaf = useRef<number | null>(null);
+  const pendingHover = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -114,6 +119,36 @@ const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode }> = ({ worl
   }, [projection, size.width, size.height, world, viewMode, qualityDpr]);
 
   useEffect(() => {
+    if (!world || !projection || !size.width || !size.height) return;
+    const pickCanvas = pickCanvasRef.current ?? document.createElement('canvas');
+    pickCanvasRef.current = pickCanvas;
+    pickCanvas.width = size.width;
+    pickCanvas.height = size.height;
+    const ctx = pickCanvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+    pickCtxRef.current = ctx;
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, size.width, size.height);
+    ctx.translate(size.width, 0);
+    ctx.scale(-1, 1);
+
+    const pathGenerator = d3.geoPath(projection, ctx);
+    for (let i = 0; i < world.cells.length; i++) {
+      const feature = world.geoJson?.features?.[i];
+      if (!feature || !feature.geometry) continue;
+      const id = i + 1;
+      const r = id & 255;
+      const g = (id >> 8) & 255;
+      const b = (id >> 16) & 255;
+      ctx.beginPath();
+      pathGenerator(feature);
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fill();
+    }
+  }, [projection, size.width, size.height, world]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     const offscreen = offscreenRef.current;
     if (!canvas || !offscreen || !size.width || !size.height) return;
@@ -158,6 +193,7 @@ const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode }> = ({ worl
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     dragging.current = true;
+    dragDistance.current = 0;
     lastPos.current = { x: e.clientX, y: e.clientY };
     setIsInteracting(true);
   };
@@ -167,6 +203,7 @@ const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode }> = ({ worl
     const dx = e.clientX - lastPos.current.x;
     const dy = e.clientY - lastPos.current.y;
     lastPos.current = { x: e.clientX, y: e.clientY };
+    dragDistance.current += Math.abs(dx) + Math.abs(dy);
     const next = { x: offset.x + dx, y: offset.y + dy };
     pendingOffset.current = next;
     if (rafId.current === null) {
@@ -180,9 +217,50 @@ const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode }> = ({ worl
     }
   };
 
-  const handleMouseUp = () => {
+  const pickAt = (clientX: number, clientY: number) => {
+    if (!pickCtxRef.current || !canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const mapX = (clientX - rect.left - offset.x) / scale;
+    const mapY = (clientY - rect.top - offset.y) / scale;
+    if (mapX < 0 || mapY < 0 || mapX >= size.width || mapY >= size.height) {
+      onInspect(null);
+      return;
+    }
+    const data = pickCtxRef.current.getImageData(Math.floor(mapX), Math.floor(mapY), 1, 1).data;
+    const id = data[0] + (data[1] << 8) + (data[2] << 16);
+    onInspect(id === 0 ? null : id - 1);
+  };
+
+  const endDrag = () => {
     dragging.current = false;
     setIsInteracting(false);
+  };
+
+  const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    endDrag();
+    if (inspectMode === 'click' && dragDistance.current < 6) {
+      pickAt(e.clientX, e.clientY);
+    }
+  };
+
+  const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (inspectMode !== 'click') return;
+    if (dragDistance.current < 6) {
+      pickAt(e.clientX, e.clientY);
+    }
+  };
+
+  const handleHover = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (inspectMode !== 'hover' || dragging.current) return;
+    pendingHover.current = { x: e.clientX, y: e.clientY };
+    if (hoverRaf.current !== null) return;
+    hoverRaf.current = requestAnimationFrame(() => {
+      hoverRaf.current = null;
+      if (pendingHover.current) {
+        pickAt(pendingHover.current.x, pendingHover.current.y);
+        pendingHover.current = null;
+      }
+    });
   };
 
   return (
@@ -192,9 +270,10 @@ const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode }> = ({ worl
         className="w-full h-full cursor-grab active:cursor-grabbing"
         onWheel={handleWheel}
         onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
+        onMouseMove={(e) => { handleMouseMove(e); handleHover(e); }}
         onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        onClick={handleClick}
+        onMouseLeave={() => { endDrag(); if (inspectMode === 'hover') onInspect(null); }}
       />
       {!world && (
         <div className="absolute inset-0 flex items-center justify-center text-white/50">

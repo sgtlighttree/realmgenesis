@@ -3,8 +3,9 @@ import Controls from './components/Controls';
 import WorldViewer from './components/WorldViewer';
 import Map2D from './components/Map2D';
 import MiniMap from './components/MiniMap';
+import Inspector from './components/Inspector';
 import { BiomeLegend } from './components/Legend';
-import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode } from './types';
+import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode, InspectMode } from './types';
 import { generateWorld, recalculateCivs, recalculateProvinces } from './utils/worldGen';
 import { generateWorldLore } from './services/gemini';
 import { Menu, X } from 'lucide-react';
@@ -48,6 +49,10 @@ const App: React.FC = () => {
   const [world, setWorld] = useState<WorldData | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('biome');
   const [displayMode, setDisplayMode] = useState<DisplayMode>('globe');
+  const [inspectMode, setInspectMode] = useState<InspectMode>('click');
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  const [inspectedCellId, setInspectedCellId] = useState<number | null>(null);
+  const lastInspectModeRef = useRef<InspectMode>('click');
   const [isGenerating, setIsGenerating] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [lore, setLore] = useState<LoreData | null>(null);
@@ -214,6 +219,31 @@ const App: React.FC = () => {
     finally { setIsGenerating(false); }
   }, [world, params, viewMode, addLog]);
 
+  useEffect(() => {
+    setInspectedCellId(null);
+  }, [world?.params.seed, displayMode]);
+
+  const toggleInspectEnabled = useCallback(() => {
+    setInspectMode(prev => {
+      if (prev === 'off') {
+        return lastInspectModeRef.current === 'off' ? 'click' : lastInspectModeRef.current;
+      }
+      lastInspectModeRef.current = prev;
+      return 'off';
+    });
+  }, []);
+
+  const toggleInspectMode = useCallback(() => {
+    setInspectMode(prev => {
+      if (prev === 'off') {
+        return lastInspectModeRef.current === 'off' ? 'click' : lastInspectModeRef.current;
+      }
+      const next = prev === 'hover' ? 'click' : 'hover';
+      lastInspectModeRef.current = next;
+      return next;
+    });
+  }, []);
+
   useEffect(() => { handleGenerate(); }, []);
 
   const handleGenerateLore = async () => {
@@ -276,11 +306,23 @@ const App: React.FC = () => {
       {/* Main Content Area */}
       <main className="flex-1 relative h-full overflow-hidden">
         {displayMode === 'globe' ? (
-          <WorldViewer world={world} viewMode={viewMode} showGrid={showGrid} showRivers={showRivers} />
+          <WorldViewer
+            world={world}
+            viewMode={viewMode}
+            showGrid={showGrid}
+            showRivers={showRivers}
+            inspectMode={inspectMode}
+            onInspect={setInspectedCellId}
+          />
         ) : (
-          <Map2D world={world} viewMode={viewMode} />
+          <Map2D
+            world={world}
+            viewMode={viewMode}
+            inspectMode={inspectMode}
+            onInspect={setInspectedCellId}
+          />
         )}
-        
+
         {/* Overlay HUD elements */}
         {displayMode === 'globe' && (
           <div className="absolute top-4 left-24 bg-black/50 backdrop-blur-md p-3 rounded-lg border border-white/10 text-left pointer-events-none z-10 hidden md:block">
@@ -291,6 +333,15 @@ const App: React.FC = () => {
 
         <BiomeLegend />
         {displayMode === 'globe' && <MiniMap world={world} viewMode={viewMode} />}
+        <Inspector
+          world={world}
+          cellId={inspectedCellId}
+          inspectMode={inspectMode}
+          collapsed={inspectorCollapsed}
+          onToggleMode={toggleInspectMode}
+          onToggleEnabled={toggleInspectEnabled}
+          onToggleCollapsed={() => setInspectorCollapsed(v => !v)}
+        />
       </main>
     </div>
   );
