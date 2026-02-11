@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Controls from './components/Controls';
 import WorldViewer from './components/WorldViewer';
+import Map2D from './components/Map2D';
 import MiniMap from './components/MiniMap';
 import { BiomeLegend } from './components/Legend';
-import { WorldData, WorldParams, ViewMode, LoreData, CivData } from './types';
+import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode } from './types';
 import { generateWorld, recalculateCivs, recalculateProvinces } from './utils/worldGen';
 import { generateWorldLore } from './services/gemini';
 import { Menu, X } from 'lucide-react';
@@ -46,6 +47,7 @@ const App: React.FC = () => {
   const [params, setParams] = useState<WorldParams>(DEFAULT_PARAMS);
   const [world, setWorld] = useState<WorldData | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('biome');
+  const [displayMode, setDisplayMode] = useState<DisplayMode>('globe');
   const [isGenerating, setIsGenerating] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [lore, setLore] = useState<LoreData | null>(null);
@@ -246,6 +248,7 @@ const App: React.FC = () => {
           onCancel={handleCancel}
           onUpdateCivs={handleUpdateCivs} onUpdateProvinces={handleUpdateProvinces}
           viewMode={viewMode} setViewMode={setViewMode}
+          displayMode={displayMode} setDisplayMode={setDisplayMode}
           loading={isGenerating} logs={logs}
           lore={lore} generatingLore={isLoreLoading} onGenerateLore={handleGenerateLore}
           worldData={world} 
@@ -272,16 +275,22 @@ const App: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="flex-1 relative h-full overflow-hidden">
-        <WorldViewer world={world} viewMode={viewMode} showGrid={showGrid} showRivers={showRivers} />
+        {displayMode === 'globe' ? (
+          <WorldViewer world={world} viewMode={viewMode} showGrid={showGrid} showRivers={showRivers} />
+        ) : (
+          <Map2D world={world} viewMode={viewMode} />
+        )}
         
         {/* Overlay HUD elements */}
-        <div className="absolute top-4 left-24 bg-black/50 backdrop-blur-md p-3 rounded-lg border border-white/10 text-left pointer-events-none z-10 hidden md:block">
+        {displayMode === 'globe' && (
+          <div className="absolute top-4 left-24 bg-black/50 backdrop-blur-md p-3 rounded-lg border border-white/10 text-left pointer-events-none z-10 hidden md:block">
            <h3 className="text-white text-xs font-bold">{world ? `Seed: ${params.seed}` : 'No World'}</h3>
            <p className="text-gray-400 text-[10px]">{world ? `${world.cells.length.toLocaleString()} Cells` : ''}</p>
-        </div>
+          </div>
+        )}
 
         <BiomeLegend />
-        <MiniMap world={world} viewMode={viewMode} />
+        {displayMode === 'globe' && <MiniMap world={world} viewMode={viewMode} />}
       </main>
     </div>
   );
