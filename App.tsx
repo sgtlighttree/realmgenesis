@@ -52,7 +52,6 @@ const App: React.FC = () => {
   const [inspectMode, setInspectMode] = useState<InspectMode>('click');
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const [inspectedCellId, setInspectedCellId] = useState<number | null>(null);
-  const lastInspectModeRef = useRef<InspectMode>('click');
   const [isGenerating, setIsGenerating] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [lore, setLore] = useState<LoreData | null>(null);
@@ -224,25 +223,11 @@ const App: React.FC = () => {
   }, [world?.params.seed, displayMode]);
 
   const toggleInspectEnabled = useCallback(() => {
-    setInspectMode(prev => {
-      if (prev === 'off') {
-        return lastInspectModeRef.current === 'off' ? 'click' : lastInspectModeRef.current;
-      }
-      lastInspectModeRef.current = prev;
-      return 'off';
-    });
-  }, []);
-
-  const toggleInspectMode = useCallback(() => {
-    setInspectMode(prev => {
-      if (prev === 'off') {
-        return lastInspectModeRef.current === 'off' ? 'click' : lastInspectModeRef.current;
-      }
-      const next = prev === 'hover' ? 'click' : 'hover';
-      lastInspectModeRef.current = next;
-      return next;
-    });
-  }, []);
+    setInspectMode(prev => (prev === 'off' ? 'click' : 'off'));
+    if (inspectMode === 'click') {
+      setInspectedCellId(null);
+    }
+  }, [inspectMode]);
 
   useEffect(() => { handleGenerate(); }, []);
 
@@ -338,7 +323,6 @@ const App: React.FC = () => {
           cellId={inspectedCellId}
           inspectMode={inspectMode}
           collapsed={inspectorCollapsed}
-          onToggleMode={toggleInspectMode}
           onToggleEnabled={toggleInspectEnabled}
           onToggleCollapsed={() => setInspectorCollapsed(v => !v)}
         />

@@ -11,7 +11,7 @@ const MAX_SHARP_DPR = 3;
 const MAX_SHARP_SCALE = 2.5;
 const SETTLE_MS = 200;
 
-const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; }> = ({ world, viewMode, inspectMode, onInspect }) => {
+const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; highlightCellId: number | null; }> = ({ world, viewMode, inspectMode, onInspect, highlightCellId }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
@@ -29,8 +29,7 @@ const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode; inspectMode
   const pendingOffset = useRef<{ x: number; y: number } | null>(null);
   const settleTimer = useRef<number | null>(null);
   const wheelTimer = useRef<number | null>(null);
-  const hoverRaf = useRef<number | null>(null);
-  const pendingHover = useRef<{ x: number; y: number } | null>(null);
+  const inspectEnabled = inspectMode === 'click';
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -116,7 +115,22 @@ const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode; inspectMode
       }
       ctx.restore();
     }
-  }, [projection, size.width, size.height, world, viewMode, qualityDpr]);
+
+    if (highlightCellId !== null) {
+      const feature = world.geoJson?.features?.[highlightCellId];
+      if (feature && feature.geometry) {
+        ctx.save();
+        ctx.strokeStyle = '#f9a8a8';
+        ctx.lineWidth = 3 / qualityDpr;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        pathGenerator(feature);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }, [projection, size.width, size.height, world, viewMode, qualityDpr, highlightCellId]);
 
   useEffect(() => {
     if (!world || !projection || !size.width || !size.height) return;
@@ -238,29 +252,9 @@ const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode; inspectMode
 
   const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
     endDrag();
-    if (inspectMode === 'click' && dragDistance.current < 6) {
+    if (inspectEnabled && dragDistance.current < 6) {
       pickAt(e.clientX, e.clientY);
     }
-  };
-
-  const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (inspectMode !== 'click') return;
-    if (dragDistance.current < 6) {
-      pickAt(e.clientX, e.clientY);
-    }
-  };
-
-  const handleHover = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (inspectMode !== 'hover' || dragging.current) return;
-    pendingHover.current = { x: e.clientX, y: e.clientY };
-    if (hoverRaf.current !== null) return;
-    hoverRaf.current = requestAnimationFrame(() => {
-      hoverRaf.current = null;
-      if (pendingHover.current) {
-        pickAt(pendingHover.current.x, pendingHover.current.y);
-        pendingHover.current = null;
-      }
-    });
   };
 
   return (
