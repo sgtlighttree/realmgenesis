@@ -309,7 +309,7 @@ const Controls: React.FC<ControlsProps> = ({
       <div className="p-4 border-b border-gray-800">
         <h1 className="text-xl font-bold text-white flex items-center gap-2">
           <Globe className="text-blue-500" />
-          TerraForge 3D
+          RealmGenesis 3D
         </h1>
       </div>
 
