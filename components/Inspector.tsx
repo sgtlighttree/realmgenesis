@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { MousePointer2, MousePointerClick, Eye, EyeOff, ChevronDown, ChevronUp } from 'lucide-react';
+import { Eye, EyeOff, ChevronDown, ChevronUp } from 'lucide-react';
 import { WorldData, InspectMode } from '../types';
 
 interface InspectorProps {
@@ -7,7 +7,6 @@ interface InspectorProps {
   cellId: number | null;
   inspectMode: InspectMode;
   collapsed: boolean;
-  onToggleMode: () => void;
   onToggleEnabled: () => void;
   onToggleCollapsed: () => void;
 }
@@ -22,7 +21,7 @@ const Inspector: React.FC<InspectorProps> = ({
   onToggleCollapsed
 }) => {
   const cell = world && cellId !== null ? world.cells[cellId] : null;
-  const enabled = inspectMode !== 'off';
+  const enabled = inspectMode === 'click';
 
   const factionMap = useMemo(() => {
     if (!world?.civData) return new Map();
@@ -44,21 +43,12 @@ const Inspector: React.FC<InspectorProps> = ({
     );
   }, [cell, world?.civData, enabled, factionMap]);
 
-  const ModeIcon = inspectMode === 'hover' ? MousePointer2 : MousePointerClick;
-
   return (
     <div className="absolute top-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none z-10">
       <div className={`bg-black/80 backdrop-blur text-white rounded shadow-xl border border-white/20 transition-all duration-300 pointer-events-auto ${collapsed ? 'w-28' : 'min-w-[220px]'}`}>
         <div className="flex items-center justify-between p-2 border-b border-white/10">
           {!collapsed && <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Inspector</span>}
           <div className="flex items-center gap-2">
-            <button
-              onClick={onToggleMode}
-              className={`p-1 rounded transition-colors ${inspectMode === 'hover' ? 'text-blue-400 hover:bg-blue-900/40' : 'text-emerald-400 hover:bg-emerald-900/30'} ${!enabled ? 'opacity-40' : ''}`}
-              title={inspectMode === 'hover' ? "Hover Inspect Mode" : "Click Inspect Mode"}
-            >
-              <ModeIcon size={12} />
-            </button>
             <button
               onClick={onToggleEnabled}
               className={`p-1 rounded transition-colors ${enabled ? 'text-blue-400 hover:bg-blue-900/40' : 'text-gray-600 hover:bg-gray-800'}`}
@@ -99,7 +89,7 @@ const Inspector: React.FC<InspectorProps> = ({
         )}
         {!collapsed && enabled && !cell && (
           <div className="p-4 text-[10px] text-gray-500 text-center italic">
-            {inspectMode === 'click' ? 'Click a cell...' : 'Hover over a cell...'}
+            Click a cell...
           </div>
         )}
       </div>
