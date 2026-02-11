@@ -6,16 +6,26 @@ import { getCellColor } from '../utils/colors';
 type Size = { width: number; height: number };
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+const INTERACTION_DPR = 1;
+const MAX_SHARP_DPR = 3;
+const MAX_SHARP_SCALE = 2.5;
+const SETTLE_MS = 200;
 
 const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode }> = ({ world, viewMode }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const offscreenRef = useRef<HTMLCanvasElement | null>(null);
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const dragging = useRef(false);
   const lastPos = useRef({ x: 0, y: 0 });
   const [isInteracting, setIsInteracting] = useState(false);
+  const [qualityDpr, setQualityDpr] = useState(1);
+  const rafId = useRef<number | null>(null);
+  const pendingOffset = useRef<{ x: number; y: number } | null>(null);
+  const settleTimer = useRef<number | null>(null);
+  const wheelTimer = useRef<number | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -36,25 +46,42 @@ const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode }> = ({ worl
     setOffset({ x: 0, y: 0 });
   }, [size.width, size.height, world?.params.seed]);
 
+  useEffect(() => {
+    if (settleTimer.current) {
+      window.clearTimeout(settleTimer.current);
+      settleTimer.current = null;
+    }
+    if (isInteracting) {
+      setQualityDpr(INTERACTION_DPR);
+      return;
+    }
+    settleTimer.current = window.setTimeout(() => {
+      const baseDpr = Math.min(2, window.devicePixelRatio || 1);
+      const scaled = baseDpr * Math.min(scale, MAX_SHARP_SCALE);
+      const target = Math.min(MAX_SHARP_DPR, scaled);
+      setQualityDpr(target);
+      settleTimer.current = null;
+    }, SETTLE_MS);
+  }, [isInteracting, scale]);
+
   const projection = useMemo(() => {
     if (!size.width || !size.height) return null;
     return d3.geoMercator().fitSize([size.width, size.height], { type: 'Sphere' } as any);
   }, [size.width, size.height]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !world || !size.width || !size.height) return;
-    const ctx = canvas.getContext('2d');
+    if (!world || !projection || !size.width || !size.height) return;
+    const offscreen = offscreenRef.current ?? document.createElement('canvas');
+    offscreenRef.current = offscreen;
+
+    offscreen.width = Math.max(1, Math.floor(size.width * qualityDpr));
+    offscreen.height = Math.max(1, Math.floor(size.height * qualityDpr));
+    const ctx = offscreen.getContext('2d');
     if (!ctx) return;
 
-    const dpr = isInteracting ? 1 : Math.min(2, window.devicePixelRatio || 1);
-    canvas.width = Math.max(1, Math.floor(size.width * dpr));
-    canvas.height = Math.max(1, Math.floor(size.height * dpr));
-
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * offset.x, dpr * offset.y);
+    ctx.clearRect(0, 0, offscreen.width, offscreen.height);
+    ctx.setTransform(qualityDpr, 0, 0, qualityDpr, 0, 0);
     ctx.translate(size.width, 0);
     ctx.scale(-1, 1);
 
@@ -84,10 +111,33 @@ const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode }> = ({ worl
       }
       ctx.restore();
     }
-  }, [projection, size.width, size.height, scale, offset.x, offset.y, world, viewMode, isInteracting]);
+  }, [projection, size.width, size.height, world, viewMode, qualityDpr]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const offscreen = offscreenRef.current;
+    if (!canvas || !offscreen || !size.width || !size.height) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const displayDpr = qualityDpr;
+    canvas.width = Math.max(1, Math.floor(size.width * displayDpr));
+    canvas.height = Math.max(1, Math.floor(size.height * displayDpr));
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(displayDpr * scale, 0, 0, displayDpr * scale, displayDpr * offset.x, displayDpr * offset.y);
+    ctx.drawImage(offscreen, 0, 0, size.width, size.height);
+  }, [size.width, size.height, scale, offset.x, offset.y, qualityDpr, viewMode, world?.params.seed]);
 
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
+    setIsInteracting(true);
+    if (wheelTimer.current) window.clearTimeout(wheelTimer.current);
+    wheelTimer.current = window.setTimeout(() => {
+      setIsInteracting(false);
+      wheelTimer.current = null;
+    }, 180);
     const rect = e.currentTarget.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
@@ -117,7 +167,17 @@ const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode }> = ({ worl
     const dx = e.clientX - lastPos.current.x;
     const dy = e.clientY - lastPos.current.y;
     lastPos.current = { x: e.clientX, y: e.clientY };
-    setOffset(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+    const next = { x: offset.x + dx, y: offset.y + dy };
+    pendingOffset.current = next;
+    if (rafId.current === null) {
+      rafId.current = requestAnimationFrame(() => {
+        rafId.current = null;
+        if (pendingOffset.current) {
+          setOffset(pendingOffset.current);
+          pendingOffset.current = null;
+        }
+      });
+    }
   };
 
   const handleMouseUp = () => {
