@@ -33,7 +33,7 @@ const DEFAULT_PARAMS: WorldParams = {
   moistureTransport: 0.5,
   temperatureVariance: 5,
   numFactions: 6,
-  civSeed: 'terraforge_civs',
+  civSeed: 'realmgenesis_civs',
   borderRoughness: 0.2, 
   civSizeVariance: 0.5,
   waterCrossingCost: 0.8,
@@ -41,7 +41,7 @@ const DEFAULT_PARAMS: WorldParams = {
   capitalSpacing: 0.5,
   provinceSize: 0.5,
   loreLevel: 1,
-  seed: 'terraforge',
+  seed: 'realmgenesis',
 };
 
 const App: React.FC = () => {

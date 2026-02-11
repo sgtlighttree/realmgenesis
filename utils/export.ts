@@ -60,10 +60,10 @@ export const exportMap = async (
   ctx.restore();
 
   const link = document.createElement('a');
-  // terraforge_mapName_seedValue_viewLayer_projection_resolution.png
+  // realmgenesis_mapName_seedValue_viewLayer_projection_resolution.png
   const mapName = world.params.mapName || 'map';
   const seed = world.params.seed;
-  link.download = `terraforge_${mapName}_${seed}_${viewMode}_${projectionType}_${width}x${height}.png`;
+  link.download = `realmgenesis_${mapName}_${seed}_${viewMode}_${projectionType}_${width}x${height}.png`;
   link.href = canvas.toDataURL('image/png', 0.8); 
   link.click();
 };
@@ -91,7 +91,7 @@ export const saveMapConfig = (params: WorldParams, world?: WorldData) => {
   const dataStr = JSON.stringify(content, null, 2);
   const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
   
-  const filename = `terraforge_${params.mapName || 'map'}_${dateStr}_${params.seed}.json`;
+  const filename = `realmgenesis_${params.mapName || 'map'}_${dateStr}_${params.seed}.json`;
   
   const linkElement = document.createElement('a');
   linkElement.setAttribute('href', dataUri);
@@ -129,7 +129,7 @@ export const loadMapConfig = async (file: File): Promise<LoadedMap | null> => {
 
 // --- LOCAL STORAGE MANAGER ---
 
-const LS_KEY = 'terraforge_saves';
+const LS_KEY = 'realmgenesis_saves';
 
 export interface SavedMapEntry {
     name: string;
