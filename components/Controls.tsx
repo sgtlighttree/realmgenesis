@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode } from '../types';
+import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode, DymaxionSettings, DymaxionLayout, DymaxionControlMode } from '../types';
 import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Download, Save, FileJson, FolderOpen, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
 import { WorldData } from '../types';
+import DymaxionPreview2D from './DymaxionPreview2D';
 
 interface ControlsProps {
   params: WorldParams;
@@ -26,6 +27,8 @@ interface ControlsProps {
   setShowGrid: (b: boolean) => void;
   showRivers: boolean;
   setShowRivers: (b: boolean) => void;
+  dymaxionSettings: DymaxionSettings;
+  onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>;
 }
 
 type Tab = 'geo' | 'climate' | 'political' | 'system' | 'export';
@@ -75,7 +78,9 @@ const Controls: React.FC<ControlsProps> = ({
   showGrid,
   setShowGrid,
   showRivers,
-  setShowRivers
+  setShowRivers,
+  dymaxionSettings,
+  onDymaxionChange
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('system');
   const [seedLocked, setSeedLocked] = useState(false);
@@ -88,6 +93,11 @@ const Controls: React.FC<ControlsProps> = ({
   const [expProj, setExpProj] = useState<ProjectionType>('equirectangular');
   const [saveName, setSaveName] = useState('');
   const [savedMaps, setSavedMaps] = useState(getSavedMaps());
+  const [showDymaxion2D, setShowDymaxion2D] = useState(false);
+
+  const updateDymaxion = (patch: Partial<DymaxionSettings>) => {
+      onDymaxionChange((prev) => ({ ...prev, ...patch }));
+  };
 
   useEffect(() => {
      if (autoUpdate && !loading && params.points <= 20000) {
@@ -227,7 +237,13 @@ const Controls: React.FC<ControlsProps> = ({
   const handleExport = async () => {
     if (!worldData) return;
     try {
-        await exportMap(worldData, viewMode, expRes, expProj);
+        await exportMap(
+          worldData,
+          viewMode,
+          expRes,
+          expProj,
+          expProj === 'dymaxion' ? { layout: dymaxionSettings.layout, lon: dymaxionSettings.lon, lat: dymaxionSettings.lat, roll: dymaxionSettings.roll } : undefined
+        );
     } catch(e) {
         console.error(e);
         alert("Export failed. Try a lower resolution.");
@@ -865,8 +881,124 @@ const Controls: React.FC<ControlsProps> = ({
                             <option value="robinson">Robinson</option>
                             <option value="mollweide">Mollweide</option>
                             <option value="orthographic">Orthographic</option>
+                            <option value="dymaxion">Dymaxion (Icosahedron)</option>
                         </select>
                     </div>
+
+                    {expProj === 'dymaxion' && (
+                        <div className="border border-gray-800 rounded-lg p-3 space-y-3 bg-gray-900/40">
+                            <div className="flex items-center justify-between">
+                                <div className="text-xs font-semibold text-gray-300">Dymaxion Controls</div>
+                                <label className="flex items-center gap-2 text-[10px] text-gray-400">
+                                    <input
+                                        type="checkbox"
+                                        checked={dymaxionSettings.showOverlay}
+                                        onChange={(e) => updateDymaxion({ showOverlay: e.target.checked })}
+                                        className="accent-blue-500"
+                                    />
+                                    Show Overlay
+                                </label>
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-xs text-gray-400">Net Layout</label>
+                                <select
+                                    value={dymaxionSettings.layout}
+                                    onChange={(e) => updateDymaxion({ layout: e.target.value as DymaxionLayout })}
+                                    className="w-full bg-gray-800 text-white text-xs border border-gray-700 rounded p-2"
+                                >
+                                    <option value="classic">Classic Dymaxion</option>
+                                    <option value="airocean">Airocean (experimental)</option>
+                                </select>
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-xs text-gray-400">Manipulation Mode</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                        onClick={() => updateDymaxion({ mode: 'planet' as DymaxionControlMode })}
+                                        className={`text-[10px] py-2 rounded border ${dymaxionSettings.mode === 'planet' ? 'bg-blue-700/70 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300'}`}
+                                    >
+                                        Rotate Planet
+                                    </button>
+                                    <button
+                                        onClick={() => updateDymaxion({ mode: 'overlay' as DymaxionControlMode })}
+                                        className={`text-[10px] py-2 rounded border ${dymaxionSettings.mode === 'overlay' ? 'bg-blue-700/70 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300'}`}
+                                    >
+                                        Rotate Overlay
+                                    </button>
+                                </div>
+                                <div className="text-[10px] text-gray-500">
+                                    Drag the globe to rotate. Hold Shift while dragging to roll the overlay.
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <div className="flex justify-between text-xs text-gray-400">
+                                    <label>Longitude</label>
+                                    <span>{dymaxionSettings.lon}°</span>
+                                </div>
+                                <input
+                                    type="range" min="-180" max="180" step="1"
+                                    value={dymaxionSettings.lon}
+                                    onChange={(e) => updateDymaxion({ lon: parseInt(e.target.value) })}
+                                    className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-400"
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <div className="flex justify-between text-xs text-gray-400">
+                                    <label>Latitude</label>
+                                    <span>{dymaxionSettings.lat}°</span>
+                                </div>
+                                <input
+                                    type="range" min="-90" max="90" step="1"
+                                    value={dymaxionSettings.lat}
+                                    onChange={(e) => updateDymaxion({ lat: parseInt(e.target.value) })}
+                                    className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-400"
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <div className="flex justify-between text-xs text-gray-400">
+                                    <label>Roll</label>
+                                    <span>{dymaxionSettings.roll}°</span>
+                                </div>
+                                <input
+                                    type="range" min="-180" max="180" step="1"
+                                    value={dymaxionSettings.roll}
+                                    onChange={(e) => updateDymaxion({ roll: parseInt(e.target.value) })}
+                                    className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-400"
+                                />
+                            </div>
+
+                            <button
+                                onClick={() => updateDymaxion({ lon: 0, lat: 0, roll: 0 })}
+                                className="w-full text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-200 py-2 rounded border border-gray-700"
+                            >
+                                Reset Orientation
+                            </button>
+
+                            <label className="flex items-center gap-2 text-[10px] text-gray-400">
+                                <input
+                                    type="checkbox"
+                                    checked={showDymaxion2D}
+                                    onChange={(e) => setShowDymaxion2D(e.target.checked)}
+                                    className="accent-blue-500"
+                                />
+                                Show 2D Preview
+                            </label>
+
+                            {showDymaxion2D && (
+                                <DymaxionPreview2D
+                                    world={worldData}
+                                    viewMode={viewMode}
+                                    settings={dymaxionSettings}
+                                    onChange={onDymaxionChange}
+                                />
+                            )}
+                        </div>
+                    )}
 
                     <button
                         onClick={handleExport}
