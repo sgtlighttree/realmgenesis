@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Stars, Text, Line } from '@react-three/drei';
 import * as THREE from 'three';
-import { WorldData, ViewMode, Cell, Point, InspectMode } from '../types';
+import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings } from '../types';
 import { getCellColor } from '../utils/colors';
 
 const Mesh = 'mesh' as any;
@@ -214,6 +214,42 @@ const FactionBorders: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ wo
   );
 };
 
+const DymaxionOverlay: React.FC<{ settings: DymaxionSettings }> = ({ settings }) => {
+  const { faceGeometry, edgeGeometry } = useMemo(() => {
+    const faceGeometry = new THREE.IcosahedronGeometry(1.08, 0);
+    const edgeGeometry = new THREE.EdgesGeometry(faceGeometry);
+    return { faceGeometry, edgeGeometry };
+  }, []);
+
+  const rotation = useMemo(() => {
+    const lon = THREE.MathUtils.degToRad(settings.lon);
+    const lat = THREE.MathUtils.degToRad(settings.lat);
+    const roll = THREE.MathUtils.degToRad(settings.roll);
+    return new THREE.Euler(lat, -lon, roll, 'YXZ');
+  }, [settings.lon, settings.lat, settings.roll]);
+
+  return (
+    <Group rotation={rotation}>
+      <Mesh geometry={faceGeometry} renderOrder={5}>
+        <MeshBasicMaterial
+          color="#fbbf24"
+          opacity={0.18}
+          transparent
+          depthWrite={false}
+          depthTest={false}
+          side={THREE.DoubleSide}
+          polygonOffset
+          polygonOffsetFactor={-2}
+          polygonOffsetUnits={-2}
+        />
+      </Mesh>
+      <LineSegments geometry={edgeGeometry} renderOrder={6}>
+        <LineBasicMaterial color="#fbbf24" linewidth={1} opacity={0.95} transparent depthTest={false} />
+      </LineSegments>
+    </Group>
+  );
+};
+
 const WorldMesh: React.FC<{ 
   world: WorldData, 
   viewMode: ViewMode, 
@@ -223,15 +259,14 @@ const WorldMesh: React.FC<{
   showRivers: boolean, 
   inspectMode: InspectMode;
   onInspect: (cellId: number | null) => void;
-}> = ({ world, viewMode, onHover, paused, showGrid, showRivers, inspectMode, onInspect }) => {
-  const meshRef = useRef<THREE.Mesh>(null);
-  const coreRef = useRef<THREE.Mesh>(null);
+  dymaxionSettings: DymaxionSettings;
+}> = ({ world, viewMode, onHover, paused, showGrid, showRivers, inspectMode, onInspect, dymaxionSettings }) => {
+  const spinRef = useRef<THREE.Group>(null);
   const lastUpdate = useRef<number>(0);
   
   useFrame((state, delta) => {
     if (!paused) {
-        if (meshRef.current) meshRef.current.rotation.y += delta * 0.05;
-        if (coreRef.current) coreRef.current.rotation.y += delta * 0.05;
+        if (spinRef.current) spinRef.current.rotation.y += delta * 0.05;
     }
   });
 
@@ -269,6 +304,7 @@ const WorldMesh: React.FC<{
   }, []);
 
   const handlePointerMove = useCallback((e: any) => {
+      if (dymaxionSettings.mode === 'overlay') return;
       if (inspectMode !== 'hover') return;
       
       // Throttle lookup to every 100ms for smoother manipulation performance
@@ -281,29 +317,31 @@ const WorldMesh: React.FC<{
           const cellId = faceMap[triIndex];
           if (cellId !== undefined) onHover(world.cells[cellId]);
       } else { onHover(null); }
-  }, [inspectMode, faceMap, world.cells, onHover, getTriangleIndex]);
+  }, [inspectMode, faceMap, world.cells, onHover, getTriangleIndex, dymaxionSettings.mode]);
 
   const handlePointerDown = useCallback((e: any) => {
+      if (dymaxionSettings.mode === 'overlay') return;
       if (inspectMode !== 'click') return;
       const triIndex = getTriangleIndex(e);
       if (triIndex !== null) {
           const cellId = faceMap[triIndex];
           onInspect(cellId !== undefined ? cellId : null);
       }
-  }, [inspectMode, faceMap, onInspect, getTriangleIndex]);
+  }, [inspectMode, faceMap, onInspect, getTriangleIndex, dymaxionSettings.mode]);
 
   const handleClick = useCallback((e: any) => {
+      if (dymaxionSettings.mode === 'overlay') return;
       if (inspectMode !== 'click') return;
       const triIndex = getTriangleIndex(e);
       if (triIndex !== null) {
           const cellId = faceMap[triIndex];
           onInspect(cellId !== undefined ? cellId : null);
       }
-  }, [inspectMode, faceMap, onInspect, getTriangleIndex]);
+  }, [inspectMode, faceMap, onInspect, getTriangleIndex, dymaxionSettings.mode]);
 
   return (
     <Group>
-        <Group ref={meshRef}>
+        <Group ref={spinRef}>
             <Mesh 
             geometry={geometry} 
             onPointerMove={inspectMode === 'hover' ? handlePointerMove : undefined}
@@ -318,18 +356,57 @@ const WorldMesh: React.FC<{
                 <RiverLines world={world} visible={showRivers} />
                 {showGrid && <LatLongGrid radius={1.06} />}
             </Mesh>
+            {dymaxionSettings.showOverlay && <DymaxionOverlay settings={dymaxionSettings} />}
+            <Mesh scale={[0.99, 0.99, 0.99]}>
+                <IcosahedronGeometry args={[1, 16]} />
+                <MeshBasicMaterial color="#000000" side={THREE.FrontSide} />
+            </Mesh>
         </Group>
-        <Mesh ref={coreRef} scale={[0.99, 0.99, 0.99]}>
-            <IcosahedronGeometry args={[1, 16]} />
-            <MeshBasicMaterial color="#000000" side={THREE.FrontSide} />
-        </Mesh>
     </Group>
   );
 };
 
-const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; }> = ({ world, viewMode, showGrid = false, showRivers = true, inspectMode, onInspect }) => {
+const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; }> = ({ world, viewMode, showGrid = false, showRivers = true, inspectMode, onInspect, dymaxionSettings, onDymaxionChange }) => {
   const [hoveredCell, setHoveredCell] = useState<Cell | null>(null);
   const [paused, setPaused] = useState(false);
+  const dragRef = useRef<{ active: boolean; lastX: number; lastY: number }>({ active: false, lastX: 0, lastY: 0 });
+  const overlayMode = dymaxionSettings.mode === 'overlay';
+
+  useEffect(() => {
+    if (overlayMode) setPaused(true);
+  }, [overlayMode]);
+
+  const wrapAngle = useCallback((v: number) => {
+    let r = ((v + 180) % 360 + 360) % 360 - 180;
+    if (r === -180) r = 180;
+    return r;
+  }, []);
+
+  const clampLat = useCallback((v: number) => Math.max(-90, Math.min(90, v)), []);
+
+  const handleOverlayPointerDown = useCallback((e: any) => {
+    if (!overlayMode || !dymaxionSettings.showOverlay) return;
+    dragRef.current = { active: true, lastX: e.clientX, lastY: e.clientY };
+  }, [overlayMode, dymaxionSettings.showOverlay]);
+
+  const handleOverlayPointerMove = useCallback((e: any) => {
+    if (!dragRef.current.active) return;
+    const dx = e.clientX - dragRef.current.lastX;
+    const dy = e.clientY - dragRef.current.lastY;
+    dragRef.current.lastX = e.clientX;
+    dragRef.current.lastY = e.clientY;
+    const sensitivity = 0.25;
+    onDymaxionChange((prev) => ({
+      ...prev,
+      lon: e.shiftKey ? prev.lon : wrapAngle(prev.lon + dx * sensitivity),
+      lat: e.shiftKey ? prev.lat : clampLat(prev.lat + dy * sensitivity),
+      roll: e.shiftKey ? wrapAngle(prev.roll + dx * sensitivity) : prev.roll,
+    }));
+  }, [onDymaxionChange, clampLat, wrapAngle]);
+
+  const handleOverlayPointerUp = useCallback(() => {
+    dragRef.current.active = false;
+  }, []);
 
   useEffect(() => {
     if (inspectMode !== 'hover') return;
@@ -344,6 +421,10 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
         onPointerMissed={() => {
           if (inspectMode === 'click') onInspect(null);
         }}
+        onPointerDown={handleOverlayPointerDown}
+        onPointerMove={handleOverlayPointerMove}
+        onPointerUp={handleOverlayPointerUp}
+        onPointerLeave={handleOverlayPointerUp}
       >
         <AmbientLight intensity={0.5} />
         <PointLight position={[10, 10, 10]} intensity={1.5} />
@@ -360,15 +441,22 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
                showRivers={showRivers}
                inspectMode={inspectMode}
                onInspect={onInspect}
+               dymaxionSettings={dymaxionSettings}
              />
           </Group>
         )}
-        <OrbitControls enablePan={false} minDistance={1.2} maxDistance={6} />
+        <OrbitControls enablePan={false} minDistance={1.2} maxDistance={6} enableRotate={!overlayMode} />
       </Canvas>
       {!world && <div className="absolute inset-0 flex items-center justify-center text-white/50">Forging World...</div>}
       
       <div className="absolute top-4 right-4 z-10 flex gap-2">
-         <button onClick={() => setPaused(!paused)} className="bg-gray-800/80 text-white p-2 rounded hover:bg-gray-700 backdrop-blur border border-white/10 shadow-lg">{paused ? "▶" : "⏸"}</button>
+         <button
+           onClick={() => setPaused(!paused)}
+           disabled={overlayMode}
+           className={`bg-gray-800/80 text-white p-2 rounded backdrop-blur border border-white/10 shadow-lg ${overlayMode ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-700'}`}
+         >
+           {paused ? "▶" : "⏸"}
+         </button>
       </div>
     </div>
   );

@@ -5,7 +5,7 @@ import Map2D from './components/Map2D';
 import MiniMap from './components/MiniMap';
 import Inspector from './components/Inspector';
 import { BiomeLegend } from './components/Legend';
-import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode, InspectMode } from './types';
+import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode, InspectMode, DymaxionSettings } from './types';
 import { generateWorld, recalculateCivs, recalculateProvinces } from './utils/worldGen';
 import { generateWorldLore } from './services/gemini';
 import { Menu, X } from 'lucide-react';
@@ -59,6 +59,14 @@ const App: React.FC = () => {
   const [showGrid, setShowGrid] = useState(false);
   const [showRivers, setShowRivers] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [dymaxionSettings, setDymaxionSettings] = useState<DymaxionSettings>({
+    layout: 'classic',
+    lon: 0,
+    lat: 0,
+    roll: 0,
+    showOverlay: true,
+    mode: 'planet',
+  });
 
   // Controller reference to persist across renders
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -269,6 +277,8 @@ const App: React.FC = () => {
           worldData={world} 
           showGrid={showGrid} setShowGrid={setShowGrid}
           showRivers={showRivers} setShowRivers={setShowRivers}
+          dymaxionSettings={dymaxionSettings}
+          onDymaxionChange={setDymaxionSettings}
         />
         <button 
           onClick={() => setSidebarOpen(false)}
@@ -298,6 +308,8 @@ const App: React.FC = () => {
             showRivers={showRivers}
             inspectMode={inspectMode}
             onInspect={setInspectedCellId}
+            dymaxionSettings={dymaxionSettings}
+            onDymaxionChange={setDymaxionSettings}
           />
         ) : (
           <Map2D
