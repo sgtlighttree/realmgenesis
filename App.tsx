@@ -64,7 +64,7 @@ const App: React.FC = () => {
     lon: 0,
     lat: 0,
     roll: 0,
-    showOverlay: true,
+    showOverlay: false,
     mode: 'planet',
   });
 

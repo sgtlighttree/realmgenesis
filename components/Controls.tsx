@@ -882,7 +882,7 @@ const Controls: React.FC<ControlsProps> = ({
                             <option value="robinson">Robinson</option>
                             <option value="mollweide">Mollweide</option>
                             <option value="orthographic">Orthographic</option>
-                            <option value="dymaxion">Dymaxion (Icosahedron)</option>
+                            <option value="dymaxion">Dymaxion (Icosahedron) (Experimental)</option>
                         </select>
                     </div>
 
@@ -899,17 +899,6 @@ const Controls: React.FC<ControlsProps> = ({
                                     />
                                     Show Overlay
                                 </label>
-                            </div>
-
-                            <div className="space-y-1">
-                                <label className="text-xs text-gray-400">Net Layout</label>
-                                <select
-                                    value={dymaxionSettings.layout}
-                                    onChange={(e) => updateDymaxion({ layout: e.target.value as DymaxionLayout })}
-                                    className="w-full bg-gray-800 text-white text-xs border border-gray-700 rounded p-2"
-                                >
-                                    <option value="classic">Classic Dymaxion</option>
-                                </select>
                             </div>
 
                             <div className="space-y-1">

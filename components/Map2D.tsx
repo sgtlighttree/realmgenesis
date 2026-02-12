@@ -38,6 +38,7 @@ const Map2D: React.FC<{
   const pendingOffset = useRef<{ x: number; y: number } | null>(null);
   const settleTimer = useRef<number | null>(null);
   const wheelTimer = useRef<number | null>(null);
+  const [renderCount, setRenderCount] = useState(0);
   const inspectEnabled = inspectMode === 'click';
 
   useEffect(() => {
@@ -88,9 +89,7 @@ const Map2D: React.FC<{
     const offscreen = offscreenRef.current ?? document.createElement('canvas');
     offscreenRef.current = offscreen;
 
-    const renderDpr = projectionType === 'dymaxion' ? 1 : qualityDpr;
-    offscreen.width = Math.max(1, Math.floor(size.width * renderDpr));
-    offscreen.height = Math.max(1, Math.floor(size.height * renderDpr));
+    const renderDpr = qualityDpr;
     const ctx = offscreen.getContext('2d');
     if (!ctx) return;
 
@@ -131,12 +130,8 @@ const Map2D: React.FC<{
 
       const canvasWidth = size.width;
       const canvasHeight = size.height;
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, offscreen.width, offscreen.height);
-      ctx.setTransform(renderDpr, 0, 0, renderDpr, 0, 0);
-
-      ctx.fillStyle = viewMode === 'satellite' || viewMode === 'biome' ? '#050505' : '#000000';
-      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+      const outWidth = Math.floor(canvasWidth * renderDpr);
+      const outHeight = Math.floor(canvasHeight * renderDpr);
 
       const net = buildDymaxionNet(dymaxionSettings?.layout || 'classic');
       const faces = net.faces;
@@ -162,10 +157,18 @@ const Map2D: React.FC<{
 
       const rotate = dymaxionSettings ? d3.geoRotation([dymaxionSettings.lon, dymaxionSettings.lat, dymaxionSettings.roll]) : null;
 
-      const output = ctx.getImageData(0, 0, Math.floor(canvasWidth * renderDpr), Math.floor(canvasHeight * renderDpr));
+      // Create a temporary canvas for heavy rendering to avoid clearing the screen too early
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = outWidth;
+      tempCanvas.height = outHeight;
+      const tCtx = tempCanvas.getContext('2d');
+      if (!tCtx) return;
+
+      tCtx.fillStyle = viewMode === 'satellite' || viewMode === 'biome' ? '#050505' : '#000000';
+      tCtx.fillRect(0, 0, outWidth, outHeight);
+
+      const output = tCtx.getImageData(0, 0, outWidth, outHeight);
       const outData = output.data;
-      const outWidth = Math.floor(canvasWidth * renderDpr);
-      const outHeight = Math.floor(canvasHeight * renderDpr);
 
       const insideTri = (p: [number, number], a: [number, number], b: [number, number], c: [number, number]) => {
         const v0 = [c[0] - a[0], c[1] - a[1]];
@@ -218,11 +221,19 @@ const Map2D: React.FC<{
         const minBY = Math.max(0, Math.floor(Math.min(a[1], b[1], c[1])));
         const maxBY = Math.min(canvasHeight - 1, Math.ceil(Math.max(a[1], b[1], c[1])));
 
-        for (let y = minBY; y <= maxBY; y++) {
-          for (let x = minBX; x <= maxBX; x++) {
-            const p: [number, number] = [x + 0.5, y + 0.5];
+        const startOY = Math.floor(minBY * renderDpr);
+        const endOY = Math.min(outHeight - 1, Math.ceil(maxBY * renderDpr));
+        const startOX = Math.floor(minBX * renderDpr);
+        const endOX = Math.min(outWidth - 1, Math.ceil(maxBX * renderDpr));
+
+        for (let oy = startOY; oy <= endOY; oy++) {
+          for (let ox = startOX; ox <= endOX; ox++) {
+            const x = ox / renderDpr;
+            const y = oy / renderDpr;
+            const p: [number, number] = [x, y];
             if (!insideTri(p, a, b, c)) continue;
-            const netPoint: [number, number] = [(p[0] - offsetX) / scale, (p[1] - offsetY) / scale];
+            
+            const netPoint: [number, number] = [(x - offsetX) / scale, (y - offsetY) / scale];
             const weights = barycentric(netPoint, face.vertices[0], face.vertices[1], face.vertices[2]);
             if (!weights) continue;
             const [u, v, w] = weights;
@@ -241,20 +252,38 @@ const Map2D: React.FC<{
             const srcX = Math.min(srcWidth - 1, Math.max(0, Math.floor((lon + 180) / 360 * srcWidth)));
             const srcY = Math.min(srcHeight - 1, Math.max(0, Math.floor((90 - lat) / 180 * srcHeight)));
             const srcIdx = (srcY * srcWidth + srcX) * 4;
-            const outIdx = (Math.floor(y * renderDpr) * outWidth + Math.floor(x * renderDpr)) * 4;
-            outData[outIdx] = srcData[srcIdx];
-            outData[outIdx + 1] = srcData[srcIdx + 1];
-            outData[outIdx + 2] = srcData[srcIdx + 2];
-            outData[outIdx + 3] = 255;
+            const outIdx = (oy * outWidth + ox) * 4;
+            if (outIdx >= 0 && outIdx < outData.length - 3) {
+              outData[outIdx] = srcData[srcIdx];
+              outData[outIdx + 1] = srcData[srcIdx + 1];
+              outData[outIdx + 2] = srcData[srcIdx + 2];
+              outData[outIdx + 3] = 255;
+            }
           }
         }
       });
 
-      ctx.putImageData(output, 0, 0);
+      tCtx.putImageData(output, 0, 0);
+      
+      // Update the main offscreen canvas only once the heavy rendering is complete
+      offscreen.width = outWidth;
+      offscreen.height = outHeight;
+      const finalCtx = offscreen.getContext('2d');
+      if (finalCtx) {
+        finalCtx.drawImage(tempCanvas, 0, 0);
+        setRenderCount(c => c + 1);
+      }
       return;
     }
 
     if (!projection) return;
+    offscreen.width = Math.max(1, Math.floor(size.width * renderDpr));
+    offscreen.height = Math.max(1, Math.floor(size.height * renderDpr));
+    // Reset ctx state after resize
+    ctx.setTransform(renderDpr, 0, 0, renderDpr, 0, 0);
+    ctx.translate(size.width, 0);
+    ctx.scale(-1, 1);
+    
     const pathGenerator = d3.geoPath(projection, ctx);
 
     for (let i = 0; i < world.cells.length; i++) {
@@ -357,7 +386,7 @@ const Map2D: React.FC<{
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.setTransform(displayDpr * scale, 0, 0, displayDpr * scale, displayDpr * offset.x, displayDpr * offset.y);
     ctx.drawImage(offscreen, 0, 0, size.width, size.height);
-  }, [size.width, size.height, scale, offset.x, offset.y, qualityDpr, viewMode, world?.params.seed]);
+  }, [size.width, size.height, scale, offset.x, offset.y, qualityDpr, viewMode, world?.params.seed, world, projectionType, renderCount]);
 
   const scaleRef = useRef(scale);
   const offsetRef = useRef(offset);
