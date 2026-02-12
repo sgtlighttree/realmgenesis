@@ -1,13 +1,28 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { WorldData, LoreData, BiomeType, CivData } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+let ai: GoogleGenAI | null = null;
+let runtimeKey: string | null = null;
+
+export const setRuntimeApiKey = (key: string) => {
+    runtimeKey = key;
+    ai = null; // Reset instance to use new key
+};
+
+const getAI = () => {
+    if (ai) return ai;
+    const key = runtimeKey || process.env.API_KEY || '';
+    if (!key) return null;
+    ai = new GoogleGenAI({ apiKey: key });
+    return ai;
+};
 
 export const generateWorldLore = async (world: WorldData): Promise<LoreData> => {
-  if (!process.env.API_KEY) {
+  const aiInstance = getAI();
+  if (!aiInstance) {
     return {
-      name: "Unknown World",
-      description: "API Key missing.",
+      name: "Lore Disabled",
+      description: "Please provide a Gemini API Key in the System settings to enable AI features.",
     };
   }
   
@@ -79,7 +94,10 @@ export const generateWorldLore = async (world: WorldData): Promise<LoreData> => 
   }
 
   try {
-    const response = await ai.models.generateContent({
+    const aiInstance = getAI();
+    if (!aiInstance) throw new Error("GoogleGenAI not initialized. API Key likely missing.");
+
+    const response = await aiInstance.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {

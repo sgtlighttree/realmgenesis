@@ -29,6 +29,8 @@ interface ControlsProps {
   setShowRivers: (b: boolean) => void;
   dymaxionSettings: DymaxionSettings;
   onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>;
+  apiKey: string;
+  onApiKeyChange: (key: string) => void;
 }
 
 type Tab = 'geo' | 'climate' | 'political' | 'system' | 'export';
@@ -80,7 +82,9 @@ const Controls: React.FC<ControlsProps> = ({
   showRivers,
   setShowRivers,
   dymaxionSettings,
-  onDymaxionChange
+  onDymaxionChange,
+  apiKey,
+  onApiKeyChange
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('system');
   const [seedLocked, setSeedLocked] = useState(false);
@@ -462,6 +466,33 @@ const Controls: React.FC<ControlsProps> = ({
                 <ViewButton mode="political" icon={Flag} label="Borders" />
               </div>
             </div>
+
+            <div className="pt-4 border-t border-gray-800 space-y-3">
+              <h3 className="text-xs font-semibold text-gray-500 mb-2">AI Settings (BYOK)</h3>
+              <div className="bg-gray-900 p-3 rounded-lg border border-gray-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs text-gray-400">Gemini API Key</label>
+                  <a 
+                    href="https://aistudio.google.com/app/apikey" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-[10px] text-blue-400 hover:underline flex items-center gap-1"
+                  >
+                    Get Key <Layers size={8} />
+                  </a>
+                </div>
+                <input 
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => onApiKeyChange(e.target.value)}
+                  placeholder="Paste your API key here..."
+                  className="w-full bg-black border border-gray-700 rounded px-2 py-1.5 text-white text-xs"
+                />
+                <p className="text-[9px] text-gray-500 italic">
+                  Key is stored ephemerally in memory and will be lost on refresh.
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
@@ -818,12 +849,21 @@ const Controls: React.FC<ControlsProps> = ({
                   <h2 className="text-xs font-semibold text-gray-300">AI Lore</h2>
                    <button 
                     onClick={onGenerateLore}
-                    disabled={generatingLore}
-                    className="text-[10px] bg-blue-900/50 text-blue-300 px-2 py-1 rounded hover:bg-blue-900 disabled:opacity-50"
+                    disabled={generatingLore || !apiKey}
+                    className={`text-[10px] px-2 py-1 rounded transition-colors ${
+                      apiKey 
+                        ? 'bg-blue-900/50 text-blue-300 hover:bg-blue-900 border border-blue-800' 
+                        : 'bg-gray-800 text-gray-500 cursor-not-allowed border border-gray-700'
+                    }`}
                   >
                     {generatingLore ? 'Thinking...' : 'Generate'}
                   </button>
                 </div>
+                {!apiKey && (
+                  <p className="text-[9px] text-yellow-500/80 bg-yellow-500/10 p-1.5 rounded border border-yellow-500/20 mb-2">
+                    Enter a Gemini API Key in the "Sys" tab to enable AI lore.
+                  </p>
+                )}
                 {lore ? (
                   <div className="space-y-2">
                     <h3 className="font-bold text-white text-xs">{lore.name}</h3>

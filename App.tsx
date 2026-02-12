@@ -7,7 +7,7 @@ import Inspector from './components/Inspector';
 import { BiomeLegend } from './components/Legend';
 import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode, InspectMode, DymaxionSettings } from './types';
 import { generateWorld, recalculateCivs, recalculateProvinces } from './utils/worldGen';
-import { generateWorldLore } from './services/gemini';
+import { generateWorldLore, setRuntimeApiKey } from './services/gemini';
 import { Menu, X } from 'lucide-react';
 
 const DEFAULT_PARAMS: WorldParams = {
@@ -67,6 +67,12 @@ const App: React.FC = () => {
     showOverlay: false,
     mode: 'planet',
   });
+
+  const [apiKey, setApiKey] = useState('');
+
+  useEffect(() => {
+    setRuntimeApiKey(apiKey);
+  }, [apiKey]);
 
   // Controller reference to persist across renders
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -142,29 +148,29 @@ const App: React.FC = () => {
          
          // 2. Restore Saved Metadata (Names, Descriptions, Colors)
          if (savedCivData && newWorld.civData) {
-             addLog("Restoring historical records...");
-             savedCivData.factions.forEach(savedF => {
-                 // Match by ID since seed is identical
-                 const genF = newWorld.civData?.factions.find(f => f.id === savedF.id);
-                 if (genF) {
-                     genF.name = savedF.name;
-                     genF.color = savedF.color;
-                     genF.description = savedF.description;
-                     
-                     // Restore province names
-                     savedF.provinces.forEach((savedP, idx) => {
-                         if (genF.provinces[idx]) {
-                             genF.provinces[idx].name = savedP.name;
-                             // Restore town names
-                             savedP.towns.forEach((savedT, tIdx) => {
-                                 if (genF.provinces[idx].towns[tIdx]) {
-                                     genF.provinces[idx].towns[tIdx].name = savedT.name;
-                                 }
-                             });
-                         }
-                     });
-                 }
-             });
+              addLog("Restoring historical records...");
+              savedCivData.factions.forEach(savedF => {
+                  // Match by ID since seed is identical
+                  const genF = newWorld.civData?.factions.find(f => f.id === savedF.id);
+                  if (genF) {
+                      genF.name = savedF.name;
+                      genF.color = savedF.color;
+                      genF.description = savedF.description;
+                      
+                      // Restore province names
+                      savedF.provinces.forEach((savedP, idx) => {
+                          if (genF.provinces[idx]) {
+                              genF.provinces[idx].name = savedP.name;
+                              // Restore town names
+                              savedP.towns.forEach((savedT, tIdx) => {
+                                  if (genF.provinces[idx].towns[tIdx]) {
+                                      genF.provinces[idx].towns[tIdx].name = savedT.name;
+                                  }
+                              });
+                          }
+                      });
+                  }
+              });
          }
 
          setWorld(newWorld);
@@ -248,9 +254,9 @@ const App: React.FC = () => {
       setLore(newLore);
       setWorld({ ...world });
       addLog('Lore Received.');
-    } catch (e) { 
+    } catch (e: any) { 
         console.error("Lore gen failed", e);
-        addLog(`Lore Error: ${(e as Error).message}`);
+        addLog(`Lore Error: ${e.message}`);
     }
     finally { setIsLoreLoading(false); }
   };
@@ -279,6 +285,8 @@ const App: React.FC = () => {
           showRivers={showRivers} setShowRivers={setShowRivers}
           dymaxionSettings={dymaxionSettings}
           onDymaxionChange={setDymaxionSettings}
+          apiKey={apiKey}
+          onApiKeyChange={setApiKey}
         />
         <button 
           onClick={() => setSidebarOpen(false)}
