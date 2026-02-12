@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { WorldData, ViewMode, InspectMode } from '../types';
 import { getCellColor } from '../utils/colors';
@@ -179,31 +179,52 @@ const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode; inspectMode
     ctx.drawImage(offscreen, 0, 0, size.width, size.height);
   }, [size.width, size.height, scale, offset.x, offset.y, qualityDpr, viewMode, world?.params.seed]);
 
-  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
+  const scaleRef = useRef(scale);
+  const offsetRef = useRef(offset);
+
+  useEffect(() => {
+    scaleRef.current = scale;
+  }, [scale]);
+
+  useEffect(() => {
+    offsetRef.current = offset;
+  }, [offset]);
+
+  const handleWheel = useCallback((event: WheelEvent) => {
+    event.preventDefault();
     setIsInteracting(true);
     if (wheelTimer.current) window.clearTimeout(wheelTimer.current);
     wheelTimer.current = window.setTimeout(() => {
       setIsInteracting(false);
       wheelTimer.current = null;
     }, 180);
-    const rect = e.currentTarget.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const mx = event.clientX - rect.left;
+    const my = event.clientY - rect.top;
 
-    const prevScale = scale;
-    const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+    const prevScale = scaleRef.current;
+    const zoomFactor = event.deltaY < 0 ? 1.1 : 0.9;
     const nextScale = clamp(prevScale * zoomFactor, 0.6, 6);
 
-    const worldX = (mx - offset.x) / prevScale;
-    const worldY = (my - offset.y) / prevScale;
+    const prevOffset = offsetRef.current;
+    const worldX = (mx - prevOffset.x) / prevScale;
+    const worldY = (my - prevOffset.y) / prevScale;
 
     const nextOffsetX = mx - worldX * nextScale;
     const nextOffsetY = my - worldY * nextScale;
 
     setScale(nextScale);
     setOffset({ x: nextOffsetX, y: nextOffsetY });
-  };
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const listener = (event: WheelEvent) => handleWheel(event);
+    canvas.addEventListener('wheel', listener, { passive: false });
+    return () => canvas.removeEventListener('wheel', listener);
+  }, [handleWheel]);
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     dragging.current = true;
@@ -245,6 +266,16 @@ const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode; inspectMode
     onInspect(id === 0 ? null : id - 1);
   };
 
+  const handleHover = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (inspectMode !== 'hover' || dragging.current) return;
+    pickAt(e.clientX, e.clientY);
+  };
+
+  const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (inspectMode !== 'click') return;
+    pickAt(e.clientX, e.clientY);
+  };
+
   const endDrag = () => {
     dragging.current = false;
     setIsInteracting(false);
@@ -262,7 +293,6 @@ const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode; inspectMode
       <canvas
         ref={canvasRef}
         className="w-full h-full cursor-grab active:cursor-grabbing"
-        onWheel={handleWheel}
         onMouseDown={handleMouseDown}
         onMouseMove={(e) => { handleMouseMove(e); handleHover(e); }}
         onMouseUp={handleMouseUp}
