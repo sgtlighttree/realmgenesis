@@ -20,7 +20,9 @@ const Map2D: React.FC<{
   highlightCellId?: number | null;
   projectionType?: 'mercator' | 'dymaxion';
   dymaxionSettings?: DymaxionSettings;
-}> = ({ world, viewMode, inspectMode, onInspect, highlightCellId = null, projectionType = 'mercator', dymaxionSettings }) => {
+  showGrid?: boolean;
+  showRivers?: boolean;
+}> = ({ world, viewMode, inspectMode, onInspect, highlightCellId = null, projectionType = 'mercator', dymaxionSettings, showGrid = false, showRivers = true }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
@@ -123,6 +125,44 @@ const Map2D: React.FC<{
         srcCtx.fillStyle = '#' + color.getHexString();
         srcCtx.fill();
       }
+
+      // Draw Grid on source equirectangular canvas
+      if (showGrid) {
+        srcCtx.strokeStyle = 'rgba(255,255,255,0.15)';
+        srcCtx.lineWidth = 1;
+        srcCtx.beginPath();
+        pathGenerator(d3.geoGraticule().step([10, 10])());
+        srcCtx.stroke();
+      }
+
+      // Draw Rivers on source equirectangular canvas
+      if (showRivers && world.rivers) {
+        srcCtx.strokeStyle = '#38bdf8';
+        srcCtx.lineWidth = Math.max(0.5, 1.5 / renderDpr);
+        srcCtx.globalAlpha = 0.8;
+        world.rivers.forEach(path => {
+          if (path.length < 2) return;
+          srcCtx.beginPath();
+          let lastLon: number | null = null;
+          path.forEach((p, i) => {
+            const lon = Math.atan2(p.z, p.x) * (180 / Math.PI);
+            const lat = Math.asin(Math.max(-1, Math.min(1, p.y))) * (180 / Math.PI);
+            
+            // Detect antimeridian crossing
+            const isJump = lastLon !== null && Math.abs(lon - lastLon) > 180;
+            
+            const pt = projection([lon, lat]);
+            if (pt) {
+              if (i === 0 || isJump) srcCtx.moveTo(pt[0], pt[1]);
+              else srcCtx.lineTo(pt[0], pt[1]);
+            }
+            lastLon = lon;
+          });
+          srcCtx.stroke();
+        });
+        srcCtx.globalAlpha = 1.0;
+      }
+
       srcCtx.restore();
 
       const srcImage = srcCtx.getImageData(0, 0, srcWidth, srcHeight);
@@ -296,6 +336,43 @@ const Map2D: React.FC<{
       ctx.fill();
     }
 
+    // Draw Grid (Mercator)
+    if (showGrid) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      pathGenerator(d3.geoGraticule().step([10, 10])());
+      ctx.stroke();
+    }
+
+    // Draw Rivers (Mercator)
+    if (showRivers && world.rivers) {
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.5 / qualityDpr;
+      ctx.globalAlpha = 0.8;
+      world.rivers.forEach(path => {
+        if (path.length < 2) return;
+        ctx.beginPath();
+        let lastLon: number | null = null;
+        path.forEach((p, i) => {
+          const lon = Math.atan2(p.z, p.x) * (180 / Math.PI);
+          const lat = Math.asin(Math.max(-1, Math.min(1, p.y))) * (180 / Math.PI);
+          
+          // Detect antimeridian crossing
+          const isJump = lastLon !== null && Math.abs(lon - lastLon) > 180;
+          
+          const pt = projection([lon, lat]);
+          if (pt) {
+            if (i === 0 || isJump) ctx.moveTo(pt[0], pt[1]);
+            else ctx.lineTo(pt[0], pt[1]);
+          }
+          lastLon = lon;
+        });
+        ctx.stroke();
+      });
+      ctx.globalAlpha = 1.0;
+    }
+
     if (viewMode === 'political') {
       ctx.save();
       ctx.globalAlpha = 0.25;
@@ -337,7 +414,9 @@ const Map2D: React.FC<{
     dymaxionSettings?.layout,
     dymaxionSettings?.lon,
     dymaxionSettings?.lat,
-    dymaxionSettings?.roll
+    dymaxionSettings?.roll,
+    showGrid,
+    showRivers
   ]);
 
   useEffect(() => {
