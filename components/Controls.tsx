@@ -346,6 +346,7 @@ const Controls: React.FC<ControlsProps> = ({
                <div className="flex gap-2">
                  <DisplayButton mode="globe" label="3D Globe" />
                  <DisplayButton mode="mercator" label="2D Mercator" />
+                 <DisplayButton mode="dymaxion" label="2D Dymaxion" />
                </div>
              </div>
 

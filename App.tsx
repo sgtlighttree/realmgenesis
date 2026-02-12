@@ -317,6 +317,8 @@ const App: React.FC = () => {
             viewMode={viewMode}
             inspectMode={inspectMode}
             onInspect={setInspectedCellId}
+            projectionType={displayMode === 'dymaxion' ? 'dymaxion' : 'mercator'}
+            dymaxionSettings={dymaxionSettings}
           />
         )}
 

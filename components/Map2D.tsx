@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { WorldData, ViewMode, InspectMode } from '../types';
+import { WorldData, ViewMode, InspectMode, DymaxionSettings } from '../types';
 import { getCellColor } from '../utils/colors';
+import { buildDymaxionNet } from '../utils/dymaxion';
 
 type Size = { width: number; height: number };
 
@@ -11,7 +12,15 @@ const MAX_SHARP_DPR = 3;
 const MAX_SHARP_SCALE = 2.5;
 const SETTLE_MS = 200;
 
-const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; highlightCellId: number | null; }> = ({ world, viewMode, inspectMode, onInspect, highlightCellId }) => {
+const Map2D: React.FC<{
+  world: WorldData | null;
+  viewMode: ViewMode;
+  inspectMode: InspectMode;
+  onInspect: (cellId: number | null) => void;
+  highlightCellId?: number | null;
+  projectionType?: 'mercator' | 'dymaxion';
+  dymaxionSettings?: DymaxionSettings;
+}> = ({ world, viewMode, inspectMode, onInspect, highlightCellId = null, projectionType = 'mercator', dymaxionSettings }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
@@ -70,11 +79,12 @@ const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode; inspectMode
 
   const projection = useMemo(() => {
     if (!size.width || !size.height) return null;
+    if (projectionType === 'dymaxion') return null;
     return d3.geoMercator().fitSize([size.width, size.height], { type: 'Sphere' } as any);
-  }, [size.width, size.height]);
+  }, [size.width, size.height, projectionType]);
 
   useEffect(() => {
-    if (!world || !projection || !size.width || !size.height) return;
+    if (!world || !size.width || !size.height) return;
     const offscreen = offscreenRef.current ?? document.createElement('canvas');
     offscreenRef.current = offscreen;
 
@@ -89,6 +99,161 @@ const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode; inspectMode
     ctx.translate(size.width, 0);
     ctx.scale(-1, 1);
 
+    if (projectionType === 'dymaxion') {
+      const srcWidth = offscreen.width;
+      const srcHeight = Math.max(1, Math.round(srcWidth / 2));
+      const source = document.createElement('canvas');
+      source.width = srcWidth;
+      source.height = srcHeight;
+      const srcCtx = source.getContext('2d');
+      if (!srcCtx) return;
+      const projection = d3.geoEquirectangular().fitSize([srcWidth, srcHeight], { type: 'Sphere' } as any);
+      const pathGenerator = d3.geoPath(projection, srcCtx);
+      srcCtx.fillStyle = viewMode === 'satellite' || viewMode === 'biome' ? '#050505' : '#000000';
+      srcCtx.fillRect(0, 0, srcWidth, srcHeight);
+      srcCtx.save();
+      srcCtx.translate(srcWidth, 0);
+      srcCtx.scale(-1, 1);
+      for (let i = 0; i < world.cells.length; i++) {
+        const feature = world.geoJson?.features?.[i];
+        if (!feature || !feature.geometry) continue;
+        const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel);
+        srcCtx.beginPath();
+        pathGenerator(feature);
+        srcCtx.fillStyle = '#' + color.getHexString();
+        srcCtx.fill();
+      }
+      srcCtx.restore();
+
+      const srcImage = srcCtx.getImageData(0, 0, srcWidth, srcHeight);
+      const srcData = srcImage.data;
+
+      const canvasWidth = size.width;
+      const canvasHeight = size.height;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, offscreen.width, offscreen.height);
+      ctx.setTransform(qualityDpr, 0, 0, qualityDpr, 0, 0);
+
+      ctx.fillStyle = viewMode === 'satellite' || viewMode === 'biome' ? '#050505' : '#000000';
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+      const net = buildDymaxionNet(dymaxionSettings?.layout || 'classic');
+      const faces = net.faces;
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      faces.forEach((face) => {
+        face.vertices.forEach((v) => {
+          minX = Math.min(minX, v[0]);
+          minY = Math.min(minY, v[1]);
+          maxX = Math.max(maxX, v[0]);
+          maxY = Math.max(maxY, v[1]);
+        });
+      });
+
+      const pad = 8;
+      const netWidth = Math.max(1e-6, maxX - minX);
+      const netHeight = Math.max(1e-6, maxY - minY);
+      const scale = Math.min((canvasWidth - pad * 2) / netWidth, (canvasHeight - pad * 2) / netHeight);
+      const offsetX = (canvasWidth - netWidth * scale) / 2 - minX * scale;
+      const offsetY = (canvasHeight - netHeight * scale) / 2 - minY * scale;
+
+      const rotate = dymaxionSettings ? d3.geoRotation([dymaxionSettings.lon, dymaxionSettings.lat, dymaxionSettings.roll]) : null;
+
+      const output = ctx.getImageData(0, 0, Math.floor(canvasWidth * qualityDpr), Math.floor(canvasHeight * qualityDpr));
+      const outData = output.data;
+      const outWidth = Math.floor(canvasWidth * qualityDpr);
+      const outHeight = Math.floor(canvasHeight * qualityDpr);
+
+      const insideTri = (p: [number, number], a: [number, number], b: [number, number], c: [number, number]) => {
+        const v0 = [c[0] - a[0], c[1] - a[1]];
+        const v1 = [b[0] - a[0], b[1] - a[1]];
+        const v2 = [p[0] - a[0], p[1] - a[1]];
+        const dot00 = v0[0] * v0[0] + v0[1] * v0[1];
+        const dot01 = v0[0] * v1[0] + v0[1] * v1[1];
+        const dot02 = v0[0] * v2[0] + v0[1] * v2[1];
+        const dot11 = v1[0] * v1[0] + v1[1] * v1[1];
+        const dot12 = v1[0] * v2[0] + v1[1] * v2[1];
+        const invDenom = 1 / (dot00 * dot11 - dot01 * dot01);
+        const u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+        const v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+        return u >= -1e-6 && v >= -1e-6 && u + v <= 1 + 1e-6;
+      };
+
+      const barycentric = (p: [number, number], a: [number, number], b: [number, number], c: [number, number]) => {
+        const v0 = [b[0] - a[0], b[1] - a[1]];
+        const v1 = [c[0] - a[0], c[1] - a[1]];
+        const v2 = [p[0] - a[0], p[1] - a[1]];
+        const d00 = v0[0] * v0[0] + v0[1] * v0[1];
+        const d01 = v0[0] * v1[0] + v0[1] * v1[1];
+        const d11 = v1[0] * v1[0] + v1[1] * v1[1];
+        const d20 = v2[0] * v0[0] + v2[1] * v0[1];
+        const d21 = v2[0] * v1[0] + v2[1] * v1[1];
+        const denom = d00 * d11 - d01 * d01;
+        if (!denom) return null;
+        const v = (d11 * d20 - d01 * d21) / denom;
+        const w = (d00 * d21 - d01 * d20) / denom;
+        const u = 1 - v - w;
+        return [u, v, w] as [number, number, number];
+      };
+
+      const normalizeVec = (v: [number, number, number]) => {
+        const len = Math.hypot(v[0], v[1], v[2]) || 1;
+        return [v[0] / len, v[1] / len, v[2] / len] as [number, number, number];
+      };
+
+      const toLonLat = (v: [number, number, number]) => {
+        const lon = Math.atan2(v[2], v[0]) * (180 / Math.PI);
+        const lat = Math.asin(Math.max(-1, Math.min(1, v[1]))) * (180 / Math.PI);
+        return [lon, lat] as [number, number];
+      };
+
+      faces.forEach((face) => {
+        const verts = face.vertices.map((v) => [v[0] * scale + offsetX, v[1] * scale + offsetY]) as [number, number][];
+        const [a, b, c] = verts;
+        const minBX = Math.max(0, Math.floor(Math.min(a[0], b[0], c[0])));
+        const maxBX = Math.min(canvasWidth - 1, Math.ceil(Math.max(a[0], b[0], c[0])));
+        const minBY = Math.max(0, Math.floor(Math.min(a[1], b[1], c[1])));
+        const maxBY = Math.min(canvasHeight - 1, Math.ceil(Math.max(a[1], b[1], c[1])));
+
+        for (let y = minBY; y <= maxBY; y++) {
+          for (let x = minBX; x <= maxBX; x++) {
+            const p: [number, number] = [x + 0.5, y + 0.5];
+            if (!insideTri(p, a, b, c)) continue;
+            const netPoint: [number, number] = [(p[0] - offsetX) / scale, (p[1] - offsetY) / scale];
+            const weights = barycentric(netPoint, face.vertices[0], face.vertices[1], face.vertices[2]);
+            if (!weights) continue;
+            const [u, v, w] = weights;
+            const v0 = face.vertices3D[0];
+            const v1 = face.vertices3D[1];
+            const v2 = face.vertices3D[2];
+            const p3 = normalizeVec([
+              u * v0[0] + v * v1[0] + w * v2[0],
+              u * v0[1] + v * v1[1] + w * v2[1],
+              u * v0[2] + v * v1[2] + w * v2[2]
+            ]);
+            const lonLat = toLonLat(p3);
+            const rotated = rotate ? rotate(lonLat) : lonLat;
+            const lon = rotated[0];
+            const lat = rotated[1];
+            const srcX = Math.min(srcWidth - 1, Math.max(0, Math.floor((lon + 180) / 360 * srcWidth)));
+            const srcY = Math.min(srcHeight - 1, Math.max(0, Math.floor((90 - lat) / 180 * srcHeight)));
+            const srcIdx = (srcY * srcWidth + srcX) * 4;
+            const outIdx = (Math.floor(y * qualityDpr) * outWidth + Math.floor(x * qualityDpr)) * 4;
+            outData[outIdx] = srcData[srcIdx];
+            outData[outIdx + 1] = srcData[srcIdx + 1];
+            outData[outIdx + 2] = srcData[srcIdx + 2];
+            outData[outIdx + 3] = 255;
+          }
+        }
+      });
+
+      ctx.putImageData(output, 0, 0);
+      return;
+    }
+
+    if (!projection) return;
     const pathGenerator = d3.geoPath(projection, ctx);
 
     for (let i = 0; i < world.cells.length; i++) {
@@ -130,9 +295,10 @@ const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode; inspectMode
         ctx.restore();
       }
     }
-  }, [projection, size.width, size.height, world, viewMode, qualityDpr, highlightCellId]);
+  }, [projection, size.width, size.height, world, viewMode, qualityDpr, highlightCellId, projectionType, dymaxionSettings]);
 
   useEffect(() => {
+    if (projectionType === 'dymaxion') return;
     if (!world || !projection || !size.width || !size.height) return;
     const pickCanvas = pickCanvasRef.current ?? document.createElement('canvas');
     pickCanvasRef.current = pickCanvas;
@@ -160,7 +326,7 @@ const Map2D: React.FC<{ world: WorldData | null; viewMode: ViewMode; inspectMode
       ctx.fillStyle = `rgb(${r},${g},${b})`;
       ctx.fill();
     }
-  }, [projection, size.width, size.height, world]);
+  }, [projection, size.width, size.height, world, projectionType]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
