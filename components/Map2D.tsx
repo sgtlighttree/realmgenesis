@@ -88,19 +88,20 @@ const Map2D: React.FC<{
     const offscreen = offscreenRef.current ?? document.createElement('canvas');
     offscreenRef.current = offscreen;
 
-    offscreen.width = Math.max(1, Math.floor(size.width * qualityDpr));
-    offscreen.height = Math.max(1, Math.floor(size.height * qualityDpr));
+    const renderDpr = projectionType === 'dymaxion' ? 1 : qualityDpr;
+    offscreen.width = Math.max(1, Math.floor(size.width * renderDpr));
+    offscreen.height = Math.max(1, Math.floor(size.height * renderDpr));
     const ctx = offscreen.getContext('2d');
     if (!ctx) return;
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, offscreen.width, offscreen.height);
-    ctx.setTransform(qualityDpr, 0, 0, qualityDpr, 0, 0);
+    ctx.setTransform(renderDpr, 0, 0, renderDpr, 0, 0);
     ctx.translate(size.width, 0);
     ctx.scale(-1, 1);
 
     if (projectionType === 'dymaxion') {
-      const srcWidth = offscreen.width;
+      const srcWidth = Math.max(1, Math.floor(size.width * renderDpr));
       const srcHeight = Math.max(1, Math.round(srcWidth / 2));
       const source = document.createElement('canvas');
       source.width = srcWidth;
@@ -132,7 +133,7 @@ const Map2D: React.FC<{
       const canvasHeight = size.height;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, offscreen.width, offscreen.height);
-      ctx.setTransform(qualityDpr, 0, 0, qualityDpr, 0, 0);
+      ctx.setTransform(renderDpr, 0, 0, renderDpr, 0, 0);
 
       ctx.fillStyle = viewMode === 'satellite' || viewMode === 'biome' ? '#050505' : '#000000';
       ctx.fillRect(0, 0, canvasWidth, canvasHeight);
@@ -161,10 +162,10 @@ const Map2D: React.FC<{
 
       const rotate = dymaxionSettings ? d3.geoRotation([dymaxionSettings.lon, dymaxionSettings.lat, dymaxionSettings.roll]) : null;
 
-      const output = ctx.getImageData(0, 0, Math.floor(canvasWidth * qualityDpr), Math.floor(canvasHeight * qualityDpr));
+      const output = ctx.getImageData(0, 0, Math.floor(canvasWidth * renderDpr), Math.floor(canvasHeight * renderDpr));
       const outData = output.data;
-      const outWidth = Math.floor(canvasWidth * qualityDpr);
-      const outHeight = Math.floor(canvasHeight * qualityDpr);
+      const outWidth = Math.floor(canvasWidth * renderDpr);
+      const outHeight = Math.floor(canvasHeight * renderDpr);
 
       const insideTri = (p: [number, number], a: [number, number], b: [number, number], c: [number, number]) => {
         const v0 = [c[0] - a[0], c[1] - a[1]];
@@ -240,7 +241,7 @@ const Map2D: React.FC<{
             const srcX = Math.min(srcWidth - 1, Math.max(0, Math.floor((lon + 180) / 360 * srcWidth)));
             const srcY = Math.min(srcHeight - 1, Math.max(0, Math.floor((90 - lat) / 180 * srcHeight)));
             const srcIdx = (srcY * srcWidth + srcX) * 4;
-            const outIdx = (Math.floor(y * qualityDpr) * outWidth + Math.floor(x * qualityDpr)) * 4;
+            const outIdx = (Math.floor(y * renderDpr) * outWidth + Math.floor(x * renderDpr)) * 4;
             outData[outIdx] = srcData[srcIdx];
             outData[outIdx + 1] = srcData[srcIdx + 1];
             outData[outIdx + 2] = srcData[srcIdx + 2];
@@ -295,7 +296,20 @@ const Map2D: React.FC<{
         ctx.restore();
       }
     }
-  }, [projection, size.width, size.height, world, viewMode, qualityDpr, highlightCellId, projectionType, dymaxionSettings]);
+  }, [
+    projection,
+    size.width,
+    size.height,
+    world,
+    viewMode,
+    qualityDpr,
+    highlightCellId,
+    projectionType,
+    dymaxionSettings?.layout,
+    dymaxionSettings?.lon,
+    dymaxionSettings?.lat,
+    dymaxionSettings?.roll
+  ]);
 
   useEffect(() => {
     if (projectionType === 'dymaxion') return;

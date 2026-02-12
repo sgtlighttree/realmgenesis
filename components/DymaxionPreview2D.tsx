@@ -89,7 +89,7 @@ const wrapAngle = (v: number) => {
   return out;
 };
 
-const DymaxionPreview2D: React.FC<Props> = ({ world, viewMode, settings, onChange, width = 360, height = 180 }) => {
+const DymaxionPreview2D: React.FC<Props> = ({ world, viewMode, settings, onChange, width = 240, height = 120 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const edges = useMemo(buildEdges, []);
   const dragging = useRef(false);
@@ -102,8 +102,8 @@ const DymaxionPreview2D: React.FC<Props> = ({ world, viewMode, settings, onChang
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = Math.floor(width * dpr);
     canvas.height = Math.floor(height * dpr);
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
+      canvas.style.width = '100%';
+      canvas.style.height = 'auto';
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -193,7 +193,7 @@ const DymaxionPreview2D: React.FC<Props> = ({ world, viewMode, settings, onChang
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        className="w-full h-auto rounded border border-gray-800"
+        className="block w-full rounded border border-gray-800"
       />
     </div>
   );
