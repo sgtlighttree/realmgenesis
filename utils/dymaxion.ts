@@ -249,38 +249,12 @@ const buildAdjacency = (faces: Face[]) => {
   return adjacency;
 };
 
-const buildParents = (layout: DymaxionLayout, adjacency: number[][]) => {
+const buildParents = (_layout: DymaxionLayout, adjacency: number[][]) => {
   // Explicit spanning trees for known Dymaxion-style nets.
   const parents = new Array(adjacency.length).fill(-1);
-
-  if (layout === 'classic') {
-    const root = 5;
-    parents[15] = 5;
-    parents[6] = 15;
-    parents[16] = 6;
-    parents[7] = 16;
-    parents[17] = 7;
-    parents[8] = 17;
-    parents[18] = 8;
-    parents[9] = 18;
-    parents[19] = 9;
-
-    parents[1] = 5;
-    parents[0] = 6;
-    parents[4] = 7;
-    parents[3] = 8;
-    parents[2] = 9;
-
-    parents[10] = 15;
-    parents[11] = 16;
-    parents[12] = 17;
-    parents[13] = 18;
-    parents[14] = 19;
-
-    return { root, parents };
-  }
-
-  const root = 6;
+  const root = 5;
+  parents[15] = 5;
+  parents[6] = 15;
   parents[16] = 6;
   parents[7] = 16;
   parents[17] = 7;
@@ -288,20 +262,18 @@ const buildParents = (layout: DymaxionLayout, adjacency: number[][]) => {
   parents[18] = 8;
   parents[9] = 18;
   parents[19] = 9;
-  parents[5] = 19;
-  parents[15] = 5;
 
+  parents[1] = 5;
   parents[0] = 6;
   parents[4] = 7;
   parents[3] = 8;
   parents[2] = 9;
-  parents[1] = 5;
 
+  parents[10] = 15;
   parents[11] = 16;
   parents[12] = 17;
   parents[13] = 18;
   parents[14] = 19;
-  parents[10] = 15;
 
   return { root, parents };
 };

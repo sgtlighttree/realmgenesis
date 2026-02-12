@@ -216,7 +216,7 @@ const FactionBorders: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ wo
 
 const DymaxionOverlay: React.FC<{ settings: DymaxionSettings }> = ({ settings }) => {
   const { faceGeometry, edgeGeometry } = useMemo(() => {
-    const faceGeometry = new THREE.IcosahedronGeometry(1.08, 0);
+    const faceGeometry = new THREE.IcosahedronGeometry(1.12, 0);
     const edgeGeometry = new THREE.EdgesGeometry(faceGeometry);
     return { faceGeometry, edgeGeometry };
   }, []);

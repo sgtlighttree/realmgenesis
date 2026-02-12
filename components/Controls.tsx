@@ -909,7 +909,6 @@ const Controls: React.FC<ControlsProps> = ({
                                     className="w-full bg-gray-800 text-white text-xs border border-gray-700 rounded p-2"
                                 >
                                     <option value="classic">Classic Dymaxion</option>
-                                    <option value="airocean">Airocean (experimental)</option>
                                 </select>
                             </div>
 
