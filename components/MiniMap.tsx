@@ -22,10 +22,12 @@ const MiniMap: React.FC<MiniMapProps> = ({ world, viewMode }) => {
     ctx.fillStyle = '#111'; ctx.fillRect(0, 0, width, height);
     ctx.save();
     ctx.translate(width, 0); ctx.scale(-1, 1);
-    const projection = d3.geoEquirectangular().fitSize([width, height], { type: "Sphere" } as any);
+    const projection = d3.geoEquirectangular().fitSize([width, height], { type: "Sphere" } as d3.GeoPermissibleObjects);
     const pathGenerator = d3.geoPath(projection, ctx);
     world.cells.forEach((cell, i) => {
+        // eslint-disable-next-line security/detect-object-injection, nosemgrep
         if (!world.geoJson || !world.geoJson.features[i]) return;
+        // eslint-disable-next-line security/detect-object-injection
         const feature = world.geoJson.features[i];
         if (!feature.geometry || feature.geometry.coordinates.length === 0) return;
         const color = getCellColor(cell, viewMode, world.params.seaLevel);
@@ -40,7 +42,7 @@ const MiniMap: React.FC<MiniMapProps> = ({ world, viewMode }) => {
   return (
     <div className="absolute bottom-4 right-4 bg-black/80 border border-gray-700 rounded-lg shadow-2xl overflow-hidden z-10 transition-all duration-300">
       <button 
-        onClick={() => setIsCollapsed(!isCollapsed)}
+        onClick={() => { setIsCollapsed(!isCollapsed); }}
         className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] text-gray-400 font-bold uppercase hover:text-white transition-colors"
       >
         <span>2D Projection</span>

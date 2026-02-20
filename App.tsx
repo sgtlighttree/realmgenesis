@@ -293,7 +293,7 @@ const App: React.FC = () => {
           onApiKeyChange={setApiKey}
         />
         <button 
-          onClick={() => setSidebarOpen(false)}
+          onClick={() => { setSidebarOpen(false); }}
           className="md:hidden absolute -top-12 right-4 bg-gray-900 text-white p-2 rounded-full border border-gray-700 shadow-lg"
         >
           <X size={20} />
@@ -303,7 +303,7 @@ const App: React.FC = () => {
       {/* Floating menu button - Top Left to avoid overlapping with bottom overlays */}
       {!sidebarOpen && (
         <button 
-          onClick={() => setSidebarOpen(true)}
+          onClick={() => { setSidebarOpen(true); }}
           className="fixed top-4 left-4 z-40 bg-blue-600 text-white p-3 rounded-full shadow-2xl hover:bg-blue-500 md:hidden border border-white/10"
         >
           <Menu size={24} />
@@ -352,7 +352,7 @@ const App: React.FC = () => {
           inspectMode={inspectMode}
           collapsed={inspectorCollapsed}
           onToggleEnabled={toggleInspectEnabled}
-          onToggleCollapsed={() => setInspectorCollapsed(v => !v)}
+          onToggleCollapsed={() => { setInspectorCollapsed(v => !v); }}
         />
       </main>
     </div>

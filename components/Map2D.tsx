@@ -395,6 +395,7 @@ const Map2D: React.FC<{
     }
 
     if (highlightCellId !== null) {
+      // eslint-disable-next-line security/detect-object-injection
       const feature = world.geoJson?.features?.[highlightCellId];
       if (feature && feature.geometry) {
         ctx.save();

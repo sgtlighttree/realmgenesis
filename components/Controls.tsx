@@ -108,7 +108,7 @@ const Controls: React.FC<ControlsProps> = ({
          const timer = setTimeout(() => {
              onGenerate();
          }, 400); 
-         return () => clearTimeout(timer);
+         return () => { clearTimeout(timer); };
      }
   }, [
       // Dependency list for auto-update
@@ -198,24 +198,24 @@ const Controls: React.FC<ControlsProps> = ({
 
   const handleRandomizeSeed = () => {
     if (!seedLocked) {
-      handleChange('seed', Math.random().toString(36).substring(7));
-      if (!civSeedLocked) handleChange('civSeed', Math.random().toString(36).substring(7));
+      handleChange('seed', crypto.getRandomValues(new Uint32Array(1))[0].toString(36));
+      if (!civSeedLocked) handleChange('civSeed', crypto.getRandomValues(new Uint32Array(1))[0].toString(36));
     }
   };
   
   const handleRandomizeCivSeed = () => {
     if (!civSeedLocked) {
-        handleChange('civSeed', Math.random().toString(36).substring(7));
+        handleChange('civSeed', crypto.getRandomValues(new Uint32Array(1))[0].toString(36));
     }
   };
 
   const handleGenerateClick = () => {
     let p = { ...params };
     if (!seedLocked) {
-       p.seed = Math.random().toString(36).substring(7);
+       p.seed = crypto.getRandomValues(new Uint32Array(1))[0].toString(36);
     }
     if (!civSeedLocked) {
-       p.civSeed = Math.random().toString(36).substring(7);
+       p.civSeed = crypto.getRandomValues(new Uint32Array(1))[0].toString(36);
     }
     setParams(p);
     setTimeout(() => {
@@ -226,7 +226,7 @@ const Controls: React.FC<ControlsProps> = ({
   const handleRerollBorders = () => {
       let newCivSeed = params.civSeed;
       if (!civSeedLocked) {
-          newCivSeed = Math.random().toString(36).substring(7);
+          newCivSeed = crypto.getRandomValues(new Uint32Array(1))[0].toString(36);
           setParams({ ...params, civSeed: newCivSeed });
       }
       // Pass the updated params explicitly so the callback uses the new seed immediately
@@ -297,9 +297,9 @@ const Controls: React.FC<ControlsProps> = ({
       }
   };
 
-  const ViewButton = ({ mode, icon: Icon, label }: { mode: ViewMode, icon: React.ElementType, label: string }) => (
+  const ViewButton = ({ mode, icon: Icon, label }: { mode: ViewMode, icon: any, label: string }) => (
     <button
-      onClick={() => setViewMode(mode)}
+      onClick={() => { setViewMode(mode); }}
       className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-all flex-1 justify-center ${
         viewMode === mode 
           ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' 
@@ -313,7 +313,7 @@ const Controls: React.FC<ControlsProps> = ({
 
   const DisplayButton = ({ mode, label }: { mode: DisplayMode; label: string }) => (
     <button
-      onClick={() => setDisplayMode(mode)}
+      onClick={() => { setDisplayMode(mode); }}
       className={`px-2 py-1.5 rounded-lg text-xs transition-all flex-1 ${
         displayMode === mode
           ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
@@ -334,11 +334,11 @@ const Controls: React.FC<ControlsProps> = ({
       </div>
 
       <div className="flex border-b border-gray-800">
-         <button onClick={() => setActiveTab('system')} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'system' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>Sys</button>
-         <button onClick={() => setActiveTab('geo')} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'geo' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>Geo</button>
-         <button onClick={() => setActiveTab('climate')} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'climate' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>Clim</button>
-         <button onClick={() => setActiveTab('political')} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'political' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>Civ</button>
-         <button onClick={() => setActiveTab('export')} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'export' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>Exp</button>
+         <button onClick={() => { setActiveTab('system'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'system' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>Sys</button>
+         <button onClick={() => { setActiveTab('geo'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'geo' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>Geo</button>
+         <button onClick={() => { setActiveTab('climate'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'climate' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>Clim</button>
+         <button onClick={() => { setActiveTab('political'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'political' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>Civ</button>
+         <button onClick={() => { setActiveTab('export'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'export' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>Exp</button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
@@ -360,7 +360,7 @@ const Controls: React.FC<ControlsProps> = ({
                  <input 
                     type="text" 
                     value={params.mapName} 
-                    onChange={(e) => handleChange('mapName', e.target.value)}
+                    onChange={(e) => { handleChange('mapName', e.target.value); }}
                     className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-xs"
                     placeholder="My World"
                  />
@@ -373,12 +373,12 @@ const Controls: React.FC<ControlsProps> = ({
                    <input 
                       type="text" 
                       value={params.seed} 
-                      onChange={(e) => handleChange('seed', e.target.value)}
+                      onChange={(e) => { handleChange('seed', e.target.value); }}
                       disabled={seedLocked}
                       className="bg-black border border-gray-700 rounded px-2 py-1 text-white text-xs flex-1 disabled:opacity-50"
                    />
                    <button 
-                      onClick={() => setSeedLocked(!seedLocked)} 
+                      onClick={() => { setSeedLocked(!seedLocked); }} 
                       className={`${seedLocked ? 'text-blue-500' : 'text-gray-400'} hover:text-white transition-colors`}
                    >
                       {seedLocked ? <Lock size={14}/> : <Unlock size={14}/>}
@@ -398,7 +398,7 @@ const Controls: React.FC<ControlsProps> = ({
                     max="1000000"
                     step="1000"
                     value={params.points}
-                    onChange={(e) => handleChange('points', parseInt(e.target.value))}
+                    onChange={(e) => { handleChange('points', parseInt(e.target.value) as 1 | 2 | 3); }}
                     className="w-24 bg-gray-900 border border-gray-700 rounded px-1 py-0.5 text-right text-white text-xs"
                 />
               </div>
@@ -408,7 +408,7 @@ const Controls: React.FC<ControlsProps> = ({
                 max="200000"
                 step="1000"
                 value={Math.min(200000, params.points)}
-                onChange={(e) => handleChange('points', parseInt(e.target.value))}
+                onChange={(e) => { handleChange('points', parseInt(e.target.value) as 1 | 2 | 3); }}
                 className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
               />
             </div>
@@ -421,7 +421,7 @@ const Controls: React.FC<ControlsProps> = ({
                  <input 
                     type="checkbox"
                     checked={showGrid}
-                    onChange={(e) => setShowGrid(e.target.checked)}
+                    onChange={(e) => { setShowGrid(e.target.checked); }}
                     className="rounded bg-gray-700"
                  />
             </div>
@@ -434,7 +434,7 @@ const Controls: React.FC<ControlsProps> = ({
                  <input 
                     type="checkbox"
                     checked={showRivers}
-                    onChange={(e) => setShowRivers(e.target.checked)}
+                    onChange={(e) => { setShowRivers(e.target.checked); }}
                     className="rounded bg-gray-700"
                  />
             </div>
@@ -447,7 +447,7 @@ const Controls: React.FC<ControlsProps> = ({
                  <input 
                     type="checkbox"
                     checked={autoUpdate}
-                    onChange={(e) => setAutoUpdate(e.target.checked)}
+                    onChange={(e) => { setAutoUpdate(e.target.checked); }}
                     disabled={params.points > 20000}
                     className="rounded bg-gray-700"
                  />
@@ -484,7 +484,7 @@ const Controls: React.FC<ControlsProps> = ({
                 <input 
                   type="password"
                   value={apiKey}
-                  onChange={(e) => onApiKeyChange(e.target.value)}
+                  onChange={(e) => { onApiKeyChange(e.target.value); }}
                   placeholder="Paste your API key here..."
                   className="w-full bg-black border border-gray-700 rounded px-2 py-1.5 text-white text-xs"
                 />
@@ -504,7 +504,7 @@ const Controls: React.FC<ControlsProps> = ({
                  <label className="text-xs text-gray-400 block mb-1">Terrain Preset</label>
                  <select 
                     value={params.landStyle}
-                    onChange={(e) => handlePresetChange(e.target.value as LandStyle)}
+                    onChange={(e) => { handlePresetChange(e.target.value as LandStyle); }}
                     className="w-full bg-gray-800 text-white text-xs border border-gray-700 rounded p-2"
                  >
                     <option value="Continents">Continents</option>
@@ -525,7 +525,7 @@ const Controls: React.FC<ControlsProps> = ({
                     <input
                       type="range" min="0.1" max="0.9" step="0.05"
                       value={params.seaLevel}
-                      onChange={(e) => handleChange('seaLevel', parseFloat(e.target.value))}
+                      onChange={(e) => { handleChange('seaLevel', parseFloat(e.target.value)); }}
                       className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
                     />
                   </div>
@@ -538,7 +538,7 @@ const Controls: React.FC<ControlsProps> = ({
                       <input
                         type="range" min="1000" max="20000" step="100"
                         value={params.planetRadius || 6371}
-                        onChange={(e) => handleChange('planetRadius', parseInt(e.target.value))}
+                        onChange={(e) => { handleChange('planetRadius', parseInt(e.target.value) as 1 | 2 | 3); }}
                         className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
                       />
                   </div>
@@ -550,7 +550,7 @@ const Controls: React.FC<ControlsProps> = ({
                     <input
                       type="range" min="2" max="50" step="1"
                       value={params.plates}
-                      onChange={(e) => handleAdvancedChange('plates', parseInt(e.target.value))}
+                      onChange={(e) => { handleAdvancedChange('plates', parseInt(e.target.value) as 1 | 2 | 3); }}
                       className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-rose-500"
                     />
                   </div>
@@ -562,7 +562,7 @@ const Controls: React.FC<ControlsProps> = ({
                     <input
                       type="range" min="0" max="1" step="0.1"
                       value={params.roughness}
-                      onChange={(e) => handleAdvancedChange('roughness', parseFloat(e.target.value))}
+                      onChange={(e) => { handleAdvancedChange('roughness', parseFloat(e.target.value)); }}
                       className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-slate-400"
                     />
                   </div>
@@ -574,7 +574,7 @@ const Controls: React.FC<ControlsProps> = ({
                     <input
                       type="range" min="0.1" max="5.0" step="0.1"
                       value={params.noiseScale}
-                      onChange={(e) => handleAdvancedChange('noiseScale', parseFloat(e.target.value))}
+                      onChange={(e) => { handleAdvancedChange('noiseScale', parseFloat(e.target.value)); }}
                       className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-green-500"
                     />
                   </div>
@@ -586,7 +586,7 @@ const Controls: React.FC<ControlsProps> = ({
                     <input
                       type="range" min="0" max="1" step="0.1"
                       value={params.ridgeBlend}
-                      onChange={(e) => handleAdvancedChange('ridgeBlend', parseFloat(e.target.value))}
+                      onChange={(e) => { handleAdvancedChange('ridgeBlend', parseFloat(e.target.value)); }}
                       className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-yellow-500"
                     />
                   </div>
@@ -598,7 +598,7 @@ const Controls: React.FC<ControlsProps> = ({
                     <input
                       type="range" min="0" max="2.0" step="0.1"
                       value={params.warpStrength}
-                      onChange={(e) => handleAdvancedChange('warpStrength', parseFloat(e.target.value))}
+                      onChange={(e) => { handleAdvancedChange('warpStrength', parseFloat(e.target.value)); }}
                       className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
                     />
                   </div>
@@ -610,7 +610,7 @@ const Controls: React.FC<ControlsProps> = ({
                     <input
                       type="range" min="0" max="2.0" step="0.1"
                       value={params.plateInfluence}
-                      onChange={(e) => handleAdvancedChange('plateInfluence', parseFloat(e.target.value))}
+                      onChange={(e) => { handleAdvancedChange('plateInfluence', parseFloat(e.target.value)); }}
                       className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-red-500"
                     />
                   </div>
@@ -622,7 +622,7 @@ const Controls: React.FC<ControlsProps> = ({
                     <input
                       type="range" min="0" max="50" step="1"
                       value={params.erosionIterations}
-                      onChange={(e) => handleAdvancedChange('erosionIterations', parseInt(e.target.value))}
+                      onChange={(e) => { handleAdvancedChange('erosionIterations', parseInt(e.target.value) as 1 | 2 | 3); }}
                       className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-stone-400"
                     />
                   </div>
@@ -641,7 +641,7 @@ const Controls: React.FC<ControlsProps> = ({
                 <input
                   type="range" min="-90" max="90" step="1"
                   value={params.axialTilt || 0}
-                  onChange={(e) => handleChange('axialTilt', parseFloat(e.target.value))}
+                  onChange={(e) => { handleChange('axialTilt', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-400"
                 />
              </div>
@@ -654,7 +654,7 @@ const Controls: React.FC<ControlsProps> = ({
                 <input
                   type="range" min="-10" max="50" step="1"
                   value={params.baseTemperature}
-                  onChange={(e) => handleChange('baseTemperature', parseFloat(e.target.value))}
+                  onChange={(e) => { handleChange('baseTemperature', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
                 />
               </div>
@@ -666,7 +666,7 @@ const Controls: React.FC<ControlsProps> = ({
                 <input
                   type="range" min="-50" max="20" step="1"
                   value={params.poleTemperature}
-                  onChange={(e) => handleChange('poleTemperature', parseFloat(e.target.value))}
+                  onChange={(e) => { handleChange('poleTemperature', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-sky-500"
                 />
               </div>
@@ -678,7 +678,7 @@ const Controls: React.FC<ControlsProps> = ({
                 <input
                   type="range" min="0" max="3" step="0.1"
                   value={params.rainfallMultiplier}
-                  onChange={(e) => handleChange('rainfallMultiplier', parseFloat(e.target.value))}
+                  onChange={(e) => { handleChange('rainfallMultiplier', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
                 />
               </div>
@@ -690,7 +690,7 @@ const Controls: React.FC<ControlsProps> = ({
                 <input
                   type="range" min="0" max="1" step="0.1"
                   value={params.moistureTransport}
-                  onChange={(e) => handleChange('moistureTransport', parseFloat(e.target.value))}
+                  onChange={(e) => { handleChange('moistureTransport', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-300"
                 />
                 <p className="text-[9px] text-gray-500">Affects rain shadows & moisture spread</p>
@@ -703,7 +703,7 @@ const Controls: React.FC<ControlsProps> = ({
                 <input
                   type="range" min="0" max="20" step="1"
                   value={params.temperatureVariance}
-                  onChange={(e) => handleChange('temperatureVariance', parseFloat(e.target.value))}
+                  onChange={(e) => { handleChange('temperatureVariance', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-red-400"
                 />
               </div>
@@ -720,12 +720,12 @@ const Controls: React.FC<ControlsProps> = ({
                    <input 
                       type="text" 
                       value={params.civSeed} 
-                      onChange={(e) => handleChange('civSeed', e.target.value)}
+                      onChange={(e) => { handleChange('civSeed', e.target.value); }}
                       disabled={civSeedLocked}
                       className="bg-black border border-gray-700 rounded px-2 py-1 text-white text-xs flex-1 disabled:opacity-50"
                    />
                    <button 
-                      onClick={() => setCivSeedLocked(!civSeedLocked)} 
+                      onClick={() => { setCivSeedLocked(!civSeedLocked); }} 
                       className={`${civSeedLocked ? 'text-blue-500' : 'text-gray-400'} hover:text-white transition-colors`}
                    >
                       {civSeedLocked ? <Lock size={14}/> : <Unlock size={14}/>}
@@ -765,7 +765,7 @@ const Controls: React.FC<ControlsProps> = ({
                 <input
                   type="range" min="2" max="20"
                   value={params.numFactions}
-                  onChange={(e) => handleChange('numFactions', parseInt(e.target.value))}
+                  onChange={(e) => { handleChange('numFactions', parseInt(e.target.value) as 1 | 2 | 3); }}
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
                 />
               </div>
@@ -777,7 +777,7 @@ const Controls: React.FC<ControlsProps> = ({
                 <input
                   type="range" min="0" max="1" step="0.1"
                   value={params.capitalSpacing}
-                  onChange={(e) => handleChange('capitalSpacing', parseFloat(e.target.value))}
+                  onChange={(e) => { handleChange('capitalSpacing', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-400"
                 />
               </div>
@@ -789,7 +789,7 @@ const Controls: React.FC<ControlsProps> = ({
                 <input
                   type="range" min="0.1" max="1.0" step="0.1"
                   value={params.provinceSize || 0.5}
-                  onChange={(e) => handleChange('provinceSize', parseFloat(e.target.value))}
+                  onChange={(e) => { handleChange('provinceSize', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-teal-400"
                 />
               </div>
@@ -801,7 +801,7 @@ const Controls: React.FC<ControlsProps> = ({
                 <input
                   type="range" min="0" max="1" step="0.1"
                   value={params.civSizeVariance}
-                  onChange={(e) => handleChange('civSizeVariance', parseFloat(e.target.value))}
+                  onChange={(e) => { handleChange('civSizeVariance', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-orange-400"
                 />
               </div>
@@ -813,7 +813,7 @@ const Controls: React.FC<ControlsProps> = ({
                 <input
                   type="range" min="0.1" max="1.0" step="0.1"
                   value={params.waterCrossingCost}
-                  onChange={(e) => handleChange('waterCrossingCost', parseFloat(e.target.value))}
+                  onChange={(e) => { handleChange('waterCrossingCost', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-400"
                 />
               </div>
@@ -825,7 +825,7 @@ const Controls: React.FC<ControlsProps> = ({
                 <input
                   type="range" min="0.01" max="1.0" step="0.01"
                   value={params.territorialWaters ?? 0.2}
-                  onChange={(e) => handleChange('territorialWaters', parseFloat(e.target.value))}
+                  onChange={(e) => { handleChange('territorialWaters', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-600"
                 />
               </div>
@@ -835,7 +835,7 @@ const Controls: React.FC<ControlsProps> = ({
                   <label className="text-xs text-gray-400 block mb-1">Lore Generation Detail</label>
                   <select 
                      value={params.loreLevel || 1}
-                     onChange={(e) => handleChange('loreLevel', parseInt(e.target.value))}
+                     onChange={(e) => { handleChange('loreLevel', parseInt(e.target.value) as 1 | 2 | 3); }}
                      className="w-full bg-gray-800 text-white text-xs border border-gray-700 rounded p-2"
                   >
                      <option value={1}>Level 1: Factions & Capitals</option>
@@ -900,7 +900,7 @@ const Controls: React.FC<ControlsProps> = ({
                         <label className="text-xs text-gray-400">Resolution</label>
                         <select 
                             value={expRes} 
-                            onChange={(e) => setExpRes(parseInt(e.target.value) as ExportResolution)}
+                            onChange={(e) => { setExpRes(parseInt(e.target.value) as 1 | 2 | 3 as ExportResolution); }}
                             className="w-full bg-gray-800 text-white text-xs border border-gray-700 rounded p-2"
                         >
                             <option value="2048">2K (2048px)</option>
@@ -913,7 +913,7 @@ const Controls: React.FC<ControlsProps> = ({
                         <label className="text-xs text-gray-400">Projection</label>
                         <select 
                             value={expProj} 
-                            onChange={(e) => setExpProj(e.target.value as ProjectionType)}
+                            onChange={(e) => { setExpProj(e.target.value as ProjectionType); }}
                             className="w-full bg-gray-800 text-white text-xs border border-gray-700 rounded p-2"
                         >
                             <option value="equirectangular">Equirectangular</option>
@@ -934,7 +934,7 @@ const Controls: React.FC<ControlsProps> = ({
                                     <input
                                         type="checkbox"
                                         checked={dymaxionSettings.showOverlay}
-                                        onChange={(e) => updateDymaxion({ showOverlay: e.target.checked })}
+                                        onChange={(e) => { updateDymaxion({ showOverlay: e.target.checked }); }}
                                         className="accent-blue-500"
                                     />
                                     Show Overlay
@@ -945,13 +945,13 @@ const Controls: React.FC<ControlsProps> = ({
                                 <label className="text-xs text-gray-400">Manipulation Mode</label>
                                 <div className="grid grid-cols-2 gap-2">
                                     <button
-                                        onClick={() => updateDymaxion({ mode: 'planet' as DymaxionControlMode })}
+                                        onClick={() => { updateDymaxion({ mode: 'planet' as DymaxionControlMode }); }}
                                         className={`text-[10px] py-2 rounded border ${dymaxionSettings.mode === 'planet' ? 'bg-blue-700/70 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300'}`}
                                     >
                                         Rotate Planet
                                     </button>
                                     <button
-                                        onClick={() => updateDymaxion({ mode: 'overlay' as DymaxionControlMode })}
+                                        onClick={() => { updateDymaxion({ mode: 'overlay' as DymaxionControlMode }); }}
                                         className={`text-[10px] py-2 rounded border ${dymaxionSettings.mode === 'overlay' ? 'bg-blue-700/70 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300'}`}
                                     >
                                         Rotate Overlay
@@ -1002,7 +1002,7 @@ const Controls: React.FC<ControlsProps> = ({
                             </div>
 
                             <button
-                                onClick={() => updateDymaxion({ lon: 0, lat: 0, roll: 0 })}
+                                onClick={() => { updateDymaxion({ lon: 0, lat: 0, roll: 0 }); }}
                                 className="w-full text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-200 py-2 rounded border border-gray-700"
                             >
                                 Reset Orientation
@@ -1012,7 +1012,7 @@ const Controls: React.FC<ControlsProps> = ({
                                 <input
                                     type="checkbox"
                                     checked={showDymaxion2D}
-                                    onChange={(e) => setShowDymaxion2D(e.target.checked)}
+                                    onChange={(e) => { setShowDymaxion2D(e.target.checked); }}
                                     className="accent-blue-500"
                                 />
                                 Show 2D Preview
@@ -1030,7 +1030,7 @@ const Controls: React.FC<ControlsProps> = ({
                     )}
 
                     <button
-                        onClick={handleExport}
+                        onClick={() => { void handleExport(); }}
                         disabled={!worldData}
                         className="w-full flex items-center justify-center gap-2 bg-green-700 hover:bg-green-600 text-white py-2 rounded text-xs mt-2 disabled:opacity-50"
                     >
@@ -1042,7 +1042,7 @@ const Controls: React.FC<ControlsProps> = ({
                     <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">File Management</h3>
                     
                     <button
-                        onClick={() => params && saveMapConfig(params, worldData || undefined)}
+                        onClick={() => { if (params) { void saveMapConfig(params, worldData || undefined); } }}
                         className="w-full flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-white py-2 rounded text-xs"
                     >
                         <Save size={14} /> Save Config (JSON)
@@ -1052,7 +1052,7 @@ const Controls: React.FC<ControlsProps> = ({
                         <input 
                             type="file" 
                             accept=".json" 
-                            onChange={handleFileUpload}
+                            onChange={(e) => { void handleFileUpload(e); }}
                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                         />
                         <button className="w-full flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-white py-2 rounded text-xs pointer-events-none">
@@ -1069,7 +1069,7 @@ const Controls: React.FC<ControlsProps> = ({
                             type="text" 
                             placeholder="Save Name..." 
                             value={saveName}
-                            onChange={(e) => setSaveName(e.target.value)}
+                            onChange={(e) => { setSaveName(e.target.value); }}
                             className="flex-1 bg-gray-900 border border-gray-700 rounded px-2 text-xs text-white"
                         />
                         <button 
@@ -1090,8 +1090,8 @@ const Controls: React.FC<ControlsProps> = ({
                                     <span className="text-[10px] text-gray-500">{new Date(entry.date).toLocaleDateString()}</span>
                                 </div>
                                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => handleLoadBrowser(entry.params, entry.civData)} className="text-blue-400 hover:text-white p-1"><FolderOpen size={12}/></button>
-                                    <button onClick={() => handleDeleteBrowser(entry.name)} className="text-red-400 hover:text-white p-1"><Trash2 size={12}/></button>
+                                    <button onClick={() => { handleLoadBrowser(entry.params, entry.civData); }} className="text-blue-400 hover:text-white p-1"><FolderOpen size={12}/></button>
+                                    <button onClick={() => { handleDeleteBrowser(entry.name); }} className="text-red-400 hover:text-white p-1"><Trash2 size={12}/></button>
                                 </div>
                             </div>
                         ))}
@@ -1106,7 +1106,7 @@ const Controls: React.FC<ControlsProps> = ({
          <div className="mb-2">
              <div 
                className="flex items-center justify-between text-xs text-gray-500 mb-1 cursor-pointer hover:text-gray-300"
-               onClick={() => setConsoleOpen(!consoleOpen)}
+               onClick={() => { setConsoleOpen(!consoleOpen); }}
              >
                  <div className="flex items-center gap-1">
                     <Terminal size={10} />
