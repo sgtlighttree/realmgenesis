@@ -26,7 +26,7 @@ export const generateWorldLore = async (world: WorldData): Promise<LoreData> => 
     };
   }
   
-  const level = world.params.loreLevel || 1;
+  const level = world.params.loreLevel;
   const civs = world.civData;
   if (!civs) return { name: "Wilderness", description: "No civilization data." };
 
@@ -111,7 +111,7 @@ export const generateWorldLore = async (world: WorldData): Promise<LoreData> => 
 
     // Apply names back to WorldData (Mutating the object in memory)
     if (json.factions && world.civData) {
-        json.factions.forEach((fJson: any) => {
+        json.factions.forEach((fJson: { id: number, name: string, description: string, capitalName?: string, provinceNames?: string[] }) => {
             const fData = world.civData!.factions.find(f => f.id === fJson.id);
             if (fData) {
                 fData.name = fJson.name;
@@ -126,7 +126,9 @@ export const generateWorldLore = async (world: WorldData): Promise<LoreData> => 
                 // Apply Province Names
                 if (fJson.provinceNames && Array.isArray(fJson.provinceNames)) {
                     fData.provinces.forEach((p, idx) => {
+                        // eslint-disable-next-line security/detect-object-injection
                         if (fJson.provinceNames[idx]) {
+                            // eslint-disable-next-line security/detect-object-injection
                             p.name = fJson.provinceNames[idx];
                             // Name the main town same as province for simplicity if Level 2
                             if (p.towns.length > 0 && !p.towns[0].isCapital) {

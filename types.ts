@@ -149,7 +149,7 @@ export interface CivData {
 export interface WorldData {
   cells: Cell[];
   params: WorldParams;
-  geoJson: any; // Cached for export
+  geoJson: Record<string, unknown>; // Cached for export
   civData?: CivData;
   rivers?: Point[][]; // Array of paths for smooth river rendering
 }

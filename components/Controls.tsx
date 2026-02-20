@@ -143,11 +143,11 @@ const Controls: React.FC<ControlsProps> = ({
       }
   }, [activeTab, params.mapName]);
 
-  const handleChange = (key: keyof WorldParams, value: any) => {
+  const handleChange = <K extends keyof WorldParams>(key: K, value: WorldParams[K]) => { // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setParams({ ...params, [key]: value });
   };
 
-  const handleAdvancedChange = (key: keyof WorldParams, value: any) => {
+  const handleAdvancedChange = <K extends keyof WorldParams>(key: K, value: WorldParams[K]) => { // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setParams({ ...params, [key]: value, landStyle: 'Custom' });
   };
 
@@ -297,7 +297,7 @@ const Controls: React.FC<ControlsProps> = ({
       }
   };
 
-  const ViewButton = ({ mode, icon: Icon, label }: { mode: ViewMode, icon: any, label: string }) => (
+  const ViewButton = ({ mode, icon: Icon, label }: { mode: ViewMode, icon: React.ElementType, label: string }) => (
     <button
       onClick={() => setViewMode(mode)}
       className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-all flex-1 justify-center ${

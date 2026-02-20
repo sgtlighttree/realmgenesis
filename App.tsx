@@ -110,10 +110,10 @@ const App: React.FC = () => {
     await new Promise(r => setTimeout(r, 100));
     
     try {
-        const newWorld = await generateWorld(p, (msg) => addLog(msg), controller.signal);
+        const newWorld = await generateWorld(p, (msg) => { addLog(msg); }, controller.signal);
         setWorld(newWorld);
         addLog('World Generation Complete.');
-    } catch (e: any) { 
+    } catch (e: any) { // eslint-disable-next-line @typescript-eslint/no-explicit-any 
         if (e.message === "Generation Cancelled") {
             addLog('Cancelled by user.');
         } else {
@@ -144,7 +144,7 @@ const App: React.FC = () => {
 
      try {
          // 1. Regenerate World Geometry & Civs based on Seed
-         const newWorld = await generateWorld(newParams, (msg) => addLog(msg), controller.signal);
+         const newWorld = await generateWorld(newParams, (msg) => { addLog(msg); }, controller.signal);
          
          // 2. Restore Saved Metadata (Names, Descriptions, Colors)
          if (savedCivData && newWorld.civData) {
@@ -159,11 +159,15 @@ const App: React.FC = () => {
                       
                       // Restore province names
                       savedF.provinces.forEach((savedP, idx) => {
+                          // eslint-disable-next-line security/detect-object-injection
                           if (genF.provinces[idx]) {
+                              // eslint-disable-next-line security/detect-object-injection
                               genF.provinces[idx].name = savedP.name;
                               // Restore town names
                               savedP.towns.forEach((savedT, tIdx) => {
+                                  // eslint-disable-next-line security/detect-object-injection
                                   if (genF.provinces[idx].towns[tIdx]) {
+                                      // eslint-disable-next-line security/detect-object-injection
                                       genF.provinces[idx].towns[tIdx].name = savedT.name;
                                   }
                               });
@@ -175,7 +179,7 @@ const App: React.FC = () => {
 
          setWorld(newWorld);
          addLog('Map Loaded Successfully.');
-     } catch (e: any) {
+     } catch (e: any) { // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if (e.message === "Generation Cancelled") addLog('Cancelled.');
         else {
             console.error("Load failed", e);
@@ -203,7 +207,7 @@ const App: React.FC = () => {
       const p = overrideParams || params;
       await new Promise(r => setTimeout(r, 50));
       try {
-          const updatedWorld = recalculateCivs(world, p, (msg) => addLog(msg));
+          const updatedWorld = recalculateCivs(world, p, (msg) => { addLog(msg); });
           setWorld({ ...updatedWorld });
           if (viewMode !== 'political') setViewMode('political');
           addLog('Civilizations Updated.');
@@ -254,7 +258,7 @@ const App: React.FC = () => {
       setLore(newLore);
       setWorld({ ...world });
       addLog('Lore Received.');
-    } catch (e: any) { 
+    } catch (e: any) { // eslint-disable-next-line @typescript-eslint/no-explicit-any 
         console.error("Lore gen failed", e);
         addLog(`Lore Error: ${e.message}`);
     }
