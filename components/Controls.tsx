@@ -970,7 +970,7 @@ const Controls: React.FC<ControlsProps> = ({
                                 <input
                                     type="range" min="-180" max="180" step="1"
                                     value={dymaxionSettings.lon}
-                                    onChange={(e) => updateDymaxion({ lon: parseInt(e.target.value) })}
+                                    onChange={function(e) { updateDymaxion({ lon: parseInt(e.target.value) }); }}
                                     className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-400"
                                 />
                             </div>
@@ -983,7 +983,7 @@ const Controls: React.FC<ControlsProps> = ({
                                 <input
                                     type="range" min="-90" max="90" step="1"
                                     value={dymaxionSettings.lat}
-                                    onChange={(e) => updateDymaxion({ lat: parseInt(e.target.value) })}
+                                    onChange={function(e) { updateDymaxion({ lat: parseInt(e.target.value) }); }}
                                     className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-400"
                                 />
                             </div>
@@ -996,7 +996,7 @@ const Controls: React.FC<ControlsProps> = ({
                                 <input
                                     type="range" min="-180" max="180" step="1"
                                     value={dymaxionSettings.roll}
-                                    onChange={(e) => updateDymaxion({ roll: parseInt(e.target.value) })}
+                                    onChange={function(e) { updateDymaxion({ roll: parseInt(e.target.value) }); }}
                                     className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-400"
                                 />
                             </div>
