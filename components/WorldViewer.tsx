@@ -467,7 +467,7 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
          <button
            onClick={() => { setPaused(!paused); }}
            disabled={overlayMode}
-           className={`bg-gray-800/80 text-white p-2 rounded backdrop-blur border border-white/10 shadow-lg ${overlayMode ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-700'}`}
+           className={`bg-gray-800/80 text-white p-2 backdrop-blur border border-white/10 shadow-lg ${overlayMode ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-700'}`}
          >
            {paused ? "▶" : "⏸"}
          </button>

@@ -49,20 +49,20 @@ const Inspector: React.FC<InspectorProps> = ({
 
   return (
     <div className="absolute top-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none z-10">
-      <div className={`bg-black/80 backdrop-blur text-white rounded shadow-xl border border-white/20 transition-all duration-300 pointer-events-auto ${collapsed ? 'w-28' : 'min-w-[220px]'}`}>
+      <div className={`bg-black/80 backdrop-blur text-white shadow-xl border border-white/20 transition-all duration-300 pointer-events-auto ${collapsed ? 'w-28' : 'min-w-[220px]'}`}>
         <div className="flex items-center justify-between p-2 border-b border-white/10">
           {!collapsed && <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Inspector</span>}
           <div className="flex items-center gap-2">
             <button
               onClick={onToggleEnabled}
-              className={`p-1 rounded transition-colors ${enabled ? 'text-blue-400 hover:bg-blue-900/40' : 'text-gray-600 hover:bg-gray-800'}`}
+              className={`p-1 transition-colors ${enabled ? 'text-blue-400 hover:bg-blue-900/40' : 'text-gray-600 hover:bg-gray-800'}`}
               title={enabled ? "Disable Inspector (Performance Boost)" : "Enable Inspector"}
             >
               {enabled ? <Eye size={12} /> : <EyeOff size={12} />}
             </button>
             <button
               onClick={onToggleCollapsed}
-              className="p-1 rounded text-gray-400 hover:bg-gray-800"
+              className="p-1 text-gray-400 hover:bg-gray-800"
             >
               {collapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
             </button>

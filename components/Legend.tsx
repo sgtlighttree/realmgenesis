@@ -6,7 +6,7 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 export const BiomeLegend: React.FC = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   return (
-    <div className="absolute bottom-4 left-4 bg-gray-900/80 backdrop-blur border border-gray-700 rounded-lg shadow-xl z-10 transition-all duration-300">
+    <div className="absolute bottom-4 left-4 bg-gray-900/80 backdrop-blur border border-gray-700 shadow-xl z-10 transition-all duration-300">
       <button 
         onClick={() => setIsCollapsed(!isCollapsed)}
         className="w-full flex items-center justify-between px-3 py-2 text-xs font-bold text-gray-400 uppercase hover:text-white transition-colors"
@@ -19,7 +19,7 @@ export const BiomeLegend: React.FC = () => {
           {(Object.keys(BIOME_COLORS) as BiomeType[]).map((biome) => (
             <div key={biome} className="flex items-center gap-2">
               <div 
-                className="w-3 h-3 rounded-full border border-white/10" 
+                className="w-3 h-3 border border-white/10" 
                 // eslint-disable-next-line security/detect-object-injection, nosemgrep
         // codacy-disable-next-line
                 style={{ backgroundColor: BIOME_COLORS[biome] }}

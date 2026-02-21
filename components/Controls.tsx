@@ -46,7 +46,7 @@ const ConsoleOutput: React.FC<{ logs: string[]; isOpen: boolean }> = ({ logs, is
     if (!isOpen) return null;
 
     return (
-        <div className="bg-black border border-gray-800 rounded-b-lg p-2 h-32 overflow-y-auto font-mono text-[10px] space-y-1 shadow-inner relative transition-all">
+        <div className="bg-black border border-gray-800 p-2 h-32 overflow-y-auto font-mono text-[10px] space-y-1 shadow-inner relative transition-all">
             {logs.length === 0 && <div className="text-gray-600 italic text-center mt-10">System Ready</div>}
             {logs.map((log, i) => (
                 <div key={i} className="text-green-400 break-words border-b border-gray-900/50 pb-0.5 last:border-0">
@@ -300,11 +300,11 @@ const Controls: React.FC<ControlsProps> = ({
   const ViewButton = ({ mode, icon: Icon, label }: { mode: ViewMode, icon: any, label: string }) => (
     <button
       onClick={() => { setViewMode(mode); }}
-      className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-all flex-1 justify-center ${
-        viewMode === mode 
-          ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' 
-          : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
-      }`}
+      className={`flex items-center gap-2 px-2 py-1.5 text-xs transition-all flex-1 justify-center ${
+ viewMode === mode 
+ ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' 
+ : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+ }`}
     >
       <Icon size={14} />
       {label}
@@ -314,11 +314,11 @@ const Controls: React.FC<ControlsProps> = ({
   const DisplayButton = ({ mode, label }: { mode: DisplayMode; label: string }) => (
     <button
       onClick={() => { setDisplayMode(mode); }}
-      className={`px-2 py-1.5 rounded-lg text-xs transition-all flex-1 ${
-        displayMode === mode
-          ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
-          : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
-      }`}
+      className={`px-2 py-1.5 text-xs transition-all flex-1 ${
+ displayMode === mode
+ ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+ : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+ }`}
     >
       {label}
     </button>
@@ -361,13 +361,13 @@ const Controls: React.FC<ControlsProps> = ({
                     type="text" 
                     value={params.mapName} 
                     onChange={(e) => { handleChange('mapName', e.target.value); }}
-                    className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-xs"
+                    className="w-full bg-gray-900 border border-gray-700 px-2 py-1.5 text-white text-xs"
                     placeholder="My World"
                  />
              </div>
 
              {/* Seed Input */}
-             <div className="bg-gray-900 p-3 rounded-lg border border-gray-800">
+             <div className="bg-gray-900 p-3 border border-gray-800">
                 <label className="text-xs text-gray-400 mb-1 block">Seed</label>
                 <div className="flex gap-2">
                    <input 
@@ -375,7 +375,7 @@ const Controls: React.FC<ControlsProps> = ({
                       value={params.seed} 
                       onChange={(e) => { handleChange('seed', e.target.value); }}
                       disabled={seedLocked}
-                      className="bg-black border border-gray-700 rounded px-2 py-1 text-white text-xs flex-1 disabled:opacity-50"
+                      className="bg-black border border-gray-700 px-2 py-1 text-white text-xs flex-1 disabled:opacity-50"
                    />
                    <button 
                       onClick={() => { setSeedLocked(!seedLocked); }} 
@@ -399,7 +399,7 @@ const Controls: React.FC<ControlsProps> = ({
                     step="1000"
                     value={params.points}
                     onChange={(e) => { handleChange('points', parseInt(e.target.value) as 1 | 2 | 3); }}
-                    className="w-24 bg-gray-900 border border-gray-700 rounded px-1 py-0.5 text-right text-white text-xs"
+                    className="w-24 bg-gray-900 border border-gray-700 px-1 py-0.5 text-right text-white text-xs"
                 />
               </div>
               <input
@@ -409,7 +409,7 @@ const Controls: React.FC<ControlsProps> = ({
                 step="1000"
                 value={Math.min(200000, params.points)}
                 onChange={(e) => { handleChange('points', parseInt(e.target.value) as 1 | 2 | 3); }}
-                className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-blue-500"
               />
             </div>
              
@@ -422,7 +422,7 @@ const Controls: React.FC<ControlsProps> = ({
                     type="checkbox"
                     checked={showGrid}
                     onChange={(e) => { setShowGrid(e.target.checked); }}
-                    className="rounded bg-gray-700"
+                    className="bg-gray-700"
                  />
             </div>
 
@@ -435,7 +435,7 @@ const Controls: React.FC<ControlsProps> = ({
                     type="checkbox"
                     checked={showRivers}
                     onChange={(e) => { setShowRivers(e.target.checked); }}
-                    className="rounded bg-gray-700"
+                    className="bg-gray-700"
                  />
             </div>
 
@@ -449,7 +449,7 @@ const Controls: React.FC<ControlsProps> = ({
                     checked={autoUpdate}
                     onChange={(e) => { setAutoUpdate(e.target.checked); }}
                     disabled={params.points > 20000}
-                    className="rounded bg-gray-700"
+                    className="bg-gray-700"
                  />
             </div>
             
@@ -469,7 +469,7 @@ const Controls: React.FC<ControlsProps> = ({
 
             <div className="pt-4 border-t border-gray-800 space-y-3">
               <h3 className="text-xs font-semibold text-gray-500 mb-2">AI Settings (BYOK)</h3>
-              <div className="bg-gray-900 p-3 rounded-lg border border-gray-800 space-y-2">
+              <div className="bg-gray-900 p-3 border border-gray-800 space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs text-gray-400">Gemini API Key</label>
                   <a 
@@ -486,7 +486,7 @@ const Controls: React.FC<ControlsProps> = ({
                   value={apiKey}
                   onChange={(e) => { onApiKeyChange(e.target.value); }}
                   placeholder="Paste your API key here..."
-                  className="w-full bg-black border border-gray-700 rounded px-2 py-1.5 text-white text-xs"
+                  className="w-full bg-black border border-gray-700 px-2 py-1.5 text-white text-xs"
                 />
                 <p className="text-[9px] text-gray-500 italic">
                   Key is stored ephemerally in memory and will be lost on refresh.
@@ -505,7 +505,7 @@ const Controls: React.FC<ControlsProps> = ({
                  <select 
                     value={params.landStyle}
                     onChange={(e) => { handlePresetChange(e.target.value as LandStyle); }}
-                    className="w-full bg-gray-800 text-white text-xs border border-gray-700 rounded p-2"
+                    className="w-full bg-gray-800 text-white text-xs border border-gray-700 p-2"
                  >
                     <option value="Continents">Continents</option>
                     <option value="Pangea">Pangea</option>
@@ -514,7 +514,7 @@ const Controls: React.FC<ControlsProps> = ({
                     <option value="Custom">Custom</option>
                  </select>
               </div>
-              <div className="p-3 bg-gray-900 rounded border border-gray-800 space-y-3">
+              <div className="p-3 bg-gray-900 border border-gray-800 space-y-3">
                   <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Advanced Terrain</h3>
                   
                   <div className="space-y-1">
@@ -526,7 +526,7 @@ const Controls: React.FC<ControlsProps> = ({
                       type="range" min="0.1" max="0.9" step="0.05"
                       value={params.seaLevel}
                       onChange={(e) => { handleChange('seaLevel', parseFloat(e.target.value)); }}
-                      className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                      className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-blue-500"
                     />
                   </div>
                   {/* ... other geo sliders ... */}
@@ -539,7 +539,7 @@ const Controls: React.FC<ControlsProps> = ({
                         type="range" min="1000" max="20000" step="100"
                         value={params.planetRadius || 6371}
                         onChange={(e) => { handleChange('planetRadius', parseInt(e.target.value) as 1 | 2 | 3); }}
-                        className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                        className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-indigo-500"
                       />
                   </div>
                   <div className="space-y-1">
@@ -551,7 +551,7 @@ const Controls: React.FC<ControlsProps> = ({
                       type="range" min="2" max="50" step="1"
                       value={params.plates}
                       onChange={(e) => { handleAdvancedChange('plates', parseInt(e.target.value) as 1 | 2 | 3); }}
-                      className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                      className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-rose-500"
                     />
                   </div>
                   <div className="space-y-1">
@@ -563,7 +563,7 @@ const Controls: React.FC<ControlsProps> = ({
                       type="range" min="0" max="1" step="0.1"
                       value={params.roughness}
                       onChange={(e) => { handleAdvancedChange('roughness', parseFloat(e.target.value)); }}
-                      className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-slate-400"
+                      className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-slate-400"
                     />
                   </div>
                   <div className="space-y-1">
@@ -575,7 +575,7 @@ const Controls: React.FC<ControlsProps> = ({
                       type="range" min="0.1" max="5.0" step="0.1"
                       value={params.noiseScale}
                       onChange={(e) => { handleAdvancedChange('noiseScale', parseFloat(e.target.value)); }}
-                      className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-green-500"
+                      className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-green-500"
                     />
                   </div>
                   <div className="space-y-1">
@@ -587,7 +587,7 @@ const Controls: React.FC<ControlsProps> = ({
                       type="range" min="0" max="1" step="0.1"
                       value={params.ridgeBlend}
                       onChange={(e) => { handleAdvancedChange('ridgeBlend', parseFloat(e.target.value)); }}
-                      className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-yellow-500"
+                      className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-yellow-500"
                     />
                   </div>
                   <div className="space-y-1">
@@ -599,7 +599,7 @@ const Controls: React.FC<ControlsProps> = ({
                       type="range" min="0" max="2.0" step="0.1"
                       value={params.warpStrength}
                       onChange={(e) => { handleAdvancedChange('warpStrength', parseFloat(e.target.value)); }}
-                      className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                      className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-purple-500"
                     />
                   </div>
                    <div className="space-y-1">
@@ -611,7 +611,7 @@ const Controls: React.FC<ControlsProps> = ({
                       type="range" min="0" max="2.0" step="0.1"
                       value={params.plateInfluence}
                       onChange={(e) => { handleAdvancedChange('plateInfluence', parseFloat(e.target.value)); }}
-                      className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-red-500"
+                      className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-red-500"
                     />
                   </div>
                   <div className="space-y-1">
@@ -623,7 +623,7 @@ const Controls: React.FC<ControlsProps> = ({
                       type="range" min="0" max="50" step="1"
                       value={params.erosionIterations}
                       onChange={(e) => { handleAdvancedChange('erosionIterations', parseInt(e.target.value) as 1 | 2 | 3); }}
-                      className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-stone-400"
+                      className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-stone-400"
                     />
                   </div>
               </div>
@@ -642,7 +642,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="-90" max="90" step="1"
                   value={params.axialTilt || 0}
                   onChange={(e) => { handleChange('axialTilt', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-400"
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-indigo-400"
                 />
              </div>
              {/* ... (rest of climate sliders) ... */}
@@ -655,7 +655,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="-10" max="50" step="1"
                   value={params.baseTemperature}
                   onChange={(e) => { handleChange('baseTemperature', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-orange-500"
                 />
               </div>
               <div className="space-y-1">
@@ -667,7 +667,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="-50" max="20" step="1"
                   value={params.poleTemperature}
                   onChange={(e) => { handleChange('poleTemperature', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-sky-500"
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-sky-500"
                 />
               </div>
               <div className="space-y-1">
@@ -679,7 +679,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="3" step="0.1"
                   value={params.rainfallMultiplier}
                   onChange={(e) => { handleChange('rainfallMultiplier', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-cyan-500"
                 />
               </div>
               <div className="space-y-1">
@@ -691,7 +691,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="1" step="0.1"
                   value={params.moistureTransport}
                   onChange={(e) => { handleChange('moistureTransport', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-300"
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-blue-300"
                 />
                 <p className="text-[9px] text-gray-500">Affects rain shadows & moisture spread</p>
               </div>
@@ -704,7 +704,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="20" step="1"
                   value={params.temperatureVariance}
                   onChange={(e) => { handleChange('temperatureVariance', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-red-400"
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-red-400"
                 />
               </div>
            </div>
@@ -714,7 +714,7 @@ const Controls: React.FC<ControlsProps> = ({
         {activeTab === 'political' && (
            <div className="space-y-5">
               {/* Civ Seed Input */}
-             <div className="bg-gray-900 p-3 rounded-lg border border-gray-800">
+             <div className="bg-gray-900 p-3 border border-gray-800">
                 <label className="text-xs text-gray-400 mb-1 block">Civ Seed</label>
                 <div className="flex gap-2">
                    <input 
@@ -722,7 +722,7 @@ const Controls: React.FC<ControlsProps> = ({
                       value={params.civSeed} 
                       onChange={(e) => { handleChange('civSeed', e.target.value); }}
                       disabled={civSeedLocked}
-                      className="bg-black border border-gray-700 rounded px-2 py-1 text-white text-xs flex-1 disabled:opacity-50"
+                      className="bg-black border border-gray-700 px-2 py-1 text-white text-xs flex-1 disabled:opacity-50"
                    />
                    <button 
                       onClick={() => { setCivSeedLocked(!civSeedLocked); }} 
@@ -742,14 +742,14 @@ const Controls: React.FC<ControlsProps> = ({
                     <button 
                       onClick={handleRerollBorders}
                       disabled={loading}
-                      className="flex items-center justify-center gap-1 text-[10px] bg-blue-900/40 text-blue-300 px-2 py-2 rounded border border-blue-900/50 hover:bg-blue-800/40"
+                      className="flex items-center justify-center gap-1 text-[10px] bg-blue-900/40 text-blue-300 px-2 py-2 border border-blue-900/50 hover:bg-blue-800/40"
                     >
                       <Shuffle size={10} /> Reroll Borders
                     </button>
                     <button 
                       onClick={handleRerollProvinces}
                       disabled={loading}
-                      className="flex items-center justify-center gap-1 text-[10px] bg-teal-900/40 text-teal-300 px-2 py-2 rounded border border-teal-900/50 hover:bg-teal-800/40"
+                      className="flex items-center justify-center gap-1 text-[10px] bg-teal-900/40 text-teal-300 px-2 py-2 border border-teal-900/50 hover:bg-teal-800/40"
                     >
                       <Layers size={10} /> Reroll Provs
                     </button>
@@ -766,7 +766,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="2" max="20"
                   value={params.numFactions}
                   onChange={(e) => { handleChange('numFactions', parseInt(e.target.value) as 1 | 2 | 3); }}
-                  className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-purple-500"
                 />
               </div>
               <div className="space-y-1">
@@ -778,7 +778,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="1" step="0.1"
                   value={params.capitalSpacing}
                   onChange={(e) => { handleChange('capitalSpacing', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-400"
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-purple-400"
                 />
               </div>
               <div className="space-y-1">
@@ -790,7 +790,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0.1" max="1.0" step="0.1"
                   value={params.provinceSize || 0.5}
                   onChange={(e) => { handleChange('provinceSize', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-teal-400"
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-teal-400"
                 />
               </div>
               <div className="space-y-1">
@@ -802,7 +802,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="1" step="0.1"
                   value={params.civSizeVariance}
                   onChange={(e) => { handleChange('civSizeVariance', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-orange-400"
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-orange-400"
                 />
               </div>
               <div className="space-y-1">
@@ -814,7 +814,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0.1" max="1.0" step="0.1"
                   value={params.waterCrossingCost}
                   onChange={(e) => { handleChange('waterCrossingCost', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-400"
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-blue-400"
                 />
               </div>
               <div className="space-y-1">
@@ -826,7 +826,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0.01" max="1.0" step="0.01"
                   value={params.territorialWaters ?? 0.2}
                   onChange={(e) => { handleChange('territorialWaters', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-600"
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-cyan-600"
                 />
               </div>
 
@@ -836,7 +836,7 @@ const Controls: React.FC<ControlsProps> = ({
                   <select 
                      value={params.loreLevel || 1}
                      onChange={(e) => { handleChange('loreLevel', parseInt(e.target.value) as 1 | 2 | 3); }}
-                     className="w-full bg-gray-800 text-white text-xs border border-gray-700 rounded p-2"
+                     className="w-full bg-gray-800 text-white text-xs border border-gray-700 p-2"
                   >
                      <option value={1}>Level 1: Factions & Capitals</option>
                      <option value={2}>Level 2: Provinces & Towns</option>
@@ -844,23 +844,23 @@ const Controls: React.FC<ControlsProps> = ({
                   </select>
               </div>
 
-              <div className="bg-gray-800/50 rounded-xl p-3 border border-gray-700 mt-4">
+              <div className="bg-gray-800/50 p-3 border border-gray-700 mt-4">
                 <div className="flex justify-between items-center mb-2">
                   <h2 className="text-xs font-semibold text-gray-300">AI Lore</h2>
                    <button 
                     onClick={onGenerateLore}
                     disabled={generatingLore || !apiKey}
-                    className={`text-[10px] px-2 py-1 rounded transition-colors ${
-                      apiKey 
-                        ? 'bg-blue-900/50 text-blue-300 hover:bg-blue-900 border border-blue-800' 
-                        : 'bg-gray-800 text-gray-500 cursor-not-allowed border border-gray-700'
-                    }`}
+                    className={`text-[10px] px-2 py-1 transition-colors ${
+ apiKey 
+ ? 'bg-blue-900/50 text-blue-300 hover:bg-blue-900 border border-blue-800' 
+ : 'bg-gray-800 text-gray-500 cursor-not-allowed border border-gray-700'
+ }`}
                   >
                     {generatingLore ? 'Thinking...' : 'Generate'}
                   </button>
                 </div>
                 {!apiKey && (
-                  <p className="text-[9px] text-yellow-500/80 bg-yellow-500/10 p-1.5 rounded border border-yellow-500/20 mb-2">
+                  <p className="text-[9px] text-yellow-500/80 bg-yellow-500/10 p-1.5 border border-yellow-500/20 mb-2">
                     Enter a Gemini API Key in the "Sys" tab to enable AI lore.
                   </p>
                 )}
@@ -873,7 +873,7 @@ const Controls: React.FC<ControlsProps> = ({
                     {worldData?.civData && (
                         <div className="space-y-1 mt-2">
                             {worldData.civData.factions.map(f => (
-                                <div key={f.id} className="text-[10px] bg-gray-900 p-1 rounded border border-gray-700">
+                                <div key={f.id} className="text-[10px] bg-gray-900 p-1 border border-gray-700">
                                     <div style={{color: f.color}} className="font-bold">{f.name}</div>
                                     <div className="text-gray-500 pl-1">Cap: {f.provinces[0]?.towns[0]?.name || 'Unknown'}</div>
                                     {f.description && <div className="text-gray-400 italic pl-1 mt-1 border-t border-gray-800 pt-1">{f.description}</div>}
@@ -901,7 +901,7 @@ const Controls: React.FC<ControlsProps> = ({
                         <select 
                             value={expRes} 
                             onChange={(e) => { setExpRes(parseInt(e.target.value) as 1 | 2 | 3 as ExportResolution); }}
-                            className="w-full bg-gray-800 text-white text-xs border border-gray-700 rounded p-2"
+                            className="w-full bg-gray-800 text-white text-xs border border-gray-700 p-2"
                         >
                             <option value="2048">2K (2048px)</option>
                             <option value="4096">4K (4096px)</option>
@@ -914,7 +914,7 @@ const Controls: React.FC<ControlsProps> = ({
                         <select 
                             value={expProj} 
                             onChange={(e) => { setExpProj(e.target.value as ProjectionType); }}
-                            className="w-full bg-gray-800 text-white text-xs border border-gray-700 rounded p-2"
+                            className="w-full bg-gray-800 text-white text-xs border border-gray-700 p-2"
                         >
                             <option value="equirectangular">Equirectangular</option>
                             <option value="mercator">Mercator</option>
@@ -927,7 +927,7 @@ const Controls: React.FC<ControlsProps> = ({
                     </div>
 
                     {expProj === 'dymaxion' && (
-                        <div className="border border-gray-800 rounded-lg p-3 space-y-3 bg-gray-900/40">
+                        <div className="border border-gray-800 p-3 space-y-3 bg-gray-900/40">
                             <div className="flex items-center justify-between">
                                 <div className="text-xs font-semibold text-gray-300">Dymaxion Controls</div>
                                 <label className="flex items-center gap-2 text-[10px] text-gray-400">
@@ -946,13 +946,13 @@ const Controls: React.FC<ControlsProps> = ({
                                 <div className="grid grid-cols-2 gap-2">
                                     <button
                                         onClick={() => { updateDymaxion({ mode: 'planet' as DymaxionControlMode }); }}
-                                        className={`text-[10px] py-2 rounded border ${dymaxionSettings.mode === 'planet' ? 'bg-blue-700/70 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300'}`}
+                                        className={`text-[10px] py-2 border ${dymaxionSettings.mode === 'planet' ? 'bg-blue-700/70 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300'}`}
                                     >
                                         Rotate Planet
                                     </button>
                                     <button
                                         onClick={() => { updateDymaxion({ mode: 'overlay' as DymaxionControlMode }); }}
-                                        className={`text-[10px] py-2 rounded border ${dymaxionSettings.mode === 'overlay' ? 'bg-blue-700/70 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300'}`}
+                                        className={`text-[10px] py-2 border ${dymaxionSettings.mode === 'overlay' ? 'bg-blue-700/70 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300'}`}
                                     >
                                         Rotate Overlay
                                     </button>
@@ -971,7 +971,7 @@ const Controls: React.FC<ControlsProps> = ({
                                     type="range" min="-180" max="180" step="1"
                                     value={dymaxionSettings.lon}
                                     onChange={function(e) { updateDymaxion({ lon: parseInt(e.target.value) }); }}
-                                    className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-400"
+                                    className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-blue-400"
                                 />
                             </div>
 
@@ -984,7 +984,7 @@ const Controls: React.FC<ControlsProps> = ({
                                     type="range" min="-90" max="90" step="1"
                                     value={dymaxionSettings.lat}
                                     onChange={function(e) { updateDymaxion({ lat: parseInt(e.target.value) }); }}
-                                    className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-400"
+                                    className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-blue-400"
                                 />
                             </div>
 
@@ -997,13 +997,13 @@ const Controls: React.FC<ControlsProps> = ({
                                     type="range" min="-180" max="180" step="1"
                                     value={dymaxionSettings.roll}
                                     onChange={function(e) { updateDymaxion({ roll: parseInt(e.target.value) }); }}
-                                    className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-400"
+                                    className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-blue-400"
                                 />
                             </div>
 
                             <button
                                 onClick={() => { updateDymaxion({ lon: 0, lat: 0, roll: 0 }); }}
-                                className="w-full text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-200 py-2 rounded border border-gray-700"
+                                className="w-full text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-200 py-2 border border-gray-700"
                             >
                                 Reset Orientation
                             </button>
@@ -1032,7 +1032,7 @@ const Controls: React.FC<ControlsProps> = ({
                     <button
                         onClick={() => { void handleExport(); }}
                         disabled={!worldData}
-                        className="w-full flex items-center justify-center gap-2 bg-green-700 hover:bg-green-600 text-white py-2 rounded text-xs mt-2 disabled:opacity-50"
+                        className="w-full flex items-center justify-center gap-2 bg-green-700 hover:bg-green-600 text-white py-2 text-xs mt-2 disabled:opacity-50"
                     >
                         <Image size={14}/> Download PNG
                     </button>
@@ -1043,7 +1043,7 @@ const Controls: React.FC<ControlsProps> = ({
                     
                     <button
                         onClick={() => { if (params) { void saveMapConfig(params, worldData || undefined); } }}
-                        className="w-full flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-white py-2 rounded text-xs"
+                        className="w-full flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-white py-2 text-xs"
                     >
                         <Save size={14} /> Save Config (JSON)
                     </button>
@@ -1055,7 +1055,7 @@ const Controls: React.FC<ControlsProps> = ({
                             onChange={(e) => { void handleFileUpload(e); }}
                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                         />
-                        <button className="w-full flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-white py-2 rounded text-xs pointer-events-none">
+                        <button className="w-full flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-white py-2 text-xs pointer-events-none">
                             <FolderOpen size={14} /> Load Config (JSON)
                         </button>
                     </div>
@@ -1070,12 +1070,12 @@ const Controls: React.FC<ControlsProps> = ({
                             placeholder="Save Name..." 
                             value={saveName}
                             onChange={(e) => { setSaveName(e.target.value); }}
-                            className="flex-1 bg-gray-900 border border-gray-700 rounded px-2 text-xs text-white"
+                            className="flex-1 bg-gray-900 border border-gray-700 px-2 text-xs text-white"
                         />
                         <button 
                             onClick={handleSaveBrowser}
                             disabled={!saveName}
-                            className="bg-blue-600 hover:bg-blue-500 text-white px-3 rounded"
+                            className="bg-blue-600 hover:bg-blue-500 text-white px-3"
                         >
                             <Save size={14}/>
                         </button>
@@ -1084,7 +1084,7 @@ const Controls: React.FC<ControlsProps> = ({
                     <div className="space-y-1 max-h-40 overflow-y-auto">
                         {savedMaps.length === 0 && <p className="text-xs text-gray-600 italic">No saved maps.</p>}
                         {savedMaps.map(entry => (
-                            <div key={entry.name} className="flex items-center justify-between bg-gray-900 p-2 rounded border border-gray-800 group">
+                            <div key={entry.name} className="flex items-center justify-between bg-gray-900 p-2 border border-gray-800 group">
                                 <div className="flex flex-col">
                                     <span className="text-xs font-bold text-gray-300">{entry.name}</span>
                                     <span className="text-[10px] text-gray-500">{new Date(entry.date).toLocaleDateString()}</span>
@@ -1120,7 +1120,7 @@ const Controls: React.FC<ControlsProps> = ({
          {!loading ? (
              <button
               onClick={handleGenerateClick}
-              className={`w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all relative overflow-hidden bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/30`}
+              className={`w-full py-3 font-semibold flex items-center justify-center gap-2 transition-all relative overflow-hidden bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/30`}
             >
               <div className="relative flex items-center gap-2 z-10">
                   <RefreshCw size={16} />
@@ -1130,7 +1130,7 @@ const Controls: React.FC<ControlsProps> = ({
          ) : (
             <button
               onClick={onCancel}
-              className={`w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all relative overflow-hidden bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/30`}
+              className={`w-full py-3 font-semibold flex items-center justify-center gap-2 transition-all relative overflow-hidden bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/30`}
             >
               <div className="relative flex items-center gap-2 z-10">
                   <XCircle size={16} />

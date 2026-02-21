@@ -42,7 +42,7 @@ const MiniMap: React.FC<MiniMapProps> = ({ world, viewMode }) => {
   if (!world) return null;
 
   return (
-    <div className="absolute bottom-4 right-4 bg-black/80 border border-gray-700 rounded-lg shadow-2xl overflow-hidden z-10 transition-all duration-300">
+    <div className="absolute bottom-4 right-4 bg-black/80 border border-gray-700 shadow-2xl overflow-hidden z-10 transition-all duration-300">
       <button 
         onClick={() => { setIsCollapsed(!isCollapsed); }}
         className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] text-gray-400 font-bold uppercase hover:text-white transition-colors"
@@ -56,7 +56,7 @@ const MiniMap: React.FC<MiniMapProps> = ({ world, viewMode }) => {
             ref={canvasRef} 
             width={240} 
             height={120} 
-            className="rounded cursor-crosshair opacity-90 hover:opacity-100 transition-opacity"
+            className="cursor-crosshair opacity-90 hover:opacity-100 transition-opacity"
           />
         </div>
       )}

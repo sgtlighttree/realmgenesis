@@ -268,12 +268,10 @@ const App: React.FC = () => {
   return (
     <div className="flex flex-col md:flex-row w-full h-full bg-black overflow-hidden font-sans text-gray-200">
       {/* Sidebar / Bottom Drawer */}
-      <div className={`
-        fixed inset-x-0 bottom-0 z-30 md:relative md:inset-auto md:w-80 md:h-full
-        bg-gray-950 border-t md:border-t-0 md:border-r border-gray-800 transition-transform duration-300
-        ${sidebarOpen ? 'translate-y-0 md:translate-x-0' : 'translate-y-full md:-translate-x-full'}
-        max-h-[85vh] md:max-h-full flex flex-col shadow-2xl
-      `}>
+      <div className={`fixed inset-x-0 bottom-0 z-30 md:relative md:inset-auto md:w-80 md:h-full
+ bg-gray-950 border-t md:border-t-0 md:border-r border-gray-800 transition-transform duration-300
+ ${sidebarOpen ? 'translate-y-0 md:translate-x-0' : 'translate-y-full md:-translate-x-full'}
+ max-h-[85vh] md:max-h-full flex flex-col shadow-2xl`}>
         <Controls 
           params={params} setParams={setParams}
           onGenerate={handleGenerate} 
@@ -294,7 +292,7 @@ const App: React.FC = () => {
         />
         <button 
           onClick={() => { setSidebarOpen(false); }}
-          className="md:hidden absolute -top-12 right-4 bg-gray-900 text-white p-2 rounded-full border border-gray-700 shadow-lg"
+          className="md:hidden absolute -top-12 right-4 bg-gray-900 text-white p-2 border border-gray-700 shadow-lg"
         >
           <X size={20} />
         </button>
@@ -304,7 +302,7 @@ const App: React.FC = () => {
       {!sidebarOpen && (
         <button 
           onClick={() => { setSidebarOpen(true); }}
-          className="fixed top-4 left-4 z-40 bg-blue-600 text-white p-3 rounded-full shadow-2xl hover:bg-blue-500 md:hidden border border-white/10"
+          className="fixed top-4 left-4 z-40 bg-blue-600 text-white p-3 shadow-2xl hover:bg-blue-500 md:hidden border border-white/10"
         >
           <Menu size={24} />
         </button>
@@ -338,7 +336,7 @@ const App: React.FC = () => {
 
         {/* Overlay HUD elements */}
         {displayMode === 'globe' && (
-          <div className="absolute top-4 left-24 bg-black/50 backdrop-blur-md p-3 rounded-lg border border-white/10 text-left pointer-events-none z-10 hidden md:block">
+          <div className="absolute top-4 left-24 bg-black/50 backdrop-blur-md p-3 border border-white/10 text-left pointer-events-none z-10 hidden md:block">
            <h3 className="text-white text-xs font-bold">{world ? `Seed: ${params.seed}` : 'No World'}</h3>
            <p className="text-gray-400 text-[10px]">{world ? `${world.cells.length.toLocaleString()} Cells` : ''}</p>
           </div>

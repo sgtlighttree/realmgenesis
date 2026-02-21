@@ -602,7 +602,7 @@ const Map2D: React.FC<{
         </div>
       )}
       {world && (
-        <div className="absolute bottom-4 right-4 text-[10px] bg-black/60 border border-white/10 rounded px-2 py-1 text-gray-300">
+        <div className="absolute bottom-4 right-4 text-[10px] bg-black/60 border border-white/10 px-2 py-1 text-gray-300">
           2D Mercator • Scroll to zoom, drag to pan
         </div>
       )}
