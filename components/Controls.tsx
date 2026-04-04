@@ -311,7 +311,7 @@ const Controls: React.FC<ControlsProps> = ({
       onClick={() => { setViewMode(mode); }}
       className={`flex items-center gap-2 px-2 py-1.5 text-xs transition-all flex-1 justify-center border ${
  viewMode === mode 
- ? 'bg-blue-600 text-white border-blue-500' 
+ ? 'bg-blue-600 text-white border-blue-500 border-b-2' 
  : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700 hover:text-white'
  }`}
     >
@@ -325,7 +325,7 @@ const Controls: React.FC<ControlsProps> = ({
       onClick={() => { setDisplayMode(mode); }}
       className={`px-2 py-1.5 text-xs transition-all flex-1 border ${
  displayMode === mode
- ? 'bg-blue-600 text-white border-blue-500'
+ ? 'bg-blue-600 text-white border-blue-500 border-b-2'
  : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700 hover:text-white'
  }`}
     >
