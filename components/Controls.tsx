@@ -309,10 +309,10 @@ const Controls: React.FC<ControlsProps> = ({
   const ViewButton = ({ mode, icon: Icon, label }: { mode: ViewMode, icon: any, label: string }) => (
     <button
       onClick={() => { setViewMode(mode); }}
-      className={`flex items-center gap-2 px-2 py-1.5 text-xs transition-all flex-1 justify-center ${
+      className={`flex items-center gap-2 px-2 py-1.5 text-xs transition-all flex-1 justify-center border ${
  viewMode === mode 
- ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' 
- : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+ ? 'bg-blue-600 text-white border-blue-500' 
+ : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700 hover:text-white'
  }`}
     >
       <Icon size={14} />
@@ -323,10 +323,10 @@ const Controls: React.FC<ControlsProps> = ({
   const DisplayButton = ({ mode, label }: { mode: DisplayMode; label: string }) => (
     <button
       onClick={() => { setDisplayMode(mode); }}
-      className={`px-2 py-1.5 text-xs transition-all flex-1 ${
+      className={`px-2 py-1.5 text-xs transition-all flex-1 border ${
  displayMode === mode
- ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
- : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+ ? 'bg-blue-600 text-white border-blue-500'
+ : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700 hover:text-white'
  }`}
     >
       {label}
@@ -508,7 +508,7 @@ const Controls: React.FC<ControlsProps> = ({
         {/* ... (Other Tabs omitted for brevity, logic remains identical to previous) ... */}
         {/* Keeping existing Geo, Climate, Political, Export tabs rendering logic as is */}
         {activeTab === 'geo' && (
-           <div className="space-y-4">
+           <div className="space-y-5">
               <div className="space-y-1">
                  <label className="text-xs text-gray-400 block mb-1">Terrain Preset</label>
                  <select 
@@ -523,118 +523,113 @@ const Controls: React.FC<ControlsProps> = ({
                     <option value="Custom">Custom</option>
                  </select>
               </div>
-              <div className="p-3 bg-gray-900 border border-gray-800 space-y-3">
-                  <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Advanced Terrain</h3>
-                  
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-gray-400">
-                      <label>Sea Level</label>
-                      <span>{(params.seaLevel * 100).toFixed(0)}%</span>
-                    </div>
-                    <input
-                      type="range" min="0.1" max="0.9" step="0.05"
-                      value={params.seaLevel}
-                      onChange={(e) => { handleChange('seaLevel', parseFloat(e.target.value)); }}
-                      className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-blue-500"
-                    />
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <label>Sea Level</label>
+                  <span>{(params.seaLevel * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range" min="0.1" max="0.9" step="0.05"
+                  value={params.seaLevel}
+                  onChange={(e) => { handleChange('seaLevel', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-blue-500"
+                />
+              </div>
+               <div className="space-y-1">
+                  <div className="flex justify-between text-xs text-gray-400">
+                    <label>Planet Radius</label>
+                    <span>{params.planetRadius} km</span>
                   </div>
-                  {/* ... other geo sliders ... */}
-                   <div className="space-y-1">
-                      <div className="flex justify-between text-xs text-gray-400">
-                        <label>Planet Radius</label>
-                        <span>{params.planetRadius} km</span>
-                      </div>
-                      <input
-                        type="range" min="1000" max="20000" step="100"
-                        value={params.planetRadius || 6371}
-                        onChange={(e) => { handleChange('planetRadius', parseInt(e.target.value) as 1 | 2 | 3); }}
-                        className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-indigo-500"
-                      />
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-gray-400">
-                      <label>Tectonic Plates</label>
-                      <span>{params.plates}</span>
-                    </div>
-                    <input
-                      type="range" min="2" max="50" step="1"
-                      value={params.plates}
-                      onChange={(e) => { handleAdvancedChange('plates', parseInt(e.target.value) as 1 | 2 | 3); }}
-                      className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-rose-500"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-gray-400">
-                      <label>Terrain Roughness</label>
-                      <span>{(params.roughness * 100).toFixed(0)}%</span>
-                    </div>
-                    <input
-                      type="range" min="0" max="1" step="0.1"
-                      value={params.roughness}
-                      onChange={(e) => { handleAdvancedChange('roughness', parseFloat(e.target.value)); }}
-                      className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-slate-400"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-gray-400">
-                      <label>Feature Frequency</label>
-                      <span>{params.noiseScale.toFixed(1)}</span>
-                    </div>
-                    <input
-                      type="range" min="0.1" max="5.0" step="0.1"
-                      value={params.noiseScale}
-                      onChange={(e) => { handleAdvancedChange('noiseScale', parseFloat(e.target.value)); }}
-                      className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-green-500"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-gray-400">
-                      <label>Ridge Intensity</label>
-                      <span>{(params.ridgeBlend * 100).toFixed(0)}%</span>
-                    </div>
-                    <input
-                      type="range" min="0" max="1" step="0.1"
-                      value={params.ridgeBlend}
-                      onChange={(e) => { handleAdvancedChange('ridgeBlend', parseFloat(e.target.value)); }}
-                      className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-yellow-500"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-gray-400">
-                      <label>Swirl / Warp</label>
-                      <span>{params.warpStrength.toFixed(1)}</span>
-                    </div>
-                    <input
-                      type="range" min="0" max="2.0" step="0.1"
-                      value={params.warpStrength}
-                      onChange={(e) => { handleAdvancedChange('warpStrength', parseFloat(e.target.value)); }}
-                      className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-purple-500"
-                    />
-                  </div>
-                   <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-gray-400">
-                      <label>Tectonic Strength</label>
-                      <span>{params.plateInfluence.toFixed(1)}x</span>
-                    </div>
-                    <input
-                      type="range" min="0" max="2.0" step="0.1"
-                      value={params.plateInfluence}
-                      onChange={(e) => { handleAdvancedChange('plateInfluence', parseFloat(e.target.value)); }}
-                      className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-red-500"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-gray-400">
-                      <label>Hydraulic Erosion</label>
-                      <span>{params.erosionIterations} Steps</span>
-                    </div>
-                    <input
-                      type="range" min="0" max="50" step="1"
-                      value={params.erosionIterations}
-                      onChange={(e) => { handleAdvancedChange('erosionIterations', parseInt(e.target.value) as 1 | 2 | 3); }}
-                      className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-stone-400"
-                    />
-                  </div>
+                  <input
+                    type="range" min="1000" max="20000" step="100"
+                    value={params.planetRadius || 6371}
+                    onChange={(e) => { handleChange('planetRadius', parseInt(e.target.value) as 1 | 2 | 3); }}
+                    className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-indigo-500"
+                  />
+              </div>
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <label>Tectonic Plates</label>
+                  <span>{params.plates}</span>
+                </div>
+                <input
+                  type="range" min="2" max="50" step="1"
+                  value={params.plates}
+                  onChange={(e) => { handleAdvancedChange('plates', parseInt(e.target.value) as 1 | 2 | 3); }}
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-rose-500"
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <label>Terrain Roughness</label>
+                  <span>{(params.roughness * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range" min="0" max="1" step="0.1"
+                  value={params.roughness}
+                  onChange={(e) => { handleAdvancedChange('roughness', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-slate-400"
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <label>Feature Frequency</label>
+                  <span>{params.noiseScale.toFixed(1)}</span>
+                </div>
+                <input
+                  type="range" min="0.1" max="5.0" step="0.1"
+                  value={params.noiseScale}
+                  onChange={(e) => { handleAdvancedChange('noiseScale', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-green-500"
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <label>Ridge Intensity</label>
+                  <span>{(params.ridgeBlend * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range" min="0" max="1" step="0.1"
+                  value={params.ridgeBlend}
+                  onChange={(e) => { handleAdvancedChange('ridgeBlend', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-yellow-500"
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <label>Swirl / Warp</label>
+                  <span>{params.warpStrength.toFixed(1)}</span>
+                </div>
+                <input
+                  type="range" min="0" max="2.0" step="0.1"
+                  value={params.warpStrength}
+                  onChange={(e) => { handleAdvancedChange('warpStrength', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-purple-500"
+                />
+              </div>
+               <div className="space-y-1">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <label>Tectonic Strength</label>
+                  <span>{params.plateInfluence.toFixed(1)}x</span>
+                </div>
+                <input
+                  type="range" min="0" max="2.0" step="0.1"
+                  value={params.plateInfluence}
+                  onChange={(e) => { handleAdvancedChange('plateInfluence', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-red-500"
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <label>Hydraulic Erosion</label>
+                  <span>{params.erosionIterations} Steps</span>
+                </div>
+                <input
+                  type="range" min="0" max="50" step="1"
+                  value={params.erosionIterations}
+                  onChange={(e) => { handleAdvancedChange('erosionIterations', parseInt(e.target.value) as 1 | 2 | 3); }}
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-stone-400"
+                />
               </div>
            </div>
         )}
@@ -1041,7 +1036,7 @@ const Controls: React.FC<ControlsProps> = ({
                     <button
                         onClick={() => { void handleExport(); }}
                         disabled={!worldData}
-                        className="w-full flex items-center justify-center gap-2 bg-green-700 hover:bg-green-600 text-white py-2 text-xs mt-2 disabled:opacity-50"
+                        className="w-full flex items-center justify-center gap-2 bg-green-700 hover:bg-green-600 text-white py-2 text-xs mt-2 disabled:opacity-50 border border-green-600"
                     >
                         <Image size={14}/> Download PNG
                     </button>
@@ -1052,7 +1047,7 @@ const Controls: React.FC<ControlsProps> = ({
                     
                     <button
                         onClick={() => { if (params) { void saveMapConfig(params, worldData || undefined); } }}
-                        className="w-full flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-white py-2 text-xs"
+                        className="w-full flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-white py-2 text-xs border border-gray-700"
                     >
                         <Save size={14} /> Save Config (JSON)
                     </button>
@@ -1064,7 +1059,7 @@ const Controls: React.FC<ControlsProps> = ({
                             onChange={(e) => { void handleFileUpload(e); }}
                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                         />
-                        <button className="w-full flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-white py-2 text-xs pointer-events-none">
+                        <button className="w-full flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-white py-2 text-xs pointer-events-none border border-gray-700">
                             <FolderOpen size={14} /> Load Config (JSON)
                         </button>
                     </div>
@@ -1129,7 +1124,7 @@ const Controls: React.FC<ControlsProps> = ({
          {!loading ? (
              <button
               onClick={handleGenerateClick}
-              className={`w-full py-3 font-semibold flex items-center justify-center gap-2 transition-all relative overflow-hidden bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/30`}
+              className={`w-full py-3 font-semibold flex items-center justify-center gap-2 transition-all relative overflow-hidden bg-blue-600 hover:bg-blue-500 text-white border border-blue-500`}
             >
               <div className="relative flex items-center gap-2 z-10">
                   <RefreshCw size={16} />
@@ -1139,7 +1134,7 @@ const Controls: React.FC<ControlsProps> = ({
          ) : (
             <button
               onClick={onCancel}
-              className={`w-full py-3 font-semibold flex items-center justify-center gap-2 transition-all relative overflow-hidden bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/30`}
+              className={`w-full py-3 font-semibold flex items-center justify-center gap-2 transition-all relative overflow-hidden bg-red-600 hover:bg-red-500 text-white border border-red-500`}
             >
               <div className="relative flex items-center gap-2 z-10">
                   <XCircle size={16} />
