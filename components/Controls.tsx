@@ -143,8 +143,17 @@ const Controls: React.FC<ControlsProps> = ({
       }
   }, [activeTab, params.mapName]);
 
+  const clamp = (val: number, min: number, max: number) => Math.max(min, Math.min(max, val));
+
   const handleChange = <K extends keyof WorldParams>(key: K, value: WorldParams[K]) => { // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setParams({ ...params, [key]: value });
+  };
+
+  const handleNumberChange = <K extends keyof WorldParams>(key: K, rawValue: string, min: number, max: number, step?: number) => {
+    let val = step ? parseFloat(rawValue) : parseInt(rawValue, 10);
+    if (isNaN(val)) return;
+    val = clamp(val, min, max);
+    setParams({ ...params, [key]: val as WorldParams[K] });
   };
 
   const handleAdvancedChange = <K extends keyof WorldParams>(key: K, value: WorldParams[K]) => { // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -398,7 +407,7 @@ const Controls: React.FC<ControlsProps> = ({
                     max="1000000"
                     step="1000"
                     value={params.points}
-                    onChange={(e) => { handleChange('points', parseInt(e.target.value) as 1 | 2 | 3); }}
+                    onChange={(e) => { handleNumberChange('points', e.target.value, 2000, 1000000); }}
                     className="w-24 bg-gray-900 border border-gray-700 px-1 py-0.5 text-right text-white text-xs"
                 />
               </div>

@@ -325,6 +325,58 @@ export const saveMapConfig = (params: WorldParams, world?: WorldData) => {
   linkElement.click();
 };
 
+const validateWorldParams = (params: unknown): params is Record<string, unknown> => {
+    if (typeof params !== 'object' || params === null || Array.isArray(params)) {
+        return false;
+    }
+    const p = params as Record<string, unknown>;
+    const numericBounds: Record<string, [number, number]> = {
+        points: [2000, 1000000],
+        plates: [2, 50],
+        seaLevel: [0.1, 0.9],
+        roughness: [0, 1],
+        noiseScale: [0.1, 5.0],
+        ridgeBlend: [0, 1],
+        warpStrength: [0, 2.0],
+        plateInfluence: [0, 2.0],
+        erosionIterations: [0, 50],
+        baseTemperature: [-10, 50],
+        poleTemperature: [-50, 20],
+        rainfallMultiplier: [0, 3],
+        moistureTransport: [0, 1],
+        temperatureVariance: [0, 20],
+        numFactions: [2, 20],
+        capitalSpacing: [0, 1],
+        provinceSize: [0.1, 1.0],
+        civSizeVariance: [0, 1],
+        waterCrossingCost: [0.1, 1.0],
+        territorialWaters: [0.01, 1.0],
+        axialTilt: [-90, 90],
+        cellJitter: [0, 1],
+        borderRoughness: [0, 1],
+        detailLevel: [0, 10],
+        planetRadius: [1000, 20000],
+    };
+    for (const [key, [min, max]] of Object.entries(numericBounds)) {
+        if (key in p) {
+            const val = p[key];
+            if (typeof val !== 'number' || isNaN(val) || !isFinite(val) || val < min || val > max) {
+                return false;
+            }
+        }
+    }
+    if ('mapName' in p && typeof p.mapName !== 'string') return false;
+    if ('seed' in p && typeof p.seed !== 'string') return false;
+    if ('civSeed' in p && typeof p.civSeed !== 'string') return false;
+    if ('landStyle' in p && typeof p.landStyle !== 'string') return false;
+    if ('maskType' in p && typeof p.maskType !== 'string') return false;
+    if ('loreLevel' in p) {
+        const ll = p.loreLevel;
+        if (typeof ll !== 'number' || ![1, 2, 3].includes(ll)) return false;
+    }
+    return true;
+};
+
 export const loadMapConfig = async (file: File): Promise<LoadedMap | null> => {
     return new Promise((resolve) => {
         const reader = new FileReader();
@@ -332,15 +384,23 @@ export const loadMapConfig = async (file: File): Promise<LoadedMap | null> => {
             try {
                 const json = JSON.parse(event.target?.result as string);
                 
-                // Validate minimal structure
                 if (json.params) {
+                    if (!validateWorldParams(json.params)) {
+                        console.error("Invalid or out-of-bounds params in config file");
+                        resolve(null);
+                        return;
+                    }
                     resolve({
-                        params: json.params,
+                        params: json.params as unknown as WorldParams,
                         civData: json.civData
                     });
                 } else if (json.points) {
-                    // Legacy format support
-                    resolve({ params: json });
+                    if (!validateWorldParams(json)) {
+                        console.error("Invalid or out-of-bounds params in legacy config file");
+                        resolve(null);
+                        return;
+                    }
+                    resolve({ params: json as unknown as WorldParams });
                 } else {
                     throw new Error("Invalid structure");
                 }
