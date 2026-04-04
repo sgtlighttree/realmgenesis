@@ -117,10 +117,8 @@ const Map2D: React.FC<{
       srcCtx.translate(srcWidth, 0);
       srcCtx.scale(-1, 1);
       for (let i = 0; i < world.cells.length; i++) {
-        // eslint-disable-next-line security/detect-object-injection, nosemgrep
         const feature = world.geoJson?.features?.[i];
         if (!feature || !feature.geometry) continue;
-        // eslint-disable-next-line security/detect-object-injection, nosemgrep
         const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel);
         srcCtx.beginPath();
         pathGenerator(feature);
@@ -296,7 +294,6 @@ const Map2D: React.FC<{
             const srcIdx = (srcY * srcWidth + srcX) * 4;
             const outIdx = (oy * outWidth + ox) * 4;
             if (outIdx >= 0 && outIdx < outData.length - 3) {
-              // eslint-disable-next-line security/detect-object-injection, nosemgrep
               outData[outIdx] = srcData[srcIdx];
               outData[outIdx + 1] = srcData[srcIdx + 1];
               outData[outIdx + 2] = srcData[srcIdx + 2];
@@ -330,10 +327,8 @@ const Map2D: React.FC<{
     const pathGenerator = d3.geoPath(projection, ctx);
 
     for (let i = 0; i < world.cells.length; i++) {
-      // eslint-disable-next-line security/detect-object-injection, nosemgrep
         const feature = world.geoJson?.features?.[i];
       if (!feature || !feature.geometry) continue;
-      // eslint-disable-next-line security/detect-object-injection, nosemgrep
         const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel);
       ctx.beginPath();
       pathGenerator(feature);
@@ -384,7 +379,6 @@ const Map2D: React.FC<{
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 0.5;
       for (let i = 0; i < world.cells.length; i++) {
-        // eslint-disable-next-line security/detect-object-injection, nosemgrep
         const feature = world.geoJson?.features?.[i];
         if (!feature || !feature.geometry) continue;
         ctx.beginPath();
@@ -395,7 +389,6 @@ const Map2D: React.FC<{
     }
 
     if (highlightCellId !== null) {
-      // eslint-disable-next-line security/detect-object-injection, nosemgrep
         // codacy-disable-next-line
       const feature = world.geoJson?.features?.[highlightCellId];
       if (feature && feature.geometry) {
@@ -445,8 +438,7 @@ const Map2D: React.FC<{
 
     const pathGenerator = d3.geoPath(projection, ctx);
     for (let i = 0; i < world.cells.length; i++) {
-      // eslint-disable-next-line security/detect-object-injection, nosemgrep
-        const feature = world.geoJson?.features?.[i];
+      const feature = world.geoJson?.features?.[i];
       if (!feature || !feature.geometry) continue;
       const id = i + 1;
       const r = id & 255;

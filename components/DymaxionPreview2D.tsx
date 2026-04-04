@@ -59,8 +59,6 @@ const buildEdges = () => {
   const edges: [number, number][] = [];
   FACES.forEach((face) => {
     for (let i = 0; i < 3; i++) {
-      // eslint-disable-next-line security/detect-object-injection, nosemgrep
-        // codacy-disable-next-line
       const a = face[i];
       const b = face[(i + 1) % 3];
       const key = a < b ? `${a}-${b}` : `${b}-${a}`;
@@ -71,8 +69,6 @@ const buildEdges = () => {
     }
   });
   const lonLatVerts = verts.map(cartesianToLonLat);
-  // eslint-disable-next-line security/detect-object-injection, nosemgrep
-        // codacy-disable-next-line
   return edges.map(([a, b]) => [lonLatVerts[a], lonLatVerts[b]] as [[number, number], [number, number]]);
 };
 
@@ -126,8 +122,6 @@ const DymaxionPreview2D: React.FC<Props> = ({ world, viewMode, settings, onChang
     ctx.scale(-1, 1);
 
     world.cells.forEach((cell, i) => {
-      // eslint-disable-next-line security/detect-object-injection, nosemgrep
-        // codacy-disable-next-line
       const feature = world.geoJson?.features?.[i];
       if (!feature) return;
       const color = getCellColor(cell, viewMode, world.params.seaLevel);

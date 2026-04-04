@@ -89,7 +89,7 @@ const RiverLines: React.FC<{ world: WorldData; visible: boolean }> = ({ world, v
             const points = curve.getPoints(Math.min(50, vectors.length * 4));
             
             for (let i = 0; i < points.length - 1; i++) {
-                // eslint-disable-next-line security/detect-object-injection, nosemgrep
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
         // codacy-disable-next-line
                 positions.push(points[i].x, points[i].y, points[i].z);
                 positions.push(points[i+1].x, points[i+1].y, points[i+1].z);
@@ -161,7 +161,7 @@ const FactionBorders: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ wo
       // Iterate unique pairs of neighbors to find borders
       world.cells.forEach(cellA => {
           cellA.neighbors.forEach(nId => {
-              // eslint-disable-next-line security/detect-object-injection, nosemgrep
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
         // codacy-disable-next-line
               const cellB = world.cells[nId];
               if (cellA.id >= cellB.id) return; // Process pair once
@@ -281,8 +281,6 @@ const WorldMesh: React.FC<{
       const hMult = 1 + (cell.height * 0.05); 
       const cx = cell.center.x * hMult; const cy = cell.center.y * hMult; const cz = cell.center.z * hMult;
       for (let i = 0; i < cell.vertices.length; i++) {
-        // eslint-disable-next-line security/detect-object-injection, nosemgrep
-        // codacy-disable-next-line
         const next = (i + 1) % cell.vertices.length; const v1 = cell.vertices[i]; const v2 = cell.vertices[next];
         positions.push(cx, cy, cz, v1.x * hMult, v1.y * hMult, v1.z * hMult, v2.x * hMult, v2.y * hMult, v2.z * hMult);
         colors.push(c.r, c.g, c.b, c.r, c.g, c.b, c.r, c.g, c.b);
@@ -320,11 +318,7 @@ const WorldMesh: React.FC<{
 
       const triIndex = getTriangleIndex(e);
       if (triIndex !== null) {
-          // eslint-disable-next-line security/detect-object-injection, nosemgrep
-        // codacy-disable-next-line
           const cellId = faceMap[triIndex];
-          // eslint-disable-next-line security/detect-object-injection, nosemgrep
-        // codacy-disable-next-line
           if (cellId !== undefined) onHover(world.cells[cellId]);
       } else { onHover(null); }
   }, [inspectMode, faceMap, world.cells, onHover, getTriangleIndex, dymaxionSettings.mode]);
@@ -334,8 +328,6 @@ const WorldMesh: React.FC<{
       if (inspectMode !== 'click') return;
       const triIndex = getTriangleIndex(e);
       if (triIndex !== null) {
-          // eslint-disable-next-line security/detect-object-injection, nosemgrep
-        // codacy-disable-next-line
           const cellId = faceMap[triIndex];
           onInspect(cellId !== undefined ? cellId : null);
       }
@@ -346,8 +338,6 @@ const WorldMesh: React.FC<{
       if (inspectMode !== 'click') return;
       const triIndex = getTriangleIndex(e);
       if (triIndex !== null) {
-          // eslint-disable-next-line security/detect-object-injection, nosemgrep
-        // codacy-disable-next-line
           const cellId = faceMap[triIndex];
           onInspect(cellId !== undefined ? cellId : null);
       }

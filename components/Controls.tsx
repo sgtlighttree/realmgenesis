@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode, DymaxionSettings, DymaxionLayout, DymaxionControlMode } from '../types';
-import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Download, Save, FileJson, FolderOpen, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode, DymaxionSettings, DymaxionControlMode } from '../types';
+import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Download, FileJson } from 'lucide-react';
 import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
 import { WorldData } from '../types';
 import DymaxionPreview2D from './DymaxionPreview2D';

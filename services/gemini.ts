@@ -1,5 +1,5 @@
-import { GoogleGenAI, Type } from "@google/genai";
-import { WorldData, LoreData, BiomeType, CivData } from "../types";
+import { GoogleGenAI } from "@google/genai";
+import { WorldData, LoreData } from "../types";
 
 let ai: GoogleGenAI | null = null;
 let runtimeKey: string | null = null;
@@ -126,9 +126,7 @@ export const generateWorldLore = async (world: WorldData): Promise<LoreData> => 
                 // Apply Province Names
                 if (fJson.provinceNames && Array.isArray(fJson.provinceNames)) {
                     fData.provinces.forEach((p, idx) => {
-                        // eslint-disable-next-line security/detect-object-injection
-                        if (fJson.provinceNames[idx]) {
-                            // eslint-disable-next-line security/detect-object-injection
+                if (fJson.provinceNames[idx]) {
                             p.name = fJson.provinceNames[idx];
                             // Name the main town same as province for simplicity if Level 2
                             if (p.towns.length > 0 && !p.towns[0].isCapital) {

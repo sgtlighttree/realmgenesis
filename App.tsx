@@ -159,15 +159,10 @@ const App: React.FC = () => {
                       
                       // Restore province names
                       savedF.provinces.forEach((savedP, idx) => {
-                          // eslint-disable-next-line security/detect-object-injection
                           if (genF.provinces[idx]) {
-                              // eslint-disable-next-line security/detect-object-injection
                               genF.provinces[idx].name = savedP.name;
-                              // Restore town names
                               savedP.towns.forEach((savedT, tIdx) => {
-                                  // eslint-disable-next-line security/detect-object-injection
                                   if (genF.provinces[idx].towns[tIdx]) {
-                                      // eslint-disable-next-line security/detect-object-injection
                                       genF.provinces[idx].towns[tIdx].name = savedT.name;
                                   }
                               });
