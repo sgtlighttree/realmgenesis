@@ -334,7 +334,7 @@ const Controls: React.FC<ControlsProps> = ({
   );
 
   return (
-    <div className="w-80 bg-gray-950 border-r border-gray-800 flex flex-col h-full overflow-hidden text-sm relative z-20">
+    <div className="w-full md:w-80 bg-gray-950 border-r border-gray-800 flex flex-col h-full overflow-hidden text-sm relative z-20">
       <div className="p-4 border-b border-gray-800">
         <h1 className="text-xl font-bold text-white flex items-center gap-2">
           <Globe className="text-blue-500" />
