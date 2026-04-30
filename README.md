@@ -13,6 +13,8 @@
 - **🤖 AI Lore (Gemini)**: Detailed world lore, faction backstories, and capital naming powered by Google Gemini 1.5 Flash.
 - **🔑 BYOK (Bring Your Own Key)**: Use your own Gemini API key for AI features. Keys are ephemeral and never stored permanently in the app.
 - **⚖️ Political Simulation**: Procedural expansion of factions across provinces and towns with customizable borders.
+- **📦 3D Export (GLB)**: Export the world as a binary GLB file — world mesh with per-vertex colors, rivers as line geometry, and city markers as low-poly cylinders. Ready to import into Blender, Unity, or Unreal.
+- **🔲 Blender UV Net**: Dymaxion export mode that produces a square image matching Blender's default icosphere UV unwrap, compatible with any subdivision level.
 
 ## 🚀 Getting Started
 

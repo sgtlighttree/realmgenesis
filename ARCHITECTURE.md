@@ -55,6 +55,7 @@ This section maps common tasks to the exact files and functions you should read 
 | Understand Dymaxion math | `utils/dymaxion.ts` | `buildDymaxionNet()`, `createDymaxionProjection()` |
 | Understand AI lore | `services/gemini.ts` | `generateWorldLore()` |
 | Understand save/export | `utils/export.ts` | `exportMap()`, `saveMapToBrowser()`, `saveMapConfig()` |
+| Understand 3D GLB export | `utils/exportGLB.ts` | `exportGLB(world, viewMode)` |
 | Understand civilization generation | `utils/worldGen.ts` | `recalculateCivs()` (line 805), `recalculateProvinces()` (line 922) |
 | Understand RNG | `utils/rng.ts` | `RNG` class (Mulberry32), `SimplexNoise` class |
 | Understand biome rules | `utils/worldGen.ts` | `determineBiome()` (line 373) |
@@ -142,7 +143,8 @@ realmgenesis/
 │   ├── rng.ts                  # Mulberry32 PRNG + 3D Simplex noise
 │   ├── colors.ts               # View-mode color mapping (10 modes)
 │   ├── dymaxion.ts             # Icosahedral geometry + Dymaxion net math
-│   └── export.ts               # Image export, save/load, localStorage
+│   ├── export.ts               # Image export (PNG/raster), save/load, localStorage
+│   └── exportGLB.ts            # 3D export: world mesh + rivers + city markers → GLB
 │
 ├── services/
 │   └── gemini.ts               # Google Gemini AI wrapper (lore generation)
@@ -171,10 +173,14 @@ index.tsx
         │     ├── utils/dymaxion.ts
         │     ├── utils/colors.ts
         │     └── types.ts
+        ├── utils/exportGLB.ts
+        │     ├── utils/colors.ts
+        │     └── types.ts
         ├── services/gemini.ts
         │     └── types.ts
         ├── components/Controls.tsx
         │     ├── utils/export.ts
+        │     ├── utils/exportGLB.ts
         │     ├── services/gemini.ts
         │     └── types.ts
         ├── components/WorldViewer.tsx
@@ -273,8 +279,26 @@ Multiple independent `RNG` instances are created inside `generateWorld` with dif
 | Symbol | Signature | Description |
 |--------|-----------|-------------|
 | `DymaxionNetFace` | `type` | Describes a single face of the unfolded icosahedron net (vertices in 2D, face index, rotation) |
-| `buildDymaxionNet` | `(layout: DymaxionLayout) => DymaxionNetFace[]` | Constructs the 2D net of the icosahedron for the given layout; used by `Map2D` and `export.ts` for pixel-by-pixel Dymaxion reprojection |
+| `buildDymaxionNet` | `(layout: DymaxionLayout) => DymaxionNetFace[]` | Constructs the 2D net for the given layout. `'classic'` builds the Fuller/Dymaxion diagonal net via a spanning-tree unfold; `'blender'` returns a hardcoded net whose UV coordinates match Blender's default icosphere UV unwrap exactly |
 | `createDymaxionProjection` | `(layout: DymaxionLayout) => GeoProjection` | Returns a d3-compatible `geoPolyhedral` projection using `geoGnomonic` per-face; used by `WorldViewer` and `DymaxionPreview2D` |
+
+---
+
+### `utils/exportGLB.ts`
+
+**Exported functions:**
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `exportGLB` | `(world: WorldData, viewMode: ViewMode) => void` | Builds a Three.js scene from `WorldData` and triggers a GLB binary download. Produces three named objects: `World` (mesh with per-vertex colors), `Rivers` (line geometry, present if `world.rivers` is non-empty), and `Capitals`/`Towns` (merged low-poly cylinder geometry, present if `world.civData` exists). Uses `GLTFExporter` from `three/examples/jsm`. |
+
+**GLB scene structure:**
+- `World` — `MeshStandardMaterial` with `vertexColors: true`; per-vertex colors match `getCellColor(cell, viewMode, seaLevel)`; same `hMult = 1 + height * 0.05` elevation relief as the 3D globe viewer
+- `Rivers` — `LineSegments` with `LineBasicMaterial` (colour `#38bdf8`); each river path stored as consecutive vertex pairs
+- `Capitals` — merged `MeshBasicMaterial` (colour `#ef4444`); 6-sided cylinders, radius 0.008, height 0.08
+- `Towns` — merged `MeshBasicMaterial` (colour `#ffffff`); 5-sided cylinders, radius 0.005, height 0.04
+
+Vertex colors are exported as the `COLOR_0` attribute in GLTF. In Blender, set the material's Base Color to **Vertex Color** (or use an Attribute node with name `COLOR_0`) to display them.
 
 ---
 
@@ -383,11 +407,14 @@ WorldData.civData
 
 #### View & Display Modes
 ```typescript
-type DisplayMode  = 'globe' | 'mercator' | 'dymaxion'
-type ViewMode     = 'biome' | 'height' | 'height_bw' | 'temperature' |
-                    'moisture' | 'plates' | 'political' | 'population' |
-                    'province' | 'satellite'
-type InspectMode  = 'click' | 'hover' | 'off'
+type DisplayMode    = 'globe' | 'mercator' | 'dymaxion'
+type ViewMode       = 'biome' | 'height' | 'height_bw' | 'temperature' |
+                      'moisture' | 'plates' | 'political' | 'population' |
+                      'province' | 'satellite'
+type InspectMode    = 'click' | 'hover' | 'off'
+type DymaxionLayout = 'classic' | 'blender'
+// 'classic' → Fuller diagonal net (default live view + raster export)
+// 'blender' → Blender icosphere UV net (export-only; square image, net in lower ~47%)
 ```
 
 ---
@@ -825,7 +852,16 @@ Load:
 `exportMap()` renders the world to a canvas at configurable resolutions:
 - **Resolutions**: 4K (4096px), 8K (8192px), 16K (16384px), 32K (32768px) width
 - **Projections**: Equirectangular, Mercator, Winkel Tripel, Robinson, Mollweide, Orthographic, Dymaxion
-- **Dymaxion raster**: Pixel-by-pixel reprojection via `buildDymaxionNet` from an equirectangular source canvas
+- **Classic Dymaxion raster**: Pixel-by-pixel reprojection via `buildDymaxionNet('classic')`; auto-fit with padding; output is `width × round(width × 0.6)`
+- **Blender Dymaxion raster**: Uses `buildDymaxionNet('blender')`; direct UV→pixel mapping (`px = u*W, py = (1-v)*H`); output is square (`width × width`). The net occupies the bottom ~47% of the image, matching Blender's UV space exactly for any icosphere subdivision level.
+
+### 3D Export (`utils/exportGLB.ts`)
+
+`exportGLB()` builds a Three.js scene from `WorldData` and exports it as a binary GLB file:
+- **World mesh**: per-vertex colored `MeshStandardMaterial`; same fan-triangulation and `hMult` elevation as the live 3D globe
+- **Rivers**: `LineSegments` geometry; GLTF LINES primitive; colour `#38bdf8`
+- **City markers**: merged non-indexed cylinder geometry; capitals (6-sided, height 0.08) in red, towns (5-sided, height 0.04) in white; only included when `world.civData` is present
+- Vertex colors are exported as GLTF attribute `COLOR_0`
 
 ### Browser Storage
 
@@ -897,3 +933,9 @@ These are non-obvious facts that are critical for making correct changes:
 9. **Export resolutions are canvas-based**: Very large exports (16K, 32K) create large offscreen canvases. On low-memory devices or browsers with canvas size limits, these may fail silently or throw. 32K (32768px) exceeds most browser canvas limits and should be considered experimental.
 
 10. **No test framework**: There are no automated tests. Quality gates are: `npm run build` succeeds, `npm run lint` has zero errors, TypeScript has zero type errors. All behavioral testing is manual via the browser.
+
+11. **GLB vertex colors require a Blender material step**: `exportGLB` bakes cell colors into the GLTF `COLOR_0` vertex attribute. Blender does not display these automatically — the imported material must have its Base Color connected to an **Attribute** node (name: `COLOR_0`) or the viewport shading must be set to **Vertex Color**.
+
+12. **Blender UV net is export-only**: `DymaxionLayout = 'blender'` produces a square image for use as a UV texture; it has no effect on the live 3D globe or 2D map views. The toggle in Dymaxion Controls only influences the raster export path in `exportMap()`.
+
+13. **`exportGLB` builds geometry independently of the live scene**: The function creates fresh Three.js objects from `WorldData` — it does not capture the R3F canvas or scene ref. This means it works from any tab and any display mode, but always reflects the current `viewMode` color scheme, not any transient render state.
