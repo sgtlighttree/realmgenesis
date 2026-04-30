@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode, DymaxionSettings, DymaxionControlMode } from '../types';
-import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Download, FileJson } from 'lucide-react';
+import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Download, FileJson, Box } from 'lucide-react';
 import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
+import { exportGLB } from '../utils/exportGLB';
 import { WorldData } from '../types';
 import DymaxionPreview2D from './DymaxionPreview2D';
 
@@ -1049,6 +1050,18 @@ const Controls: React.FC<ControlsProps> = ({
                         className="w-full flex items-center justify-center gap-2 bg-green-700 hover:bg-green-600 text-white py-2 text-xs mt-2 disabled:opacity-50 border border-green-600"
                     >
                         <Image size={14}/> Download PNG
+                    </button>
+                </div>
+
+                <div className="border-t border-gray-800 pt-4 space-y-2">
+                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">3D Export</h3>
+                    <p className="text-[10px] text-gray-500">Exports the current view as a GLB file. World mesh uses per-vertex colors. Rivers exported as line geometry. City markers included when civilization data is present.</p>
+                    <button
+                        onClick={() => { if (worldData) exportGLB(worldData, viewMode); }}
+                        disabled={!worldData}
+                        className="w-full flex items-center justify-center gap-2 bg-indigo-700 hover:bg-indigo-600 text-white py-2 text-xs disabled:opacity-50 border border-indigo-600"
+                    >
+                        <Box size={14}/> Export GLB
                     </button>
                 </div>
 
