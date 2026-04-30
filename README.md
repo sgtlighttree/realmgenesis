@@ -1,7 +1,3 @@
-<!-- <div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div> -->
-
 # 🌏 RealmGenesis 3D
 
 **RealmGenesis** is a powerful, browser-based procedurally generated fantasy world engine. It simulates tectonic plates, hydraulic erosion, moisture transport, and biomes on a spherical 3D globe.
@@ -39,6 +35,11 @@
    npm run dev
    ```
 
+## 📖 Documentation
+
+- [**ARCHITECTURE.md**](./ARCHITECTURE.md) — Detailed technical overview: generation pipeline, data model, rendering architecture, module API reference, key invariants, and an LLM quick-navigation guide.
+- [**AGENTS.md**](./AGENTS.md) — Commands, code style guide, and conventions for contributors and AI agents.
+
 ## 🌐 Deployment
 
 RealmGenesis is optimized for deployment on **Netlify**. 
@@ -46,4 +47,4 @@ RealmGenesis is optimized for deployment on **Netlify**.
 - **Environmental Safety**: Safe fallback mechanisms for environment variables.
 
 ---
-*Built with React, Three.js, OpenAI Codex, Google Gemini.*
+*Built with React, Three.js, OpenAI Codex, Google Gemini, and Claude Code.*
