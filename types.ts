@@ -59,7 +59,7 @@ export enum BiomeType {
 
 export type LandStyle = 'Continents' | 'Archipelago' | 'Islands' | 'Pangea' | 'Custom';
 export type MaskType = 'None' | 'Pangea';
-export type DymaxionLayout = 'classic';
+export type DymaxionLayout = 'classic' | 'blender';
 export type DymaxionControlMode = 'planet' | 'overlay';
 
 export interface DymaxionSettings {

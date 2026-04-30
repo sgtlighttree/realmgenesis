@@ -150,7 +150,79 @@ const findSharedEdge = (a: Face, b: Face) => {
   return null;
 };
 
+// Blender-compatible icosahedron UV net.
+// Vertex positions are in the y-up coordinate system used by RealmGenesis
+// (transformed from Blender's z-up via (x,y,z) → (x,z,y)).
+// UV coordinates match the output of Blender's default icosphere UV unwrap exactly,
+// so the exported image can be applied directly as a UV texture in Blender.
+const buildBlenderNet = (): ReturnType<typeof buildDymaxionNet> => {
+  // Icosahedron vertices in y-up space
+  const SP:  Vec3 = [0, -1, 0];
+  const NP:  Vec3 = [0,  1, 0];
+  const LB0: Vec3 = [ 0.7236, -0.4472,  0.5257];
+  const LB1: Vec3 = [-0.2764, -0.4472,  0.8507];
+  const LB2: Vec3 = [-0.8944, -0.4472,  0];
+  const LB3: Vec3 = [-0.2764, -0.4472, -0.8507];
+  const LB4: Vec3 = [ 0.7236, -0.4472, -0.5257];
+  const UB0: Vec3 = [ 0.8944,  0.4472,  0];
+  const UB1: Vec3 = [ 0.2764,  0.4472,  0.8507];
+  const UB2: Vec3 = [-0.7236,  0.4472,  0.5257];
+  const UB3: Vec3 = [-0.7236,  0.4472, -0.5257];
+  const UB4: Vec3 = [ 0.2764,  0.4472, -0.8507];
+
+  // UV row constants: U steps are multiples of 1/11,
+  // V steps are multiples of √3/11 (equilateral triangles).
+  const V0 = 0;
+  const V1 = Math.sqrt(3) / 11;   // ≈ 0.15746
+  const V2 = 2 * Math.sqrt(3) / 11; // ≈ 0.31492
+  const V3 = 3 * Math.sqrt(3) / 11; // ≈ 0.47238
+  const u = (n: number): number => n / 11;
+
+  // Each entry: [uv0, uv1, uv2], [v3d0, v3d1, v3d2]
+  // Vertex ordering matches the Blender mesh loop order from the UV dump script,
+  // so barycentric weights correctly interpolate 2D ↔ 3D.
+  const faceData: Array<[[number,number][], Vec3[]]> = [
+    // ── Southern cap (faces 0-4): downward-pointing, SP at apex ──────────────
+    [[[u(2),V0],[u(3),V1],[u(1),V1]],       [SP, LB4, LB3]],
+    [[[u(3),V1],[u(4),V0],[u(5),V1]],       [LB4, SP, LB0]],
+    [[[u(10),V0],[u(11),V1],[u(9),V1]],     [SP, LB3, LB2]],
+    [[[u(8),V0],[u(9),V1],[u(7),V1]],       [SP, LB2, LB1]],
+    [[[u(6),V0],[u(7),V1],[u(5),V1]],       [SP, LB1, LB0]],
+    // ── Middle upward-pointing (faces 5-9): apex at top ──────────────────────
+    [[[u(3),V1],[u(5),V1],[u(4),V2]],       [LB4, LB0, UB0]],
+    [[[u(1),V1],[u(3),V1],[u(2),V2]],       [LB3, LB4, UB4]],
+    [[[u(9),V1],[u(11),V1],[u(10),V2]],     [LB2, LB3, UB3]],
+    [[[u(7),V1],[u(9),V1],[u(8),V2]],       [LB1, LB2, UB2]],
+    [[[u(5),V1],[u(7),V1],[u(6),V2]],       [LB0, LB1, UB1]],
+    // ── Middle downward-pointing (faces 10-14): apex at bottom ───────────────
+    [[[u(3),V1],[u(4),V2],[u(2),V2]],       [LB4, UB0, UB4]],
+    [[[u(1),V1],[u(2),V2],[u(0),V2]],       [LB3, UB4, UB3]],
+    [[[u(9),V1],[u(10),V2],[u(8),V2]],      [LB2, UB3, UB2]],
+    [[[u(7),V1],[u(8),V2],[u(6),V2]],       [LB1, UB2, UB1]],
+    [[[u(5),V1],[u(6),V2],[u(4),V2]],       [LB0, UB1, UB0]],
+    // ── Northern cap (faces 15-19): upward-pointing, NP at apex ──────────────
+    [[[u(2),V2],[u(4),V2],[u(3),V3]],       [UB4, UB0, NP]],
+    [[[u(0),V2],[u(2),V2],[u(1),V3]],       [UB3, UB4, NP]],
+    [[[u(8),V2],[u(10),V2],[u(9),V3]],      [UB2, UB3, NP]],
+    [[[u(6),V2],[u(8),V2],[u(7),V3]],       [UB1, UB2, NP]],
+    [[[u(4),V2],[u(6),V2],[u(5),V3]],       [UB0, UB1, NP]],
+  ];
+
+  const identity: [number,number,number,number,number,number] = [1,0,0,0,1,0];
+  const faces: DymaxionNetFace[] = faceData.map(([ uvs, v3ds ], i) => ({
+    index: i,
+    vertices: uvs as [number,number][],
+    localVertices: uvs as [number,number][],
+    vertices3D: v3ds,
+    transform: identity,
+    inverse: identity,
+  }));
+
+  return { faces };
+};
+
 export const buildDymaxionNet = (layout: DymaxionLayout) => {
+  if (layout === 'blender') return buildBlenderNet();
   const { facesLonLat, facesIdx, facesCart } = buildFaces();
   const { root, parents } = buildParents(layout, buildAdjacency(FACES));
 

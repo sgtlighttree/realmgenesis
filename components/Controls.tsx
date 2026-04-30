@@ -1005,6 +1005,16 @@ const Controls: React.FC<ControlsProps> = ({
                                 />
                             </div>
 
+                            <label className="flex items-center gap-2 text-[10px] text-gray-400">
+                                <input
+                                    type="checkbox"
+                                    checked={dymaxionSettings.layout === 'blender'}
+                                    onChange={(e) => { updateDymaxion({ layout: e.target.checked ? 'blender' : 'classic' }); }}
+                                    className="accent-blue-500"
+                                />
+                                Blender UV Net (export only)
+                            </label>
+
                             <button
                                 onClick={() => { updateDymaxion({ lon: 0, lat: 0, roll: 0 }); }}
                                 className="w-full text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-200 py-2 border border-gray-700"

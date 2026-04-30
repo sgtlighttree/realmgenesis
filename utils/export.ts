@@ -74,26 +74,33 @@ const exportDymaxionRaster = (
   const layout = dymaxionSettings?.layout || 'classic';
   const net = buildDymaxionNet(layout);
   const faces = net.faces;
+  const isBlender = layout === 'blender';
 
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  faces.forEach((face) => {
-    face.vertices.forEach((v) => {
-      minX = Math.min(minX, v[0]);
-      minY = Math.min(minY, v[1]);
-      maxX = Math.max(maxX, v[0]);
-      maxY = Math.max(maxY, v[1]);
+  // For the Blender UV net, UV coords map directly to pixels:
+  //   px = u * width,  py = (1 - v) * height
+  // (V is flipped because image y=0 is top, UV v=0 is bottom.)
+  // For the classic net, auto-fit the net to fill the canvas with padding.
+  let scale = 1;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  if (!isBlender) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    faces.forEach((face) => {
+      face.vertices.forEach((v) => {
+        minX = Math.min(minX, v[0]);
+        minY = Math.min(minY, v[1]);
+        maxX = Math.max(maxX, v[0]);
+        maxY = Math.max(maxY, v[1]);
+      });
     });
-  });
-
-  const pad = 12;
-  const netWidth = Math.max(1e-6, maxX - minX);
-  const netHeight = Math.max(1e-6, maxY - minY);
-  const scale = Math.min((width - pad * 2) / netWidth, (height - pad * 2) / netHeight);
-  const offsetX = (width - netWidth * scale) / 2 - minX * scale;
-  const offsetY = (height - netHeight * scale) / 2 - minY * scale;
+    const pad = 12;
+    const netWidth = Math.max(1e-6, maxX - minX);
+    const netHeight = Math.max(1e-6, maxY - minY);
+    scale = Math.min((width - pad * 2) / netWidth, (height - pad * 2) / netHeight);
+    offsetX = (width - netWidth * scale) / 2 - minX * scale;
+    offsetY = (height - netHeight * scale) / 2 - minY * scale;
+  }
 
   const rotate = dymaxionSettings ? d3.geoRotation([dymaxionSettings.lon, dymaxionSettings.lat, dymaxionSettings.roll]) : null;
 
@@ -149,7 +156,9 @@ const exportDymaxionRaster = (
   };
 
   faces.forEach((face) => {
-    const verts = face.vertices.map((v) => [v[0] * scale + offsetX, v[1] * scale + offsetY]) as [number, number][];
+    const verts = isBlender
+      ? face.vertices.map((v) => [v[0] * width, (1 - v[1]) * height]) as [number, number][]
+      : face.vertices.map((v) => [v[0] * scale + offsetX, v[1] * scale + offsetY]) as [number, number][];
     const [a, b, c] = verts;
     const minBX = Math.max(0, Math.floor(Math.min(a[0], b[0], c[0])));
     const maxBX = Math.min(width - 1, Math.ceil(Math.max(a[0], b[0], c[0])));
@@ -160,7 +169,9 @@ const exportDymaxionRaster = (
       for (let x = minBX; x <= maxBX; x++) {
         const p: [number, number] = [x + 0.5, y + 0.5];
         if (!insideTri(p, a, b, c)) continue;
-        const netPoint: [number, number] = [(p[0] - offsetX) / scale, (p[1] - offsetY) / scale];
+        const netPoint: [number, number] = isBlender
+          ? [p[0] / width, 1 - p[1] / height]
+          : [(p[0] - offsetX) / scale, (p[1] - offsetY) / scale];
         const weights = barycentric(netPoint, face.vertices[0], face.vertices[1], face.vertices[2]);
         if (!weights) continue;
         const [u, v, w] = weights;
@@ -216,7 +227,8 @@ const exportDymaxionRaster = (
   const link = document.createElement('a');
   const mapName = world.params.mapName || 'map';
   const seed = world.params.seed;
-  link.download = `realmgenesis_${mapName}_${seed}_${viewMode}_dymaxion_${width}x${height}.png`;
+  const layoutSuffix = isBlender ? 'blender' : 'dymaxion';
+  link.download = `realmgenesis_${mapName}_${seed}_${viewMode}_${layoutSuffix}_${width}x${height}.png`;
   link.href = canvas.toDataURL('image/png', 0.8);
   link.click();
 };
@@ -232,7 +244,9 @@ export const exportMap = async (
   let height = resolution / 2;
   if (projectionType === 'mercator') height = resolution; 
   if (projectionType === 'orthographic') height = resolution; 
-  if (projectionType === 'dymaxion') height = Math.round(resolution * 0.6);
+  if (projectionType === 'dymaxion') {
+    height = dymaxionSettings?.layout === 'blender' ? resolution : Math.round(resolution * 0.6);
+  }
 
   if (projectionType === 'dymaxion') {
     exportDymaxionRaster(world, viewMode, width, height, dymaxionSettings);
