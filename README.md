@@ -15,6 +15,9 @@
 - **⚖️ Political Simulation**: Procedural expansion of factions across provinces and towns with customizable borders.
 - **📦 3D Export (GLB)**: Export the world as a binary GLB file — world mesh with per-vertex colors, rivers as line geometry, and city markers as low-poly cylinders. Ready to import into Blender, Unity, or Unreal.
 - **🔲 Blender UV Net**: Dymaxion export mode that produces a square image matching Blender's default icosphere UV unwrap, compatible with any subdivision level.
+- **📊 World Stats Panel**: Live stats in the Sys tab — land coverage %, top biome breakdown, total population, faction/province counts, and river count.
+- **⌨️ Keyboard Shortcuts**: `G` to generate, `R` to randomize seed, `Escape` to close the inspector, `1`–`5` to switch tabs. Guards against firing inside text inputs.
+- **🗺️ Heightmap PNG Export**: One-click greyscale equirectangular export for use as a displacement map in any 3D application.
 
 ## 🚀 Getting Started
 

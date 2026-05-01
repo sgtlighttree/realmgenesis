@@ -488,8 +488,13 @@ function enforceConnectivity(cells: Cell[], numPlates: number) {
 
 // --- GEOGRAPHY GENERATION ---
 
-export async function generateWorld(params: WorldParams, onLog?: (msg: string) => void, signal?: AbortSignal): Promise<WorldData> {
+export async function generateWorld(params: WorldParams, onLog?: (msg: string) => void, signal?: AbortSignal, onProgress?: (stage: number, total: number) => void): Promise<WorldData> {
+  const TOTAL_STAGES = 8;
+  let stage = 0;
+  const progress = () => onProgress?.(++stage, TOTAL_STAGES);
+
   onLog?.(`Initializing Grid (${params.points} cells)...`);
+  progress();
   const macroRng = new RNG(params.seed + '_macro');
   const simplex = new SimplexNoise(new RNG(params.seed));
   
@@ -538,6 +543,7 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   cells.forEach(c => c.neighbors = [...new Set(c.neighbors)]);
 
   onLog?.(`Simulating ${params.plates} Tectonic Plates...`);
+  progress();
   await new Promise(r => setTimeout(r, 0));
   checkAbort(signal);
 
@@ -640,6 +646,7 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   }
 
   onLog?.("Applying Height & Noise...");
+  progress();
   const freq = params.noiseScale || 1.0;
   const plateInf = (params.plateInfluence === undefined ? 0.5 : params.plateInfluence); 
 
@@ -703,6 +710,7 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   // EROSION
   if (params.erosionIterations > 0) {
       onLog?.(`Eroding Terrain (${params.erosionIterations} iter)...`);
+      progress();
       await new Promise(r => setTimeout(r, 0));
       checkAbort(signal);
 
@@ -720,6 +728,7 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   }
 
   onLog?.("Calculating Climate (Wind & Rain)...");
+  progress();
   
   const windVectors = cells.map(c => {
       const tiltRad = (params.axialTilt || 0) * (Math.PI / 180);
@@ -795,9 +804,11 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
       c.biome = determineBiome(c.height, c.temperature, c.moisture, params.seaLevel);
   });
 
+  progress();
   const rivers = await generateRivers(cells, params.seaLevel, params, onLog, signal);
   const world: WorldData = { cells, params, geoJson: polygons, rivers };
-  
+
+  progress();
   return recalculateCivs(world, params, onLog);
 }
 
