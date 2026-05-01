@@ -691,6 +691,7 @@ Pointer interaction supports click and hover inspection, propagating cell IDs to
 - **Pan/Zoom**: Drag to pan, scroll wheel to zoom, throttled via `requestAnimationFrame`
 - **Hit Detection**: Color-coded pick buffer maps screen pixels back to cell IDs
 - **River Rendering**: Antimeridian crossing detection for correct line wrapping
+- **Cell boundary seam prevention**: Every cell polygon is filled AND stroked with the same hex color (`lineWidth = 1`). Canvas 2D anti-aliases path edges, leaving the dark background visible as ~1px seams where adjacent Voronoi cells meet; in equirectangular projection these seams align horizontally and appear as continuous lines across the map. Stroke-with-fill-color closes them without adding visible borders. This applies to Map2D (Mercator loop and Dymaxion source canvas) and export.ts (both cell render loops).
 
 ### Dymaxion Projection
 
@@ -956,3 +957,7 @@ These are non-obvious facts that are critical for making correct changes:
 14. **Keyboard shortcut guard**: The `keydown` listener in `Controls.tsx` checks `(e.target as HTMLElement).tagName` and skips if the focused element is `INPUT`, `TEXTAREA`, or `SELECT`. If you add new text-entry elements, use one of these tags (or add a check) to prevent shortcut interference.
 
 15. **`genProgress` resets to 0 on generation start, not on cancel**: Cancellation sets `isGenerating = false` but does not reset `genProgress`. The progress bar is hidden when `isGenerating` is false, so this is correct — the bar just disappears at whatever value it reached when cancelled.
+
+16. **`CountryLabels` is wrapped in its own `<React.Suspense>`**: `<Text>` from `@react-three/drei` calls `suspend()` (from `suspend-react`) to load its font asynchronously. R3F's `<Canvas>` wraps all children in a top-level `<Suspense>` — if `CountryLabels` suspended without its own boundary, the entire canvas (world mesh included) would go blank until the font loaded. The local `<React.Suspense fallback={null}>` around `CountryLabels` in `WorldMesh` ensures only the labels disappear during font loading. Do not move `CountryLabels` outside this boundary.
+
+17. **Use a single `setParams` call when updating multiple fields**: `Controls.tsx` receives `setParams` from App.tsx (the root `useState` setter). Calling it twice in sequence with non-functional updaters — e.g., `setParams({ ...params, seed: x })` then `setParams({ ...params, civSeed: y })` — causes the second call to overwrite the first because both close over the same stale `params`. Always batch multi-field updates into one call: `setParams(prev => ({ ...prev, seed: x, civSeed: y }))`. The `handleRandomizeSeed` function follows this pattern.
