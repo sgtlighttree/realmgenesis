@@ -120,10 +120,14 @@ const Map2D: React.FC<{
         const feature = world.geoJson?.features?.[i];
         if (!feature || !feature.geometry) continue;
         const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel);
+        const hexColor = '#' + color.getHexString();
         srcCtx.beginPath();
         pathGenerator(feature);
-        srcCtx.fillStyle = '#' + color.getHexString();
+        srcCtx.fillStyle = hexColor;
+        srcCtx.strokeStyle = hexColor;
+        srcCtx.lineWidth = 1;
         srcCtx.fill();
+        srcCtx.stroke();
       }
 
       // Draw Grid on source equirectangular canvas
@@ -330,10 +334,14 @@ const Map2D: React.FC<{
         const feature = world.geoJson?.features?.[i];
       if (!feature || !feature.geometry) continue;
         const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel);
+        const hexColor = '#' + color.getHexString();
       ctx.beginPath();
       pathGenerator(feature);
-      ctx.fillStyle = '#' + color.getHexString();
+      ctx.fillStyle = hexColor;
+      ctx.strokeStyle = hexColor;
+      ctx.lineWidth = 1;
       ctx.fill();
+      ctx.stroke();
     }
 
     // Draw Grid (Mercator)

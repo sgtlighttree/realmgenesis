@@ -34,10 +34,14 @@ const renderEquirectangular = (
     const feature = world.geoJson.features[i];
     if (!feature) return;
     const threeColor = getCellColor(cell, viewMode, world.params.seaLevel);
+    const hexColor = '#' + threeColor.getHexString();
     ctx.beginPath();
     pathGenerator(feature);
-    ctx.fillStyle = '#' + threeColor.getHexString();
+    ctx.fillStyle = hexColor;
+    ctx.strokeStyle = hexColor;
+    ctx.lineWidth = 1;
     ctx.fill();
+    ctx.stroke();
   });
 
   ctx.restore();
@@ -291,12 +295,16 @@ export const exportMap = async (
     const feature = world.geoJson.features[i];
     if (!feature) return;
     const threeColor = getCellColor(cell, viewMode, world.params.seaLevel);
+    const hexColor = '#' + threeColor.getHexString();
     ctx.beginPath();
     pathGenerator(feature);
-    ctx.fillStyle = '#' + threeColor.getHexString();
+    ctx.fillStyle = hexColor;
+    ctx.strokeStyle = hexColor;
+    ctx.lineWidth = 1;
     ctx.fill();
+    ctx.stroke();
   });
-  
+
   ctx.restore();
 
   const link = document.createElement('a');
