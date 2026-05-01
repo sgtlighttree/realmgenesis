@@ -355,7 +355,9 @@ const WorldMesh: React.FC<{
             >
                 <MeshStandardMaterial vertexColors roughness={0.8} metalness={0.1} flatShading side={THREE.FrontSide} />
                 <CityMarkers world={world} viewMode={viewMode} />
-                <CountryLabels world={world} viewMode={viewMode} />
+                <React.Suspense fallback={null}>
+                    <CountryLabels world={world} viewMode={viewMode} />
+                </React.Suspense>
                 <FactionBorders world={world} viewMode={viewMode} />
                 <RiverLines world={world} visible={showRivers} />
                 {showGrid && <LatLongGrid radius={1.06} />}

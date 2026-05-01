@@ -232,10 +232,12 @@ const Controls: React.FC<ControlsProps> = ({
   };
 
   const handleRandomizeSeed = () => {
-    if (!seedLocked) {
-      handleChange('seed', crypto.getRandomValues(new Uint32Array(1))[0].toString(36));
-      if (!civSeedLocked) handleChange('civSeed', crypto.getRandomValues(new Uint32Array(1))[0].toString(36));
-    }
+    if (seedLocked) return;
+    setParams(prev => ({
+      ...prev,
+      seed: crypto.getRandomValues(new Uint32Array(1))[0].toString(36),
+      ...(civSeedLocked ? {} : { civSeed: crypto.getRandomValues(new Uint32Array(1))[0].toString(36) }),
+    }));
   };
   
   const handleRandomizeCivSeed = () => {
