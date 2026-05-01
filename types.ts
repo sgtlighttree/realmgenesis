@@ -86,6 +86,8 @@ export interface WorldParams {
   // Advanced Terrain Controls
   noiseScale: number; // Feature Frequency
   ridgeBlend: number; // 0 = Rounded (FBM), 1 = Linear/Spikey (Ridged)
+  mountainHeight: number; // 0.5-2.0 power-curve scale for heights above seaLevel
+  oceanDepth: number; // 0.5-2.0 power-curve scale for depths below seaLevel
   maskType: MaskType;
   warpStrength: number; // 0-2
   plateInfluence: number; // 0-2

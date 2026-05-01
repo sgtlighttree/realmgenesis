@@ -23,6 +23,8 @@ const DEFAULT_PARAMS: WorldParams = {
   cellJitter: 0.5,
   noiseScale: 0.4,
   ridgeBlend: 0.1,
+  mountainHeight: 1.0,
+  oceanDepth: 1.0,
   maskType: 'None',
   warpStrength: 0.5,
   plateInfluence: 0.5,

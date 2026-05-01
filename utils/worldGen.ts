@@ -727,6 +727,25 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
       cells.forEach(c => c.height = (c.height - minH) / range);
   }
 
+  // Post-normalization height remap: independently scale peaks and trenches
+  // Uses a power curve so heights stay in [0,1] and seaLevel position is preserved
+  {
+      const mh = params.mountainHeight ?? 1.0;
+      const od = params.oceanDepth ?? 1.0;
+      if (mh !== 1.0 || od !== 1.0) {
+          const sl = params.seaLevel;
+          cells.forEach(c => {
+              if (c.height >= sl) {
+                  const t = (c.height - sl) / Math.max(1e-6, 1 - sl);
+                  c.height = sl + (1 - sl) * Math.pow(Math.max(0, t), 1 / Math.max(0.1, mh));
+              } else {
+                  const t = (sl - c.height) / Math.max(1e-6, sl);
+                  c.height = sl - sl * Math.pow(Math.max(0, t), 1 / Math.max(0.1, od));
+              }
+          });
+      }
+  }
+
   onLog?.("Calculating Climate (Wind & Rain)...");
   progress();
   

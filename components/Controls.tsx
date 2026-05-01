@@ -197,6 +197,8 @@ const Controls: React.FC<ControlsProps> = ({
               updates.plateInfluence = 0.8;
               updates.erosionIterations = 2;
               updates.cellJitter = 0.5;
+              updates.mountainHeight = 1.0;
+              updates.oceanDepth = 1.0;
               break;
           case 'Pangea':
               updates.noiseScale = 0.8;
@@ -206,24 +208,36 @@ const Controls: React.FC<ControlsProps> = ({
               updates.plateInfluence = 0.6;
               updates.erosionIterations = 2;
               updates.cellJitter = 0.4;
+              updates.mountainHeight = 1.0;
+              updates.oceanDepth = 1.0;
               break;
           case 'Archipelago':
-              updates.noiseScale = 2.5;
-              updates.ridgeBlend = 0.8;
+              updates.noiseScale = 3.0;
+              updates.ridgeBlend = 0.55;
               updates.maskType = 'None';
-              updates.warpStrength = 0.1;
-              updates.plateInfluence = 1.2;
-              updates.erosionIterations = 5;
-              updates.cellJitter = 0.6;
+              updates.warpStrength = 0.7;
+              updates.plateInfluence = 0.25;
+              updates.erosionIterations = 4;
+              updates.cellJitter = 0.8;
+              updates.seaLevel = 0.65;
+              updates.plates = 6;
+              updates.roughness = 0.55;
+              updates.mountainHeight = 0.8;
+              updates.oceanDepth = 1.3;
               break;
           case 'Islands':
-              updates.noiseScale = 2.0;
-              updates.ridgeBlend = 0.3;
+              updates.noiseScale = 1.8;
+              updates.ridgeBlend = 0.25;
               updates.maskType = 'None';
-              updates.warpStrength = 0.1;
-              updates.plateInfluence = 0.8;
-              updates.erosionIterations = 3;
-              updates.cellJitter = 0.7;
+              updates.warpStrength = 1.0;
+              updates.plateInfluence = 0.4;
+              updates.erosionIterations = 4;
+              updates.cellJitter = 0.65;
+              updates.seaLevel = 0.60;
+              updates.plates = 8;
+              updates.roughness = 0.55;
+              updates.mountainHeight = 1.0;
+              updates.oceanDepth = 1.1;
               break;
           case 'Custom':
               break;
@@ -675,6 +689,30 @@ const Controls: React.FC<ControlsProps> = ({
                   className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-yellow-500"
                 />
               </div>
+              <div className="space-y-1" title="Amplifies terrain above sea level using a power curve. >1.0 = taller peaks; <1.0 = flatter land.">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <label>Mountain Heights</label>
+                  <span>{params.mountainHeight.toFixed(2)}</span>
+                </div>
+                <input
+                  type="range" min="0.5" max="2.0" step="0.05"
+                  value={params.mountainHeight}
+                  onChange={(e) => { handleAdvancedChange('mountainHeight', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-yellow-300"
+                />
+              </div>
+              <div className="space-y-1" title="Amplifies ocean depth below sea level using a power curve. >1.0 = deeper trenches; <1.0 = shallower ocean floor.">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <label>Sea / Trench Depth</label>
+                  <span>{params.oceanDepth.toFixed(2)}</span>
+                </div>
+                <input
+                  type="range" min="0.5" max="2.0" step="0.05"
+                  value={params.oceanDepth}
+                  onChange={(e) => { handleAdvancedChange('oceanDepth', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-amber-600"
+                />
+              </div>
               <div className="space-y-1" title="Domain warping — twists terrain shapes for more organic, swirled coastlines and mountain ranges.">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Swirl / Warp</label>
@@ -687,13 +725,13 @@ const Controls: React.FC<ControlsProps> = ({
                   className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-purple-500"
                 />
               </div>
-               <div className="space-y-1" title="How strongly tectonic plate boundaries shape mountain ranges and rift valleys.">
+               <div className="space-y-1" title="How strongly tectonic plate boundaries shape mountain ranges and rifts. Capped at 1.0 internally.">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Tectonic Strength</label>
-                  <span>{params.plateInfluence.toFixed(1)}x</span>
+                  <span>{params.plateInfluence.toFixed(2)}</span>
                 </div>
                 <input
-                  type="range" min="0" max="2.0" step="0.1"
+                  type="range" min="0.1" max="1.0" step="0.05"
                   value={params.plateInfluence}
                   onChange={(e) => { handleAdvancedChange('plateInfluence', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-red-500"
