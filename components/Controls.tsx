@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode, DymaxionSettings, DymaxionControlMode } from '../types';
-import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Download, FileJson, Box } from 'lucide-react';
+import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Download, FileJson, Box, Copy, Check } from 'lucide-react';
 import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
 import { exportGLB } from '../utils/exportGLB';
 import { WorldData } from '../types';
@@ -24,6 +24,7 @@ interface ControlsProps {
   onGenerateLore: () => void;
   worldData: WorldData | null;
   logs: string[];
+  genProgress: number;
   showGrid: boolean;
   setShowGrid: (b: boolean) => void;
   showRivers: boolean;
@@ -32,6 +33,7 @@ interface ControlsProps {
   onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>;
   apiKey: string;
   onApiKeyChange: (key: string) => void;
+  onInspect: (id: number | null) => void;
 }
 
 type Tab = 'geo' | 'climate' | 'political' | 'system' | 'export';
@@ -78,6 +80,7 @@ const Controls: React.FC<ControlsProps> = ({
   onGenerateLore,
   worldData,
   logs,
+  genProgress,
   showGrid,
   setShowGrid,
   showRivers,
@@ -85,7 +88,8 @@ const Controls: React.FC<ControlsProps> = ({
   dymaxionSettings,
   onDymaxionChange,
   apiKey,
-  onApiKeyChange
+  onApiKeyChange,
+  onInspect,
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('system');
   const [seedLocked, setSeedLocked] = useState(false);
@@ -99,10 +103,31 @@ const Controls: React.FC<ControlsProps> = ({
   const [saveName, setSaveName] = useState('');
   const [savedMaps, setSavedMaps] = useState(getSavedMaps());
   const [showDymaxion2D, setShowDymaxion2D] = useState(false);
+  const [seedCopied, setSeedCopied] = useState(false);
+  const [showStats, setShowStats] = useState(false);
 
   const updateDymaxion = (patch: Partial<DymaxionSettings>) => {
       onDymaxionChange((prev) => ({ ...prev, ...patch }));
   };
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const TABS: Tab[] = ['system', 'geo', 'climate', 'political', 'export'];
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      switch (e.key) {
+        case 'g': case 'G': if (!loading) { handleGenerateClick(); } break;
+        case 'r': case 'R': handleRandomizeSeed(); break;
+        case 'Escape': onInspect(null); break;
+        case '1': case '2': case '3': case '4': case '5':
+          setActiveTab(TABS[parseInt(e.key) - 1]);
+          break;
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
      if (autoUpdate && !loading && params.points <= 20000) {
@@ -387,8 +412,19 @@ const Controls: React.FC<ControlsProps> = ({
                       disabled={seedLocked}
                       className="bg-black border border-gray-700 px-2 py-1 text-white text-xs flex-1 disabled:opacity-50"
                    />
-                   <button 
-                      onClick={() => { setSeedLocked(!seedLocked); }} 
+                   <button
+                      onClick={() => {
+                        void navigator.clipboard.writeText(params.seed);
+                        setSeedCopied(true);
+                        setTimeout(() => setSeedCopied(false), 1500);
+                      }}
+                      title="Copy seed to clipboard"
+                      className="text-gray-400 hover:text-white transition-colors"
+                   >
+                      {seedCopied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+                   </button>
+                   <button
+                      onClick={() => { setSeedLocked(!seedLocked); }}
                       className={`${seedLocked ? 'text-blue-500' : 'text-gray-400'} hover:text-white transition-colors`}
                    >
                       {seedLocked ? <Lock size={14}/> : <Unlock size={14}/>}
@@ -503,6 +539,47 @@ const Controls: React.FC<ControlsProps> = ({
                 </p>
               </div>
             </div>
+
+            {/* World Stats */}
+            {worldData && (
+              <div className="pt-4 border-t border-gray-800">
+                <button
+                  className="flex items-center justify-between w-full text-xs text-gray-400 hover:text-gray-200"
+                  onClick={() => setShowStats(v => !v)}
+                >
+                  <span className="font-semibold text-gray-500">World Stats</span>
+                  {showStats ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}
+                </button>
+                {showStats && (() => {
+                  const cells = worldData.cells;
+                  const seaLevel = worldData.params.seaLevel;
+                  const landCells = cells.filter(c => c.height >= seaLevel);
+                  const landPct = ((landCells.length / cells.length) * 100).toFixed(1);
+                  const biomeCounts: Record<string, number> = {};
+                  cells.forEach(c => { biomeCounts[c.biome] = (biomeCounts[c.biome] || 0) + 1; });
+                  const topBiomes = Object.entries(biomeCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+                  const totalPop = cells.reduce((s, c) => s + (c.population ?? 0), 0);
+                  const popStr = totalPop >= 1e6 ? `${(totalPop/1e6).toFixed(1)}M` : totalPop >= 1e3 ? `${(totalPop/1e3).toFixed(0)}K` : String(totalPop);
+                  return (
+                    <div className="mt-2 space-y-1 text-[10px] text-gray-400">
+                      <div className="flex justify-between"><span>Land coverage</span><span className="text-gray-200">{landPct}%</span></div>
+                      <div className="flex justify-between"><span>Total cells</span><span className="text-gray-200">{cells.length.toLocaleString()}</span></div>
+                      {totalPop > 0 && <div className="flex justify-between"><span>Population</span><span className="text-gray-200">{popStr}</span></div>}
+                      {worldData.civData && <div className="flex justify-between"><span>Factions</span><span className="text-gray-200">{worldData.civData.factions.length}</span></div>}
+                      {worldData.rivers && <div className="flex justify-between"><span>Rivers</span><span className="text-gray-200">{worldData.rivers.length}</span></div>}
+                      <div className="mt-1 pt-1 border-t border-gray-800">
+                        {topBiomes.map(([biome, count]) => (
+                          <div key={biome} className="flex justify-between">
+                            <span className="truncate">{biome}</span>
+                            <span className="text-gray-200 ml-2">{((count/cells.length)*100).toFixed(1)}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </div>
         )}
 
@@ -572,7 +649,7 @@ const Controls: React.FC<ControlsProps> = ({
                   className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-slate-400"
                 />
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1" title="Controls terrain feature size. Lower = broader continents; higher = more fragmented detail.">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Feature Frequency</label>
                   <span>{params.noiseScale.toFixed(1)}</span>
@@ -584,7 +661,7 @@ const Controls: React.FC<ControlsProps> = ({
                   className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-green-500"
                 />
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1" title="0 = smooth rounded hills (FBM). 1 = sharp jagged mountain ridges (ridged noise).">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Ridge Intensity</label>
                   <span>{(params.ridgeBlend * 100).toFixed(0)}%</span>
@@ -596,7 +673,7 @@ const Controls: React.FC<ControlsProps> = ({
                   className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-yellow-500"
                 />
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1" title="Domain warping — twists terrain shapes for more organic, swirled coastlines and mountain ranges.">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Swirl / Warp</label>
                   <span>{params.warpStrength.toFixed(1)}</span>
@@ -608,7 +685,7 @@ const Controls: React.FC<ControlsProps> = ({
                   className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-purple-500"
                 />
               </div>
-               <div className="space-y-1">
+               <div className="space-y-1" title="How strongly tectonic plate boundaries shape mountain ranges and rift valleys.">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Tectonic Strength</label>
                   <span>{params.plateInfluence.toFixed(1)}x</span>
@@ -687,7 +764,7 @@ const Controls: React.FC<ControlsProps> = ({
                   className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-cyan-500"
                 />
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1" title="How far wind carries moisture inland before it dissipates. Higher = wetter interiors; lower = stronger rain shadows.">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Wind Strength / Moisture Transport</label>
                   <span>{(params.moistureTransport * 100).toFixed(0)}%</span>
@@ -700,7 +777,7 @@ const Controls: React.FC<ControlsProps> = ({
                 />
                 <p className="text-[9px] text-gray-500">Affects rain shadows & moisture spread</p>
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1" title="Adds simplex noise to temperature — creates local hot/cold anomalies beyond the baseline latitude gradient.">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Random Temp</label>
                   <span>{params.temperatureVariance}</span>
@@ -774,7 +851,7 @@ const Controls: React.FC<ControlsProps> = ({
                   className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-purple-500"
                 />
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1" title="Minimum angular separation between faction capitals. Higher = capitals spawn further apart, producing more evenly distributed territories.">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Capital Spacing</label>
                   <span>{(params.capitalSpacing * 100).toFixed(0)}%</span>
@@ -798,7 +875,7 @@ const Controls: React.FC<ControlsProps> = ({
                   className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-teal-400"
                 />
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1" title="How unequal faction sizes can be. 0 = all factions roughly equal; 1 = some factions much larger than others.">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Country Size Variance</label>
                   <span>{(params.civSizeVariance * 100).toFixed(0)}%</span>
@@ -810,7 +887,7 @@ const Controls: React.FC<ControlsProps> = ({
                   className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-orange-400"
                 />
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1" title="How easily factions cross water. Higher = more seafaring civilisations that readily claim distant islands.">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Seafaring (Water Crossing Cost)</label>
                   <span>{(1.0 - params.waterCrossingCost).toFixed(1)}</span>
@@ -822,7 +899,7 @@ const Controls: React.FC<ControlsProps> = ({
                   className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-blue-400"
                 />
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1" title="How far from coastline a faction claims ocean cells as territorial waters.">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Territorial Waters (Range)</label>
                   <span>{params.territorialWaters?.toFixed(2)}</span>
@@ -1016,6 +1093,21 @@ const Controls: React.FC<ControlsProps> = ({
                                 Blender UV Net (export only)
                             </label>
 
+                            <div className="space-y-1">
+                                <label className="text-[10px] text-gray-500">Orientation Presets</label>
+                                <div className="grid grid-cols-4 gap-1">
+                                    {([['N.Pole', 0, -90, 0], ['Pacific', -150, 0, 0], ['Atlantic', 0, 0, 0], ['Asia', 90, 0, 0]] as const).map(([label, lon, lat, roll]) => (
+                                        <button
+                                            key={label}
+                                            onClick={() => { updateDymaxion({ lon, lat, roll }); }}
+                                            className="text-[9px] bg-gray-800 hover:bg-gray-700 text-gray-300 py-1.5 border border-gray-700"
+                                        >
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
                             <button
                                 onClick={() => { updateDymaxion({ lon: 0, lat: 0, roll: 0 }); }}
                                 className="w-full text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-200 py-2 border border-gray-700"
@@ -1050,6 +1142,13 @@ const Controls: React.FC<ControlsProps> = ({
                         className="w-full flex items-center justify-center gap-2 bg-green-700 hover:bg-green-600 text-white py-2 text-xs mt-2 disabled:opacity-50 border border-green-600"
                     >
                         <Image size={14}/> Download PNG
+                    </button>
+                    <button
+                        onClick={() => { if (worldData) void exportMap(worldData, 'height_bw', expRes, 'equirectangular'); }}
+                        disabled={!worldData}
+                        className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white py-2 text-xs disabled:opacity-50 border border-gray-600"
+                    >
+                        <Mountain size={14}/> Export Heightmap (BW)
                     </button>
                 </div>
 
@@ -1143,6 +1242,16 @@ const Controls: React.FC<ControlsProps> = ({
              </div>
              <ConsoleOutput logs={logs} isOpen={consoleOpen} />
          </div>
+
+         {/* Generation progress bar */}
+         {loading && (
+           <div className="w-full h-1 bg-gray-800 rounded overflow-hidden">
+             <div
+               className="h-full bg-blue-500 transition-all duration-300"
+               style={{ width: `${genProgress * 100}%` }}
+             />
+           </div>
+         )}
 
          {!loading ? (
              <button

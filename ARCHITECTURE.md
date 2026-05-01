@@ -48,7 +48,7 @@ This section maps common tasks to the exact files and functions you should read 
 |------|------|-----------|
 | Understand world generation | `utils/worldGen.ts` | `generateWorld()` (line 491) |
 | Understand all data types | `types.ts` | `Cell`, `WorldData`, `WorldParams`, `BiomeType` |
-| Understand all app state | `App.tsx` | `DEFAULT_PARAMS` + 15 `useState` calls (lines 13–65) |
+| Understand all app state | `App.tsx` | `DEFAULT_PARAMS` + 16 `useState` calls (lines 13–65) |
 | Understand cell color logic | `utils/colors.ts` | `getCellColor(cell, mode, seaLevel)` |
 | Understand 3D rendering | `components/WorldViewer.tsx` | Full file — React Three Fiber scene |
 | Understand 2D rendering | `components/Map2D.tsx` | Full file — Canvas2D with d3 projections |
@@ -217,7 +217,7 @@ This section documents the public API surface of each module. Internal helpers (
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `generateWorld` | `(params: WorldParams, onLog?: (msg: string) => void, signal?: AbortSignal) => Promise<WorldData>` | Runs the full 12-stage async pipeline; cancellable via AbortSignal |
+| `generateWorld` | `(params: WorldParams, onLog?: (msg: string) => void, signal?: AbortSignal, onProgress?: (stage: number, total: number) => void) => Promise<WorldData>` | Runs the full 12-stage async pipeline; cancellable via AbortSignal; calls `onProgress` at the start of each major stage (8 total) |
 | `recalculateCivs` | `(world: WorldData, params: WorldParams, onLog?: (msg: string) => void) => WorldData` | Replaces faction/territory data on an existing world; called independently without re-generating terrain |
 | `recalculateProvinces` | `(world: WorldData, params: WorldParams) => WorldData` | Subdivides existing factions into provinces and places towns |
 
@@ -723,6 +723,7 @@ The application uses React `useState` at the `App.tsx` level with prop drilling.
 | `logs` | `string[]` | Generation console output |
 | `lore` | `LoreData \| null` | AI-generated world lore |
 | `isLoreLoading` | `boolean` | Lore API loading state |
+| `genProgress` | `number` | Generation progress 0–1; drives progress bar in Controls |
 | `showGrid` | `boolean` | Toggle lat/long grid |
 | `showRivers` | `boolean` | Toggle river display |
 | `sidebarOpen` | `boolean` | Mobile sidebar toggle |
@@ -737,12 +738,13 @@ World generation uses `AbortController` for cancellation:
 handleGenerate()
   ├── Abort previous generation (if running)
   ├── Create new AbortController
-  ├── Set isGenerating = true
-  ├── await generateWorld(params, onLog, signal)
+  ├── Set isGenerating = true, genProgress = 0
+  ├── await generateWorld(params, onLog, signal, onProgress)
   │     ├── Async pipeline stages (1-12)
+  │     ├── Calls onProgress(stage, 8) at each major stage → setGenProgress(stage/8)
   │     ├── Check signal.aborted between stages
   │     └── Throw "Generation Cancelled" if aborted
-  ├── Set world = newWorld
+  ├── Set world = newWorld, genProgress = 1
   └── Set isGenerating = false
 ```
 
@@ -781,15 +783,24 @@ The controller reference is stored in a `useRef` to persist across renders. The 
   └── <Inspector>                         # Floating HUD overlay
 ```
 
-### Controls Component (~1,150 lines)
+### Controls Component (~1,200 lines)
 
 The largest UI component, organized into 5 tabs:
 
-- **Sys**: Map name, resolution (points), seed (with lock/randomize), terrain presets (Continents, Pangea, Archipelago, Islands, Custom), auto-update toggle, generation console, generate/cancel buttons
-- **Geo**: Plates, sea level, roughness, detail level, cell jitter, noise scale, ridge blend, mask type, warp strength, plate influence, erosion iterations
-- **Clim**: Base temperature, pole temperature, rainfall multiplier, moisture transport, temperature variance, axial tilt
-- **Civ**: Number of factions, civ seed, border roughness, size variance, water crossing cost, territorial waters, capital spacing, province size, AI lore generation, update civs/provinces buttons
-- **Exp**: View mode selector, display mode selector, inspect mode, grid/rivers toggles, Dymaxion settings (lon/lat/roll), image export (resolution + projection), Dymaxion preview, browser storage manager, JSON import/export
+- **Sys**: Map name, resolution (points), seed (with copy-to-clipboard and lock/randomize buttons), terrain presets (Continents, Pangea, Archipelago, Islands, Custom), auto-update toggle, generation progress bar (thin blue bar, visible during generation), generation console, generate/cancel buttons, world stats panel (collapsible; land %, top-5 biomes, population, faction/province counts, river count)
+- **Geo**: Plates, sea level, roughness, detail level, cell jitter, noise scale, ridge blend, mask type, warp strength, plate influence, erosion iterations (slider tooltips on ambiguous params)
+- **Clim**: Base temperature, pole temperature, rainfall multiplier, moisture transport, temperature variance, axial tilt (slider tooltips on ambiguous params)
+- **Civ**: Number of factions, civ seed, border roughness, size variance, water crossing cost, territorial waters, capital spacing, province size, AI lore generation, update civs/provinces buttons (slider tooltips on ambiguous params)
+- **Exp**: View mode selector, display mode selector, inspect mode, grid/rivers toggles, Dymaxion settings (lon/lat/roll with orientation presets: N.Pole / Pacific / Atlantic / Asia), image export (resolution + projection, including heightmap PNG), Dymaxion preview, browser storage manager, JSON import/export, GLB 3D export
+
+**Keyboard shortcuts** (active when focus is not on an input/textarea/select):
+
+| Key | Action |
+|-----|--------|
+| `G` | Generate (if not already generating) |
+| `R` | Randomize seed |
+| `Escape` | Close inspector |
+| `1`–`5` | Switch to Sys / Geo / Clim / Civ / Exp tab |
 
 ---
 
@@ -800,10 +811,11 @@ The largest UI component, organized into 5 tabs:
 Controls (user input)
   └── setParams()
         └── handleGenerate()
-              └── generateWorld(params, onLog, signal)
+              └── generateWorld(params, onLog, signal, onProgress)
                     ├── Returns WorldData
-                    └── Calls onLog() at each stage
-                          └── addLog() → setLogs()
+                    ├── Calls onLog() at each stage → addLog() → setLogs()
+                    └── Calls onProgress(stage, 8) → setGenProgress(stage/8)
+                          └── Controls renders progress bar from genProgress prop
               └── setWorld(newWorld)
                     └── Re-renders WorldViewer / Map2D
 ```
@@ -852,6 +864,7 @@ Load:
 `exportMap()` renders the world to a canvas at configurable resolutions:
 - **Resolutions**: 4K (4096px), 8K (8192px), 16K (16384px), 32K (32768px) width
 - **Projections**: Equirectangular, Mercator, Winkel Tripel, Robinson, Mollweide, Orthographic, Dymaxion
+- **Heightmap PNG**: Export tab includes a dedicated "Export Heightmap" button that calls `exportMap(world, 'height_bw', resolution, 'equirectangular')` — produces a greyscale equirectangular PNG suitable for use as a displacement map
 - **Classic Dymaxion raster**: Pixel-by-pixel reprojection via `buildDymaxionNet('classic')`; auto-fit with padding; output is `width × round(width × 0.6)`
 - **Blender Dymaxion raster**: Uses `buildDymaxionNet('blender')`; direct UV→pixel mapping (`px = u*W, py = (1-v)*H`); output is square (`width × width`). The net occupies the bottom ~47% of the image, matching Blender's UV space exactly for any icosphere subdivision level.
 
@@ -939,3 +952,7 @@ These are non-obvious facts that are critical for making correct changes:
 12. **Blender UV net is export-only**: `DymaxionLayout = 'blender'` produces a square image for use as a UV texture; it has no effect on the live 3D globe or 2D map views. The toggle in Dymaxion Controls only influences the raster export path in `exportMap()`.
 
 13. **`exportGLB` builds geometry independently of the live scene**: The function creates fresh Three.js objects from `WorldData` — it does not capture the R3F canvas or scene ref. This means it works from any tab and any display mode, but always reflects the current `viewMode` color scheme, not any transient render state.
+
+14. **Keyboard shortcut guard**: The `keydown` listener in `Controls.tsx` checks `(e.target as HTMLElement).tagName` and skips if the focused element is `INPUT`, `TEXTAREA`, or `SELECT`. If you add new text-entry elements, use one of these tags (or add a check) to prevent shortcut interference.
+
+15. **`genProgress` resets to 0 on generation start, not on cancel**: Cancellation sets `isGenerating = false` but does not reset `genProgress`. The progress bar is hidden when `isGenerating` is false, so this is correct — the bar just disappears at whatever value it reached when cancelled.

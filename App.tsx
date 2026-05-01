@@ -53,6 +53,7 @@ const App: React.FC = () => {
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const [inspectedCellId, setInspectedCellId] = useState<number | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [genProgress, setGenProgress] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
   const [lore, setLore] = useState<LoreData | null>(null);
   const [isLoreLoading, setIsLoreLoading] = useState(false);
@@ -102,18 +103,20 @@ const App: React.FC = () => {
     abortControllerRef.current = controller;
 
     setIsGenerating(true);
+    setGenProgress(0);
     setLore(null);
     setLogs(['--- Starting Generation ---']);
     const p = overrideParams || params;
-    
+
     // Defer execution to let UI update
     await new Promise(r => setTimeout(r, 100));
-    
+
     try {
-        const newWorld = await generateWorld(p, (msg) => { addLog(msg); }, controller.signal);
+        const newWorld = await generateWorld(p, (msg) => { addLog(msg); }, controller.signal, (s, t) => setGenProgress(s / t));
         setWorld(newWorld);
+        setGenProgress(1);
         addLog('World Generation Complete.');
-    } catch (e: any) { // eslint-disable-next-line @typescript-eslint/no-explicit-any 
+    } catch (e: any) { // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if (e.message === "Generation Cancelled") {
             addLog('Cancelled by user.');
         } else {
@@ -275,7 +278,7 @@ const App: React.FC = () => {
           onUpdateCivs={handleUpdateCivs} onUpdateProvinces={handleUpdateProvinces}
           viewMode={viewMode} setViewMode={setViewMode}
           displayMode={displayMode} setDisplayMode={setDisplayMode}
-          loading={isGenerating} logs={logs}
+          loading={isGenerating} logs={logs} genProgress={genProgress}
           lore={lore} generatingLore={isLoreLoading} onGenerateLore={handleGenerateLore}
           worldData={world} 
           showGrid={showGrid} setShowGrid={setShowGrid}
@@ -284,6 +287,7 @@ const App: React.FC = () => {
           onDymaxionChange={setDymaxionSettings}
           apiKey={apiKey}
           onApiKeyChange={setApiKey}
+          onInspect={setInspectedCellId}
         />
         <button 
           onClick={() => { setSidebarOpen(false); }}
