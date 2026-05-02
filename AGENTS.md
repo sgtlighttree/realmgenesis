@@ -1,15 +1,21 @@
 # AGENTS.md -- RealmGenesis 3D
 
+## Session Handoff
+
+Read [HANDOFF.md](./HANDOFF.md) first for a summary of what was built recently, known issues, and what to tackle next. It is updated at the end of each working session and is the fastest way to orient to the current state of the project.
+
 ## Architecture Overview
 
 Before making significant changes, read [ARCHITECTURE.md](./ARCHITECTURE.md) for a complete overview of the codebase — the generation pipeline, data model, rendering architecture, state management, and key invariants. It is designed so an LLM (or a new contributor) can navigate the codebase confidently without reading every file.
 
 Key entry points:
 
-- **All app state**: `App.tsx` — 15 `useState` variables, prop-drilled to all children
+- **All app state**: `App.tsx` — 24+ `useState` variables + edit-mode refs, prop-drilled to all children
 - **Data types**: `types.ts` — `Cell`, `WorldData`, `WorldParams`, `BiomeType`
 - **Generation logic**: `utils/worldGen.ts` — `generateWorld()` (12-stage async pipeline, line 491)
-- **Color mapping**: `utils/colors.ts` — `getCellColor(cell, viewMode, seaLevel)`
+- **Color mapping**: `utils/colors.ts` — `getCellColor(cell, viewMode, seaLevel, factionColors?)`
+- **Map painting**: `utils/paintUtils.ts` — brush BFS, stroke functions, undo snapshots
+- **Edit toolbar**: `components/EditToolbar.tsx` — paint/edit mode HUD
 - **3D rendering**: `components/WorldViewer.tsx`
 - **2D rendering**: `components/Map2D.tsx`
 - **AI lore**: `services/gemini.ts` — `generateWorldLore()` mutates `world.civData` in-place

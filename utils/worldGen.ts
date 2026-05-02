@@ -1,7 +1,7 @@
 import { geoVoronoi } from 'd3-geo-voronoi';
 import { Cell, Point, WorldData, WorldParams, BiomeType, CivData, FactionData, ProvinceData, TownData } from '../types';
 import { RNG, SimplexNoise } from './rng';
-import { BIOME_COLORS } from './colors';
+import { BIOME_COLORS, FACTION_COLORS } from './colors';
 
 // --- DATA STRUCTURES ---
 
@@ -370,7 +370,7 @@ async function generateRivers(cells: Cell[], seaLevel: number, params: WorldPara
 
 // --- BIOME ---
 
-function determineBiome(height: number, temp: number, moisture: number, seaLevel: number): BiomeType {
+export function determineBiome(height: number, temp: number, moisture: number, seaLevel: number): BiomeType {
   if (height < seaLevel) {
     if (height < seaLevel * 0.6) return BiomeType.DEEP_OCEAN;
     return BiomeType.OCEAN;
@@ -934,15 +934,13 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
         }
     }
     
-    const palette = [
-        '#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#46f0f0', '#f032e6', '#bcf60c', '#fabebe', '#008080', '#e6beff', '#9a6324', '#fffac8', '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#808080', '#ffffff', '#000000'
-    ];
-    for (let i = palette.length - 1; i > 0; i--) {
+    // Shuffle FACTION_COLORS with civRng so colors are varied but deterministic per seed
+    const shuffled = [...FACTION_COLORS];
+    for (let i = shuffled.length - 1; i > 0; i--) {
         const j = Math.floor(civRng.next() * (i + 1));
-        [palette[i], palette[j]] = [palette[j], palette[i]];
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
-    
-    factions.forEach((f, i) => f.color = palette[i % palette.length]);
+    factions.forEach((f, i) => f.color = shuffled[i % shuffled.length]);
     
     world.civData = { factions };
     

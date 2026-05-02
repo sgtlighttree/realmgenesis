@@ -32,10 +32,32 @@ export const BIOME_COLORS: Record<BiomeType, string> = {
   [BiomeType.VOLCANIC]: '#37474f',   // Dark Grey Rock
 };
 
-const PLATE_COLORS = [
+export const PLATE_COLORS = [
   '#ef5350', '#ab47bc', '#7e57c2', '#5c6bc0', '#42a5f5', '#29b6f6',
   '#26c6da', '#26a69a', '#66bb6a', '#9ccc65', '#d4e157', '#ffee58',
   '#ffca28', '#ffa726', '#ff7043', '#8d6e63', '#bdbdbd', '#78909c'
+];
+
+// Perceptually distinct palette for faction coloring — maximum contrast across hue, lightness
+export const FACTION_COLORS = [
+  '#e53935', // vivid red
+  '#43a047', // vivid green
+  '#1e88e5', // vivid blue
+  '#fb8c00', // vivid orange
+  '#8e24aa', // vivid purple
+  '#00acc1', // cyan
+  '#f06292', // pink
+  '#6d4c41', // brown
+  '#c0ca33', // lime
+  '#546e7a', // steel blue
+  '#00897b', // teal
+  '#fdd835', // yellow
+  '#d81b60', // deep pink
+  '#039be5', // light blue
+  '#558b2f', // dark green
+  '#6200ea', // deep purple
+  '#ff6f00', // amber
+  '#78909c', // blue-grey
 ];
 
 // Helper to pseudo-randomly offset color based on index with high contrast
@@ -62,7 +84,7 @@ const getProvinceVariant = (baseColorHex: string, provId: number): THREE.Color =
     return c;
 };
 
-export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number): THREE.Color => {
+export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, factionColors?: Map<number, string>): THREE.Color => {
   const color = new THREE.Color();
 
   switch (mode) {
@@ -152,7 +174,7 @@ export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number): THRE
       
     case 'political':
        if (cell.regionId !== undefined) {
-          const baseColor = PLATE_COLORS[cell.regionId % PLATE_COLORS.length];
+          const baseColor = factionColors?.get(cell.regionId) ?? FACTION_COLORS[cell.regionId % FACTION_COLORS.length];
           if (cell.provinceId !== undefined) {
               color.copy(getProvinceVariant(baseColor, cell.provinceId));
           } else {

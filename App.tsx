@@ -1,13 +1,15 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Controls from './components/Controls';
 import WorldViewer from './components/WorldViewer';
 import Map2D from './components/Map2D';
 import MiniMap from './components/MiniMap';
 import Inspector from './components/Inspector';
 import { BiomeLegend } from './components/Legend';
-import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode, InspectMode, DymaxionSettings } from './types';
+import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode, InspectMode, DymaxionSettings, EditMode, PaintStyle, UndoSnapshot, BiomeType } from './types';
 import { generateWorld, recalculateCivs, recalculateProvinces } from './utils/worldGen';
+import { getCellsInRadius, snapshotCells, applyTerrainStroke, applyFlattenStroke, applySmoothStroke, applyPoliticalStroke, applyBiomeStroke, refreshBiomes } from './utils/paintUtils';
 import { generateWorldLore, setRuntimeApiKey } from './services/gemini';
+import EditToolbar from './components/EditToolbar';
 import { Menu, X } from 'lucide-react';
 
 const DEFAULT_PARAMS: WorldParams = {
@@ -72,6 +74,19 @@ const App: React.FC = () => {
   });
 
   const [apiKey, setApiKey] = useState('');
+
+  // Edit mode state
+  const [editMode, setEditMode] = useState<EditMode>('off');
+  const [paintStyle, setPaintStyle] = useState<PaintStyle>('adaptive');
+  const [brushSize, setBrushSize] = useState<number>(1);
+  const [paintStrength, setPaintStrength] = useState<number>(0.5);
+  const [paintFaction, setPaintFaction] = useState<number>(0);
+  const [paintBiome, setPaintBiome] = useState<BiomeType>(BiomeType.OCEAN);
+  const [sampleHeight, setSampleHeight] = useState<number | null>(null);
+  const [adaptiveBiomes, setAdaptiveBiomes] = useState<boolean>(true);
+  const [undoStack, setUndoStack] = useState<UndoSnapshot[]>([]);
+  const isPainting = useRef<boolean>(false);
+  const currentStrokeSnapshot = useRef<Map<number, { height: number; biome: BiomeType; regionId?: number }> | null>(null);
 
   useEffect(() => {
     setRuntimeApiKey(apiKey);
@@ -258,12 +273,134 @@ const App: React.FC = () => {
       setLore(newLore);
       setWorld({ ...world });
       addLog('Lore Received.');
-    } catch (e: any) { // eslint-disable-next-line @typescript-eslint/no-explicit-any 
+    } catch (e: any) { // eslint-disable-next-line @typescript-eslint/no-explicit-any
         console.error("Lore gen failed", e);
         addLog(`Lore Error: ${e.message}`);
     }
     finally { setIsLoreLoading(false); }
   };
+
+  const factionColors = useMemo<Map<number, string>>(() => {
+    const m = new Map<number, string>();
+    world?.civData?.factions.forEach(f => m.set(f.id, f.color));
+    return m;
+  }, [world]);
+
+  const handlePaint = useCallback((cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick = false) => {
+    if (!world || editMode === 'off' || editMode === 'world-edit') return;
+    const center = world.cells[cellId];
+    if (!center) return;
+    const brush = getCellsInRadius(center, brushSize, world.cells);
+
+    if (phase === 'start') {
+      if (editMode === 'terrain-flatten' && isRightClick) {
+        setSampleHeight(center.height);
+        return;
+      }
+      // Create the snapshot Map and push its reference to undoStack immediately.
+      // During 'stroke' we mutate the same Map in place — the stack entry grows automatically.
+      // This means 'end' never needs to push, making undo reliable even if 'end' is missed.
+      const snapMap = new Map<number, { height: number; biome: BiomeType; regionId?: number }>(
+        brush.map(({ cell }) => [cell.id, { height: cell.height, biome: cell.biome, regionId: cell.regionId }])
+      );
+      currentStrokeSnapshot.current = snapMap;
+      setUndoStack(prev => [...prev.slice(-19), { cells: snapMap }]);
+      isPainting.current = true;
+    }
+
+    if (phase === 'stroke' && isPainting.current) {
+      // Add newly-touched cells to the snapshot BEFORE modifying them
+      if (currentStrokeSnapshot.current) {
+        brush.forEach(({ cell }) => {
+          if (!currentStrokeSnapshot.current!.has(cell.id)) {
+            currentStrokeSnapshot.current!.set(cell.id, { height: cell.height, biome: cell.biome, regionId: cell.regionId });
+          }
+        });
+      }
+      if (editMode === 'terrain-raise' || editMode === 'terrain-lower') {
+        applyTerrainStroke(brush, brushSize, editMode === 'terrain-raise' ? 'raise' : 'lower', paintStyle, world.cells, paintStrength);
+        if (adaptiveBiomes) refreshBiomes(brush.map(b => b.cell), world.params.seaLevel);
+      } else if (editMode === 'terrain-smooth') {
+        applySmoothStroke(brush, brushSize, paintStrength, world.cells);
+        if (adaptiveBiomes) refreshBiomes(brush.map(b => b.cell), world.params.seaLevel);
+      } else if (editMode === 'terrain-flatten' && sampleHeight !== null) {
+        applyFlattenStroke(brush, brushSize, sampleHeight, paintStrength);
+        if (adaptiveBiomes) refreshBiomes(brush.map(b => b.cell), world.params.seaLevel);
+      } else if (editMode === 'political') {
+        applyPoliticalStroke(brush, paintFaction);
+      } else if (editMode === 'biome') {
+        applyBiomeStroke(brush, paintBiome);
+      }
+      setWorld({ ...world });
+    }
+
+    if (phase === 'end') {
+      currentStrokeSnapshot.current = null; // snapshot already lives in undoStack
+      isPainting.current = false;
+    }
+  }, [world, editMode, paintStyle, brushSize, paintStrength, paintFaction, paintBiome, sampleHeight, adaptiveBiomes]);
+
+  const handleUndo = useCallback(() => {
+    if (!world || undoStack.length === 0) return;
+    const snap = undoStack[undoStack.length - 1];
+    snap.cells.forEach(({ height, biome, regionId }, id) => {
+      world.cells[id].height = height;
+      world.cells[id].biome = biome;
+      world.cells[id].regionId = regionId;
+    });
+    setWorld({ ...world });
+    setUndoStack(prev => prev.slice(0, -1));
+  }, [world, undoStack]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [handleUndo]);
+
+  const handleEditWorldData = useCallback((cellId: number, updates: {
+    townName?: string; townPopulation?: number;
+    factionName?: string; factionColor?: string; factionDescription?: string;
+    provinceName?: string;
+  }) => {
+    if (!world?.civData) return;
+    const cell = world.cells[cellId];
+    const faction = world.civData.factions.find(f => f.id === cell.regionId);
+    if (faction) {
+      if (updates.factionName !== undefined) faction.name = updates.factionName;
+      if (updates.factionColor !== undefined) faction.color = updates.factionColor;
+      if (updates.factionDescription !== undefined) faction.description = updates.factionDescription;
+      if (cell.provinceId !== undefined) {
+        const prov = faction.provinces.find(p => p.id === cell.provinceId);
+        if (prov) {
+          if (updates.provinceName !== undefined) prov.name = updates.provinceName;
+          const town = prov.towns.find(t => t.cellId === cellId);
+          if (town) {
+            if (updates.townName !== undefined) town.name = updates.townName;
+            if (updates.townPopulation !== undefined) town.population = updates.townPopulation;
+          }
+        }
+      }
+    }
+    setWorld({ ...world });
+  }, [world]);
+
+  const handleEditFaction = useCallback((factionId: number, updates: {
+    name?: string; color?: string; description?: string;
+  }) => {
+    if (!world?.civData) return;
+    const faction = world.civData.factions.find(f => f.id === factionId);
+    if (!faction) return;
+    if (updates.name !== undefined) faction.name = updates.name;
+    if (updates.color !== undefined) faction.color = updates.color;
+    if (updates.description !== undefined) faction.description = updates.description;
+    setWorld({ ...world });
+  }, [world]);
 
   return (
     <div className="flex flex-col md:flex-row w-full h-full bg-black overflow-hidden font-sans text-gray-200">
@@ -290,6 +427,7 @@ const App: React.FC = () => {
           apiKey={apiKey}
           onApiKeyChange={setApiKey}
           onInspect={setInspectedCellId}
+          onEditFaction={handleEditFaction}
         />
         <button 
           onClick={() => { setSidebarOpen(false); }}
@@ -321,6 +459,10 @@ const App: React.FC = () => {
             onInspect={setInspectedCellId}
             dymaxionSettings={dymaxionSettings}
             onDymaxionChange={setDymaxionSettings}
+            editMode={editMode}
+            onPaint={handlePaint}
+            factionColors={factionColors}
+            brushSize={brushSize}
           />
         ) : (
           <Map2D
@@ -332,6 +474,10 @@ const App: React.FC = () => {
             dymaxionSettings={dymaxionSettings}
             showGrid={showGrid}
             showRivers={showRivers}
+            editMode={editMode}
+            onPaint={handlePaint}
+            factionColors={factionColors}
+            brushSize={brushSize}
           />
         )}
 
@@ -352,7 +498,23 @@ const App: React.FC = () => {
           collapsed={inspectorCollapsed}
           onToggleEnabled={toggleInspectEnabled}
           onToggleCollapsed={() => { setInspectorCollapsed(v => !v); }}
+          editMode={editMode}
+          onEditWorldData={handleEditWorldData}
         />
+        {world && (
+          <EditToolbar
+            editMode={editMode} setEditMode={setEditMode}
+            paintStyle={paintStyle} setPaintStyle={setPaintStyle}
+            brushSize={brushSize} setBrushSize={setBrushSize}
+            paintStrength={paintStrength} setPaintStrength={setPaintStrength}
+            adaptiveBiomes={adaptiveBiomes} setAdaptiveBiomes={setAdaptiveBiomes}
+            paintFaction={paintFaction} setPaintFaction={setPaintFaction}
+            paintBiome={paintBiome} setPaintBiome={setPaintBiome}
+            sampleHeight={sampleHeight}
+            undoCount={undoStack.length} onUndo={handleUndo}
+            world={world}
+          />
+        )}
       </main>
     </div>
   );

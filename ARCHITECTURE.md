@@ -48,8 +48,10 @@ This section maps common tasks to the exact files and functions you should read 
 |------|------|-----------|
 | Understand world generation | `utils/worldGen.ts` | `generateWorld()` (line 491) |
 | Understand all data types | `types.ts` | `Cell`, `WorldData`, `WorldParams`, `BiomeType` |
-| Understand all app state | `App.tsx` | `DEFAULT_PARAMS` + 16 `useState` calls (lines 13–65) |
-| Understand cell color logic | `utils/colors.ts` | `getCellColor(cell, mode, seaLevel)` |
+| Understand all app state | `App.tsx` | `DEFAULT_PARAMS` + 24 `useState` calls + edit-mode refs |
+| Understand cell color logic | `utils/colors.ts` | `getCellColor(cell, mode, seaLevel, factionColors?)` |
+| Understand map painting | `utils/paintUtils.ts` | `getCellsInRadius`, `applyTerrainStroke`, `applySmoothStroke`, `applyFlattenStroke` |
+| Understand edit mode UI | `components/EditToolbar.tsx` | Full file — floating HUD for paint/edit modes |
 | Understand 3D rendering | `components/WorldViewer.tsx` | Full file — React Three Fiber scene |
 | Understand 2D rendering | `components/Map2D.tsx` | Full file — Canvas2D with d3 projections |
 | Understand Dymaxion math | `utils/dymaxion.ts` | `buildDymaxionNet()`, `createDymaxionProjection()` |
@@ -64,7 +66,7 @@ This section maps common tasks to the exact files and functions you should read 
 1. User sets `WorldParams` in `Controls.tsx` → passed up to `App.tsx`
 2. `App.tsx` calls `generateWorld(params)` → returns `WorldData` (cells + rivers + civData)
 3. `WorldData` flows down via props to `WorldViewer` or `Map2D`
-4. Each cell is colored by `getCellColor(cell, viewMode, seaLevel)` in `colors.ts`
+4. Each cell is colored by `getCellColor(cell, viewMode, seaLevel, factionColors?)` in `colors.ts`
 5. User can click a cell → `Inspector` reads from `world.cells[cellId]`
 
 **Key architectural constraint:** All state lives in `App.tsx` and is prop-drilled. There is no Context, Redux, or Zustand. If you need to trace a value, follow it up to `App.tsx`.
@@ -134,7 +136,8 @@ realmgenesis/
 │   ├── WorldViewer.tsx         # 3D globe: Three.js scene with mesh, markers, rivers
 │   ├── Map2D.tsx               # 2D canvas: Mercator + Dymaxion projections
 │   ├── DymaxionPreview2D.tsx   # Small preview for Dymaxion orientation
-│   ├── Inspector.tsx           # HUD overlay: clicked cell data display
+│   ├── Inspector.tsx           # HUD overlay: clicked cell data display + world-edit inputs
+│   ├── EditToolbar.tsx         # Floating paint/edit HUD (terrain, biome, political, editor modes)
 │   ├── MiniMap.tsx             # Bottom-right equirectangular overview
 │   └── Legend.tsx              # Bottom-left biome color legend
 │
@@ -144,7 +147,8 @@ realmgenesis/
 │   ├── colors.ts               # View-mode color mapping (10 modes)
 │   ├── dymaxion.ts             # Icosahedral geometry + Dymaxion net math
 │   ├── export.ts               # Image export (PNG/raster), save/load, localStorage
-│   └── exportGLB.ts            # 3D export: world mesh + rivers + city markers → GLB
+│   ├── exportGLB.ts            # 3D export: world mesh + rivers + city markers → GLB
+│   └── paintUtils.ts           # Cell painting: BFS brush, terrain/biome/political strokes, undo snapshots
 │
 ├── services/
 │   └── gemini.ts               # Google Gemini AI wrapper (lore generation)
@@ -740,6 +744,19 @@ The application uses React `useState` at the `App.tsx` level with prop drilling.
 | `sidebarOpen` | `boolean` | Mobile sidebar toggle |
 | `dymaxionSettings` | `DymaxionSettings` | Dymaxion projection config |
 | `apiKey` | `string` | Gemini API key (ephemeral) |
+| `editMode` | `EditMode` | Paint/edit sub-mode (`'off' \| 'terrain-raise' \| 'terrain-lower' \| 'terrain-flatten' \| 'terrain-smooth' \| 'biome' \| 'political' \| 'world-edit'`) |
+| `paintStyle` | `PaintStyle` | `'adaptive'` (edges blend with neighbors) or `'freeform'` (direct, no blending) |
+| `brushSize` | `number` | BFS ring radius for brush (0 = single cell, 5 = ~30+ cells) |
+| `paintStrength` | `number` | Stroke intensity multiplier 0.1–1.0 |
+| `paintFaction` | `number` | Faction ID for political brush |
+| `paintBiome` | `BiomeType` | Biome for biome brush |
+| `sampleHeight` | `number \| null` | Sampled elevation for Flatten tool (right-click to set) |
+| `adaptiveBiomes` | `boolean` | Whether terrain strokes re-run `determineBiome` on affected cells |
+| `undoStack` | `UndoSnapshot[]` | Max-20 stroke history; each snapshot is a `Map<cellId, { height, biome, regionId }>` |
+
+**Edit-mode refs (not state — not tracked by React):**
+- `isPainting: useRef<boolean>` — tracks whether a stroke is in progress
+- `currentStrokeSnapshot: useRef<Map | null>` — the in-progress stroke's snapshot Map (pushed to `undoStack` at stroke start; mutated throughout the drag so the stack entry grows automatically)
 
 ### Generation Lifecycle
 
@@ -975,3 +992,13 @@ These are non-obvious facts that are critical for making correct changes:
 19. **`mountainHeight` and `oceanDepth` are applied after all normalization, before climate**: Stage 9b in the pipeline remaps heights using a power curve. If you add a normalization step after Stage 9, insert the remap after that new step too, otherwise the curve will distort an already-biased distribution. Conversely, the remap must come before climate (Stage 10) since biome assignment uses `seaLevel` as a hard threshold on the final height values.
 
 17. **Use a single `setParams` call when updating multiple fields**: `Controls.tsx` receives `setParams` from App.tsx (the root `useState` setter). Calling it twice in sequence with non-functional updaters — e.g., `setParams({ ...params, seed: x })` then `setParams({ ...params, civSeed: y })` — causes the second call to overwrite the first because both close over the same stale `params`. Always batch multi-field updates into one call: `setParams(prev => ({ ...prev, seed: x, civSeed: y }))`. The `handleRandomizeSeed` function follows this pattern.
+
+20. **Edit mode paint strokes use a shared Map reference for undo**: `currentStrokeSnapshot` (a `useRef`) holds a `Map<cellId, beforeState>` that is pushed to `undoStack` at stroke **start** (not end). During subsequent 'stroke' events, new cells are added to the same Map in-place — the stack entry grows automatically because it holds a reference, not a copy. The 'end' phase only nulls the ref. This design makes undo reliable even if the 'end' event is missed (e.g., pointer released outside the canvas/globe). Consequence: never replace `currentStrokeSnapshot.current` mid-stroke; only add to it.
+
+21. **`getCellColor` political mode uses `factionColors` map for live edits**: The optional 4th argument `factionColors?: Map<number, string>` lets political rendering use each faction's `f.color` directly. When not provided, it falls back to `FACTION_COLORS[regionId % 18]`. App.tsx builds this map via `useMemo([world])` so it rebuilds whenever world changes (including in-place faction color edits). If you add a rendering path that calls `getCellColor` for political mode without passing `factionColors`, faction color edits in the world editor will not appear there.
+
+22. **Pick canvas must stroke as well as fill**: The pick buffer in `Map2D.tsx` encodes cell IDs as RGB colors. Without a same-color stroke after `ctx.fill()`, Canvas 2D anti-aliasing at cell boundaries creates blended pixels whose RGB values decode to wrong cell IDs — typically distant cells unrelated to the cursor position. Always add `ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.stroke()` after `ctx.fill()` in the pick canvas loop. This is the same pattern used in the display canvas to prevent seam lines.
+
+23. **`FACTION_COLORS` vs `PLATE_COLORS`**: Two separate palettes exist in `colors.ts`. `PLATE_COLORS` (18 colors) is used only for the `'plates'` view mode. `FACTION_COLORS` (18 perceptually distinct colors) is used for political rendering and faction assignment in `recalculateCivs`. The palette is shuffled with `civRng` (seeded) so faction colors are deterministic per `civSeed` but varied. Do not use `PLATE_COLORS` for political/faction coloring — the hues cluster too tightly and make adjacent factions visually indistinguishable.
+
+24. **Political brush known issue — distant cells**: `getCellsInRadius` applies a chord-distance cap in addition to BFS ring count to prevent topologically-adjacent but geographically-distant cells (poles, antimeridian) from being included. However, the pick buffer in Map2D can still produce wrong cell IDs at boundary pixels when the zoom level is low (cells are small relative to the canvas). Painting on or very near a cell boundary may register as a different cell entirely. This is partially mitigated by the same-color stroke on the pick canvas (invariant 22) but not fully eliminated at low resolution/zoom.

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { WorldData, ViewMode, InspectMode, DymaxionSettings } from '../types';
+import { WorldData, ViewMode, InspectMode, DymaxionSettings, EditMode } from '../types';
 import { getCellColor } from '../utils/colors';
 import { buildDymaxionNet } from '../utils/dymaxion';
 
@@ -22,7 +22,11 @@ const Map2D: React.FC<{
   dymaxionSettings?: DymaxionSettings;
   showGrid?: boolean;
   showRivers?: boolean;
-}> = ({ world, viewMode, inspectMode, onInspect, highlightCellId = null, projectionType = 'mercator', dymaxionSettings, showGrid = false, showRivers = true }) => {
+  editMode?: EditMode;
+  onPaint?: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void;
+  factionColors?: Map<number, string>;
+  brushSize?: number;
+}> = ({ world, viewMode, inspectMode, onInspect, highlightCellId = null, projectionType = 'mercator', dymaxionSettings, showGrid = false, showRivers = true, editMode = 'off', onPaint, factionColors, brushSize = 1 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
@@ -34,6 +38,18 @@ const Map2D: React.FC<{
   const dragging = useRef(false);
   const dragDistance = useRef(0);
   const lastPos = useRef({ x: 0, y: 0 });
+  const isPaintingRef = useRef(false);
+  const lastPaintCell = useRef<number | null>(null);
+  const [isSpaceHeld, setIsSpaceHeld] = useState(false);
+  const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const onDown = (e: KeyboardEvent) => { if (e.code === 'Space' && !e.repeat) { e.preventDefault(); setIsSpaceHeld(true); } };
+    const onUp = (e: KeyboardEvent) => { if (e.code === 'Space') setIsSpaceHeld(false); };
+    window.addEventListener('keydown', onDown);
+    window.addEventListener('keyup', onUp);
+    return () => { window.removeEventListener('keydown', onDown); window.removeEventListener('keyup', onUp); };
+  }, []);
   const [isInteracting, setIsInteracting] = useState(false);
   const [qualityDpr, setQualityDpr] = useState(1);
   const rafId = useRef<number | null>(null);
@@ -119,7 +135,7 @@ const Map2D: React.FC<{
       for (let i = 0; i < world.cells.length; i++) {
         const feature = world.geoJson?.features?.[i];
         if (!feature || !feature.geometry) continue;
-        const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel);
+        const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel, factionColors);
         const hexColor = '#' + color.getHexString();
         srcCtx.beginPath();
         pathGenerator(feature);
@@ -333,7 +349,7 @@ const Map2D: React.FC<{
     for (let i = 0; i < world.cells.length; i++) {
         const feature = world.geoJson?.features?.[i];
       if (!feature || !feature.geometry) continue;
-        const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel);
+        const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel, factionColors);
         const hexColor = '#' + color.getHexString();
       ctx.beginPath();
       pathGenerator(feature);
@@ -454,8 +470,12 @@ const Map2D: React.FC<{
       const b = (id >> 16) & 255;
       ctx.beginPath();
       pathGenerator(feature);
-      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      const pickColor = `rgb(${r},${g},${b})`;
+      ctx.fillStyle = pickColor;
+      ctx.strokeStyle = pickColor;
+      ctx.lineWidth = 1;
       ctx.fill();
+      ctx.stroke(); // cover anti-aliased edges so boundary pixels decode correctly
     }
   }, [projection, size.width, size.height, world, projectionType]);
 
@@ -523,19 +543,67 @@ const Map2D: React.FC<{
     return () => { canvas.removeEventListener('wheel', listener); };
   }, [handleWheel]);
 
+  const isPaintMode = editMode !== 'off' && editMode !== 'world-edit';
+
+  const paintPickAt = useCallback((clientX: number, clientY: number, phase: 'start' | 'stroke' | 'end') => {
+    if (!pickCtxRef.current || !canvasRef.current || !onPaint) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const mapX = (clientX - rect.left - offset.x) / scale;
+    const mapY = (clientY - rect.top - offset.y) / scale;
+    if (mapX < 0 || mapY < 0 || mapX >= size.width || mapY >= size.height) return;
+    const data = pickCtxRef.current.getImageData(Math.floor(mapX), Math.floor(mapY), 1, 1).data;
+    const id = data[0] + (data[1] << 8) + (data[2] << 16);
+    if (id === 0) return;
+    const cellId = id - 1;
+    lastPaintCell.current = cellId;
+    onPaint(cellId, phase);
+  }, [offset.x, offset.y, scale, size.width, size.height, onPaint]);
+
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     dragging.current = true;
     dragDistance.current = 0;
     lastPos.current = { x: e.clientX, y: e.clientY };
     setIsInteracting(true);
+
+    if (isPaintMode && !isSpaceHeld) {
+      const isRight = e.button === 2;
+      if (isRight) {
+        // Right-click: send start with isRightClick=true, don't begin a stroke
+        if (!pickCtxRef.current || !canvasRef.current) return;
+        const rect = canvasRef.current.getBoundingClientRect();
+        const mapX = (e.clientX - rect.left - offset.x) / scale;
+        const mapY = (e.clientY - rect.top - offset.y) / scale;
+        if (mapX >= 0 && mapY >= 0 && mapX < size.width && mapY < size.height) {
+          const data = pickCtxRef.current.getImageData(Math.floor(mapX), Math.floor(mapY), 1, 1).data;
+          const id = data[0] + (data[1] << 8) + (data[2] << 16);
+          if (id > 0 && onPaint) onPaint(id - 1, 'start', true);
+        }
+        return;
+      }
+      isPaintingRef.current = true;
+      paintPickAt(e.clientX, e.clientY, 'start');
+      paintPickAt(e.clientX, e.clientY, 'stroke');
+    }
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    // Track mouse for brush circle overlay
+    if (isPaintMode) {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (rect) setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    }
+
     if (!dragging.current) return;
     const dx = e.clientX - lastPos.current.x;
     const dy = e.clientY - lastPos.current.y;
     lastPos.current = { x: e.clientX, y: e.clientY };
     dragDistance.current += Math.abs(dx) + Math.abs(dy);
+
+    if (isPaintMode && isPaintingRef.current && !isSpaceHeld) {
+      paintPickAt(e.clientX, e.clientY, 'stroke');
+      return; // skip pan during paint stroke
+    }
+
     const next = { x: offset.x + dx, y: offset.y + dy };
     pendingOffset.current = next;
     if (rafId.current === null) {
@@ -574,6 +642,13 @@ const Map2D: React.FC<{
   };
 
   const endDrag = () => {
+    if (isPaintMode && isPaintingRef.current) {
+      if (lastPaintCell.current !== null && onPaint) {
+        onPaint(lastPaintCell.current, 'end');
+      }
+      isPaintingRef.current = false;
+      lastPaintCell.current = null;
+    }
     dragging.current = false;
     setIsInteracting(false);
   };
@@ -594,8 +669,25 @@ const Map2D: React.FC<{
         onMouseMove={(e) => { handleMouseMove(e); handleHover(e); }}
         onMouseUp={handleMouseUp}
         onClick={handleClick}
-        onMouseLeave={() => { endDrag(); if (inspectMode === 'hover') onInspect(null); }}
+        onMouseLeave={() => { endDrag(); setMousePos(null); if (inspectMode === 'hover') onInspect(null); }}
+        onContextMenu={e => e.preventDefault()}
       />
+      {/* Brush size circle overlay */}
+      {isPaintMode && mousePos && world && (() => {
+        const avgCellPx = Math.sqrt((size.width * size.height) / world.cells.length / Math.PI);
+        const brushPx = Math.max(8, avgCellPx * (brushSize + 0.5) * scale);
+        return (
+          <div
+            className="pointer-events-none absolute border-2 border-white/70 rounded-full"
+            style={{
+              left: mousePos.x - brushPx,
+              top: mousePos.y - brushPx,
+              width: brushPx * 2,
+              height: brushPx * 2,
+            }}
+          />
+        );
+      })()}
       {!world && (
         <div className="absolute inset-0 flex items-center justify-center text-white/50">
           Forging World...

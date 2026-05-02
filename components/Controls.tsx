@@ -34,6 +34,7 @@ interface ControlsProps {
   apiKey: string;
   onApiKeyChange: (key: string) => void;
   onInspect: (id: number | null) => void;
+  onEditFaction?: (factionId: number, updates: { name?: string; color?: string; description?: string }) => void;
 }
 
 type Tab = 'geo' | 'climate' | 'political' | 'system' | 'export';
@@ -90,12 +91,14 @@ const Controls: React.FC<ControlsProps> = ({
   apiKey,
   onApiKeyChange,
   onInspect,
+  onEditFaction,
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('system');
   const [seedLocked, setSeedLocked] = useState(false);
   const [civSeedLocked, setCivSeedLocked] = useState(false);
   const [autoUpdate, setAutoUpdate] = useState(true);
   const [consoleOpen, setConsoleOpen] = useState(true);
+  const [showCivParams, setShowCivParams] = useState(false);
   
   // Export State
   const [expRes, setExpRes] = useState<ExportResolution>(4096);
@@ -858,27 +861,34 @@ const Controls: React.FC<ControlsProps> = ({
                 </div>
              </div>
 
+              {/* Generation Parameters — collapsible */}
               <div>
-                <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Parameters</h3>
-                <div className="grid grid-cols-2 gap-2">
-                    <button 
-                      onClick={handleRerollBorders}
-                      disabled={loading}
-                      className="flex items-center justify-center gap-1 text-[10px] bg-blue-900/40 text-blue-300 px-2 py-2 border border-blue-900/50 hover:bg-blue-800/40"
-                    >
-                      <Shuffle size={10} /> Reroll Borders
-                    </button>
-                    <button 
-                      onClick={handleRerollProvinces}
-                      disabled={loading}
-                      className="flex items-center justify-center gap-1 text-[10px] bg-teal-900/40 text-teal-300 px-2 py-2 border border-teal-900/50 hover:bg-teal-800/40"
-                    >
-                      <Layers size={10} /> Reroll Provs
-                    </button>
-                </div>
-              </div>
+                <button
+                  onClick={() => setShowCivParams(v => !v)}
+                  className="flex items-center justify-between w-full text-[10px] font-semibold text-gray-500 uppercase tracking-wide hover:text-gray-300 transition-colors"
+                >
+                  <span>Generation Parameters</span>
+                  {showCivParams ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}
+                </button>
+                {showCivParams && (
+                  <div className="mt-3 space-y-4">
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={handleRerollBorders}
+                        disabled={loading}
+                        className="flex items-center justify-center gap-1 text-[10px] bg-blue-900/40 text-blue-300 px-2 py-2 border border-blue-900/50 hover:bg-blue-800/40"
+                      >
+                        <Shuffle size={10} /> Reroll Borders
+                      </button>
+                      <button
+                        onClick={handleRerollProvinces}
+                        disabled={loading}
+                        className="flex items-center justify-center gap-1 text-[10px] bg-teal-900/40 text-teal-300 px-2 py-2 border border-teal-900/50 hover:bg-teal-800/40"
+                      >
+                        <Layers size={10} /> Reroll Provs
+                      </button>
+                    </div>
 
-              {/* ... (rest of civ sliders) ... */}
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Factions</label>
@@ -951,6 +961,35 @@ const Controls: React.FC<ControlsProps> = ({
                   className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-cyan-600"
                 />
               </div>
+
+                  </div>
+                )}
+              </div>
+
+              {/* Factions editor */}
+              {worldData?.civData && (
+                <div className="space-y-2 pt-2 border-t border-gray-800">
+                  <h3 className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide pt-1">Factions</h3>
+                  {worldData.civData.factions.map(f => (
+                    <div key={f.id} className="flex items-center gap-2 bg-gray-900 p-2 border border-gray-800">
+                      <input
+                        type="color"
+                        value={f.color}
+                        onChange={e => onEditFaction?.(f.id, { color: e.target.value })}
+                        className="w-7 h-6 border border-gray-700 bg-transparent cursor-pointer flex-shrink-0"
+                        title="Faction color"
+                      />
+                      <input
+                        type="text"
+                        value={f.name}
+                        onChange={e => onEditFaction?.(f.id, { name: e.target.value })}
+                        className="flex-1 bg-black border border-gray-700 px-2 py-1 text-white text-xs focus:outline-none focus:border-blue-500"
+                        placeholder="Faction name"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* Lore Level */}
               <div className="space-y-1 border-t border-gray-800 pt-3">
