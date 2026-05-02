@@ -441,11 +441,13 @@ All parameters live in `types.ts`. Defaults are set in `App.tsx` (`DEFAULT_PARAM
 #### Advanced Terrain
 | Parameter | Type | Default | Range/Options | Controls |
 |-----------|------|---------|---------------|---------|
-| `noiseScale` | `number` | `0.4` | 0.1–2.0 | FBM feature frequency; lower = broader continents |
+| `noiseScale` | `number` | `0.4` | 0.1–5.0 | FBM feature frequency; lower = broader continents |
 | `ridgeBlend` | `number` | `0.1` | 0–1 | 0 = smooth FBM, 1 = sharp ridged noise mountains |
+| `mountainHeight` | `number` | `1.0` | 0.5–2.0 | Post-normalization power-curve scale for heights above `seaLevel`; >1 = taller peaks, <1 = flatter land |
+| `oceanDepth` | `number` | `1.0` | 0.5–2.0 | Post-normalization power-curve scale for depths below `seaLevel`; >1 = deeper trenches, <1 = shallower floor |
 | `maskType` | `MaskType` | `'None'` | `'None' \| 'Pangea'` | Optional supercontinent height mask |
 | `warpStrength` | `number` | `0.5` | 0–2 | Domain warp intensity for organic shapes |
-| `plateInfluence` | `number` | `0.5` | 0–2 | Weight of tectonic stress on height |
+| `plateInfluence` | `number` | `0.5` | 0.1–1.0 | Weight of tectonic stress on height; clamped to [0.1, 1.0] internally — slider max corrected to match |
 | `erosionIterations` | `number` | `2` | 0–50 | Hydraulic + thermal erosion pass count |
 | `plates` | `number` | `12` | 2–30 | Number of tectonic plates |
 | `seaLevel` | `number` | `0.55` | 0–1 | Height threshold separating ocean from land |
@@ -589,6 +591,14 @@ Stage 8:  Hydraulic Erosion (async, cancellable)
 Stage 9:  Thermal Erosion (async, cancellable)
           └── applyThermalErosion(cells, erosionIterations, signal)
               Talus slope smoothing: steep slopes shed material to neighbors
+              → heights re-normalized to [0,1] after erosion completes
+
+Stage 9b: Height Remap (conditional, inline)
+          └── If mountainHeight ≠ 1.0 or oceanDepth ≠ 1.0:
+              power-curve applied separately to land (above seaLevel) and ocean
+              (below seaLevel); heights remain in [0,1], seaLevel position unchanged
+              land:  h' = seaLevel + (1−seaLevel) × t^(1/mountainHeight), t=(h−sl)/(1−sl)
+              ocean: h' = seaLevel − seaLevel × t^(1/oceanDepth),          t=(sl−h)/sl
 
 Stage 10: Climate Simulation
           └── Wind vectors (latitude-based prevailing winds)
@@ -789,7 +799,7 @@ The controller reference is stored in a `useRef` to persist across renders. The 
 The largest UI component, organized into 5 tabs:
 
 - **Sys**: Map name, resolution (points), seed (with copy-to-clipboard and lock/randomize buttons), terrain presets (Continents, Pangea, Archipelago, Islands, Custom), auto-update toggle, generation progress bar (thin blue bar, visible during generation), generation console, generate/cancel buttons, world stats panel (collapsible; land %, top-5 biomes, population, faction/province counts, river count)
-- **Geo**: Plates, sea level, roughness, detail level, cell jitter, noise scale, ridge blend, mask type, warp strength, plate influence, erosion iterations (slider tooltips on ambiguous params)
+- **Geo**: Plates, sea level, roughness, detail level, cell jitter, noise scale, ridge blend, **mountain heights** (`mountainHeight`), **sea/trench depth** (`oceanDepth`), mask type, warp strength, tectonic strength (`plateInfluence`, range 0.1–1.0), erosion iterations (slider tooltips on ambiguous params)
 - **Clim**: Base temperature, pole temperature, rainfall multiplier, moisture transport, temperature variance, axial tilt (slider tooltips on ambiguous params)
 - **Civ**: Number of factions, civ seed, border roughness, size variance, water crossing cost, territorial waters, capital spacing, province size, AI lore generation, update civs/provinces buttons (slider tooltips on ambiguous params)
 - **Exp**: View mode selector, display mode selector, inspect mode, grid/rivers toggles, Dymaxion settings (lon/lat/roll with orientation presets: N.Pole / Pacific / Atlantic / Asia), image export (resolution + projection, including heightmap PNG), Dymaxion preview, browser storage manager, JSON import/export, GLB 3D export
@@ -959,5 +969,9 @@ These are non-obvious facts that are critical for making correct changes:
 15. **`genProgress` resets to 0 on generation start, not on cancel**: Cancellation sets `isGenerating = false` but does not reset `genProgress`. The progress bar is hidden when `isGenerating` is false, so this is correct — the bar just disappears at whatever value it reached when cancelled.
 
 16. **`CountryLabels` is wrapped in its own `<React.Suspense>`**: `<Text>` from `@react-three/drei` calls `suspend()` (from `suspend-react`) to load its font asynchronously. R3F's `<Canvas>` wraps all children in a top-level `<Suspense>` — if `CountryLabels` suspended without its own boundary, the entire canvas (world mesh included) would go blank until the font loaded. The local `<React.Suspense fallback={null}>` around `CountryLabels` in `WorldMesh` ensures only the labels disappear during font loading. Do not move `CountryLabels` outside this boundary.
+
+18. **`plateInfluence` is clamped to [0.1, 1.0] inside worldGen.ts**: The UI slider enforces this range (0.1–1.0, step 0.05), but the internal code also hard-clamps with `Math.min(1, Math.max(0.1, plateInf))`. Any saved config or programmatic value above 1.0 is silently treated as 1.0. Do not extend the slider beyond 1.0 without removing or adjusting the clamp.
+
+19. **`mountainHeight` and `oceanDepth` are applied after all normalization, before climate**: Stage 9b in the pipeline remaps heights using a power curve. If you add a normalization step after Stage 9, insert the remap after that new step too, otherwise the curve will distort an already-biased distribution. Conversely, the remap must come before climate (Stage 10) since biome assignment uses `seaLevel` as a hard threshold on the final height values.
 
 17. **Use a single `setParams` call when updating multiple fields**: `Controls.tsx` receives `setParams` from App.tsx (the root `useState` setter). Calling it twice in sequence with non-functional updaters — e.g., `setParams({ ...params, seed: x })` then `setParams({ ...params, civSeed: y })` — causes the second call to overwrite the first because both close over the same stale `params`. Always batch multi-field updates into one call: `setParams(prev => ({ ...prev, seed: x, civSeed: y }))`. The `handleRandomizeSeed` function follows this pattern.
