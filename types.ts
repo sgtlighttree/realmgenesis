@@ -159,6 +159,12 @@ export interface WorldData {
 export type DisplayMode = 'globe' | 'mercator' | 'dymaxion';
 export type InspectMode = 'click' | 'hover' | 'off';
 export type ViewMode = 'biome' | 'height' | 'height_bw' | 'temperature' | 'moisture' | 'plates' | 'political' | 'population' | 'province' | 'satellite';
+export type EditMode = 'off' | 'terrain-raise' | 'terrain-lower' | 'terrain-flatten' | 'terrain-smooth' | 'biome' | 'political' | 'world-edit';
+export type PaintStyle = 'adaptive' | 'freeform';
+
+export interface UndoSnapshot {
+    cells: Map<number, { height: number; biome: BiomeType; regionId?: number }>;
+}
 
 export interface LoreData {
   name: string;
