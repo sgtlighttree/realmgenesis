@@ -37,7 +37,7 @@ export function snapshotCells(brush: { cell: Cell }[]): UndoSnapshot {
     return {
         cells: new Map(brush.map(({ cell: c }) => [
             c.id,
-            { height: c.height, biome: c.biome, regionId: c.regionId }
+            { height: c.height, biome: c.biome, regionId: c.regionId, provinceId: c.provinceId }
         ]))
     };
 }
@@ -96,9 +96,13 @@ export function applySmoothStroke(
 
 export function applyPoliticalStroke(
     brush: { cell: Cell; ring: number }[],
-    factionId: number
+    factionId: number | undefined,
+    provinceId?: number
 ): void {
-    brush.forEach(({ cell }) => { cell.regionId = factionId; });
+    brush.forEach(({ cell }) => {
+        cell.regionId = factionId;
+        cell.provinceId = provinceId;
+    });
 }
 
 export function applyBiomeStroke(

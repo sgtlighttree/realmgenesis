@@ -29,6 +29,8 @@ interface ControlsProps {
   setShowGrid: (b: boolean) => void;
   showRivers: boolean;
   setShowRivers: (b: boolean) => void;
+  showFactionOverlay: boolean;
+  setShowFactionOverlay: (b: boolean) => void;
   dymaxionSettings: DymaxionSettings;
   onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>;
   apiKey: string;
@@ -86,6 +88,8 @@ const Controls: React.FC<ControlsProps> = ({
   setShowGrid,
   showRivers,
   setShowRivers,
+  showFactionOverlay,
+  setShowFactionOverlay,
   dymaxionSettings,
   onDymaxionChange,
   apiKey,
@@ -500,6 +504,19 @@ const Controls: React.FC<ControlsProps> = ({
                     type="checkbox"
                     checked={showRivers}
                     onChange={(e) => { setShowRivers(e.target.checked); }}
+                    className="bg-gray-700"
+                 />
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-gray-400 pt-2">
+                 <div className="flex items-center gap-2">
+                    <Flag size={12} className={showFactionOverlay ? "text-blue-400" : "text-gray-600"}/>
+                    <label>Faction Overlay</label>
+                 </div>
+                 <input
+                    type="checkbox"
+                    checked={showFactionOverlay}
+                    onChange={(e) => { setShowFactionOverlay(e.target.checked); }}
                     className="bg-gray-700"
                  />
             </div>

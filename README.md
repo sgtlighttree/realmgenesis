@@ -13,6 +13,9 @@
 - **🤖 AI Lore (Gemini)**: Detailed world lore, faction backstories, and capital naming powered by Google Gemini 1.5 Flash.
 - **🔑 BYOK (Bring Your Own Key)**: Use your own Gemini API key for AI features. Keys are ephemeral and never stored permanently in the app.
 - **⚖️ Political Simulation**: Procedural expansion of factions across provinces and towns with customizable borders.
+- **Interactive Map Editing**: Paint terrain, biomes, and political borders directly in 3D, Mercator, or Dymaxion views, with undo support.
+- **Province-Aware Political Brush**: Political painting preserves province ownership, supports an unclaim/eraser brush, and keeps faction population totals in sync.
+- **Toggleable Faction Overlay**: Faction borders and names can be shown over any view layer; 3D names curve along the globe surface while 2D labels render over Mercator and Dymaxion maps.
 - **📦 3D Export (GLB)**: Export the world as a binary GLB file — world mesh with per-vertex colors, rivers as line geometry, and city markers as low-poly cylinders. Ready to import into Blender, Unity, or Unreal.
 - **🔲 Blender UV Net**: Dymaxion export mode that produces a square image matching Blender's default icosphere UV unwrap, compatible with any subdivision level.
 - **📊 World Stats Panel**: Live stats in the Sys tab — land coverage %, top biome breakdown, total population, faction/province counts, and river count.
