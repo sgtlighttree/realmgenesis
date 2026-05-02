@@ -5,7 +5,7 @@ import Map2D from './components/Map2D';
 import MiniMap from './components/MiniMap';
 import Inspector from './components/Inspector';
 import { BiomeLegend } from './components/Legend';
-import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode, InspectMode, DymaxionSettings, EditMode, PaintStyle, UndoSnapshot, BiomeType } from './types';
+import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode, InspectMode, DymaxionSettings, EditMode, PaintStyle, UndoSnapshot, BiomeType, POLITICAL_ERASER_ID } from './types';
 import { generateWorld, recalculateCivs, recalculateProvinces } from './utils/worldGen';
 import { getCellsInRadius, snapshotCells, applyTerrainStroke, applyFlattenStroke, applySmoothStroke, applyPoliticalStroke, applyBiomeStroke, refreshBiomes } from './utils/paintUtils';
 import { generateWorldLore, setRuntimeApiKey } from './services/gemini';
@@ -48,6 +48,55 @@ const DEFAULT_PARAMS: WorldParams = {
   seed: 'realmgenesis',
 };
 
+const isValidProvinceId = (world: WorldData, factionId: number, provinceId: number | undefined): provinceId is number => {
+  if (provinceId === undefined) return false;
+  const faction = world.civData?.factions.find(f => f.id === factionId);
+  return faction?.provinces.some(p => p.id === provinceId) ?? false;
+};
+
+const resolvePoliticalProvinceId = (world: WorldData, startCellId: number, factionId: number): number | undefined => {
+  const startCell = world.cells[startCellId];
+  if (!startCell) return undefined;
+  if (startCell.regionId === factionId && isValidProvinceId(world, factionId, startCell.provinceId)) {
+    return startCell.provinceId;
+  }
+
+  let bestProvinceId: number | undefined;
+  let bestDot = -Infinity;
+  for (const cell of world.cells) {
+    if (cell.regionId !== factionId || !isValidProvinceId(world, factionId, cell.provinceId)) continue;
+    const d = startCell.center.x * cell.center.x + startCell.center.y * cell.center.y + startCell.center.z * cell.center.z;
+    if (d > bestDot) {
+      bestDot = d;
+      bestProvinceId = cell.provinceId;
+    }
+  }
+
+  if (bestProvinceId !== undefined) return bestProvinceId;
+  return world.civData?.factions.find(f => f.id === factionId)?.provinces[0]?.id;
+};
+
+const recalculatePoliticalTotals = (world: WorldData): void => {
+  if (!world.civData) return;
+  const factionById = new Map(world.civData.factions.map(f => [f.id, f]));
+  world.civData.factions.forEach(faction => {
+    faction.totalPopulation = 0;
+    faction.provinces.forEach(province => { province.totalPopulation = 0; });
+  });
+
+  world.cells.forEach(cell => {
+    if (cell.regionId === undefined || cell.provinceId === undefined) return;
+    const faction = factionById.get(cell.regionId);
+    const province = faction?.provinces.find(p => p.id === cell.provinceId);
+    if (!faction || !province) return;
+    province.totalPopulation += cell.population || 0;
+  });
+
+  world.civData.factions.forEach(faction => {
+    faction.totalPopulation = faction.provinces.reduce((sum, province) => sum + province.totalPopulation, 0);
+  });
+};
+
 const App: React.FC = () => {
   const [params, setParams] = useState<WorldParams>(DEFAULT_PARAMS);
   const [world, setWorld] = useState<WorldData | null>(null);
@@ -63,6 +112,7 @@ const App: React.FC = () => {
   const [isLoreLoading, setIsLoreLoading] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
   const [showRivers, setShowRivers] = useState(true);
+  const [showFactionOverlay, setShowFactionOverlay] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [dymaxionSettings, setDymaxionSettings] = useState<DymaxionSettings>({
     layout: 'classic',
@@ -86,7 +136,8 @@ const App: React.FC = () => {
   const [adaptiveBiomes, setAdaptiveBiomes] = useState<boolean>(true);
   const [undoStack, setUndoStack] = useState<UndoSnapshot[]>([]);
   const isPainting = useRef<boolean>(false);
-  const currentStrokeSnapshot = useRef<Map<number, { height: number; biome: BiomeType; regionId?: number }> | null>(null);
+  const currentStrokeSnapshot = useRef<UndoSnapshot['cells'] | null>(null);
+  const currentPoliticalProvince = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     setRuntimeApiKey(apiKey);
@@ -297,11 +348,17 @@ const App: React.FC = () => {
         setSampleHeight(center.height);
         return;
       }
+      currentPoliticalProvince.current = editMode === 'political' && paintFaction !== POLITICAL_ERASER_ID
+        ? resolvePoliticalProvinceId(world, center.id, paintFaction)
+        : undefined;
       // Create the snapshot Map and push its reference to undoStack immediately.
       // During 'stroke' we mutate the same Map in place — the stack entry grows automatically.
       // This means 'end' never needs to push, making undo reliable even if 'end' is missed.
-      const snapMap = new Map<number, { height: number; biome: BiomeType; regionId?: number }>(
-        brush.map(({ cell }) => [cell.id, { height: cell.height, biome: cell.biome, regionId: cell.regionId }])
+      const snapMap: UndoSnapshot['cells'] = new Map(
+        brush.map(({ cell }) => [
+          cell.id,
+          { height: cell.height, biome: cell.biome, regionId: cell.regionId, provinceId: cell.provinceId },
+        ])
       );
       currentStrokeSnapshot.current = snapMap;
       setUndoStack(prev => [...prev.slice(-19), { cells: snapMap }]);
@@ -313,7 +370,12 @@ const App: React.FC = () => {
       if (currentStrokeSnapshot.current) {
         brush.forEach(({ cell }) => {
           if (!currentStrokeSnapshot.current!.has(cell.id)) {
-            currentStrokeSnapshot.current!.set(cell.id, { height: cell.height, biome: cell.biome, regionId: cell.regionId });
+            currentStrokeSnapshot.current!.set(cell.id, {
+              height: cell.height,
+              biome: cell.biome,
+              regionId: cell.regionId,
+              provinceId: cell.provinceId,
+            });
           }
         });
       }
@@ -327,7 +389,11 @@ const App: React.FC = () => {
         applyFlattenStroke(brush, brushSize, sampleHeight, paintStrength);
         if (adaptiveBiomes) refreshBiomes(brush.map(b => b.cell), world.params.seaLevel);
       } else if (editMode === 'political') {
-        applyPoliticalStroke(brush, paintFaction);
+        applyPoliticalStroke(
+          brush,
+          paintFaction === POLITICAL_ERASER_ID ? undefined : paintFaction,
+          currentPoliticalProvince.current,
+        );
       } else if (editMode === 'biome') {
         applyBiomeStroke(brush, paintBiome);
       }
@@ -335,7 +401,12 @@ const App: React.FC = () => {
     }
 
     if (phase === 'end') {
+      if (editMode === 'political' && isPainting.current) {
+        recalculatePoliticalTotals(world);
+        setWorld({ ...world });
+      }
       currentStrokeSnapshot.current = null; // snapshot already lives in undoStack
+      currentPoliticalProvince.current = undefined;
       isPainting.current = false;
     }
   }, [world, editMode, paintStyle, brushSize, paintStrength, paintFaction, paintBiome, sampleHeight, adaptiveBiomes]);
@@ -343,11 +414,13 @@ const App: React.FC = () => {
   const handleUndo = useCallback(() => {
     if (!world || undoStack.length === 0) return;
     const snap = undoStack[undoStack.length - 1];
-    snap.cells.forEach(({ height, biome, regionId }, id) => {
+    snap.cells.forEach(({ height, biome, regionId, provinceId }, id) => {
       world.cells[id].height = height;
       world.cells[id].biome = biome;
       world.cells[id].regionId = regionId;
+      world.cells[id].provinceId = provinceId;
     });
+    recalculatePoliticalTotals(world);
     setWorld({ ...world });
     setUndoStack(prev => prev.slice(0, -1));
   }, [world, undoStack]);
@@ -422,6 +495,7 @@ const App: React.FC = () => {
           worldData={world} 
           showGrid={showGrid} setShowGrid={setShowGrid}
           showRivers={showRivers} setShowRivers={setShowRivers}
+          showFactionOverlay={showFactionOverlay} setShowFactionOverlay={setShowFactionOverlay}
           dymaxionSettings={dymaxionSettings}
           onDymaxionChange={setDymaxionSettings}
           apiKey={apiKey}
@@ -455,8 +529,10 @@ const App: React.FC = () => {
             viewMode={viewMode}
             showGrid={showGrid}
             showRivers={showRivers}
+            showFactionOverlay={showFactionOverlay}
             inspectMode={inspectMode}
             onInspect={setInspectedCellId}
+            selectedCellId={inspectedCellId}
             dymaxionSettings={dymaxionSettings}
             onDymaxionChange={setDymaxionSettings}
             editMode={editMode}
@@ -470,10 +546,12 @@ const App: React.FC = () => {
             viewMode={viewMode}
             inspectMode={inspectMode}
             onInspect={setInspectedCellId}
+            highlightCellId={inspectedCellId}
             projectionType={displayMode === 'dymaxion' ? 'dymaxion' : 'mercator'}
             dymaxionSettings={dymaxionSettings}
             showGrid={showGrid}
             showRivers={showRivers}
+            showFactionOverlay={showFactionOverlay}
             editMode={editMode}
             onPaint={handlePaint}
             factionColors={factionColors}

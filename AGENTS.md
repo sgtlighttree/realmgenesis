@@ -37,6 +37,12 @@ npm run lint      # ESLint (flat config: eslint.config.js)
 2. `npm run lint` must produce zero errors (warnings are acceptable)
 3. TypeScript compilation must produce no type errors
 
+## Git Workflow
+
+Commit messages are highly recommended to follow the 50/72 rule: keep the
+subject line at or under 50 characters, and wrap body text near 72 characters.
+Prefer concise, imperative subjects.
+
 ## Code Style
 
 ### Imports

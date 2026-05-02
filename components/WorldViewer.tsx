@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Stars, Text, Line } from '@react-three/drei';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { OrbitControls, Stars, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMode } from '../types';
 import { getCellColor } from '../utils/colors';
@@ -112,48 +112,157 @@ const RiverLines: React.FC<{ world: WorldData; visible: boolean }> = ({ world, v
     );
 }
 
-const CountryLabels: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ world, viewMode }) => {
+const CurvedFactionLabel: React.FC<{ name: string; position: THREE.Vector3 }> = ({ name, position }) => {
+    const { texture, scale } = useMemo(() => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
+        const fontSize = 34 * pixelRatio;
+        const paddingX = 16 * pixelRatio;
+        const paddingY = 10 * pixelRatio;
+        const label = name.toUpperCase();
+
+        if (!ctx) {
+            const fallbackTexture = new THREE.CanvasTexture(canvas);
+            return { texture: fallbackTexture, scale: [0.2, 0.06, 1] as [number, number, number] };
+        }
+
+        ctx.font = `800 ${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
+        const textWidth = Math.ceil(ctx.measureText(label).width);
+        canvas.width = Math.max(1, textWidth + paddingX * 2);
+        canvas.height = Math.max(1, fontSize + paddingY * 2);
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.font = `800 ${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = Math.max(5, 7 * pixelRatio);
+        ctx.strokeStyle = '#020617';
+        ctx.fillStyle = '#f8fafc';
+        ctx.strokeText(label, canvas.width / 2, canvas.height / 2);
+        ctx.fillText(label, canvas.width / 2, canvas.height / 2);
+
+        const labelTexture = new THREE.CanvasTexture(canvas);
+        labelTexture.minFilter = THREE.LinearFilter;
+        labelTexture.magFilter = THREE.LinearFilter;
+        labelTexture.generateMipmaps = false;
+        labelTexture.needsUpdate = true;
+
+        const height = 0.075;
+        const width = height * (canvas.width / canvas.height);
+        return { texture: labelTexture, scale: [width, height, 1] as [number, number, number] };
+    }, [name]);
+
+    const geometry = useMemo(() => {
+        const radius = Math.max(1.08, position.length());
+        const center = position.clone().normalize();
+        const worldUp = new THREE.Vector3(0, 1, 0);
+        let right = new THREE.Vector3().crossVectors(worldUp, center);
+        if (right.lengthSq() < 1e-6) {
+            right = new THREE.Vector3().crossVectors(new THREE.Vector3(1, 0, 0), center);
+        }
+        right.normalize();
+        const up = new THREE.Vector3().crossVectors(center, right).normalize();
+        const width = scale[0];
+        const height = scale[1];
+        const cols = 28;
+        const rows = 6;
+        const positions: number[] = [];
+        const uvs: number[] = [];
+        const indices: number[] = [];
+
+        for (let yStep = 0; yStep <= rows; yStep++) {
+            const y = (yStep / rows - 0.5) * height;
+            for (let xStep = 0; xStep <= cols; xStep++) {
+                const x = (xStep / cols - 0.5) * width;
+                const dir = center.clone()
+                    .multiplyScalar(radius)
+                    .add(right.clone().multiplyScalar(x))
+                    .add(up.clone().multiplyScalar(y))
+                    .normalize();
+                positions.push(dir.x * radius, dir.y * radius, dir.z * radius);
+                uvs.push(xStep / cols, yStep / rows);
+            }
+        }
+
+        for (let yStep = 0; yStep < rows; yStep++) {
+            for (let xStep = 0; xStep < cols; xStep++) {
+                const a = yStep * (cols + 1) + xStep;
+                const b = a + 1;
+                const c = a + cols + 1;
+                const d = c + 1;
+                indices.push(a, b, d, a, d, c);
+            }
+        }
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+        geo.setIndex(indices);
+        geo.computeVertexNormals();
+        return geo;
+    }, [position, scale]);
+
+    useEffect(() => () => {
+        texture.dispose();
+    }, [texture]);
+
+    return (
+        <Mesh geometry={geometry} renderOrder={7}>
+            <MeshBasicMaterial
+                map={texture}
+                transparent
+                depthTest
+                depthWrite={false}
+                toneMapped={false}
+                side={THREE.FrontSide}
+                polygonOffset
+                polygonOffsetFactor={-1}
+                polygonOffsetUnits={-1}
+            />
+        </Mesh>
+    );
+};
+
+const CountryLabels: React.FC<{ world: WorldData; visible: boolean }> = ({ world, visible }) => {
     const labels = useMemo(() => {
-        if (!world.civData || viewMode !== 'political') return [];
+        if (!world.civData || !visible) return [];
         return world.civData.factions.map(f => {
             let sumX = 0, sumY = 0, sumZ = 0, count = 0;
-            for (const cell of world.cells) {
-                if (cell.regionId === f.id) {
-                    sumX += cell.center.x; sumY += cell.center.y; sumZ += cell.center.z;
-                    count++;
-                }
+            const factionCells = world.cells.filter(cell => cell.regionId === f.id);
+            const labelCells = factionCells.some(cell => cell.height >= world.params.seaLevel)
+                ? factionCells.filter(cell => cell.height >= world.params.seaLevel)
+                : factionCells;
+
+            for (const cell of labelCells) {
+                sumX += cell.center.x; sumY += cell.center.y; sumZ += cell.center.z;
+                count++;
             }
             if (count === 0) return null;
-            const avg = new THREE.Vector3(sumX/count, sumY/count, sumZ/count).normalize().multiplyScalar(1.08);
-            return { id: f.id, name: f.name, position: avg };
+            const position = new THREE.Vector3(sumX / count, sumY / count, sumZ / count).normalize().multiplyScalar(1.09);
+            return { id: f.id, name: f.name, position };
         }).filter(Boolean) as {id: number, name: string, position: THREE.Vector3}[];
-    }, [world, viewMode]);
+    }, [world, visible]);
 
-    if (viewMode !== 'political') return null;
+    if (!visible) return null;
 
     return (
         <Group>
             {labels.map(l => (
-                <Text
+                <CurvedFactionLabel
                     key={l.id}
+                    name={l.name}
                     position={l.position}
-                    color="white"
-                    anchorX="center" anchorY="middle"
-                    fontSize={0.07}
-                    outlineWidth={0.008} outlineColor="#000000"
-                    quaternion={new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), l.position.clone().normalize())}
-                >
-                    {l.name}
-                </Text>
+                />
             ))}
         </Group>
     );
 };
 
-const FactionBorders: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ world, viewMode }) => {
+const FactionBorders: React.FC<{ world: WorldData; visible: boolean }> = ({ world, visible }) => {
   const geometry = useMemo(() => {
-      // Only show for political view
-      if (viewMode !== 'political') return null;
+      if (!visible || !world.civData) return null;
 
       const positions: number[] = [];
       const threshold = 0.000001; 
@@ -161,10 +270,8 @@ const FactionBorders: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ wo
       // Iterate unique pairs of neighbors to find borders
       world.cells.forEach(cellA => {
           cellA.neighbors.forEach(nId => {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        // codacy-disable-next-line
               const cellB = world.cells[nId];
-              if (cellA.id >= cellB.id) return; // Process pair once
+              if (!cellB || cellA.id >= cellB.id) return; // Process pair once
               
               const rA = cellA.regionId;
               const rB = cellB.regionId;
@@ -207,7 +314,7 @@ const FactionBorders: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ wo
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
       return geo;
-  }, [world, viewMode]);
+  }, [world, visible]);
 
   if (!geometry) return null;
 
@@ -286,6 +393,57 @@ const BrushRing: React.FC<{ center: [number, number, number]; radius: number }> 
   );
 };
 
+const CellSelectionOverlay: React.FC<{ cell: Cell }> = ({ cell }) => {
+  const { fillGeometry, outlinePoints } = useMemo(() => {
+    const hMult = 1 + cell.height * 0.05 + 0.012;
+    const center = new THREE.Vector3(cell.center.x * hMult, cell.center.y * hMult, cell.center.z * hMult);
+    const positions: number[] = [];
+    const outlinePoints = cell.vertices.map(v => new THREE.Vector3(v.x * hMult, v.y * hMult, v.z * hMult));
+
+    for (let i = 0; i < cell.vertices.length; i++) {
+      const next = (i + 1) % cell.vertices.length;
+      const v1 = cell.vertices[i];
+      const v2 = cell.vertices[next];
+      positions.push(
+        center.x, center.y, center.z,
+        v1.x * hMult, v1.y * hMult, v1.z * hMult,
+        v2.x * hMult, v2.y * hMult, v2.z * hMult,
+      );
+    }
+
+    if (outlinePoints.length > 0) outlinePoints.push(outlinePoints[0].clone());
+
+    const fillGeometry = new THREE.BufferGeometry();
+    fillGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    fillGeometry.computeVertexNormals();
+
+    return { fillGeometry, outlinePoints };
+  }, [cell]);
+
+  return (
+    <Group>
+      <Mesh geometry={fillGeometry} renderOrder={8}>
+        <MeshBasicMaterial
+          color="#fef08a"
+          opacity={0.28}
+          transparent
+          depthWrite={false}
+          side={THREE.DoubleSide}
+        />
+      </Mesh>
+      <Line
+        points={outlinePoints}
+        color="#facc15"
+        lineWidth={3.5}
+        transparent
+        opacity={1}
+        depthWrite={false}
+        renderOrder={9}
+      />
+    </Group>
+  );
+};
+
 const WorldMesh: React.FC<{
   world: WorldData,
   viewMode: ViewMode,
@@ -300,10 +458,18 @@ const WorldMesh: React.FC<{
   onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void;
   factionColors?: Map<number, string>;
   brushSize: number;
-}> = ({ world, viewMode, onHover, paused, showGrid, showRivers, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, brushSize }) => {
+  selectedCellId?: number | null;
+  showFactionOverlay: boolean;
+}> = ({ world, viewMode, onHover, paused, showGrid, showRivers, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, brushSize, selectedCellId = null, showFactionOverlay }) => {
   const spinRef = useRef<THREE.Group>(null);
+  const meshRef = useRef<THREE.Mesh>(null);
   const lastUpdate = useRef<number>(0);
   const lastPaintedCell = useRef<number | null>(null);
+  const paintPointerActive = useRef(false);
+  const pointerStart = useRef<{ x: number; y: number } | null>(null);
+  const raycaster = useMemo(() => new THREE.Raycaster(), []);
+  const pointer = useMemo(() => new THREE.Vector2(), []);
+  const { camera, gl } = useThree();
   const [brushCenter, setBrushCenter] = useState<[number, number, number] | null>(null);
   const [highlightCellId, setHighlightCellId] = useState<number | null>(null);
   
@@ -330,7 +496,7 @@ const WorldMesh: React.FC<{
     geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     geo.computeVertexNormals();
     return geo;
-  }, [world, viewMode]);
+  }, [world, viewMode, factionColors]);
 
   const faceMap = useMemo(() => {
      const map: number[] = []; 
@@ -347,6 +513,147 @@ const WorldMesh: React.FC<{
   }, []);
 
   const isPaintMode = editMode !== 'off' && editMode !== 'world-edit';
+  const tracksPointerMove = !isPaintMode && inspectMode === 'hover';
+  const handlesSelectionClick = !isPaintMode && (inspectMode === 'click' || editMode === 'world-edit');
+
+  const pickNativeCellId = useCallback((e: PointerEvent) => {
+      const mesh = meshRef.current;
+      if (!mesh) return null;
+
+      const canvas = gl.domElement;
+      const rect = canvas.getBoundingClientRect();
+      pointer.set(
+          ((e.clientX - rect.left) / rect.width) * 2 - 1,
+          -((e.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      camera.updateMatrixWorld();
+      raycaster.setFromCamera(pointer, camera);
+
+      const hit = raycaster.intersectObject(mesh, false)[0];
+      if (!hit || hit.faceIndex === undefined || hit.faceIndex === null) return null;
+
+      return faceMap[hit.faceIndex] ?? null;
+  }, [gl.domElement, pointer, camera, raycaster, faceMap]);
+
+  const showBrushCell = useCallback((cellId: number) => {
+      const cell = world.cells[cellId];
+      if (!cell) return;
+      const hMult = 1 + cell.height * 0.05 + 0.005;
+      setBrushCenter([cell.center.x * hMult, cell.center.y * hMult, cell.center.z * hMult]);
+      setHighlightCellId(cellId);
+  }, [world.cells]);
+
+  useEffect(() => {
+      if (tracksPointerMove) return;
+      setBrushCenter(null);
+      setHighlightCellId(null);
+      onHover(null);
+  }, [tracksPointerMove, onHover]);
+
+  useEffect(() => {
+      if (!handlesSelectionClick || dymaxionSettings.mode === 'overlay') return;
+
+      const canvas = gl.domElement;
+
+      const handleNativePointerDown = (e: PointerEvent) => {
+          if (e.button !== 0) return;
+          pointerStart.current = { x: e.clientX, y: e.clientY };
+      };
+
+      const handleNativePointerUp = (e: PointerEvent) => {
+          const start = pointerStart.current;
+          pointerStart.current = null;
+          if (!start || e.button !== 0) return;
+
+          const dx = e.clientX - start.x;
+          const dy = e.clientY - start.y;
+          if (Math.hypot(dx, dy) > 4) return;
+
+          const cellId = pickNativeCellId(e);
+          if (cellId !== null) onInspect(cellId);
+      };
+
+      canvas.addEventListener('pointerdown', handleNativePointerDown);
+      canvas.addEventListener('pointerup', handleNativePointerUp);
+
+      return () => {
+          canvas.removeEventListener('pointerdown', handleNativePointerDown);
+          canvas.removeEventListener('pointerup', handleNativePointerUp);
+      };
+  }, [handlesSelectionClick, dymaxionSettings.mode, gl.domElement, pickNativeCellId, onInspect]);
+
+  useEffect(() => {
+      if (!isPaintMode || dymaxionSettings.mode === 'overlay') {
+          paintPointerActive.current = false;
+          lastPaintedCell.current = null;
+          setBrushCenter(null);
+          setHighlightCellId(null);
+          return;
+      }
+
+      const canvas = gl.domElement;
+
+      const finishPaint = () => {
+          if (paintPointerActive.current && lastPaintedCell.current !== null) {
+              onPaint(lastPaintedCell.current, 'end');
+          }
+          paintPointerActive.current = false;
+          lastPaintedCell.current = null;
+          setBrushCenter(null);
+          setHighlightCellId(null);
+      };
+
+      const handleNativePointerDown = (e: PointerEvent) => {
+          const isRight = e.button === 2;
+          if (e.button !== 0 && !(isRight && editMode === 'terrain-flatten')) return;
+
+          const cellId = pickNativeCellId(e);
+          if (cellId === null) return;
+
+          e.preventDefault();
+          showBrushCell(cellId);
+
+          if (isRight) {
+              onPaint(cellId, 'start', true);
+              return;
+          }
+
+          paintPointerActive.current = true;
+          lastPaintedCell.current = cellId;
+          onPaint(cellId, 'start');
+          onPaint(cellId, 'stroke');
+      };
+
+      const handleNativePointerMove = (e: PointerEvent) => {
+          if (!paintPointerActive.current) return;
+          const now = Date.now();
+          if (now - lastUpdate.current < 50) return;
+          lastUpdate.current = now;
+
+          const cellId = pickNativeCellId(e);
+          if (cellId === null) return;
+
+          showBrushCell(cellId);
+          lastPaintedCell.current = cellId;
+          onPaint(cellId, 'stroke');
+      };
+
+      const handleContextMenu = (e: MouseEvent) => {
+          e.preventDefault();
+      };
+
+      canvas.addEventListener('pointerdown', handleNativePointerDown);
+      window.addEventListener('pointermove', handleNativePointerMove);
+      window.addEventListener('pointerup', finishPaint);
+      canvas.addEventListener('contextmenu', handleContextMenu);
+
+      return () => {
+          canvas.removeEventListener('pointerdown', handleNativePointerDown);
+          window.removeEventListener('pointermove', handleNativePointerMove);
+          window.removeEventListener('pointerup', finishPaint);
+          canvas.removeEventListener('contextmenu', handleContextMenu);
+      };
+  }, [isPaintMode, editMode, dymaxionSettings.mode, gl.domElement, pickNativeCellId, showBrushCell, onPaint]);
 
   const handlePointerMove = useCallback((e: any) => {
       if (dymaxionSettings.mode === 'overlay') return;
@@ -355,76 +662,39 @@ const WorldMesh: React.FC<{
       lastUpdate.current = now;
 
       const triIndex = getTriangleIndex(e);
-      if (triIndex === null) { if (!isPaintMode) setBrushCenter(null); return; }
+      if (triIndex === null) { setBrushCenter(null); return; }
       const cellId = faceMap[triIndex];
       if (cellId === undefined) return;
 
       const cell = world.cells[cellId];
-      const hMult = 1 + cell.height * 0.05 + 0.005;
-      setBrushCenter([cell.center.x * hMult, cell.center.y * hMult, cell.center.z * hMult]);
-      setHighlightCellId(cellId);
-
-      if (isPaintMode) {
-          lastPaintedCell.current = cellId;
-          onPaint(cellId, 'stroke');
-          return;
-      }
       if (inspectMode === 'hover') onHover(cell);
-  }, [isPaintMode, inspectMode, faceMap, world.cells, onHover, onPaint, getTriangleIndex, dymaxionSettings.mode]);
+  }, [inspectMode, faceMap, world.cells, onHover, getTriangleIndex, dymaxionSettings.mode]);
 
-  const handlePointerDown = useCallback((e: any) => {
-      if (dymaxionSettings.mode === 'overlay') return;
-      const triIndex = getTriangleIndex(e);
-      if (triIndex === null) return;
-      const cellId = faceMap[triIndex];
-      if (cellId === undefined) return;
-
-      if (isPaintMode) {
-          lastPaintedCell.current = cellId;
-          const isRight = e.button === 2 || e.buttons === 2;
-          onPaint(cellId, 'start', isRight);
-          if (!isRight) onPaint(cellId, 'stroke');
-          return;
-      }
-      if (inspectMode === 'click') onInspect(cellId);
-  }, [isPaintMode, inspectMode, faceMap, onInspect, onPaint, getTriangleIndex, dymaxionSettings.mode]);
-
-  const handlePointerUp = useCallback(() => {
-      if (isPaintMode && lastPaintedCell.current !== null) {
-          onPaint(lastPaintedCell.current, 'end');
-          lastPaintedCell.current = null;
-      }
-  }, [isPaintMode, onPaint]);
-
-  const handleClick = useCallback((e: any) => {
-      if (dymaxionSettings.mode === 'overlay') return;
-      if (isPaintMode) return; // paint handled by pointerDown/Up
-      if (inspectMode !== 'click') return;
-      const triIndex = getTriangleIndex(e);
-      if (triIndex !== null) {
-          const cellId = faceMap[triIndex];
-          onInspect(cellId !== undefined ? cellId : null);
-      }
-  }, [isPaintMode, inspectMode, faceMap, onInspect, getTriangleIndex, dymaxionSettings.mode]);
+  const handlePointerOut = useCallback(() => {
+      setBrushCenter(null);
+      setHighlightCellId(null);
+      if (inspectMode === 'hover' && !isPaintMode) onHover(null);
+  }, [inspectMode, isPaintMode, onHover]);
 
   return (
     <Group>
         <Group ref={spinRef}>
             <Mesh
+            ref={meshRef}
             geometry={geometry}
-            onPointerMove={handlePointerMove}
-            onPointerOut={() => { setBrushCenter(null); setHighlightCellId(null); if (inspectMode === 'hover' && !isPaintMode) onHover(null); }}
-            onPointerDown={handlePointerDown}
-            onPointerUp={isPaintMode ? handlePointerUp : undefined}
-            onClick={handleClick}
-            onContextMenu={(e: any) => { e.nativeEvent?.preventDefault?.(); }}
+            onPointerMove={tracksPointerMove ? handlePointerMove : undefined}
+            onPointerOut={tracksPointerMove ? handlePointerOut : undefined}
             >
-                <MeshStandardMaterial vertexColors roughness={0.8} metalness={0.1} flatShading side={THREE.FrontSide} />
+                {viewMode === 'political' ? (
+                    <MeshBasicMaterial vertexColors toneMapped={false} side={THREE.FrontSide} />
+                ) : (
+                    <MeshStandardMaterial vertexColors roughness={0.8} metalness={0.1} flatShading side={THREE.FrontSide} />
+                )}
                 <CityMarkers world={world} viewMode={viewMode} />
                 <React.Suspense fallback={null}>
-                    <CountryLabels world={world} viewMode={viewMode} />
+                    <CountryLabels world={world} visible={showFactionOverlay} />
                 </React.Suspense>
-                <FactionBorders world={world} viewMode={viewMode} />
+                <FactionBorders world={world} visible={showFactionOverlay} />
                 <RiverLines world={world} visible={showRivers} />
                 {showGrid && <LatLongGrid radius={1.06} />}
                 {/* Cell highlight outline */}
@@ -446,6 +716,10 @@ const WorldMesh: React.FC<{
                         </LineSegments>
                     );
                 })()}
+                {selectedCellId !== null && (() => {
+                    const selectedCell = world.cells[selectedCellId];
+                    return selectedCell ? <CellSelectionOverlay cell={selectedCell} /> : null;
+                })()}
             </Mesh>
             {/* Brush size ring */}
             {isPaintMode && brushCenter && (
@@ -461,13 +735,18 @@ const WorldMesh: React.FC<{
   );
 };
 
-const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; brushSize?: number; }> = ({ world, viewMode, showGrid = false, showRivers = true, inspectMode, onInspect, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, brushSize = 1 }) => {
+const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean; showFactionOverlay?: boolean; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; brushSize?: number; }> = ({ world, viewMode, showGrid = false, showRivers = true, showFactionOverlay = true, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, brushSize = 1 }) => {
   const [hoveredCell, setHoveredCell] = useState<Cell | null>(null);
   const [paused, setPaused] = useState(false);
   const [isSpaceHeld, setIsSpaceHeld] = useState(false);
   const dragRef = useRef<{ active: boolean; lastX: number; lastY: number }>({ active: false, lastX: 0, lastY: 0 });
   const overlayMode = dymaxionSettings.mode === 'overlay';
   const isPaintModeActive = editMode !== 'off' && editMode !== 'world-edit';
+  const orbitMouseButtons = useMemo(() => ({
+    LEFT: isPaintModeActive && !isSpaceHeld ? -1 : THREE.MOUSE.ROTATE,
+    MIDDLE: THREE.MOUSE.ROTATE,
+    RIGHT: -1,
+  }), [isPaintModeActive, isSpaceHeld]);
 
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => { if (e.code === 'Space' && !e.repeat) { e.preventDefault(); setIsSpaceHeld(true); } };
@@ -523,9 +802,6 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
     <div className="w-full h-full bg-black relative group">
       <Canvas
         camera={{ position: [0, 0, 2.5], fov: 45 }}
-        onPointerMissed={() => {
-          if (inspectMode === 'click') onInspect(null);
-        }}
         onPointerDown={handleOverlayPointerDown}
         onPointerMove={handleOverlayPointerMove}
         onPointerUp={handleOverlayPointerUp}
@@ -544,8 +820,10 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
                paused={paused}
                showGrid={showGrid}
                showRivers={showRivers}
+               showFactionOverlay={showFactionOverlay}
                inspectMode={inspectMode}
                onInspect={onInspect}
+               selectedCellId={selectedCellId}
                dymaxionSettings={dymaxionSettings}
                editMode={editMode}
                onPaint={onPaint}
@@ -554,7 +832,13 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
              />
           </Group>
         )}
-        <OrbitControls enablePan={false} minDistance={1.2} maxDistance={6} enableRotate={!overlayMode && (!isPaintModeActive || isSpaceHeld)} />
+        <OrbitControls
+          enablePan={false}
+          minDistance={1.2}
+          maxDistance={6}
+          enableRotate={!overlayMode}
+          mouseButtons={orbitMouseButtons}
+        />
       </Canvas>
       {!world && <div className="absolute inset-0 flex items-center justify-center text-white/50">Forging World...</div>}
       

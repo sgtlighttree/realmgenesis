@@ -161,9 +161,10 @@ export type InspectMode = 'click' | 'hover' | 'off';
 export type ViewMode = 'biome' | 'height' | 'height_bw' | 'temperature' | 'moisture' | 'plates' | 'political' | 'population' | 'province' | 'satellite';
 export type EditMode = 'off' | 'terrain-raise' | 'terrain-lower' | 'terrain-flatten' | 'terrain-smooth' | 'biome' | 'political' | 'world-edit';
 export type PaintStyle = 'adaptive' | 'freeform';
+export const POLITICAL_ERASER_ID = -1;
 
 export interface UndoSnapshot {
-    cells: Map<number, { height: number; biome: BiomeType; regionId?: number }>;
+    cells: Map<number, { height: number; biome: BiomeType; regionId?: number; provinceId?: number }>;
 }
 
 export interface LoreData {

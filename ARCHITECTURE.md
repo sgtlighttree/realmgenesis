@@ -114,7 +114,7 @@ This section maps common tasks to the exact files and functions you should read 
 | **Build** | Vite 6 | Dev server, bundler, HMR |
 | **3D Rendering** | Three.js 0.182 | WebGL scene graph |
 | **3D React Bridge** | @react-three/fiber 9.5 | React renderer for Three.js |
-| **3D Helpers** | @react-three/drei 10.7 | OrbitControls, Stars, Text |
+| **3D Helpers** | @react-three/drei 10.7 | OrbitControls, Stars, R3F helpers |
 | **Geo Math** | d3 7.9, d3-geo-voronoi 2.1, d3-geo-projection 4.0 | Voronoi tessellation, map projections |
 | **AI** | @google/genai 1.38 | Gemini API client |
 | **Icons** | lucide-react 0.563 | SVG icon library |
@@ -257,7 +257,7 @@ Multiple independent `RNG` instances are created inside `generateWorld` with dif
 | Symbol | Type | Description |
 |--------|------|-------------|
 | `BIOME_COLORS` | `Record<BiomeType, string>` | Hex color string for each of the 15 biome types; used by `Legend` and as a fallback in export |
-| `getCellColor` | `(cell: Cell, mode: ViewMode, seaLevel: number) => THREE.Color` | Primary color-mapping function; switches on `ViewMode` to produce a `THREE.Color` for a cell |
+| `getCellColor` | `(cell: Cell, mode: ViewMode, seaLevel: number, factionColors?: Map<number, string>) => THREE.Color` | Primary color-mapping function; switches on `ViewMode` to produce a `THREE.Color` for a cell |
 
 **ViewMode color logic summary:**
 
@@ -270,7 +270,7 @@ Multiple independent `RNG` instances are created inside `generateWorld` with dif
 | `temperature` | HSL hue sweep: blue (cold) → red (hot), range −30°C to 50°C |
 | `moisture` | Saturation-based: dark blue (ocean) → light blue/white (dry land) |
 | `plates` | 18-color palette indexed by `cell.plateId` |
-| `political` | 18-color palette by `cell.regionId`; uses `getProvinceVariant()` if `provinceId` is set; territorial waters blend faction color toward deep blue |
+| `political` | Live faction color by `cell.regionId`, with deterministic province-derived shade variation when `provinceId` is valid; unclaimed water remains ocean-colored |
 | `population` | Falls through to `biome` default (not separately implemented) |
 | `province` | Falls through to `biome` default (province coloring is handled within `political` mode) |
 
@@ -684,8 +684,8 @@ Two-phase political simulation, each independently callable:
 | **World Mesh** | Triangle-based geometry with vertex colors from `getCellColor(cell, viewMode, seaLevel)`. Each Voronoi cell is triangulated from its center to vertices. |
 | **City Markers** | `InstancedMesh` cylinders: red for capitals, white for towns |
 | **River Lines** | `LineSegments` with `CatmullRomCurve3` smoothing |
-| **Faction Borders** | Line segments between adjacent cells of different regions |
-| **Country Labels** | 3D `<Text>` components (drei) for faction names in political mode |
+| **Faction Borders** | Toggleable line segments between adjacent cells of different regions; independent of active view layer |
+| **Country Labels** | Toggleable curved textured mesh patches projected just above the globe surface; independent of active view layer |
 | **Lat/Long Grid** | 10-degree latitude/longitude grid lines |
 | **Dymaxion Overlay** | Rotatable icosahedron wireframe |
 | **Background** | `<Stars>` component (drei) |
@@ -693,7 +693,9 @@ Two-phase political simulation, each independently callable:
 
 R3F element names (e.g., `"bufferGeometry"`, `"lineSegments"`) are passed as strings to bypass TypeScript's JSX element type checking — this is intentional and documented in AGENTS.md.
 
-Pointer interaction supports click and hover inspection, propagating cell IDs to the `Inspector` HUD.
+Pointer interaction supports click inspection, optional hover inspection, and edit-mode painting. Normal click
+inspection raycasts only on click/up so dragging the globe does not accidentally select cells. Paint-mode
+raycasting is handled by native pointer listeners during active strokes to avoid idle hover lag.
 
 ### 2D Map Viewer
 
@@ -703,8 +705,9 @@ Pointer interaction supports click and hover inspection, propagating cell IDs to
 - **Dymaxion Mode**: Pixel-by-pixel reprojection from an equirectangular source through the icosahedral net (via `buildDymaxionNet`)
 - **Adaptive DPR**: Reduces device pixel ratio to 1× during interaction for 60fps, sharpens to 2–3× when settled
 - **Pan/Zoom**: Drag to pan, scroll wheel to zoom, throttled via `requestAnimationFrame`
-- **Hit Detection**: Color-coded pick buffer maps screen pixels back to cell IDs
+- **Hit Detection**: Mercator uses projection inversion plus nearest-cell lookup; Dymaxion uses a hidden color-ID raster generated through the same Dymaxion pipeline as the visible map
 - **River Rendering**: Antimeridian crossing detection for correct line wrapping
+- **Faction Overlay**: Toggleable borders and faction labels render over any active view layer in Mercator and Dymaxion
 - **Cell boundary seam prevention**: Every cell polygon is filled AND stroked with the same hex color (`lineWidth = 1`). Canvas 2D anti-aliases path edges, leaving the dark background visible as ~1px seams where adjacent Voronoi cells meet; in equirectangular projection these seams align horizontally and appear as continuous lines across the map. Stroke-with-fill-color closes them without adding visible borders. This applies to Map2D (Mercator loop and Dymaxion source canvas) and export.ts (both cell render loops).
 
 ### Dymaxion Projection
@@ -741,6 +744,7 @@ The application uses React `useState` at the `App.tsx` level with prop drilling.
 | `genProgress` | `number` | Generation progress 0–1; drives progress bar in Controls |
 | `showGrid` | `boolean` | Toggle lat/long grid |
 | `showRivers` | `boolean` | Toggle river display |
+| `showFactionOverlay` | `boolean` | Toggle faction borders and labels over any view layer |
 | `sidebarOpen` | `boolean` | Mobile sidebar toggle |
 | `dymaxionSettings` | `DymaxionSettings` | Dymaxion projection config |
 | `apiKey` | `string` | Gemini API key (ephemeral) |
@@ -748,15 +752,16 @@ The application uses React `useState` at the `App.tsx` level with prop drilling.
 | `paintStyle` | `PaintStyle` | `'adaptive'` (edges blend with neighbors) or `'freeform'` (direct, no blending) |
 | `brushSize` | `number` | BFS ring radius for brush (0 = single cell, 5 = ~30+ cells) |
 | `paintStrength` | `number` | Stroke intensity multiplier 0.1–1.0 |
-| `paintFaction` | `number` | Faction ID for political brush |
+| `paintFaction` | `number` | Faction ID for political brush, or `POLITICAL_ERASER_ID` for unclaiming cells |
 | `paintBiome` | `BiomeType` | Biome for biome brush |
 | `sampleHeight` | `number \| null` | Sampled elevation for Flatten tool (right-click to set) |
 | `adaptiveBiomes` | `boolean` | Whether terrain strokes re-run `determineBiome` on affected cells |
-| `undoStack` | `UndoSnapshot[]` | Max-20 stroke history; each snapshot is a `Map<cellId, { height, biome, regionId }>` |
+| `undoStack` | `UndoSnapshot[]` | Max-20 stroke history; each snapshot is a `Map<cellId, { height, biome, regionId, provinceId }>` |
 
 **Edit-mode refs (not state — not tracked by React):**
 - `isPainting: useRef<boolean>` — tracks whether a stroke is in progress
 - `currentStrokeSnapshot: useRef<Map | null>` — the in-progress stroke's snapshot Map (pushed to `undoStack` at stroke start; mutated throughout the drag so the stack entry grows automatically)
+- `currentPoliticalProvince: useRef<number | undefined>` - locks the political brush target province for the current stroke
 
 ### Generation Lifecycle
 
@@ -797,7 +802,7 @@ The controller reference is stored in a `useRef` to persist across renders. The 
   │     │     ├── <CityMarkers>           # InstancedMesh for capitals/towns
   │     │     ├── <RiverLines>            # Smoothed river paths
   │     │     ├── <FactionBorders>        # Border line segments
-  │     │     ├── <CountryLabels>         # 3D text labels
+  │     │     ├── <CountryLabels>         # Curved faction name mesh labels
   │     │     ├── <DymaxionOverlay>       # Icosahedron wireframe
   │     │     ├── <LatLongGrid>           # Grid lines
   │     │     └── <Stars>                 # Background stars
@@ -815,7 +820,7 @@ The controller reference is stored in a `useRef` to persist across renders. The 
 
 The largest UI component, organized into 5 tabs:
 
-- **Sys**: Map name, resolution (points), seed (with copy-to-clipboard and lock/randomize buttons), terrain presets (Continents, Pangea, Archipelago, Islands, Custom), auto-update toggle, generation progress bar (thin blue bar, visible during generation), generation console, generate/cancel buttons, world stats panel (collapsible; land %, top-5 biomes, population, faction/province counts, river count)
+- **Sys**: Map name, render mode, resolution (points), seed (with copy-to-clipboard and lock/randomize buttons), grid/rivers/faction overlay toggles, auto-update toggle, view layer selector, generation progress bar (thin blue bar, visible during generation), generation console, generate/cancel buttons
 - **Geo**: Plates, sea level, roughness, detail level, cell jitter, noise scale, ridge blend, **mountain heights** (`mountainHeight`), **sea/trench depth** (`oceanDepth`), mask type, warp strength, tectonic strength (`plateInfluence`, range 0.1–1.0), erosion iterations (slider tooltips on ambiguous params)
 - **Clim**: Base temperature, pole temperature, rainfall multiplier, moisture transport, temperature variance, axial tilt (slider tooltips on ambiguous params)
 - **Civ**: Number of factions, civ seed, border roughness, size variance, water crossing cost, territorial waters, capital spacing, province size, AI lore generation, update civs/provinces buttons (slider tooltips on ambiguous params)
@@ -985,7 +990,7 @@ These are non-obvious facts that are critical for making correct changes:
 
 15. **`genProgress` resets to 0 on generation start, not on cancel**: Cancellation sets `isGenerating = false` but does not reset `genProgress`. The progress bar is hidden when `isGenerating` is false, so this is correct — the bar just disappears at whatever value it reached when cancelled.
 
-16. **`CountryLabels` is wrapped in its own `<React.Suspense>`**: `<Text>` from `@react-three/drei` calls `suspend()` (from `suspend-react`) to load its font asynchronously. R3F's `<Canvas>` wraps all children in a top-level `<Suspense>` — if `CountryLabels` suspended without its own boundary, the entire canvas (world mesh included) would go blank until the font loaded. The local `<React.Suspense fallback={null}>` around `CountryLabels` in `WorldMesh` ensures only the labels disappear during font loading. Do not move `CountryLabels` outside this boundary.
+16. **3D faction labels are curved mesh patches**: `CountryLabels` renders canvas-text textures on subdivided mesh patches projected just above the globe surface. Do not replace them with HTML overlays or billboard sprites unless the desired behavior is explicitly UI-like floating labels; the current intent is surface-following labels that rotate with the planet and are occluded by the mesh.
 
 18. **`plateInfluence` is clamped to [0.1, 1.0] inside worldGen.ts**: The UI slider enforces this range (0.1–1.0, step 0.05), but the internal code also hard-clamps with `Math.min(1, Math.max(0.1, plateInf))`. Any saved config or programmatic value above 1.0 is silently treated as 1.0. Do not extend the slider beyond 1.0 without removing or adjusting the clamp.
 
@@ -997,8 +1002,10 @@ These are non-obvious facts that are critical for making correct changes:
 
 21. **`getCellColor` political mode uses `factionColors` map for live edits**: The optional 4th argument `factionColors?: Map<number, string>` lets political rendering use each faction's `f.color` directly. When not provided, it falls back to `FACTION_COLORS[regionId % 18]`. App.tsx builds this map via `useMemo([world])` so it rebuilds whenever world changes (including in-place faction color edits). If you add a rendering path that calls `getCellColor` for political mode without passing `factionColors`, faction color edits in the world editor will not appear there.
 
-22. **Pick canvas must stroke as well as fill**: The pick buffer in `Map2D.tsx` encodes cell IDs as RGB colors. Without a same-color stroke after `ctx.fill()`, Canvas 2D anti-aliasing at cell boundaries creates blended pixels whose RGB values decode to wrong cell IDs — typically distant cells unrelated to the cursor position. Always add `ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.stroke()` after `ctx.fill()` in the pick canvas loop. This is the same pattern used in the display canvas to prevent seam lines.
+22. **Dymaxion pick canvas must mirror visible rasterization**: The Dymaxion pick buffer in `Map2D.tsx` encodes cell IDs as RGB colors and is generated through the same source-canvas flip, `buildDymaxionNet` face mapping, rotation constants, and canvas sizing as the visible Dymaxion raster. Do not return to separate lon/lat nearest-center picking for Dymaxion; it drifts from the rendered map.
 
 23. **`FACTION_COLORS` vs `PLATE_COLORS`**: Two separate palettes exist in `colors.ts`. `PLATE_COLORS` (18 colors) is used only for the `'plates'` view mode. `FACTION_COLORS` (18 perceptually distinct colors) is used for political rendering and faction assignment in `recalculateCivs`. The palette is shuffled with `civRng` (seeded) so faction colors are deterministic per `civSeed` but varied. Do not use `PLATE_COLORS` for political/faction coloring — the hues cluster too tightly and make adjacent factions visually indistinguishable.
 
-24. **Political brush known issue — distant cells**: `getCellsInRadius` applies a chord-distance cap in addition to BFS ring count to prevent topologically-adjacent but geographically-distant cells (poles, antimeridian) from being included. However, the pick buffer in Map2D can still produce wrong cell IDs at boundary pixels when the zoom level is low (cells are small relative to the canvas). Painting on or very near a cell boundary may register as a different cell entirely. This is partially mitigated by the same-color stroke on the pick canvas (invariant 22) but not fully eliminated at low resolution/zoom.
+24. **Political brush locks province at stroke start**: Political painting writes both `regionId` and `provinceId`. If the stroke starts inside the selected faction on a valid province, that province is used for the whole stroke; otherwise the nearest valid province in the selected faction is used. The eraser uses `POLITICAL_ERASER_ID` and clears both ownership fields.
+
+25. **Faction overlay is independent of view mode**: `showFactionOverlay` controls borders and labels over any view layer. In 3D, borders are line segments and labels are curved surface meshes. In 2D, borders and labels are drawn after the base Mercator/Dymaxion raster so they remain visible over biome, climate, height, satellite, political, and other layers.

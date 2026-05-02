@@ -60,28 +60,22 @@ export const FACTION_COLORS = [
   '#78909c', // blue-grey
 ];
 
-// Helper to pseudo-randomly offset color based on index with high contrast
 const getProvinceVariant = (baseColorHex: string, provId: number): THREE.Color => {
-    const c = new THREE.Color(baseColorHex);
-    // Deterministic random based on provId
-    const r = Math.sin(provId * 12.9898) * 43758.5453;
-    const rnd = r - Math.floor(r); // 0..1
-    const r2 = Math.cos(provId * 78.233) * 43758.5453;
-    const rnd2 = r2 - Math.floor(r2); // 0..1
-    
-    const hsl = { h: 0, s: 0, l: 0 };
-    c.getHSL(hsl);
-    
-    // Significantly more contrast for provinces
-    // Shift lightness (+/- 25%)
-    hsl.l = Math.max(0.1, Math.min(0.9, hsl.l + (rnd * 0.5 - 0.25)));
-    // Shift saturation (+/- 30%)
-    hsl.s = Math.max(0.1, Math.min(1.0, hsl.s + (rnd2 * 0.6 - 0.3)));
-    // Shift hue slightly (+/- 8%)
-    hsl.h = (hsl.h + (rnd * 0.16 - 0.08) + 1.0) % 1.0;
-    
-    c.setHSL(hsl.h, hsl.s, hsl.l);
-    return c;
+  const c = new THREE.Color(baseColorHex);
+  const r = Math.sin(provId * 12.9898) * 43758.5453;
+  const rnd = r - Math.floor(r);
+  const r2 = Math.cos(provId * 78.233) * 43758.5453;
+  const rnd2 = r2 - Math.floor(r2);
+
+  const hsl = { h: 0, s: 0, l: 0 };
+  c.getHSL(hsl);
+
+  hsl.l = Math.max(0.1, Math.min(0.9, hsl.l + (rnd * 0.5 - 0.25)));
+  hsl.s = Math.max(0.1, Math.min(1.0, hsl.s + (rnd2 * 0.6 - 0.3)));
+  hsl.h = (hsl.h + (rnd * 0.16 - 0.08) + 1.0) % 1.0;
+
+  c.setHSL(hsl.h, hsl.s, hsl.l);
+  return c;
 };
 
 export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, factionColors?: Map<number, string>): THREE.Color => {
@@ -173,27 +167,20 @@ export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, facti
       break;
       
     case 'political':
-       if (cell.regionId !== undefined) {
-          const baseColor = factionColors?.get(cell.regionId) ?? FACTION_COLORS[cell.regionId % FACTION_COLORS.length];
-          if (cell.provinceId !== undefined) {
-              color.copy(getProvinceVariant(baseColor, cell.provinceId));
-          } else {
-              color.set(baseColor);
-          }
-          // Fix for territorial waters: Blend faction color with deep blue
-          if (cell.height < seaLevel) {
-              color.lerp(new THREE.Color(0x1a237e), 0.65);
-          }
-       } else {
-          // Unclaimed territory
-          if (cell.height < seaLevel) {
-              color.setHex(0x1a237e); 
-              color.multiplyScalar(0.5 + cell.height * 0.5);
-          } else {
-              color.setHex(0x555555); 
-          }
-       }
-       break;
+      if (cell.regionId !== undefined) {
+        const baseColor = factionColors?.get(cell.regionId) ?? FACTION_COLORS[cell.regionId % FACTION_COLORS.length];
+        if (cell.provinceId !== undefined) {
+          color.copy(getProvinceVariant(baseColor, cell.provinceId));
+        } else {
+          color.set(baseColor);
+        }
+      } else if (cell.height < seaLevel) {
+        color.setHex(0x1a237e);
+        color.multiplyScalar(0.5 + cell.height * 0.5);
+      } else {
+        color.setHex(0x555555);
+      }
+      break;
 
     case 'biome':
     default:

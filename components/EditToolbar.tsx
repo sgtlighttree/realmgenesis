@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
-import { Undo2, Pencil, ArrowUp, ArrowDown, Minus, Waves, Leaf, Flag, Globe } from 'lucide-react';
-import { EditMode, PaintStyle, BiomeType, WorldData } from '../types';
+import { Undo2, Pencil, ArrowUp, ArrowDown, Minus, Waves, Leaf, Flag, Globe, Eraser } from 'lucide-react';
+import { EditMode, PaintStyle, BiomeType, WorldData, POLITICAL_ERASER_ID } from '../types';
 import { BIOME_COLORS } from '../utils/colors';
 
 interface EditToolbarProps {
@@ -68,6 +68,16 @@ const StrengthSlider: React.FC<{ paintStrength: number; setPaintStrength: (n: nu
 
 const Sep = () => <div className="w-px h-4 bg-gray-700 flex-shrink-0" />;
 
+const getContrastText = (hex: string) => {
+  const value = hex.replace('#', '');
+  if (value.length !== 6) return '#ffffff';
+  const r = parseInt(value.slice(0, 2), 16);
+  const g = parseInt(value.slice(2, 4), 16);
+  const b = parseInt(value.slice(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.58 ? '#111827' : '#ffffff';
+};
+
 const EditToolbar: React.FC<EditToolbarProps> = ({
   editMode, setEditMode,
   paintStyle, setPaintStyle,
@@ -85,7 +95,7 @@ const EditToolbar: React.FC<EditToolbarProps> = ({
   const factions = world.civData?.factions ?? [];
 
   useEffect(() => {
-    if (factions.length > 0 && !factions.find(f => f.id === paintFaction)) {
+    if (factions.length > 0 && paintFaction !== POLITICAL_ERASER_ID && !factions.find(f => f.id === paintFaction)) {
       setPaintFaction(factions[0].id);
     }
   }, [factions, paintFaction, setPaintFaction]);
@@ -154,12 +164,26 @@ const EditToolbar: React.FC<EditToolbarProps> = ({
               {factions.length > 0 && (
                 <>
                   <Sep />
-                  <div className="flex gap-1 flex-wrap">
-                    {factions.map(f => (
-                      <button key={f.id} onClick={() => setPaintFaction(f.id)} title={f.name}
-                        className={`w-5 h-5 border-2 transition-all ${paintFaction === f.id ? 'scale-125 border-white' : 'border-transparent hover:border-gray-400'}`}
-                        style={{ backgroundColor: f.color }} />
-                    ))}
+                  <div className="flex gap-1.5 flex-wrap">
+                    <button
+                      onClick={() => setPaintFaction(POLITICAL_ERASER_ID)}
+                      title="Eraser: mark cells as unclaimed"
+                      className={`w-6 h-6 border-2 transition-all flex items-center justify-center bg-gray-950 text-gray-200 ${paintFaction === POLITICAL_ERASER_ID ? 'scale-125 border-white' : 'border-gray-700 hover:border-gray-400'}`}
+                    >
+                      <Eraser size={13} />
+                    </button>
+                    {factions.map((f, idx) => {
+                      const textColor = getContrastText(f.color);
+                      return (
+                        <button key={f.id} onClick={() => setPaintFaction(f.id)} title={`${idx + 1}. ${f.name}`}
+                          className={`w-6 h-6 border-2 transition-all flex items-center justify-center text-[10px] font-bold leading-none ${paintFaction === f.id ? 'scale-125 border-white' : 'border-transparent hover:border-gray-400'}`}
+                          style={{ backgroundColor: f.color, color: textColor }}>
+                          <span style={{ textShadow: textColor === '#ffffff' ? '0 1px 2px #000' : '0 1px 2px #fff' }}>
+                            {idx + 1}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </>
               )}
