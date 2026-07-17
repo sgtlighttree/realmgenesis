@@ -1,5 +1,34 @@
 # RealmGenesis 3D — Technical Audit & Improvement Plan
 
+> ## ⚠️ Status: RESOLVED — historical record
+>
+> This audit describes the tree **as of commit `17ad154`** (pre-PR #1). PR #1
+> subsequently implemented the entire task plan on this same branch, so the
+> findings below are a snapshot, **not** a list of current defects. Do not use
+> the Task Plan section as a to-do list.
+>
+> **Resolved by PR #1:** A1 env-key mismatch (now `GEMINI_API_KEY` end-to-end);
+> A2 typecheck gate (CI runs `tsc --noEmit` under `"strict": true`, zero
+> errors); A3 dead params (`civSizeVariance` and `detailLevel` implemented);
+> A4/A5 stale `G` shortcut and auto-update deps; A6 lore sentinel errors
+> (now throws + validates the model JSON); A7 progress bar; A8/A9 dead code
+> and caption; S1 vulnerabilities (`npm audit` clean); S2 Tailwind CDN /
+> `unsafe-eval` CSP (Tailwind is bundled); S3 civData import validation;
+> P2 geometry leaks (allocate-once + dispose-everywhere in WorldViewer);
+> P3 pick-buffer rebuild; P4 code splitting; P5 mitigated by the 200k points
+> cap; T1 tests (Vitest, 35 tests incl. param-liveness); O1 CI; D1 doc drift.
+> The tests also surfaced and fixed three defects the audit missed: negative
+> populations, non-binding `civSizeVariance` budgets, and a `capitalSpacing`
+> threshold that almost never fired. The `.codacy/` config (open question 5)
+> was removed by owner decision.
+>
+> **Intentionally not done:** Web Worker generation (P1) — declined for now;
+> the points cap is the accepted mitigation. State management, formatter, and
+> dependency major upgrades remain explicitly out of scope per §4.
+>
+> Current quality gates and conventions live in `AGENTS.md` and
+> `ARCHITECTURE.md`; session state lives in `HANDOFF.md`.
+
 *Audit date: 2026-07-17. Every finding cites a file and line; claims marked **[fact]** were verified against source or by running the toolchain; claims marked **[judgment]** are the auditor's opinion. Toolchain verification performed in this audit: `npm ci`, `npm run lint` (0 errors / 46 warnings), `npm run build` (passes, 1.67 MB single chunk), `npx tsc --noEmit` (**6 errors**), `npm audit` (11 vulnerabilities: 1 critical, 5 high), inspection of the built bundle in `dist/`.*
 
 ---
