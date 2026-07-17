@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
+import React, { useMemo, useRef, useEffect, useLayoutEffect, useState, useCallback } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Stars, Line } from '@react-three/drei';
 import * as THREE from 'three';
@@ -34,14 +34,17 @@ const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ world
     }, [world]);
 
     useEffect(() => {
+        const yAxis = new THREE.Vector3(0, 1, 0);
+        const pos = new THREE.Vector3();
+        const up = new THREE.Vector3();
         const updateMesh = (mesh: THREE.InstancedMesh, data: Cell[], heightBase: number) => {
             if (!mesh) return;
             data.forEach((cell, i) => {
                 const h = 1 + (cell.height * 0.05);
-                const pos = new THREE.Vector3(cell.center.x * h, cell.center.y * h, cell.center.z * h);
-                const offsetPos = pos.clone().add(pos.clone().normalize().multiplyScalar(heightBase * 0.5));
-                dummy.position.copy(offsetPos);
-                dummy.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), pos.normalize());
+                pos.set(cell.center.x * h, cell.center.y * h, cell.center.z * h);
+                up.copy(pos).normalize();
+                dummy.position.copy(pos).addScaledVector(up, heightBase * 0.5);
+                dummy.quaternion.setFromUnitVectors(yAxis, up);
                 dummy.scale.set(1, 1, 1);
                 dummy.updateMatrix();
                 mesh.setMatrixAt(i, dummy.matrix);
@@ -71,14 +74,17 @@ const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ world
 };
 
 const RiverLines: React.FC<{ world: WorldData; visible: boolean }> = ({ world, visible }) => {
+    // Keyed on world.rivers (stable across paint strokes), not world identity,
+    // so painting never re-runs the CatmullRom smoothing or reallocates buffers
+    const rivers = world.rivers;
     const geometry = useMemo(() => {
-        if (!world.rivers || !visible) return null;
-        
+        if (!rivers || !visible) return null;
+
         const positions: number[] = [];
-        
+
         // Batch all river segments into a single LineSegments geometry for performance
         // Rendering thousands of individual <Line> components causes massive overhead/freezes
-        world.rivers.forEach(path => {
+        rivers.forEach(path => {
             if (path.length < 2) return;
             
             // Create Curve for smoothing
@@ -101,7 +107,9 @@ const RiverLines: React.FC<{ world: WorldData; visible: boolean }> = ({ world, v
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
         return geo;
-    }, [world, visible]);
+    }, [rivers, visible]);
+
+    useEffect(() => () => { geometry?.dispose(); }, [geometry]);
 
     if (!visible || !geometry) return null;
 
@@ -200,13 +208,20 @@ const CurvedFactionLabel: React.FC<{ name: string; position: THREE.Vector3 }> = 
         geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
         geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
         geo.setIndex(indices);
-        geo.computeVertexNormals();
         return geo;
-    }, [position, scale]);
+        // Value-based deps: label positions are recomputed as fresh Vector3s on
+        // every world change, but the patch only needs rebuilding when the
+        // centroid actually moves
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [position.x, position.y, position.z, scale]);
 
     useEffect(() => () => {
         texture.dispose();
     }, [texture]);
+
+    useEffect(() => () => {
+        geometry.dispose();
+    }, [geometry]);
 
     return (
         <Mesh geometry={geometry} renderOrder={7}>
@@ -316,6 +331,8 @@ const FactionBorders: React.FC<{ world: WorldData; visible: boolean }> = ({ worl
       return geo;
   }, [world, visible]);
 
+  useEffect(() => () => { geometry?.dispose(); }, [geometry]);
+
   if (!geometry) return null;
 
   return (
@@ -331,6 +348,8 @@ const DymaxionOverlay: React.FC<{ settings: DymaxionSettings }> = ({ settings })
     const edgeGeometry = new THREE.EdgesGeometry(faceGeometry);
     return { faceGeometry, edgeGeometry };
   }, []);
+
+  useEffect(() => () => { faceGeometry.dispose(); edgeGeometry.dispose(); }, [faceGeometry, edgeGeometry]);
 
   const rotation = useMemo(() => {
     const lon = THREE.MathUtils.degToRad(settings.lon);
@@ -386,6 +405,7 @@ const BrushRing: React.FC<{ center: [number, number, number]; radius: number }> 
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
     return geo;
   }, [center, radius]);
+  useEffect(() => () => { geometry.dispose(); }, [geometry]);
   return (
     <LineSegments geometry={geometry} renderOrder={10}>
       <LineBasicMaterial color="#ffffff" opacity={0.8} transparent depthTest={false} />
@@ -415,10 +435,13 @@ const CellSelectionOverlay: React.FC<{ cell: Cell }> = ({ cell }) => {
 
     const fillGeometry = new THREE.BufferGeometry();
     fillGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    fillGeometry.computeVertexNormals();
 
     return { fillGeometry, outlinePoints };
-  }, [cell]);
+    // cell.height mutates in place during terrain painting
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cell, cell.height]);
+
+  useEffect(() => () => { fillGeometry.dispose(); }, [fillGeometry]);
 
   return (
     <Group>
@@ -441,6 +464,29 @@ const CellSelectionOverlay: React.FC<{ cell: Cell }> = ({ cell }) => {
         renderOrder={9}
       />
     </Group>
+  );
+};
+
+const CellHighlightOutline: React.FC<{ cell: Cell }> = ({ cell }) => {
+  const geometry = useMemo(() => {
+    const hm = 1 + cell.height * 0.05 + 0.004;
+    const verts = cell.vertices;
+    const pts: number[] = [];
+    for (let i = 0; i < verts.length; i++) {
+      const a = verts[i], b = verts[(i + 1) % verts.length];
+      pts.push(a.x * hm, a.y * hm, a.z * hm, b.x * hm, b.y * hm, b.z * hm);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    return geo;
+    // cell.height mutates in place during terrain painting
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cell, cell.height]);
+  useEffect(() => () => { geometry.dispose(); }, [geometry]);
+  return (
+    <LineSegments geometry={geometry} renderOrder={9}>
+      <LineBasicMaterial color="#ffff00" opacity={0.9} transparent depthTest={false} />
+    </LineSegments>
   );
 };
 
@@ -479,32 +525,63 @@ const WorldMesh: React.FC<{
     }
   });
 
+  // The world geometry is allocated once per world structure (cells array
+  // identity is stable across paint strokes — App mutates cells in place and
+  // shallow-copies WorldData) and refilled in place on data/view changes.
+  // No normal attribute: the unlit basic material ignores normals and the
+  // standard material uses flatShading, which derives face normals in-shader.
   const geometry = useMemo(() => {
-    const positions: number[] = []; const colors: number[] = [];
-    world.cells.forEach(cell => {
+    let triCount = 0;
+    for (const cell of world.cells) triCount += cell.vertices.length;
+    const geo = new THREE.BufferGeometry();
+    const posAttr = new THREE.BufferAttribute(new Float32Array(triCount * 9), 3);
+    const colAttr = new THREE.BufferAttribute(new Float32Array(triCount * 9), 3);
+    posAttr.setUsage(THREE.DynamicDrawUsage);
+    colAttr.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('position', posAttr);
+    geo.setAttribute('color', colAttr);
+    // The globe always fits inside r = 1.05 + margin; a fixed bounding sphere
+    // avoids an O(vertices) recomputation on every refill and keeps raycasts valid
+    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 1.1);
+    return geo;
+  }, [world.cells]);
+
+  useEffect(() => () => { geometry.dispose(); }, [geometry]);
+
+  // Refill runs synchronously before the next painted frame so a fresh
+  // geometry is never displayed with empty buffers
+  useLayoutEffect(() => {
+    const posAttr = geometry.getAttribute('position') as THREE.BufferAttribute;
+    const colAttr = geometry.getAttribute('color') as THREE.BufferAttribute;
+    const pos = posAttr.array as Float32Array;
+    const col = colAttr.array as Float32Array;
+    let o = 0;
+    for (const cell of world.cells) {
       const c = getCellColor(cell, viewMode, world.params.seaLevel, factionColors);
-      const hMult = 1 + (cell.height * 0.05); 
+      const hMult = 1 + (cell.height * 0.05);
       const cx = cell.center.x * hMult; const cy = cell.center.y * hMult; const cz = cell.center.z * hMult;
       for (let i = 0; i < cell.vertices.length; i++) {
-        const next = (i + 1) % cell.vertices.length; const v1 = cell.vertices[i]; const v2 = cell.vertices[next];
-        positions.push(cx, cy, cz, v1.x * hMult, v1.y * hMult, v1.z * hMult, v2.x * hMult, v2.y * hMult, v2.z * hMult);
-        colors.push(c.r, c.g, c.b, c.r, c.g, c.b, c.r, c.g, c.b);
+        const v1 = cell.vertices[i]; const v2 = cell.vertices[(i + 1) % cell.vertices.length];
+        pos[o] = cx; pos[o + 1] = cy; pos[o + 2] = cz;
+        pos[o + 3] = v1.x * hMult; pos[o + 4] = v1.y * hMult; pos[o + 5] = v1.z * hMult;
+        pos[o + 6] = v2.x * hMult; pos[o + 7] = v2.y * hMult; pos[o + 8] = v2.z * hMult;
+        col[o] = c.r; col[o + 1] = c.g; col[o + 2] = c.b;
+        col[o + 3] = c.r; col[o + 4] = c.g; col[o + 5] = c.b;
+        col[o + 6] = c.r; col[o + 7] = c.g; col[o + 8] = c.b;
+        o += 9;
       }
-    });
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    geo.computeVertexNormals();
-    return geo;
-  }, [world, viewMode, factionColors]);
+    }
+    posAttr.needsUpdate = true;
+    colAttr.needsUpdate = true;
+  }, [geometry, world, viewMode, factionColors]);
 
   const faceMap = useMemo(() => {
-     const map: number[] = []; 
-     world.cells.forEach(cell => { 
-       for(let i=0; i<cell.vertices.length; i++) map.push(cell.id); 
-     }); 
+     const map: number[] = [];
+     world.cells.forEach(cell => {
+       for(let i=0; i<cell.vertices.length; i++) map.push(cell.id);
+     });
      return map;
-  }, [world]);
+  }, [world.cells]);
 
   const getTriangleIndex = useCallback((e: any) => {
       if (e.faceIndex !== undefined && e.faceIndex !== null) return e.faceIndex;
@@ -698,24 +775,9 @@ const WorldMesh: React.FC<{
                 <RiverLines world={world} visible={showRivers} />
                 {showGrid && <LatLongGrid radius={1.06} />}
                 {/* Cell highlight outline */}
-                {highlightCellId !== null && (() => {
-                    const hCell = world.cells[highlightCellId];
-                    if (!hCell) return null;
-                    const hm = 1 + hCell.height * 0.05 + 0.004;
-                    const verts = hCell.vertices;
-                    const pts: number[] = [];
-                    for (let i = 0; i < verts.length; i++) {
-                        const a = verts[i], b = verts[(i + 1) % verts.length];
-                        pts.push(a.x*hm, a.y*hm, a.z*hm, b.x*hm, b.y*hm, b.z*hm);
-                    }
-                    const geo = new THREE.BufferGeometry();
-                    geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-                    return (
-                        <LineSegments geometry={geo} renderOrder={9}>
-                            <LineBasicMaterial color="#ffff00" opacity={0.9} transparent depthTest={false} />
-                        </LineSegments>
-                    );
-                })()}
+                {highlightCellId !== null && world.cells[highlightCellId] && (
+                    <CellHighlightOutline cell={world.cells[highlightCellId]} />
+                )}
                 {selectedCellId !== null && (() => {
                     const selectedCell = world.cells[selectedCellId];
                     return selectedCell ? <CellSelectionOverlay cell={selectedCell} /> : null;
@@ -878,6 +940,7 @@ const LatLongGrid: React.FC<{ radius: number }> = ({ radius }) => {
       geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
       return geo;
   }, [radius]);
+  useEffect(() => () => { geometry.dispose(); }, [geometry]);
   return (
       <LineSegments geometry={geometry}>
           <LineBasicMaterial color="#ffffff" opacity={0.15} transparent depthTest={true} />

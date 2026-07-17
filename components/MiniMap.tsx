@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { WorldData, ViewMode } from '../types';
-import { getCellColor } from '../utils/colors';
+import { buildFactionColorMap, getCellColor } from '../utils/colors';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 
 interface MiniMapProps {
@@ -15,24 +15,31 @@ const MiniMap: React.FC<MiniMapProps> = ({ world, viewMode }) => {
 
   useEffect(() => {
     if (!world || !canvasRef.current || isCollapsed) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const width = canvas.width; const height = canvas.height;
-    ctx.fillStyle = '#111'; ctx.fillRect(0, 0, width, height);
-    ctx.save();
-    ctx.translate(width, 0); ctx.scale(-1, 1);
-    const projection = d3.geoEquirectangular().fitSize([width, height], { type: "Sphere" } as d3.GeoPermissibleObjects);
-    const pathGenerator = d3.geoPath(projection, ctx);
-    world.cells.forEach((cell, i) => {
-        if (!world.geoJson || !world.geoJson.features[i]) { return; }
-        const feature = world.geoJson.features[i];
-        if (!feature.geometry || feature.geometry.coordinates.length === 0) return;
-        const color = getCellColor(cell, viewMode, world.params.seaLevel);
-        ctx.beginPath(); pathGenerator(feature);
-        ctx.fillStyle = '#' + color.getHexString(); ctx.fill();
-    });
-    ctx.restore();
+    // Debounced: paint strokes replace `world` ~20x/sec; redrawing 5k paths
+    // per stroke event is wasted work for an overview map
+    const timer = window.setTimeout(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const width = canvas.width; const height = canvas.height;
+      ctx.fillStyle = '#111'; ctx.fillRect(0, 0, width, height);
+      ctx.save();
+      ctx.translate(width, 0); ctx.scale(-1, 1);
+      const projection = d3.geoEquirectangular().fitSize([width, height], { type: "Sphere" } as d3.GeoPermissibleObjects);
+      const pathGenerator = d3.geoPath(projection, ctx);
+      const factionColors = buildFactionColorMap(world.civData);
+      world.cells.forEach((cell, i) => {
+          if (!world.geoJson || !world.geoJson.features[i]) { return; }
+          const feature = world.geoJson.features[i];
+          if (!feature.geometry || feature.geometry.coordinates.length === 0) return;
+          const color = getCellColor(cell, viewMode, world.params.seaLevel, factionColors);
+          ctx.beginPath(); pathGenerator(feature);
+          ctx.fillStyle = '#' + color.getHexString(); ctx.fill();
+      });
+      ctx.restore();
+    }, 150);
+    return () => { window.clearTimeout(timer); };
   }, [world, viewMode, isCollapsed]);
 
   if (!world) return null;
