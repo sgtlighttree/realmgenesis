@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode, DymaxionSettings, DymaxionControlMode } from '../types';
-import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Download, FileJson, Box, Copy, Check } from 'lucide-react';
+import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Download, FileJson, Box, Copy, Check, Users, Landmark } from 'lucide-react';
 import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
 import { exportGLB } from '../utils/exportGLB';
 import { WorldData } from '../types';
@@ -8,7 +8,7 @@ import DymaxionPreview2D from './DymaxionPreview2D';
 
 interface ControlsProps {
   params: WorldParams;
-  setParams: (p: WorldParams) => void;
+  setParams: React.Dispatch<React.SetStateAction<WorldParams>>;
   onGenerate: (p?: WorldParams) => void;
   onLoadWorld: (p: WorldParams, civData?: CivData) => void;
   onCancel?: () => void;
@@ -134,7 +134,9 @@ const Controls: React.FC<ControlsProps> = ({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Re-register whenever anything the handlers close over changes, so the
+    // G shortcut never generates from (or writes back) stale params
+  }, [loading, params, seedLocked, civSeedLocked, onInspect]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
      if (autoUpdate && !loading && params.points <= 20000) {
@@ -153,6 +155,9 @@ const Controls: React.FC<ControlsProps> = ({
       params.warpStrength, 
       params.plateInfluence,
       params.ridgeBlend,
+      params.mountainHeight,
+      params.oceanDepth,
+      params.cellJitter,
       params.erosionIterations,
       params.baseTemperature,
       params.poleTemperature,
@@ -546,6 +551,8 @@ const Controls: React.FC<ControlsProps> = ({
                 <ViewButton mode="moisture" icon={Droplets} label="Rain" />
                 <ViewButton mode="plates" icon={Layers} label="Plates" />
                 <ViewButton mode="political" icon={Flag} label="Borders" />
+                <ViewButton mode="province" icon={Landmark} label="Provinces" />
+                <ViewButton mode="population" icon={Users} label="Population" />
               </div>
             </div>
 
@@ -683,6 +690,18 @@ const Controls: React.FC<ControlsProps> = ({
                   value={params.roughness}
                   onChange={(e) => { handleAdvancedChange('roughness', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-slate-400"
+                />
+              </div>
+              <div className="space-y-1" title="Randomizes the cell grid. 0 = regular Fibonacci lattice; 1 = fully jittered organic cells.">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <label>Cell Jitter</label>
+                  <span>{(params.cellJitter * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range" min="0" max="1" step="0.05"
+                  value={params.cellJitter}
+                  onChange={(e) => { handleAdvancedChange('cellJitter', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-lime-500"
                 />
               </div>
               <div className="space-y-1" title="Controls terrain feature size. Lower = broader continents; higher = more fragmented detail.">

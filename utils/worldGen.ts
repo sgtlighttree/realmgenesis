@@ -659,6 +659,7 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
 
   if (params.landStyle === 'Archipelago') { landChance = 0.25; landLevel = 0.1; oceanLevel = -0.3; }
   if (params.landStyle === 'Islands') { landChance = 0.15; landLevel = 0.2; oceanLevel = -0.6; }
+  if (params.landStyle === 'Pangea') { landChance = 0.6; landLevel = 0.25; oceanLevel = -0.45; }
 
   for (let i = 0; i < numPlates; i++) {
       const isLand = pRng.next() < landChance;
@@ -894,9 +895,16 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
         }
     }
 
+    // Per-faction expansion budgets: civSizeVariance spreads how far each
+    // faction's Dijkstra frontier may reach (0 = all equal, 1 = ~0.25x-2x spread)
+    const sizeVariance = params.civSizeVariance ?? 0;
+    const budgets = capitals.map(() =>
+        200 * Math.min(2, Math.max(0.25, 1 + (civRng.next() * 2 - 1) * sizeVariance))
+    );
+
     const pq = new MinHeap<{id: number, cost: number, region: number}>(x => x.cost);
     const costs = new Map<number, number>();
-    
+
     capitals.forEach((capId, idx) => {
         pq.push({ id: capId, cost: 0, region: idx });
         costs.set(capId, 0);
@@ -910,7 +918,7 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
         const { id, cost, region } = pq.pop()!;
         if (world.cells[id].regionId !== undefined && world.cells[id].regionId !== region) continue;
         world.cells[id].regionId = region;
-        if (cost > 200) continue; 
+        if (cost > budgets[region]) continue;
         const currCell = world.cells[id];
         for(const nId of currCell.neighbors) {
             const nCell = world.cells[nId];

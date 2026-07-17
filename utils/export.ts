@@ -1,8 +1,8 @@
 import * as d3 from 'd3';
 import { geoWinkel3, geoRobinson, geoMollweide } from 'd3-geo-projection';
 import { WorldData, ViewMode, WorldParams, CivData, DymaxionSettings } from '../types';
-import { getCellColor } from './colors';
-import { createDymaxionProjection, buildDymaxionNet } from './dymaxion';
+import { buildFactionColorMap, getCellColor } from './colors';
+import { buildDymaxionNet } from './dymaxion';
 
 export type ExportResolution = 4096 | 8192 | 16384 | 32768;
 export type ProjectionType = 'equirectangular' | 'mercator' | 'winkeltripel' | 'orthographic' | 'robinson' | 'mollweide' | 'dymaxion';
@@ -29,11 +29,12 @@ const renderEquirectangular = (
 
   const projection = d3.geoEquirectangular().fitSize([width, height], { type: 'Sphere' } as any);
   const pathGenerator = d3.geoPath(projection, ctx);
+  const factionColors = buildFactionColorMap(world.civData);
 
   world.cells.forEach((cell, i) => {
     const feature = world.geoJson.features[i];
     if (!feature) return;
-    const threeColor = getCellColor(cell, viewMode, world.params.seaLevel);
+    const threeColor = getCellColor(cell, viewMode, world.params.seaLevel, factionColors);
     const hexColor = '#' + threeColor.getHexString();
     ctx.beginPath();
     pathGenerator(feature);
@@ -275,6 +276,7 @@ export const exportMap = async (
   ctx.translate(width, 0);
   ctx.scale(-1, 1);
 
+  // 'dymaxion' is handled by the raster path above and never reaches here
   let projection: d3.GeoProjection;
   switch (projectionType) {
       case 'mercator': projection = d3.geoMercator(); break;
@@ -282,19 +284,16 @@ export const exportMap = async (
       case 'robinson': projection = geoRobinson(); break;
       case 'mollweide': projection = geoMollweide(); break;
       case 'orthographic': projection = d3.geoOrthographic(); break;
-      case 'dymaxion': projection = createDymaxionProjection(dymaxionSettings?.layout || 'classic'); break;
       case 'equirectangular': default: projection = d3.geoEquirectangular(); break;
-  }
-  if (projectionType === 'dymaxion' && dymaxionSettings) {
-    projection.rotate([dymaxionSettings.lon, dymaxionSettings.lat, dymaxionSettings.roll]);
   }
   projection.fitSize([width, height], { type: "Sphere" } as any);
   const pathGenerator = d3.geoPath(projection, ctx);
+  const factionColors = buildFactionColorMap(world.civData);
 
   world.cells.forEach((cell, i) => {
     const feature = world.geoJson.features[i];
     if (!feature) return;
-    const threeColor = getCellColor(cell, viewMode, world.params.seaLevel);
+    const threeColor = getCellColor(cell, viewMode, world.params.seaLevel, factionColors);
     const hexColor = '#' + threeColor.getHexString();
     ctx.beginPath();
     pathGenerator(feature);
