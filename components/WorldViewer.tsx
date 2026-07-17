@@ -95,8 +95,6 @@ const RiverLines: React.FC<{ world: WorldData; visible: boolean }> = ({ world, v
             const points = curve.getPoints(Math.min(50, vectors.length * 4));
             
             for (let i = 0; i < points.length - 1; i++) {
-                 
-        // codacy-disable-next-line
                 positions.push(points[i].x, points[i].y, points[i].z);
                 positions.push(points[i+1].x, points[i+1].y, points[i+1].z);
             }
