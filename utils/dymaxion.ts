@@ -355,7 +355,13 @@ export const createDymaxionProjection = (layout: DymaxionLayout): GeoProjection 
   const adjacency = buildAdjacency(FACES);
   const { root, parents } = buildParents(layout, adjacency);
 
-  const nodes = facesLonLat.map((face, i) => {
+  interface NetNode {
+    face: [number, number][];
+    project: GeoProjection;
+    children?: NetNode[];
+  }
+
+  const nodes: NetNode[] = facesLonLat.map((face, i) => {
     const c = cartesianToLonLat(normals[i]);
     return {
       face,

@@ -1,14 +1,15 @@
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { WorldData, ViewMode, Cell } from '../types';
-import { getCellColor } from './colors';
+import { buildFactionColorMap, getCellColor } from './colors';
 
 const buildWorldMesh = (world: WorldData, viewMode: ViewMode): THREE.Mesh => {
   const positions: number[] = [];
   const colors: number[] = [];
+  const factionColors = buildFactionColorMap(world.civData);
 
   world.cells.forEach(cell => {
-    const c = getCellColor(cell, viewMode, world.params.seaLevel);
+    const c = getCellColor(cell, viewMode, world.params.seaLevel, factionColors);
     const hMult = 1 + cell.height * 0.05;
     const cx = cell.center.x * hMult;
     const cy = cell.center.y * hMult;

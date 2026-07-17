@@ -11,7 +11,7 @@ export const setRuntimeApiKey = (key: string) => {
 
 const getAI = () => {
     if (ai) return ai;
-    const key = runtimeKey || process.env.API_KEY || '';
+    const key = runtimeKey || process.env.GEMINI_API_KEY || '';
     if (!key) return null;
     ai = new GoogleGenAI({ apiKey: key });
     return ai;

@@ -195,7 +195,7 @@ const Inspector: React.FC<InspectorProps> = ({
           </div>
         )}
 
-        {!collapsed && !enabled && editMode !== 'world-edit' && (
+        {!collapsed && !enabled && (
           <div className="p-4 text-[10px] text-gray-500 text-center italic">
             Inspector Disabled
           </div>
