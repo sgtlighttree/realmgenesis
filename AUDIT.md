@@ -1,0 +1,282 @@
+# RealmGenesis 3D — Technical Audit & Improvement Plan
+
+*Audit date: 2026-07-17. Every finding cites a file and line; claims marked **[fact]** were verified against source or by running the toolchain; claims marked **[judgment]** are the auditor's opinion. Toolchain verification performed in this audit: `npm ci`, `npm run lint` (0 errors / 46 warnings), `npm run build` (passes, 1.67 MB single chunk), `npx tsc --noEmit` (**6 errors**), `npm audit` (11 vulnerabilities: 1 critical, 5 high), inspection of the built bundle in `dist/`.*
+
+---
+
+## 1. Executive Summary
+
+**Overall health: B−.** RealmGenesis is a well-architected, exceptionally well-documented hobby/portfolio-grade browser app whose core engine is clean and deterministic — but whose quality gates exist only on paper. The stated gates ("build passes, lint passes, zero type errors" — `AGENTS.md:35-38`) are not enforced by any CI, TypeScript strict mode is entirely off, there is no typecheck script, and `tsc --noEmit` fails **today** with 6 errors. The three biggest risks: (1) silent failure modes — the documented `.env.local` API-key flow is broken by a config-name mismatch and fails silently, a UI slider (`civSizeVariance`) does nothing, and AI errors are masked with fake data; (2) no safety net — zero tests and zero CI for a pure-function generation engine that is unusually easy to test; (3) unmanaged GPU resources — Three.js geometries are rebuilt and leaked on every paint stroke. The three biggest opportunities: a CI pipeline with a real typecheck gate (half a day, converts the excellent documented conventions into enforced ones), unit tests around `worldGen.ts`/`export.ts` (the engine is pure and seeded, so tests are cheap and high-value), and a small set of one-line correctness fixes (env key, stale keyboard shortcut, `npm audit fix`) that eliminate most user-facing defects. No finding rises to Critical: there are no exposed secrets, no server, and no injection path found.
+
+---
+
+## 2. Repo Map
+
+**Purpose.** Browser-only procedural fantasy-world generator: tectonic/climate/biome simulation on a spherical Voronoi grid, rendered as a 3D globe (Three.js/R3F), 2D Mercator, or Dymaxion projection, with interactive terrain/political painting, Gemini-powered lore (BYOK), and PNG/JSON/GLB export. No backend. Deployed as a static SPA on Netlify (`public/_redirects`).
+
+**Maturity.** Solo hobby/portfolio project, actively developed with AI-agent-assisted sessions (`HANDOFF.md` is a session-to-session state transfer). Not a production service; recommendations below are calibrated to that.
+
+**Stack.** React 19 + TypeScript 5.8 + Vite 6; Three.js 0.182 via @react-three/fiber; d3 / d3-geo-voronoi / d3-geo-projection; @google/genai; Tailwind via CDN (`index.html:8`); ESLint 9 flat config. ~7,700 lines of TS/TSX across 22 source files.
+
+**Layout** (one line each):
+
+| Path | Role |
+|---|---|
+| `App.tsx` (601) | Root orchestrator: all app state (24+ `useState`), generation lifecycle, paint/undo handlers |
+| `types.ts` (173) | All shared types; `Cell`, `WorldData`, `WorldParams`, `BiomeType` |
+| `utils/worldGen.ts` (1059) | Core engine: 12-stage async generation pipeline + civ/province recalculation |
+| `utils/rng.ts` (138) | Mulberry32 seeded PRNG + 3D simplex noise |
+| `utils/colors.ts` (192) | `getCellColor` — single color-mapping function for all view modes |
+| `utils/dymaxion.ts` (395) | Icosahedron net math + d3 polyhedral projection |
+| `utils/export.ts` (480) | PNG raster export, JSON config save/load + validation, localStorage saves |
+| `utils/exportGLB.ts` (152) | GLB 3D export (world mesh, rivers, city markers) |
+| `utils/paintUtils.ts` (119) | Brush BFS + terrain/biome/political stroke functions |
+| `services/gemini.ts` (159) | Gemini lore wrapper; mutates `world.civData` in place |
+| `components/Controls.tsx` (1378) | Sidebar: 5 tabs of parameters, export UI, save manager |
+| `components/Map2D.tsx` (1133) | Canvas2D Mercator + pixel-reprojected Dymaxion renderer with pick buffer |
+| `components/WorldViewer.tsx` (886) | R3F 3D globe scene: mesh, markers, borders, labels, painting |
+| `components/{Inspector,EditToolbar,MiniMap,Legend,DymaxionPreview2D}.tsx` | HUD overlays |
+| `ARCHITECTURE.md`, `AGENTS.md`, `HANDOFF.md` | Unusually thorough docs incl. 25 "key invariants" |
+| `.codacy/` | Codacy static-analysis config (pins eslint@8.57.0 — mismatched with project's ESLint 9) |
+
+**Data flow.** `Controls` → `setParams` → `App.handleGenerate` → `generateWorld(params, onLog, signal, onProgress)` → `WorldData` → prop-drilled to `WorldViewer`/`Map2D` → per-cell color via `getCellColor`. Edits mutate `world.cells` in place followed by `setWorld({...world})` — a deliberate, documented pattern (`ARCHITECTURE.md` invariant 3).
+
+**Surprises found during discovery.**
+- There is **no `.github/` directory at all** — no CI, despite docs describing three mandatory quality gates. **[fact]**
+- `tsconfig.json` has **no `"strict"` option** (`tsconfig.json:2-28`) — the codebase runs with `strictNullChecks` and `noImplicitAny` off, while `AGENTS.md:61` calls the mode "strict-ish". **[fact]**
+- `ARCHITECTURE.md` is more accurate than most production repos' docs — but it documents behavior for a parameter that doesn't exist in the engine (see A3).
+
+**Review depth note:** `worldGen.ts`, `App.tsx`, `Controls.tsx`, `Map2D.tsx`, `WorldViewer.tsx`, `export.ts`, `gemini.ts`, `colors.ts`, `paintUtils.ts`, `rng.ts`, `types.ts`, and all configs were read line-by-line. `dymaxion.ts` (projection math body), `EditToolbar.tsx`, `DymaxionPreview2D.tsx`, `Legend.tsx`, and `.codacy/cli.sh` received lighter review.
+
+---
+
+## 3. Audit Report
+
+Severity scale: **High** = user-visible defect or structural risk that will bite soon; **Medium** = real cost, contained; **Low** = polish. No Critical findings (no secrets, no server, no injection path found).
+
+### 3.1 Correctness & code quality
+
+**A1 — HIGH. The documented build-time Gemini key flow is silently broken (env var name mismatch).** **[fact]**
+`vite.config.ts:14` defines `process.env.GEMINI_API_KEY`, but the only consumer reads `process.env.API_KEY` (`services/gemini.ts:14`). Verified in the built bundle: Vite compiles the unreplaced `process.env` to an empty object (`var jne={}` … `jne.API_KEY`), so the value is always `undefined`. Consequence: the README instruction "Create a `.env.local` file and add your `GEMINI_API_KEY`" (`README.md:38-39`) does nothing, with no error — lore generation just reports "Lore Disabled". Only the runtime BYOK path works. One-line fix (align the names). Note the flip side: if this *is* fixed and a key is baked at build time, that key ships in the public JS bundle — acceptable for a personal deploy, worth a README warning.
+
+**A2 — HIGH. `tsc --noEmit` fails with 6 errors today; the "zero type errors" gate has no command and is currently violated.** **[fact]**
+`package.json:6-11` has no typecheck script, and `vite build` does not typecheck (esbuild strips types). Actual errors:
+- `components/Controls.tsx:257` — a functional updater `setParams(prev => …)` is passed to a prop typed `(p: WorldParams) => void` (`Controls.tsx:11`). It works only because App passes the raw `useState` setter; the prop type is a lie.
+- `utils/export.ts:285,288` — TS proves the `case 'dymaxion'` branch in `exportMap` is **unreachable dead code** (the function early-returns for dymaxion at `export.ts:255-258`).
+- `utils/dymaxion.ts:369-370` — untyped `children` property bolted onto node objects.
+- `components/Inspector.tsx:198` — provably-dead comparison.
+Combined with strict mode being off entirely (`tsconfig.json`), the many `undefined`-bearing fields on `Cell` (`regionId?`, `provinceId?`, `population?` — `types.ts:23-27`) get no compiler protection. The codebase is also littered with nonsense casts that a checker would flag, e.g. `parseInt(e.target.value) as 1 | 2 | 3` used for planet radius, plates, erosion, factions, and resolution (`Controls.tsx:480,660,672,768,917,1081`).
+
+**A3 — HIGH. `civSizeVariance` is a live UI slider that does nothing, and the docs describe its nonexistent behavior.** **[fact]**
+The slider exists (`Controls.tsx:945-956`, "Country Size Variance", with a tooltip explaining its effect) and the param is validated on import (`export.ts:373`), but it is **never read** in `utils/worldGen.ts` (verified by grep across the repo). `ARCHITECTURE.md:654` states "`civSizeVariance` modulates how different faction sizes can be by adjusting initial cell budgets" — that code does not exist. Similarly, `detailLevel` (`types.ts:99`, default in `App.tsx:23`, documented as "FBM octave count" in `ARCHITECTURE.md:459`) is read nowhere; octave counts are hardcoded (3, 3, 2, 4 at `worldGen.ts:669,670,686,692`). Consequence: users tune a dead knob; agents trust wrong docs.
+
+**A4 — HIGH. The `G` keyboard shortcut generates with stale params and can revert the user's recent edits.** **[fact]**
+The keydown effect in `Controls.tsx:121-137` registers a listener that closes over `handleGenerateClick`, with deps `[loading]` and an explicit `eslint-disable` for exhaustive-deps. `handleGenerateClick` (`Controls.tsx:270-282`) closes over `params` and calls `setParams(p)` with a stale copy. Failure scenario: turn off Auto-Update, move several sliders (no re-render of the listener since `loading` never toggles), press `G` — the world generates from the params as of the last `loading` change, **and** `setParams(p)` overwrites the slider values the user just set. The docs even warn about exactly this stale-`params` class of bug (invariant 17, `ARCHITECTURE.md:999`).
+
+**A5 — MEDIUM. Auto-update ignores `mountainHeight`/`oceanDepth` after the first change.** **[fact]**
+The auto-update effect deps (`Controls.tsx:146-164`) omit `mountainHeight` and `oceanDepth`. Their sliders route through `handleAdvancedChange`, which also sets `landStyle: 'Custom'` (`Controls.tsx:192-194`) — so the *first* change triggers regeneration via the `landStyle` dep, but every subsequent change of those two sliders does nothing until some other param moves. Confusing, intermittent-looking behavior.
+
+**A6 — MEDIUM. Gemini failures are masked with sentinel fake data, and the AI response is applied without validation.** **[fact]**
+`generateWorldLore` catches all errors and returns `{ name: "Error World", description: "Lore generation failed." }` (`services/gemini.ts:147-153`), and returns similar fake `LoreData` when no key is set (`:22-27`) — the caller (`App.tsx:318-332`) then treats these as success (`addLog('Lore Received.')`, sets the lore panel to "Error World"). The parsed JSON is trusted structurally: `capTown.name = fJson.capitalName` (`gemini.ts:123`) assigns a possibly-`undefined` optional into a `string` field, and province name arrays are indexed without length checks. Consequence: a malformed model response or quota error corrupts town names to `undefined` or shows fake lore instead of an actionable error. (Only compiles because strict mode is off — see A2.)
+
+**A7 — LOW. Progress bar can never reach 100 % from the pipeline itself.** **[fact]**
+`generateWorld` declares `TOTAL_STAGES = 8` (`worldGen.ts:492`) but calls `progress()` at most 7 times (`:497,546,649,713,750,826,830`), and only 6 when `erosionIterations === 0` (the call at `:713` is inside the erosion guard). App papers over it with `setGenProgress(1)` on completion (`App.tsx:185`), so the bar jumps from 87.5 % to done. Cosmetic.
+
+**A8 — LOW. Dead code and dead enum values.** **[fact]**
+Unreachable `dymaxion` branch in `exportMap` (see A2); `ViewMode` values `'population'` and `'province'` fall through to biome coloring (`colors.ts:185-188`, confirmed by `ARCHITECTURE.md:274-276`) and are offered nowhere in the UI (`Controls.tsx:540-549`); `snapshotCells` is imported in `App.tsx:10` but never called (App builds snapshots inline at `:357-364`); `RNG.range` (`rng.ts:27-29`) is unused; ESLint reports 46 warnings including unused imports in `worldGen.ts:2-4`.
+
+**A9 — LOW. `Map2D` caption always reads "2D Mercator", even in Dymaxion mode.** **[fact]** (`Map2D.tsx:1125-1127`.)
+
+**A10 — LOW [judgment]. Fragile neighbor derivation.** Voronoi links are matched back to cells via string keys of coordinates rounded to 4 decimals (`worldGen.ts:529-542`). Two generator points within ~1e-4° would collide and silently drop/mis-wire neighbor edges. Unlikely at default 5,000 points; probability grows with the 200,000-point slider max and 1,000,000 number-input max (`Controls.tsx:466-481` — the 1M input cap itself is a main-thread footgun, see P1).
+
+### 3.2 Architecture & design
+
+**Healthy overall.** [judgment] Module boundaries are clean and match the docs: utils are pure, components are presentational, `App.tsx` is the single state owner, there are no circular imports (dependency graph in `ARCHITECTURE.md:166-210` is accurate). Prop drilling from a 601-line `App.tsx` with ~24 state atoms is at the edge of comfort but is a *documented, deliberate* choice appropriate for this size — a state-library migration is explicitly **not** recommended (see §4).
+
+**B1 — MEDIUM [judgment]. `Controls.tsx` (1,378 lines) and `Map2D.tsx` (1,133 lines) are god files.** Controls mixes five unrelated tab UIs, keyboard shortcuts, auto-update orchestration, export logic, and storage management; each tab is an obvious extraction seam. Map2D interleaves Mercator rendering, an entire Dymaxion software-rasterizer, a pick-buffer system, and pan/zoom/paint input handling. This is the main reason changes there keep needing "manual browser regression passes" (`HANDOFF.md:132`).
+
+**B2 — LOW [judgment]. Duplicated logic across render/export paths.** The equirectangular cell-render loop appears three times (`export.ts:33-45`, `Map2D.tsx:529-541`, `Map2D.tsx:841-856`), the mesh fan-triangulation twice (`WorldViewer.tsx:482-499`, `exportGLB.ts:6-33`), faction border extraction twice (`WorldViewer.tsx:263-317`, `Map2D.tsx:241-263`), and `insideTri`/`barycentric`/`toLonLat` exist in both `export.ts:114-160` and `Map2D.tsx:45-93`. Each pair has already drifted slightly (see A12). Consolidating the pure helpers into `utils/` is cheap; consolidating the render loops is optional.
+
+### 3.3 Security
+
+**S1 — HIGH. `npm audit`: 11 vulnerabilities — 1 critical (protobufjs, transitive via @google/genai, ships in the client bundle), 5 high (minimatch, picomatch, rollup, ws, vite), fix available via `npm audit fix`.** **[fact]** Calibration [judgment]: for a static client-side app most of these are dev-chain ReDoS/DoS with low real exposure; protobufjs (overlong UTF-8 decoding) is the one that lands in shipped code. Still an S-effort fix — no reason to carry it.
+
+**S2 — MEDIUM. Tailwind via CDN forces `'unsafe-inline' 'unsafe-eval'` into the CSP.** **[fact]** `index.html:6-8` allows `script-src … 'unsafe-inline' 'unsafe-eval'` specifically to run the Tailwind Play CDN in production. This substantially weakens the CSP's XSS protection (any injected inline script executes) and adds runtime style-generation cost. Tailwind's own docs say the CDN build is not for production. Moving to the Vite Tailwind plugin removes both flags. [judgment on priority: worthwhile, not urgent — no user-generated HTML is rendered; React escapes lore text.]
+
+**S3 — LOW. Imported config files: `params` are bounds-validated (good — `export.ts:350-400`) but `civData` is passed through completely unvalidated (`export.ts:417`).** **[fact]** A hand-crafted JSON with a malformed `civData` (e.g., `factions` not an array, or negative `capitalId`) throws deep inside `handleLoadWorld`'s restore loop or later rendering. Client-side only, self-inflicted — a shape check or try/catch around restore is enough. Positive note: the params validator with numeric bounds is *better* than typical for this project class.
+
+**S4 — LOW [fact + judgment]. Key handling is genuinely good.** BYOK key lives in memory only (`services/gemini.ts:4-10`, `App.tsx:126,142-144`), never persisted — as documented (invariant 5). CSP restricts `connect-src` to self + Gemini API. No secrets in the repo (checked configs, history not audited).
+
+### 3.4 Performance
+
+**P1 — MEDIUM. The entire 12-stage pipeline runs on the main thread; the UI stays alive only via `setTimeout(0)` yields.** **[fact]** documented honestly in invariant 1 (`ARCHITECTURE.md:963`). At the default 5,000 points it's fine; the slider allows 200,000 and the number input **1,000,000** (`Controls.tsx:464-472`), where d3-geo-voronoi tessellation plus erosion will freeze the tab for a long time with no way to cancel mid-stage (abort checks only run between chunks). [judgment] Moving `generateWorld` into a Web Worker is the correct long-term fix but is a Milestone-2+ item, not urgent at current defaults; capping the input to the slider max is an S-effort mitigation.
+
+**P2 — MEDIUM. Three.js geometries are never disposed, and the full world mesh is rebuilt (and the old one leaked) on every paint-stroke frame.** **[fact]** `WorldMesh`'s `geometry` `useMemo` (`WorldViewer.tsx:482-499`) rebuilds ~45,000 triangles whenever `world` changes — which during painting is every throttled stroke event (50 ms, `App.tsx:400` does `setWorld({...world})` per stroke). No `geometry.dispose()` anywhere in the file; same for `RiverLines:74-104`, `FactionBorders:264-317`, `BrushRing`, `CellSelectionOverlay`, `LatLongGrid`, and `CurvedFactionLabel` (which disposes its texture at `:207-209` but not its geometry). Consequence: GPU memory grows across regenerations and long paint sessions until context loss; paint FPS is bounded by full-mesh rebuild. Fix is two-part: add `useEffect` disposal, and (optional, larger) update only affected vertices during strokes.
+
+**P3 — MEDIUM. Painting in Dymaxion view re-runs the whole-canvas pixel reprojection per stroke event.** **[fact]** The offscreen render effect (`Map2D.tsx:499-803`) and the pick-buffer effect (`:805-889`) both depend on `world`, so each paint `setWorld` triggers: full equirectangular cell render → `getImageData` → per-pixel `rasterizeDymaxionSource` over the entire canvas → plus the same again for the pick buffer. [judgment] Dymaxion painting will feel an order of magnitude worse than globe painting. Mitigation: skip pick-buffer rebuild during active strokes (cell→pixel mapping doesn't change while painting heights/biomes), or debounce to stroke end.
+
+**P4 — MEDIUM. 1.67 MB single JS chunk (455 kB gzip), no code splitting.** **[fact]** (build output). Three.js, d3, and @google/genai all land in one chunk; `GLTFExporter` and the Gemini client are only needed on user action and are trivial `import()` candidates. For a Netlify-hosted toy this is tolerable [judgment], but it's a cheap win.
+
+**P5 — LOW. Mercator hit-testing is an O(n) scan over all cells per hover/paint event** (`Map2D.tsx:195-214`), and stroke-start province resolution scans all cells (`App.tsx:57-77`). **[fact]** At 5k cells both are fine; they'll scale linearly with the points slider. Not worth fixing until P1 is.
+
+### 3.5 Testing
+
+**T1 — HIGH. Zero automated tests, zero test framework — for an engine that is unusually testable.** **[fact]** (`AGENTS.md:35`, confirmed: no test config, no test files). Why it matters concretely rather than in principle: `generateWorld`, `determineBiome`, `recalculateCivs`, `recalculateProvinces`, `RNG`, `validateWorldParams`, and all of `paintUtils.ts` are pure, seeded, DOM-free functions. Bugs A1/A3/A7 and the doc drift in D1 would all have been caught by tests that take minutes to write (e.g., "same seed ⇒ identical heights", "every param in `WorldParams` influences output or is explicitly display-only", "`validateWorldParams` accepts every `DEFAULT_PARAMS`-derived save"). The current safety net is a manual browser pass noted in `HANDOFF.md:132-133`, which does not survive contributor turnover — and this repo's contributors are explicitly ephemeral AI sessions.
+
+### 3.6 Dependencies
+
+**D0 — summary.** Lockfile present and consistent (`npm ci` clean) **[fact]**; direct deps are current-generation (React 19, Vite 6, Three 0.182; minor/patch updates available, plus majors for vite 8 / eslint 10 / @google/genai 2 — `npm outdated` output in header). No unmaintained or duplicate direct dependencies; licenses are permissive (MIT/ISC/Apache class — spot-checked, not exhaustively audited). Vulnerabilities: see S1. One inconsistency: `.codacy/codacy.yaml:6` pins **eslint@8.57.0** while the project uses ESLint 9 flat config — Codacy's ESLint results (if the integration runs) analyze with a different major version than local lint. **[fact]**
+
+### 3.7 DevEx & operations
+
+**O1 — HIGH. No CI whatsoever.** **[fact]** No `.github/` directory. The three documented quality gates run only when a contributor remembers; the typecheck gate *cannot* run (no script) and is failing (A2). For a repo explicitly designed for AI-agent sessions (AGENTS.md/HANDOFF.md), an enforcing CI is the highest-leverage single change available: it converts documentation into guarantees.
+
+**O2 — LOW.** No formatter configured (documented as intentional, `AGENTS.md:35`); lint warnings at 46 with no ratchet; `npm run build` warns about chunk size on every build (noise that trains contributors to ignore warnings). **[fact]**
+
+### 3.8 Documentation
+
+**D1 — MEDIUM. The docs are the repo's best asset — and they've started to drift, which is worse than absent docs for an agent-driven repo.** **[fact, each item verified]**
+- `ARCHITECTURE.md` documents nonexistent engine behavior for `civSizeVariance` (`:654`) and `detailLevel` (`:459`) — see A3.
+- Line-number anchors are stale: `recalculateCivs` documented at 805, actually 835; `recalculateProvinces` documented at 922, actually 950 (`ARCHITECTURE.md:61`).
+- Export resolutions: docs/type claim 4K–32K (`ARCHITECTURE.md:898`, `export.ts:7`), the UI offers 2048/4096/8192 (`Controls.tsx:1084-1086`) — 2048 isn't even in the `ExportResolution` type.
+- README claims points "500–20,000+" (`ARCHITECTURE.md:434`); UI minimum is 2000 (`Controls.tsx:466`).
+- A "cell jitter" slider is documented in the Geo tab (`ARCHITECTURE.md:824`); no such control exists in `Controls.tsx`.
+- `SavedMapEntry` documented with `timestamp` field (`ARCHITECTURE.md:918`); actual field is `date` (`export.ts:444`).
+- README says "Gemini 1.5 Flash" (`README.md:13`); code uses `gemini-3-flash-preview` (`gemini.ts:101`).
+- Invariant 21 (`ARCHITECTURE.md:1003`) warns that render paths calling `getCellColor` for political mode without `factionColors` won't show edited faction colors — **that is the current state** of `MiniMap.tsx:31`, `export.ts:36,297`, and `exportGLB.ts:11`. Consequence: a user who recolors factions and exports a political PNG/GLB or looks at the minimap gets the default palette, not their colors. This is a real user-facing defect (Medium), filed here because the docs predicted it.
+
+### 3.9 Strengths (what to preserve)
+
+1. **Documentation culture**: `ARCHITECTURE.md`'s invariants section and LLM navigation table, `AGENTS.md` conventions, and `HANDOFF.md` session logs are genuinely excellent and 95 % accurate. **[fact]**
+2. **Clean module boundaries**: pure utils, presentational components, one state owner, zero circular deps. **[fact]**
+3. **Determinism by design**: seeded RNG with isolated streams per subsystem (`worldGen.ts:498,551,587,654,847`) — this is what makes the missing tests cheap to add. **[fact]**
+4. **Cancellable, progress-reporting async pipeline** with `AbortController` and correct stale-controller guards (`App.tsx:195-201`). **[fact]**
+5. **Solid algorithm choices** implemented compactly: priority-flood depression filling with a hand-rolled MinHeap (`worldGen.ts:8-73,250-299`), Dijkstra faction expansion, Fibonacci-sphere sampling.
+6. **Config import validation with numeric bounds** (`export.ts:350-400`) — above the norm for this project class.
+7. **Thoughtful UX engineering**: adaptive DPR rendering (`Map2D.tsx:475-491`), color-ID pick buffer for Dymaxion, grow-in-place undo snapshots (`App.tsx:354-364`), seam-prevention stroke technique (documented at `ARCHITECTURE.md:711`).
+8. **Honest BYOK key handling** (memory-only) and a CSP that exists at all.
+
+---
+
+## 4. Improvement Strategy
+
+### Theme 1 — Enforce the gates you already wrote down
+*Findings: A2, O1, T1, S1.* The repo's conventions are documented but nothing enforces them, and the one gate that matters most (types) currently fails. **Target state:** a GitHub Actions workflow runs `lint` + `typecheck` + `build` on every push/PR and fails red; `npm run typecheck` exists; `tsc` is clean; strict mode is on (staged: `noImplicitAny` + `strictNullChecks` first). **Principle:** for a repo maintained by ephemeral AI sessions, CI is the only institutional memory that executes.
+
+### Theme 2 — Make failures loud
+*Findings: A1, A3, A6, S3, D1/invariant-21.* The recurring defect shape here is not "wrong logic" but "silently does nothing": dead env var, dead slider, sentinel error-lore, exports ignoring live colors. **Target state:** every user action either works or produces a visible error; every `WorldParams` field provably affects output or is labeled display-only; AI/lore errors surface as errors. **Principle:** in a tool whose output is judged visually, silent no-ops are indistinguishable from user error — so users blame themselves and file nothing.
+
+### Theme 3 — Put a test floor under the pure engine
+*Findings: T1, and it de-risks everything in Theme 4.* **Target state:** Vitest with ~25–40 unit tests over `worldGen`, `rng`, `paintUtils`, `colors`, `export` validation — determinism tests, biome classification table tests, param-liveness tests, round-trip save/load tests — wired into CI. **Principle:** test the seeded pure core (cheap, stable), skip the canvas/WebGL layer (expensive, brittle); this matches the 80/20 of where past bugs occurred.
+
+### Theme 4 — Pay down render-path resource debt, not architecture
+*Findings: P2, P3, P4, B1.* **Target state:** all Three.js geometries disposed on replacement; paint strokes don't rebuild what didn't change; deferred `import()` for GLTFExporter/@google/genai; Controls split by tab. **Principle:** fix resource lifecycle inside the existing architecture rather than re-architecting.
+
+### Explicitly NOT recommended (trade-offs)
+- **No state-management library / no context refactor.** Prop drilling from App.tsx is documented, works at this scale, and a migration would churn every component for zero user value.
+- **No Web Worker migration yet.** Real fix for P1, but large (structured-clone of 5k-cell worlds or transferable buffers, progress plumbing) relative to a hobby project's budget; cap the points input instead and revisit if 100k+ point worlds become a goal.
+- **No test coverage targets for components/WebGL.** Canvas/R3F testing has poor cost/benefit here; keep manual browser passes for the render layer.
+- **No dependency major-version upgrades bundled into this plan** (vite 8, eslint 10, @google/genai 2) — separate, low-urgency chores; only `npm audit fix` (non-major) is in scope.
+- **Not "fixing" in-place mutation + shallow-copy re-render.** It's unusual but consistent, documented (invariants 3, 20), and load-bearing for undo; changing it risks more than it buys.
+
+### Definition of done (measurable)
+1. CI badge green on `main`; workflow fails on any lint **error**, any `tsc` error, or build failure.
+2. `npx tsc --noEmit` exits 0 with `"strict": true` in `tsconfig.json`.
+3. `npm audit` shows 0 critical/high.
+4. `npm test` runs ≥25 assertions over `utils/` + `services/` pure logic in CI; determinism test locks seed → output.
+5. Grep-audit clean: every key in `WorldParams` is read by engine/UI code or carries a `// display-only` comment; zero UI controls bound to unread params.
+6. Painting for 60 s on the globe does not grow GPU memory unbounded (verify via `renderer.info.memory.geometries` stable across strokes).
+7. `ARCHITECTURE.md` contains no statement contradicted by code (spot-check list in D1 all resolved).
+
+---
+
+## 5. Task Plan
+
+### Quick wins (do immediately — all S, high impact)
+
+| # | Task | Files | Verification |
+|---|---|---|---|
+| Q1 | Align env var: read `process.env.GEMINI_API_KEY` (or define `API_KEY`) | `services/gemini.ts:14` or `vite.config.ts:14`; update `README.md:39` | Build with `.env.local` set; lore works without pasting a key |
+| Q2 | Add `"typecheck": "tsc --noEmit"` script; fix the 6 existing errors | `package.json`, `Controls.tsx:11,257`, `export.ts:280-292` (delete dead branch + unused import), `dymaxion.ts:358-371`, `Inspector.tsx:198` | `npm run typecheck` exits 0 |
+| Q3 | `npm audit fix` | `package-lock.json` | 0 critical/high; build+lint still pass |
+| Q4 | Remove `civSizeVariance` slider + param + docs claim (or implement it — needs owner decision, see §6) and remove `detailLevel` | `Controls.tsx:945-956`, `types.ts:99,112`, `App.tsx:23,42`, `export.ts:373,379`, `ARCHITECTURE.md` | Grep-audit: no dead params |
+| Q5 | Fix stale-closure `G` shortcut: include `handleGenerateClick` in effect deps or route through a ref | `Controls.tsx:121-137,270-282` | Manual: autoUpdate off → move slider → press G → new value used, not reverted |
+| Q6 | Fix `Map2D` caption per projection; fix progress denominator (7 with erosion / 6 without, or add the missing call) | `Map2D.tsx:1125-1127`, `worldGen.ts:492-494` | Visual check |
+
+### Milestone 0 — Safety net (before any refactoring)
+
+**M0.1 — CI workflow (S).** Add `.github/workflows/ci.yml`: checkout, `npm ci`, `npm run lint`, `npm run typecheck` (from Q2), `npm run build`, on push + PR.
+*Acceptance:* red X on a PR that introduces a type error. *Risk:* none. *Depends:* Q2.
+
+**M0.2 — Vitest + core engine tests (M).** Install vitest; add `utils/__tests__/`: (a) RNG determinism + distribution smoke; (b) `determineBiome` table tests mirroring the classification rules in `ARCHITECTURE.md:489-524`; (c) `generateWorld` determinism (same seed twice ⇒ deep-equal heights/biomes at 500 points) and abort behavior; (d) `validateWorldParams` accepts `DEFAULT_PARAMS` and rejects out-of-bounds; (e) `paintUtils` stroke clamping to [0,1] and BFS ring counts; (f) **param-liveness test**: for each numeric `WorldParams` key not on a display-only allowlist, two generations differing only in that key produce different output (this test would have caught A3 and will catch its recurrence).
+*Acceptance:* `npm test` in CI, ≥25 assertions. *Risk:* low — may surface real engine surprises; that's the point. *Depends:* M0.1.
+
+**M0.3 — Staged strict mode (M).** Enable `"strict": true`; fix fallout (expect it concentrated in optional `Cell` fields, `geoJson: Record<string, unknown>` accesses in `Map2D.tsx:530,683,842` / `MiniMap.tsx:28-30` — give `WorldData.geoJson` a minimal typed shape instead of `Record<string, unknown>`, `types.ts:154`).
+*Acceptance:* typecheck green under strict. *Risk:* medium (wide but mechanical diff; no behavior change intended — tests from M0.2 guard). *Depends:* M0.2. *Effort:* M–L.
+
+### Milestone 1 — Correctness & security fixes
+
+**M1.1 — Quick wins Q1–Q6** (if not already done). *Depends:* none.
+
+**M1.2 — Surface lore errors properly (S).** `generateWorldLore` throws typed errors instead of returning sentinel `LoreData` (`gemini.ts:22-27,147-153`); `App.handleGenerateLore` already has the catch path (`App.tsx:327-330`) — show it in the log and don't set fake lore. Validate the parsed response minimally (factions array, string names) before mutating `civData`; guard `capitalName`/`provinceNames` indexing (`gemini.ts:113-138`).
+*Acceptance:* invalid key ⇒ visible "Lore Error: …" log, lore panel unchanged. *Risk:* low.
+
+**M1.3 — Pass `factionColors` to every political render path (S).** `MiniMap.tsx:31`, `export.ts:36,297` (thread an optional param through `exportMap`/`renderEquirectangular`), `exportGLB.ts:11` + callers in `Controls.tsx:1236-1259`.
+*Acceptance:* recolor a faction → minimap, PNG export, and GLB vertex colors all match. *Risk:* low. *Note:* closes the gap invariant 21 warned about.
+
+**M1.4 — Validate `civData` on import (S).** Shape-check in `loadMapConfig` (`export.ts:402-436`): `factions` is an array of `{id:number, name:string, provinces:array}`; wrap the restore loop in `handleLoadWorld` (`App.tsx:221-244`) in try/catch that logs and continues without metadata.
+*Acceptance:* corrupt civData file loads terrain with a warning instead of throwing. *Risk:* low.
+
+**M1.5 — Cap the points input (S).** Number input max 1,000,000 → match slider max (`Controls.tsx:466-470`), or gate >50k behind a confirm.
+*Acceptance:* cannot enter a tab-freezing value from the UI. *Risk:* none.
+
+### Milestone 2 — High-leverage improvements
+
+**M2.1 — Geometry lifecycle in WorldViewer (M).** Add disposal effects for every `useMemo`-created `BufferGeometry` (`WorldViewer.tsx:104,316,388,417,498,711,880`) and `CurvedFactionLabel`'s geometry (`:199-205`); verify with `renderer.info.memory.geometries` stable while painting.
+*Acceptance:* done-criterion 6. *Risk:* medium — disposing a geometry still referenced by R3F causes blank meshes; test all view modes + paint + regenerate. *Depends:* M0 (manual regression checklist at minimum).
+
+**M2.2 — Cheaper paint re-renders (M–L).** During active strokes: skip pick-buffer rebuild in `Map2D.tsx:805-889` (guard with an `isPainting` flag or split deps so it rebuilds only on world identity/size/projection change, not per-stroke `setWorld`); in `WorldViewer`, either update only affected vertex colors/positions via a cell→bufferRange index instead of full rebuild, or debounce full rebuild to 100 ms.
+*Acceptance:* Dymaxion painting subjectively smooth; globe paint keeps 30+ fps at 5k cells. *Risk:* medium (stale-render bugs); keep the "full rebuild on stroke end" as ground truth. *Depends:* M2.1.
+
+**M2.3 — Tailwind via build pipeline (M).** Replace CDN script (`index.html:8`) with `@tailwindcss/vite`; drop `'unsafe-eval'` (and ideally `'unsafe-inline'` for scripts) from the CSP (`index.html:6`).
+*Acceptance:* visual parity; CSP has no `unsafe-eval`. *Risk:* medium — CDN Tailwind ships every utility, the build version purges by content scan; audit for dynamically-constructed class names first.
+
+**M2.4 — Split `Controls.tsx` by tab (M).** Extract `SysTab/GeoTab/ClimTab/CivTab/ExpTab` components; move the auto-update effect and keyboard shortcuts to clearly-owned homes; fix A5's missing deps (`mountainHeight`, `oceanDepth`) as part of the move.
+*Acceptance:* no file >500 lines in `components/` except Map2D/WorldViewer; auto-update fires for all Geo sliders. *Risk:* low-medium (mechanical, but shortcut/effect ownership is where A4/A5 live — tests can't cover this, do a focused manual pass). *Depends:* M0.1.
+
+**M2.5 — Code splitting (S).** Dynamic `import()` for `GLTFExporter` (`exportGLB.ts:2`) and `@google/genai` (`gemini.ts:1`); optional `manualChunks` for three/d3.
+*Acceptance:* main chunk <1 MB pre-gzip; export/lore still work. *Risk:* low.
+
+### Milestone 3 — Quality & polish
+
+| Task | Effort | Notes |
+|---|---|---|
+| M3.1 Doc-truth pass on `ARCHITECTURE.md`/`README.md` (all D1 items; replace line-number anchors with symbol names) | M | Zero-risk; do after M1/M2 land so it documents the new reality |
+| M3.2 Dead-code sweep: unused imports (`worldGen.ts:2-4`, `App.tsx:10`), `ViewMode` `'population'`/`'province'` (remove or implement), `RNG.range` | S | Lint warnings drop; decide population view's fate with owner (§6) |
+| M3.3 Reduce lint warnings 46 → <10 and set `--max-warnings` ratchet in CI | M | Includes replacing `as 1\|2\|3` casts with a `parseNum` helper |
+| M3.4 Consolidate duplicated geo helpers (`insideTri`, `barycentric`, `toLonLat`) into `utils/geo.ts` | S | Pure moves; export.ts + Map2D.tsx |
+| M3.5 Align `.codacy/codacy.yaml` eslint version with project (or drop Codacy) | S | Config-only |
+| M3.6 `ExportResolution` type ↔ UI options reconciliation (add 2048 to type; decide 16K/32K fate) | S | See A2/D1 |
+
+### Top-3 implementation sketches
+
+**1. CI + typecheck gate (M0.1 + Q2).**
+Approach: fix the six `tsc` errors first — `Controls.tsx:11` prop type becomes `React.Dispatch<React.SetStateAction<WorldParams>>` (matches what App actually passes, legitimizes the functional updater at :257 and *enables* fixing A4/A5 idiomatically later); delete `export.ts` dead dymaxion branch and its now-unused `createDymaxionProjection` import; type the dymaxion node as `{face; project; children?: Node[]}`; drop Inspector's dead condition. Then `ci.yml` with node 22, `npm ci`, three script steps. Gotchas: `vite.config.ts` is excluded from the ESLint flat config (`eslint.config.js:8`) but **not** from `tsc` — check it typechecks (it uses `__dirname` under `"types": ["node"]`, should be fine); keep lint at 0-errors-warnings-allowed semantics to match `AGENTS.md`.
+
+**2. Env-key fix (Q1).**
+Approach: change `gemini.ts:14` to `process.env.GEMINI_API_KEY` (one name everywhere beats editing vite config, because `ARCHITECTURE.md:947` and README already say `GEMINI_API_KEY`). Gotchas: Vite statically replaces only the exact expression — don't destructure or alias `process.env`; verify with `grep -o 'GEMINI_API_KEY.\{0,40\}' dist/assets/*.js` that the define landed; add a README note that a build-time key is public in the bundle and BYOK is the recommended mode for shared deployments.
+
+**3. Engine test suite (M0.2).**
+Approach: vitest with plain `ts` environment (no jsdom needed for utils — `worldGen.ts` is DOM-free; `export.ts` validation functions are too, just import `validateWorldParams` — it's currently module-private, export it or test via `loadMapConfig` with a `File` polyfill). Structure: `determinism.test.ts` (seed → 500-point world snapshot of heights/biomes as hashes, not full JSON, to keep fixtures small), `biomes.test.ts` (pure table), `params.test.ts` (liveness loop: for each key, generate twice at 300 points with ±20 % perturbation, assert some cell height/biome/regionId differs; allowlist `mapName`, `planetRadius`, `seed`, `civSeed`, `loreLevel`). Gotchas: `generateWorld` is async with `setTimeout(0)` yields — vitest handles real timers fine, just `await` it; keep point counts ≤500 so the suite runs in seconds; the liveness test will fail on `civSizeVariance`/`detailLevel` until Q4 lands — that's the demonstration of value, land Q4 in the same PR.
+
+---
+
+## 6. Open Questions (need a human decision)
+
+1. **`civSizeVariance`: implement or delete?** The docs describe an "initial cell budget" mechanism that was never built. Implementing it means touching the Dijkstra expansion in `recalculateCivs` (`worldGen.ts:897-935`); deleting it breaks saved configs that carry the key (harmless — validator tolerates unknown keys, but decide).
+2. **Are `'population'` and `'province'` view modes planned features or abandoned?** They exist in `ViewMode` (`types.ts:161`) with fall-through rendering and no UI entry. Same question for the `LandStyle` `'Pangea'` value vs `maskType 'Pangea'` overlap (`worldGen.ts:660-661` has no `'Pangea'` land-style branch; the preset works only via `maskType`).
+3. **What's the realistic max world size you want to support?** This decides whether P1 (Web Worker) enters the roadmap or the points input just gets capped at 20k–50k. Current UI allows 1M, which is not survivable on the main thread.
+4. **16K/32K export resolutions:** the type promises them, the UI dropped them (2K/4K/8K), and invariant 9 calls 32K "experimental / exceeds most browser canvas limits". Remove from the type, or re-add behind a warning?
+5. **Is the Codacy integration actually running anywhere?** Its config pins ESLint 8 against a flat-config ESLint 9 project. If it's dormant, delete `.codacy/` rather than maintain it.
+6. **Deployment reality check:** is there a live Netlify deploy whose build env needs the Q1 rename coordinated (`GEMINI_API_KEY` env var), and do you *want* a baked key in a public bundle at all?
+7. **Lint warning policy:** `AGENTS.md` says warnings are acceptable; do you want CI to ratchet them (`--max-warnings 46` now, decreasing), or leave warnings advisory forever?

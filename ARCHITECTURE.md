@@ -118,7 +118,7 @@ This section maps common tasks to the exact files and functions you should read 
 | **Geo Math** | d3 7.9, d3-geo-voronoi 2.1, d3-geo-projection 4.0 | Voronoi tessellation, map projections |
 | **AI** | @google/genai 1.38 | Gemini API client |
 | **Icons** | lucide-react 0.563 | SVG icon library |
-| **Styling** | Tailwind CSS (CDN) | Utility-first CSS |
+| **Styling** | Tailwind CSS 3 (PostCSS build) | Utility-first CSS, compiled and purged at build time |
 
 ---
 
@@ -126,7 +126,12 @@ This section maps common tasks to the exact files and functions you should read 
 
 ```
 realmgenesis/
-├── index.html                  # HTML shell (Tailwind CDN, CSP, root mount)
+├── index.html                  # HTML shell (CSP, root mount)
+├── index.css                   # Tailwind directives + base styles (imported by index.tsx)
+├── tailwind.config.js          # Tailwind v3 content scan config
+├── postcss.config.js           # PostCSS: tailwindcss + autoprefixer
+├── tests/                      # Vitest suite over the pure engine (run: npm test)
+├── .github/workflows/ci.yml   # CI: lint + typecheck + test + build
 ├── index.tsx                   # React DOM entry point (StrictMode mount)
 ├── App.tsx                     # Root component: state, orchestration, layout
 ├── types.ts                    # All TypeScript interfaces and enums
@@ -158,7 +163,6 @@ realmgenesis/
 ├── package.json                # Dependencies and scripts
 ├── public/
 │   └── _redirects              # Netlify SPA fallback
-└── .codacy/                    # Codacy static analysis configuration
 ```
 
 ---
@@ -221,7 +225,7 @@ This section documents the public API surface of each module. Internal helpers (
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `generateWorld` | `(params: WorldParams, onLog?: (msg: string) => void, signal?: AbortSignal, onProgress?: (stage: number, total: number) => void) => Promise<WorldData>` | Runs the full 12-stage async pipeline; cancellable via AbortSignal; calls `onProgress` at the start of each major stage (8 total) |
+| `generateWorld` | `(params: WorldParams, onLog?: (msg: string) => void, signal?: AbortSignal, onProgress?: (stage: number, total: number) => void) => Promise<WorldData>` | Runs the full 12-stage async pipeline; cancellable via AbortSignal; calls `onProgress` at the start of each major stage (7 total; the erosion tick fires even when erosion is skipped) |
 | `recalculateCivs` | `(world: WorldData, params: WorldParams, onLog?: (msg: string) => void) => WorldData` | Replaces faction/territory data on an existing world; called independently without re-generating terrain |
 | `recalculateProvinces` | `(world: WorldData, params: WorldParams) => WorldData` | Subdivides existing factions into provinces and places towns |
 
@@ -271,8 +275,10 @@ Multiple independent `RNG` instances are created inside `generateWorld` with dif
 | `moisture` | Saturation-based: dark blue (ocean) → light blue/white (dry land) |
 | `plates` | 18-color palette indexed by `cell.plateId` |
 | `political` | Live faction color by `cell.regionId`, with deterministic province-derived shade variation when `provinceId` is valid; unclaimed water remains ocean-colored |
-| `population` | Falls through to `biome` default (not separately implemented) |
-| `province` | Falls through to `biome` default (province coloring is handled within `political` mode) |
+| `population` | Log-scaled heat gradient on land (`log10(1+pop)/5`): dark blue (sparse) → green → bright yellow (dense); uninhabited land dark grey, ocean near-black navy |
+| `province` | Faction base color with amplified per-province shade variation (strength 1.8) so administrative borders read at a glance; unclaimed land grey, water ocean-colored |
+
+`buildFactionColorMap(civData)` (exported from `colors.ts`) builds the live faction-color map; every political/province render path — 3D viewer, `Map2D`, `MiniMap`, PNG export, and GLB export — uses it so user-edited faction colors appear identically everywhere.
 
 ---
 
@@ -334,7 +340,7 @@ Vertex colors are exported as the `COLOR_0` attribute in GLTF. In Blender, set t
 | `setRuntimeApiKey` | `(key: string) => void` | Sets the Gemini API key for the current session; resets the `GoogleGenAI` client instance so the new key is picked up; key is module-level, not persisted |
 | `generateWorldLore` | `(world: WorldData) => Promise<LoreData>` | Calls Gemini with a structured prompt based on `world.params.loreLevel`; **mutates `world.civData` in-place** with generated names; returns `{ name, description }` |
 
-The model used is `gemini-3-flash-preview` with `responseMimeType: "application/json"`. Key is sourced from `runtimeKey` (set via UI) or `process.env.API_KEY` (build-time env var).
+The model used is `gemini-3-flash-preview` with `responseMimeType: "application/json"`. Key is sourced from `runtimeKey` (set via UI) or `process.env.GEMINI_API_KEY` (build-time env var from `.env.local`).
 
 ---
 
@@ -431,7 +437,7 @@ All parameters live in `types.ts`. Defaults are set in `App.tsx` (`DEFAULT_PARAM
 | Parameter | Type | Default | Range/Options | Controls |
 |-----------|------|---------|---------------|---------|
 | `mapName` | `string` | `'map'` | Any string | Display name and export filename |
-| `points` | `number` | `5000` | 500–20,000+ | Number of Voronoi cells; higher = more detail, slower |
+| `points` | `number` | `5000` | 2,000–200,000 | Number of Voronoi cells; higher = more detail, slower (UI and import validation share the cap) |
 | `seed` | `string` | `'realmgenesis'` | Any string | Terrain RNG seed (hashed to uint32) |
 | `planetRadius` | `number` | `6371` | km | Display only; affects no simulation logic |
 | `axialTilt` | `number` | `23.5` | 0–90° | Modulates temperature latitudinal gradient |
@@ -456,7 +462,7 @@ All parameters live in `types.ts`. Defaults are set in `App.tsx` (`DEFAULT_PARAM
 | `plates` | `number` | `12` | 2–30 | Number of tectonic plates |
 | `seaLevel` | `number` | `0.55` | 0–1 | Height threshold separating ocean from land |
 | `roughness` | `number` | `0.5` | 0–1 | FBM persistence (controls terrain roughness) |
-| `detailLevel` | `number` | `2` | 1–8 | FBM octave count |
+| `detailLevel` | `number` | `3` | 1–6 | FBM octave count for structural terrain noise (Geo tab "Detail Octaves" slider) |
 
 #### Climate
 | Parameter | Type | Default | Range/Options | Controls |
@@ -651,7 +657,8 @@ Two-phase political simulation, each independently callable:
 2. Expands territories outward using Dijkstra's algorithm
 3. Terrain-dependent costs: ocean cells cost `waterCrossingCost × base`, mountains/deserts add penalties, `borderRoughness` injects random noise
 4. Water cells within `territorialWaters` graph-distance of a land cell are claimed as territorial waters
-5. `civSizeVariance` modulates how different faction sizes can be by adjusting initial cell budgets
+5. `civSizeVariance` draws a per-faction size factor from `civRng` (spread `1 ± variance`, clamped to 0.25x-2x) and divides that faction's movement costs by it. Cheaper movement wins competitive Dijkstra frontier races, so larger factors produce larger factions at any map resolution; 0 = all equal, 1 = strongly unequal
+6. `capitalSpacing` enforces a scale-independent minimum squared-chord separation of `spacing^2 * 4 / numFactions` between capitals (1.0 approaches an even spread over the sphere)
 
 #### Phase 2: Province Subdivision (`recalculateProvinces`, line 922)
 1. Subdivides each faction into provinces based on `provinceSize` parameter
@@ -664,7 +671,7 @@ Two-phase political simulation, each independently callable:
 `services/gemini.ts` integrates Google Gemini for procedural world lore:
 
 - **Model**: `gemini-3-flash-preview` with JSON response mode (`responseMimeType: "application/json"`)
-- **API Key**: Ephemeral; set at runtime via `setRuntimeApiKey()` or baked into build as `process.env.API_KEY`; never persisted
+- **API Key**: Ephemeral; set at runtime via `setRuntimeApiKey()` or baked into build as `process.env.GEMINI_API_KEY` (from `.env.local`, injected via `vite.config.ts` define); never persisted. A build-time key ships in the public JS bundle — prefer runtime BYOK for shared deployments
 - **Lore Levels**:
   - Level 1: World name, description, faction names, capital names
   - Level 2: + Province and town names
@@ -681,7 +688,7 @@ Two-phase political simulation, each independently callable:
 
 | Element | Implementation |
 |---------|---------------|
-| **World Mesh** | Triangle-based geometry with vertex colors from `getCellColor(cell, viewMode, seaLevel)`. Each Voronoi cell is triangulated from its center to vertices. |
+| **World Mesh** | Triangle-based geometry with vertex colors from `getCellColor(cell, viewMode, seaLevel, factionColors)`. Each Voronoi cell is triangulated from its center to vertices. The `BufferGeometry` is allocated once per world structure (keyed on `world.cells` identity, which is stable across paint strokes) and its position/color buffers are refilled in place on paint/view changes — no per-stroke allocation, no `computeVertexNormals` (the basic material is unlit and the standard material's `flatShading` derives normals in-shader), and a fixed bounding sphere (r = 1.1). |
 | **City Markers** | `InstancedMesh` cylinders: red for capitals, white for towns |
 | **River Lines** | `LineSegments` with `CatmullRomCurve3` smoothing |
 | **Faction Borders** | Toggleable line segments between adjacent cells of different regions; independent of active view layer |
@@ -774,7 +781,7 @@ handleGenerate()
   ├── Set isGenerating = true, genProgress = 0
   ├── await generateWorld(params, onLog, signal, onProgress)
   │     ├── Async pipeline stages (1-12)
-  │     ├── Calls onProgress(stage, 8) at each major stage → setGenProgress(stage/8)
+  │     ├── Calls onProgress(stage, 7) at each major stage → setGenProgress(stage/7)
   │     ├── Check signal.aborted between stages
   │     └── Throw "Generation Cancelled" if aborted
   ├── Set world = newWorld, genProgress = 1
@@ -847,7 +854,7 @@ Controls (user input)
               └── generateWorld(params, onLog, signal, onProgress)
                     ├── Returns WorldData
                     ├── Calls onLog() at each stage → addLog() → setLogs()
-                    └── Calls onProgress(stage, 8) → setGenProgress(stage/8)
+                    └── Calls onProgress(stage, 7) → setGenProgress(stage/7)
                           └── Controls renders progress bar from genProgress prop
               └── setWorld(newWorld)
                     └── Re-renders WorldViewer / Map2D
@@ -895,7 +902,7 @@ Load:
 ### Image Export (`utils/export.ts`)
 
 `exportMap()` renders the world to a canvas at configurable resolutions:
-- **Resolutions**: 4K (4096px), 8K (8192px), 16K (16384px), 32K (32768px) width
+- **Resolutions**: 2K (2048px), 4K (4096px), 8K (8192px) width — 16K+ exceeded browser canvas limits and was removed
 - **Projections**: Equirectangular, Mercator, Winkel Tripel, Robinson, Mollweide, Orthographic, Dymaxion
 - **Heightmap PNG**: Export tab includes a dedicated "Export Heightmap" button that calls `exportMap(world, 'height_bw', resolution, 'equirectangular')` — produces a greyscale equirectangular PNG suitable for use as a displacement map
 - **Classic Dymaxion raster**: Pixel-by-pixel reprojection via `buildDymaxionNet('classic')`; auto-fit with padding; output is `width × round(width × 0.6)`
@@ -950,9 +957,9 @@ npm run preview    # Preview production build locally
 ### Build Configuration
 
 - **Vite 6** with `@vitejs/plugin-react` for HMR
-- **TypeScript**: ES2022 target, ESNext modules, `react-jsx` transform
+- **TypeScript**: ES2022 target, ESNext modules, `react-jsx` transform, `"strict": true`
 - **Path alias**: `@/*` maps to project root (configured in tsconfig but intentionally unused — use relative imports)
-- **CSP**: HTML meta tag allows self, Tailwind CDN, and Google Generative Language API
+- **CSP**: HTML meta tag allows self + Google Generative Language API; no external script hosts and no `unsafe-eval` (Tailwind is bundled locally). `unsafe-inline` remains for Vite's dev-mode refresh preamble and style injection
 
 ---
 
@@ -978,7 +985,7 @@ These are non-obvious facts that are critical for making correct changes:
 
 9. **Export resolutions are canvas-based**: Very large exports (16K, 32K) create large offscreen canvases. On low-memory devices or browsers with canvas size limits, these may fail silently or throw. 32K (32768px) exceeds most browser canvas limits and should be considered experimental.
 
-10. **No test framework**: There are no automated tests. Quality gates are: `npm run build` succeeds, `npm run lint` has zero errors, TypeScript has zero type errors. All behavioral testing is manual via the browser.
+10. **Quality gates run in CI** (`.github/workflows/ci.yml`): `npm run lint` (zero errors, `--max-warnings` ratchet), `npm run typecheck` (`tsc --noEmit` under `"strict": true`), `npm test` (Vitest suite in `tests/` covering RNG, biome classification, generation determinism, param liveness, paint utils, and import validation), and `npm run build`. The param-liveness test fails if any tunable `WorldParams` key stops influencing generated output — extend `tests/paramLiveness.test.ts` when adding params. Rendering behavior is still verified manually via the browser.
 
 11. **GLB vertex colors require a Blender material step**: `exportGLB` bakes cell colors into the GLTF `COLOR_0` vertex attribute. Blender does not display these automatically — the imported material must have its Base Color connected to an **Attribute** node (name: `COLOR_0`) or the viewport shading must be set to **Vertex Color**.
 
@@ -1000,7 +1007,7 @@ These are non-obvious facts that are critical for making correct changes:
 
 20. **Edit mode paint strokes use a shared Map reference for undo**: `currentStrokeSnapshot` (a `useRef`) holds a `Map<cellId, beforeState>` that is pushed to `undoStack` at stroke **start** (not end). During subsequent 'stroke' events, new cells are added to the same Map in-place — the stack entry grows automatically because it holds a reference, not a copy. The 'end' phase only nulls the ref. This design makes undo reliable even if the 'end' event is missed (e.g., pointer released outside the canvas/globe). Consequence: never replace `currentStrokeSnapshot.current` mid-stroke; only add to it.
 
-21. **`getCellColor` political mode uses `factionColors` map for live edits**: The optional 4th argument `factionColors?: Map<number, string>` lets political rendering use each faction's `f.color` directly. When not provided, it falls back to `FACTION_COLORS[regionId % 18]`. App.tsx builds this map via `useMemo([world])` so it rebuilds whenever world changes (including in-place faction color edits). If you add a rendering path that calls `getCellColor` for political mode without passing `factionColors`, faction color edits in the world editor will not appear there.
+21. **`getCellColor` political/province modes use `factionColors` map for live edits**: The optional 4th argument `factionColors?: Map<number, string>` lets political rendering use each faction's `f.color` directly. When not provided, it falls back to `FACTION_COLORS[regionId % 18]`. App.tsx builds this map via `useMemo([world])`; paths outside the React tree (`MiniMap`, `export.ts`, `exportGLB.ts`) build it themselves via `buildFactionColorMap(world.civData)` from `colors.ts`. If you add a rendering path that calls `getCellColor` for political or province mode, pass a faction-color map or user color edits will not appear there.
 
 22. **Dymaxion pick canvas must mirror visible rasterization**: The Dymaxion pick buffer in `Map2D.tsx` encodes cell IDs as RGB colors and is generated through the same source-canvas flip, `buildDymaxionNet` face mapping, rotation constants, and canvas sizing as the visible Dymaxion raster. Do not return to separate lon/lat nearest-center picking for Dymaxion; it drifts from the rendered map.
 
@@ -1009,3 +1016,9 @@ These are non-obvious facts that are critical for making correct changes:
 24. **Political brush locks province at stroke start**: Political painting writes both `regionId` and `provinceId`. If the stroke starts inside the selected faction on a valid province, that province is used for the whole stroke; otherwise the nearest valid province in the selected faction is used. The eraser uses `POLITICAL_ERASER_ID` and clears both ownership fields.
 
 25. **Faction overlay is independent of view mode**: `showFactionOverlay` controls borders and labels over any view layer. In 3D, borders are line segments and labels are curved surface meshes. In 2D, borders and labels are drawn after the base Mercator/Dymaxion raster so they remain visible over biome, climate, height, satellite, political, and other layers.
+
+26. **WorldMesh geometry is reused across paint strokes — `world.cells` identity is the structural key**: `WorldViewer`'s world mesh allocates its `BufferGeometry` once per `world.cells` array identity and refills position/color buffers in place (via `useLayoutEffect`) when `world`, `viewMode`, or `factionColors` change. Paint strokes mutate cells in place and shallow-copy `WorldData`, so `world.cells` stays stable and no reallocation happens. If you ever replace the `cells` array (rather than mutating it) outside of full regeneration, the mesh will reallocate — which is correct but slow; don't do it per-frame. The mesh intentionally has **no normal attribute** (unlit basic material + `flatShading` standard material both ignore it) and a **fixed bounding sphere** (r = 1.1) — if you add a lit, smooth-shaded material or geometry that extends past r = 1.1, revisit both.
+
+27. **Every `useMemo`-created Three.js geometry in `WorldViewer` has a matching disposal effect** (`useEffect(() => () => geo.dispose(), [geo])`). When adding new scene elements, follow the same pattern or GPU memory grows until context loss — geometries are not garbage-collected by the browser.
+
+28. **The Dymaxion pick buffer is keyed on world structure, not world identity** (`Map2D.tsx`): it encodes cell IDs, which don't change during paint strokes, so its effect depends on `world.cells` (stable reference) rather than `world`. This skips a full-canvas per-pixel reprojection on every stroke event. If cell topology ever changes without replacing the `cells` array, the pick buffer will go stale.

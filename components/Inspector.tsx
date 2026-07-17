@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Eye, EyeOff, ChevronDown, ChevronUp } from 'lucide-react';
-import { WorldData, InspectMode, EditMode } from '../types';
+import { WorldData, InspectMode, EditMode, TownData } from '../types';
 
 interface WorldDataUpdates {
   townName?: string;
@@ -43,7 +43,7 @@ const Inspector: React.FC<InspectorProps> = ({
 
   const faction = cell?.regionId !== undefined ? factionMap.get(cell.regionId) : null;
   const province = (faction && cell?.provinceId !== undefined) ? faction.provinces[cell.provinceId] : null;
-  const town = province?.towns.find(t => t.cellId === cell?.id) ?? null;
+  const town = province?.towns.find((t: TownData) => t.cellId === cell?.id) ?? null;
 
   const locationName = useMemo(() => {
     if (!cell || !world?.civData || !enabled) return null;
@@ -195,7 +195,7 @@ const Inspector: React.FC<InspectorProps> = ({
           </div>
         )}
 
-        {!collapsed && !enabled && editMode !== 'world-edit' && (
+        {!collapsed && !enabled && (
           <div className="p-4 text-[10px] text-gray-500 text-center italic">
             Inspector Disabled
           </div>
