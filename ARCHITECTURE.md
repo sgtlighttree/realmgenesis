@@ -118,7 +118,7 @@ This section maps common tasks to the exact files and functions you should read 
 | **Geo Math** | d3 7.9, d3-geo-voronoi 2.1, d3-geo-projection 4.0 | Voronoi tessellation, map projections |
 | **AI** | @google/genai 1.38 | Gemini API client |
 | **Icons** | lucide-react 0.563 | SVG icon library |
-| **Styling** | Tailwind CSS (CDN) | Utility-first CSS |
+| **Styling** | Tailwind CSS 3 (PostCSS build) | Utility-first CSS, compiled and purged at build time |
 
 ---
 
@@ -126,7 +126,12 @@ This section maps common tasks to the exact files and functions you should read 
 
 ```
 realmgenesis/
-├── index.html                  # HTML shell (Tailwind CDN, CSP, root mount)
+├── index.html                  # HTML shell (CSP, root mount)
+├── index.css                   # Tailwind directives + base styles (imported by index.tsx)
+├── tailwind.config.js          # Tailwind v3 content scan config
+├── postcss.config.js           # PostCSS: tailwindcss + autoprefixer
+├── tests/                      # Vitest suite over the pure engine (run: npm test)
+├── .github/workflows/ci.yml   # CI: lint + typecheck + test + build
 ├── index.tsx                   # React DOM entry point (StrictMode mount)
 ├── App.tsx                     # Root component: state, orchestration, layout
 ├── types.ts                    # All TypeScript interfaces and enums
@@ -221,7 +226,7 @@ This section documents the public API surface of each module. Internal helpers (
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `generateWorld` | `(params: WorldParams, onLog?: (msg: string) => void, signal?: AbortSignal, onProgress?: (stage: number, total: number) => void) => Promise<WorldData>` | Runs the full 12-stage async pipeline; cancellable via AbortSignal; calls `onProgress` at the start of each major stage (8 total) |
+| `generateWorld` | `(params: WorldParams, onLog?: (msg: string) => void, signal?: AbortSignal, onProgress?: (stage: number, total: number) => void) => Promise<WorldData>` | Runs the full 12-stage async pipeline; cancellable via AbortSignal; calls `onProgress` at the start of each major stage (7 total; the erosion tick fires even when erosion is skipped) |
 | `recalculateCivs` | `(world: WorldData, params: WorldParams, onLog?: (msg: string) => void) => WorldData` | Replaces faction/territory data on an existing world; called independently without re-generating terrain |
 | `recalculateProvinces` | `(world: WorldData, params: WorldParams) => WorldData` | Subdivides existing factions into provinces and places towns |
 
@@ -433,7 +438,7 @@ All parameters live in `types.ts`. Defaults are set in `App.tsx` (`DEFAULT_PARAM
 | Parameter | Type | Default | Range/Options | Controls |
 |-----------|------|---------|---------------|---------|
 | `mapName` | `string` | `'map'` | Any string | Display name and export filename |
-| `points` | `number` | `5000` | 500–20,000+ | Number of Voronoi cells; higher = more detail, slower |
+| `points` | `number` | `5000` | 2,000–200,000 | Number of Voronoi cells; higher = more detail, slower (UI and import validation share the cap) |
 | `seed` | `string` | `'realmgenesis'` | Any string | Terrain RNG seed (hashed to uint32) |
 | `planetRadius` | `number` | `6371` | km | Display only; affects no simulation logic |
 | `axialTilt` | `number` | `23.5` | 0–90° | Modulates temperature latitudinal gradient |
@@ -458,7 +463,7 @@ All parameters live in `types.ts`. Defaults are set in `App.tsx` (`DEFAULT_PARAM
 | `plates` | `number` | `12` | 2–30 | Number of tectonic plates |
 | `seaLevel` | `number` | `0.55` | 0–1 | Height threshold separating ocean from land |
 | `roughness` | `number` | `0.5` | 0–1 | FBM persistence (controls terrain roughness) |
-| `detailLevel` | `number` | `2` | 1–8 | FBM octave count |
+| `detailLevel` | `number` | `3` | 1–6 | FBM octave count for structural terrain noise (Geo tab "Detail Octaves" slider) |
 
 #### Climate
 | Parameter | Type | Default | Range/Options | Controls |
@@ -653,7 +658,8 @@ Two-phase political simulation, each independently callable:
 2. Expands territories outward using Dijkstra's algorithm
 3. Terrain-dependent costs: ocean cells cost `waterCrossingCost × base`, mountains/deserts add penalties, `borderRoughness` injects random noise
 4. Water cells within `territorialWaters` graph-distance of a land cell are claimed as territorial waters
-5. `civSizeVariance` draws a per-faction expansion budget from `civRng` (base 200, spread `1 ± variance`, clamped to 0.25x–2x); a faction stops claiming new frontier once its Dijkstra cost exceeds its budget, so 0 = all equal, 1 = strongly unequal sizes
+5. `civSizeVariance` draws a per-faction size factor from `civRng` (spread `1 ± variance`, clamped to 0.25x-2x) and divides that faction's movement costs by it. Cheaper movement wins competitive Dijkstra frontier races, so larger factors produce larger factions at any map resolution; 0 = all equal, 1 = strongly unequal
+6. `capitalSpacing` enforces a scale-independent minimum squared-chord separation of `spacing^2 * 4 / numFactions` between capitals (1.0 approaches an even spread over the sphere)
 
 #### Phase 2: Province Subdivision (`recalculateProvinces`, line 922)
 1. Subdivides each faction into provinces based on `provinceSize` parameter
@@ -776,7 +782,7 @@ handleGenerate()
   ├── Set isGenerating = true, genProgress = 0
   ├── await generateWorld(params, onLog, signal, onProgress)
   │     ├── Async pipeline stages (1-12)
-  │     ├── Calls onProgress(stage, 8) at each major stage → setGenProgress(stage/8)
+  │     ├── Calls onProgress(stage, 7) at each major stage → setGenProgress(stage/7)
   │     ├── Check signal.aborted between stages
   │     └── Throw "Generation Cancelled" if aborted
   ├── Set world = newWorld, genProgress = 1
@@ -849,7 +855,7 @@ Controls (user input)
               └── generateWorld(params, onLog, signal, onProgress)
                     ├── Returns WorldData
                     ├── Calls onLog() at each stage → addLog() → setLogs()
-                    └── Calls onProgress(stage, 8) → setGenProgress(stage/8)
+                    └── Calls onProgress(stage, 7) → setGenProgress(stage/7)
                           └── Controls renders progress bar from genProgress prop
               └── setWorld(newWorld)
                     └── Re-renders WorldViewer / Map2D
@@ -897,7 +903,7 @@ Load:
 ### Image Export (`utils/export.ts`)
 
 `exportMap()` renders the world to a canvas at configurable resolutions:
-- **Resolutions**: 4K (4096px), 8K (8192px), 16K (16384px), 32K (32768px) width
+- **Resolutions**: 2K (2048px), 4K (4096px), 8K (8192px) width — 16K+ exceeded browser canvas limits and was removed
 - **Projections**: Equirectangular, Mercator, Winkel Tripel, Robinson, Mollweide, Orthographic, Dymaxion
 - **Heightmap PNG**: Export tab includes a dedicated "Export Heightmap" button that calls `exportMap(world, 'height_bw', resolution, 'equirectangular')` — produces a greyscale equirectangular PNG suitable for use as a displacement map
 - **Classic Dymaxion raster**: Pixel-by-pixel reprojection via `buildDymaxionNet('classic')`; auto-fit with padding; output is `width × round(width × 0.6)`
@@ -952,9 +958,9 @@ npm run preview    # Preview production build locally
 ### Build Configuration
 
 - **Vite 6** with `@vitejs/plugin-react` for HMR
-- **TypeScript**: ES2022 target, ESNext modules, `react-jsx` transform
+- **TypeScript**: ES2022 target, ESNext modules, `react-jsx` transform, `"strict": true`
 - **Path alias**: `@/*` maps to project root (configured in tsconfig but intentionally unused — use relative imports)
-- **CSP**: HTML meta tag allows self, Tailwind CDN, and Google Generative Language API
+- **CSP**: HTML meta tag allows self + Google Generative Language API; no external script hosts and no `unsafe-eval` (Tailwind is bundled locally). `unsafe-inline` remains for Vite's dev-mode refresh preamble and style injection
 
 ---
 
@@ -980,7 +986,7 @@ These are non-obvious facts that are critical for making correct changes:
 
 9. **Export resolutions are canvas-based**: Very large exports (16K, 32K) create large offscreen canvases. On low-memory devices or browsers with canvas size limits, these may fail silently or throw. 32K (32768px) exceeds most browser canvas limits and should be considered experimental.
 
-10. **No test framework**: There are no automated tests. Quality gates are: `npm run build` succeeds, `npm run lint` has zero errors, TypeScript has zero type errors. All behavioral testing is manual via the browser.
+10. **Quality gates run in CI** (`.github/workflows/ci.yml`): `npm run lint` (zero errors, `--max-warnings` ratchet), `npm run typecheck` (`tsc --noEmit` under `"strict": true`), `npm test` (Vitest suite in `tests/` covering RNG, biome classification, generation determinism, param liveness, paint utils, and import validation), and `npm run build`. The param-liveness test fails if any tunable `WorldParams` key stops influencing generated output — extend `tests/paramLiveness.test.ts` when adding params. Rendering behavior is still verified manually via the browser.
 
 11. **GLB vertex colors require a Blender material step**: `exportGLB` bakes cell colors into the GLTF `COLOR_0` vertex attribute. Blender does not display these automatically — the imported material must have its Base Color connected to an **Attribute** node (name: `COLOR_0`) or the viewport shading must be set to **Vertex Color**.
 
