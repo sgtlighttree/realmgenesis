@@ -163,7 +163,6 @@ realmgenesis/
 ├── package.json                # Dependencies and scripts
 ├── public/
 │   └── _redirects              # Netlify SPA fallback
-└── .codacy/                    # Codacy static analysis configuration
 ```
 
 ---

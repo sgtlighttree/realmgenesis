@@ -702,7 +702,6 @@ const Map2D: React.FC<{
     }
 
     if (highlightCellId !== null) {
-        // codacy-disable-next-line
       const feature = world.geoJson?.features?.[highlightCellId];
       if (feature && feature.geometry) {
         ctx.save();
