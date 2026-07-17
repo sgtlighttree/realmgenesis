@@ -3,10 +3,9 @@ import * as d3 from 'd3';
 import { WorldData, ViewMode, InspectMode, DymaxionSettings, EditMode } from '../types';
 import { getCellColor } from '../utils/colors';
 import { buildDymaxionNet } from '../utils/dymaxion';
+import { insideTri, barycentric, normalizeVec, toLonLat, lonLatToPoint3, Point2, Point3 } from '../utils/geo';
 
 type Size = { width: number; height: number };
-type Point2 = [number, number];
-type Point3 = [number, number, number];
 type FactionLabel = { id: number; name: string; position: Point3 };
 type FactionOverlayData = { labels: FactionLabel[]; borders: Array<[Point3, Point3]> };
 
@@ -40,56 +39,6 @@ const getDymaxionNetTransform = (layout: DymaxionSettings['layout'], canvasWidth
   const offsetY = (canvasHeight - netHeight * scale) / 2 - minY * scale;
 
   return { faces, scale, offsetX, offsetY };
-};
-
-const insideTri = (p: Point2, a: Point2, b: Point2, c: Point2) => {
-  const v0 = [c[0] - a[0], c[1] - a[1]];
-  const v1 = [b[0] - a[0], b[1] - a[1]];
-  const v2 = [p[0] - a[0], p[1] - a[1]];
-  const dot00 = v0[0] * v0[0] + v0[1] * v0[1];
-  const dot01 = v0[0] * v1[0] + v0[1] * v1[1];
-  const dot02 = v0[0] * v2[0] + v0[1] * v2[1];
-  const dot11 = v1[0] * v1[0] + v1[1] * v1[1];
-  const dot12 = v1[0] * v2[0] + v1[1] * v2[1];
-  const invDenom = 1 / (dot00 * dot11 - dot01 * dot01);
-  const u = (dot11 * dot02 - dot01 * dot12) * invDenom;
-  const v = (dot00 * dot12 - dot01 * dot02) * invDenom;
-  return u >= -1e-6 && v >= -1e-6 && u + v <= 1 + 1e-6;
-};
-
-const barycentric = (p: Point2, a: Point2, b: Point2, c: Point2) => {
-  const v0 = [b[0] - a[0], b[1] - a[1]];
-  const v1 = [c[0] - a[0], c[1] - a[1]];
-  const v2 = [p[0] - a[0], p[1] - a[1]];
-  const d00 = v0[0] * v0[0] + v0[1] * v0[1];
-  const d01 = v0[0] * v1[0] + v0[1] * v1[1];
-  const d11 = v1[0] * v1[0] + v1[1] * v1[1];
-  const d20 = v2[0] * v0[0] + v2[1] * v0[1];
-  const d21 = v2[0] * v1[0] + v2[1] * v1[1];
-  const denom = d00 * d11 - d01 * d01;
-  if (!denom) return null;
-  const v = (d11 * d20 - d01 * d21) / denom;
-  const w = (d00 * d21 - d01 * d20) / denom;
-  const u = 1 - v - w;
-  return [u, v, w] as [number, number, number];
-};
-
-const normalizeVec = (v: Point3) => {
-  const len = Math.hypot(v[0], v[1], v[2]) || 1;
-  return [v[0] / len, v[1] / len, v[2] / len] as Point3;
-};
-
-const toLonLat = (v: Point3) => {
-  const lon = Math.atan2(v[2], v[0]) * (180 / Math.PI);
-  const lat = Math.asin(Math.max(-1, Math.min(1, v[1]))) * (180 / Math.PI);
-  return [lon, lat] as Point2;
-};
-
-const lonLatToPoint3 = ([lon, lat]: Point2): Point3 => {
-  const lonRad = lon * (Math.PI / 180);
-  const latRad = lat * (Math.PI / 180);
-  const cosLat = Math.cos(latRad);
-  return [cosLat * Math.cos(lonRad), Math.sin(latRad), cosLat * Math.sin(lonRad)];
 };
 
 const dot3 = (a: Point3, b: Point3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -753,7 +702,6 @@ const Map2D: React.FC<{
     }
 
     if (highlightCellId !== null) {
-        // codacy-disable-next-line
       const feature = world.geoJson?.features?.[highlightCellId];
       if (feature && feature.geometry) {
         ctx.save();
@@ -877,10 +825,15 @@ const Map2D: React.FC<{
       roll: dymaxionRoll,
     });
     ctx.putImageData(output, 0, 0);
+    // The pick buffer encodes cell IDs from the world's structure (cells +
+    // geoJson are stable references across paint strokes), so keying on
+    // world.cells instead of world identity skips a full-canvas per-pixel
+    // reprojection on every stroke event while painting
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     size.width,
     size.height,
-    world,
+    world?.cells,
     projectionType,
     dymaxionLayout,
     dymaxionLon,
@@ -1123,7 +1076,7 @@ const Map2D: React.FC<{
       )}
       {world && (
         <div className="absolute bottom-4 right-4 text-[10px] bg-black/60 border border-white/10 px-2 py-1 text-gray-300">
-          2D Mercator • Scroll to zoom, drag to pan
+          {projectionType === 'dymaxion' ? '2D Dymaxion' : '2D Mercator'} • Scroll to zoom, drag to pan
         </div>
       )}
     </div>

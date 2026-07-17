@@ -1,5 +1,10 @@
-import { BiomeType, Cell, ViewMode } from '../types';
+import { BiomeType, Cell, CivData, ViewMode } from '../types';
 import * as THREE from 'three';
+
+// Builds the live faction-color map from civData so every render/export path
+// (viewer, minimap, PNG, GLB) reflects user-edited faction colors identically.
+export const buildFactionColorMap = (civData?: CivData): Map<number, string> | undefined =>
+  civData ? new Map(civData.factions.map(f => [f.id, f.color])) : undefined;
 
 // Earth-like Natural Colors
 export const BIOME_COLORS: Record<BiomeType, string> = {
@@ -60,7 +65,7 @@ export const FACTION_COLORS = [
   '#78909c', // blue-grey
 ];
 
-const getProvinceVariant = (baseColorHex: string, provId: number): THREE.Color => {
+const getProvinceVariant = (baseColorHex: string, provId: number, strength = 1): THREE.Color => {
   const c = new THREE.Color(baseColorHex);
   const r = Math.sin(provId * 12.9898) * 43758.5453;
   const rnd = r - Math.floor(r);
@@ -70,9 +75,9 @@ const getProvinceVariant = (baseColorHex: string, provId: number): THREE.Color =
   const hsl = { h: 0, s: 0, l: 0 };
   c.getHSL(hsl);
 
-  hsl.l = Math.max(0.1, Math.min(0.9, hsl.l + (rnd * 0.5 - 0.25)));
-  hsl.s = Math.max(0.1, Math.min(1.0, hsl.s + (rnd2 * 0.6 - 0.3)));
-  hsl.h = (hsl.h + (rnd * 0.16 - 0.08) + 1.0) % 1.0;
+  hsl.l = Math.max(0.1, Math.min(0.9, hsl.l + (rnd * 0.5 - 0.25) * strength));
+  hsl.s = Math.max(0.1, Math.min(1.0, hsl.s + (rnd2 * 0.6 - 0.3) * strength));
+  hsl.h = (hsl.h + (rnd * 0.16 - 0.08) * strength + 1.0) % 1.0;
 
   c.setHSL(hsl.h, hsl.s, hsl.l);
   return c;
@@ -181,6 +186,40 @@ export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, facti
         color.setHex(0x555555);
       }
       break;
+
+    case 'province':
+      // Distinct shade per province: same base hue family as its faction,
+      // but with amplified variation so admin borders read at a glance
+      if (cell.regionId !== undefined) {
+        const baseColor = factionColors?.get(cell.regionId) ?? FACTION_COLORS[cell.regionId % FACTION_COLORS.length];
+        if (cell.provinceId !== undefined) {
+          color.copy(getProvinceVariant(baseColor, cell.provinceId, 1.8));
+        } else {
+          color.set(baseColor);
+        }
+      } else if (cell.height < seaLevel) {
+        color.setHex(0x1a237e);
+        color.multiplyScalar(0.5 + cell.height * 0.5);
+      } else {
+        color.setHex(0x555555);
+      }
+      break;
+
+    case 'population': {
+      if (cell.height < seaLevel) {
+        color.setHex(0x0b1026);
+        break;
+      }
+      const pop = cell.population || 0;
+      if (pop <= 0) {
+        color.setHex(0x263238);
+        break;
+      }
+      // Log-scaled heat gradient: dim blue (~100) -> red -> bright yellow (100k+)
+      const p = Math.min(1, Math.log10(1 + pop) / 5);
+      color.setHSL(Math.max(0, 0.66 - p * 0.55), 0.85, 0.12 + p * 0.55);
+      break;
+    }
 
     case 'biome':
     default:

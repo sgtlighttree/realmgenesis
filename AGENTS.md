@@ -26,16 +26,19 @@ Key entry points:
 ## Commands
 
 ```bash
-npm run dev       # Start Vite dev server on port 3000
-npm run build     # Production build → dist/
-npm run preview   # Preview production build
-npm run lint      # ESLint (flat config: eslint.config.js)
+npm run dev        # Start Vite dev server on port 3000
+npm run build      # Production build → dist/
+npm run preview    # Preview production build
+npm run lint       # ESLint (flat config, zero errors, --max-warnings ratchet)
+npm run typecheck  # tsc --noEmit (strict mode)
+npm test           # Vitest suite over the pure engine (tests/)
 ```
 
-**No test framework or formatter is configured.** This is a visual, interactive app — testing is done by running `npm run dev` and verifying behavior manually in the browser. The quality gates are:
-1. `npm run build` must succeed with no errors
-2. `npm run lint` must produce zero errors (warnings are acceptable)
-3. TypeScript compilation must produce no type errors
+**No formatter is configured.** Rendering behavior is verified manually in the browser; the pure engine (`utils/`, `services/`) is covered by the Vitest suite in `tests/`. All four gates run in CI (`.github/workflows/ci.yml`) and must pass:
+1. `npm run lint` — zero errors, warning count at or below the `--max-warnings` ratchet
+2. `npm run typecheck` — zero errors under `"strict": true`
+3. `npm test` — all Vitest tests pass (note: the param-liveness test fails if a `WorldParams` key stops affecting output)
+4. `npm run build` — succeeds with no errors
 
 ## Git Workflow
 
@@ -58,7 +61,7 @@ Prefer concise, imperative subjects.
 - Max line length: ~120 chars (soft limit)
 
 ### TypeScript
-- Strict-ish mode: `skipLibCheck: true`, `allowJs: true`, `noEmit: true`
+- Strict mode: `"strict": true` (plus `skipLibCheck: true`, `allowJs: true`, `noEmit: true`)
 - Use `interface` for object types and component props, `type` for unions
 - Prefer explicit return types on exported functions
 - Use `as any` casts sparingly (only when required by library typing gaps, e.g., R3F element names in `WorldViewer.tsx`)
@@ -87,7 +90,7 @@ Prefer concise, imperative subjects.
 - Validate imported JSON configs with `validateWorldParams()` before use
 
 ### Styling
-- Tailwind CSS via CDN — use utility classes exclusively, no CSS modules or styled-components
+- Tailwind CSS 3 via the build pipeline (`index.css`, `tailwind.config.js`) — use utility classes exclusively, no CSS modules or styled-components; class names must appear complete in source for the content scan
 - Dark theme: `bg-gray-950`, `text-gray-200`, `border-gray-800`
 - Responsive: mobile-first with `md:` breakpoints
 - Overlays: `backdrop-blur-md`, `bg-black/50`, `border-white/10`

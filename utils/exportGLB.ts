@@ -1,14 +1,14 @@
 import * as THREE from 'three';
-import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { WorldData, ViewMode, Cell } from '../types';
-import { getCellColor } from './colors';
+import { buildFactionColorMap, getCellColor } from './colors';
 
 const buildWorldMesh = (world: WorldData, viewMode: ViewMode): THREE.Mesh => {
   const positions: number[] = [];
   const colors: number[] = [];
+  const factionColors = buildFactionColorMap(world.civData);
 
   world.cells.forEach(cell => {
-    const c = getCellColor(cell, viewMode, world.params.seaLevel);
+    const c = getCellColor(cell, viewMode, world.params.seaLevel, factionColors);
     const hMult = 1 + cell.height * 0.05;
     const cx = cell.center.x * hMult;
     const cy = cell.center.y * hMult;
@@ -111,7 +111,10 @@ const buildMarkerMesh = (
   return mesh;
 };
 
-export const exportGLB = (world: WorldData, viewMode: ViewMode) => {
+export const exportGLB = async (world: WorldData, viewMode: ViewMode): Promise<void> => {
+  // Dynamically imported: the exporter is only needed on user action and
+  // stays out of the main bundle otherwise
+  const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
   const scene = new THREE.Scene();
 
   scene.add(buildWorldMesh(world, viewMode));

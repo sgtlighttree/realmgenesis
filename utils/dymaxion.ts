@@ -109,6 +109,8 @@ export type DymaxionNetFace = {
   inverse: [number, number, number, number, number, number];
 };
 
+export type DymaxionNet = { faces: DymaxionNetFace[] };
+
 const inverseMatrix = (m: [number, number, number, number, number, number]) => {
   const det = m[0] * m[4] - m[1] * m[3];
   const invDet = det ? 1 / det : 0;
@@ -155,7 +157,7 @@ const findSharedEdge = (a: Face, b: Face) => {
 // (transformed from Blender's z-up via (x,y,z) → (x,z,y)).
 // UV coordinates match the output of Blender's default icosphere UV unwrap exactly,
 // so the exported image can be applied directly as a UV texture in Blender.
-const buildBlenderNet = (): ReturnType<typeof buildDymaxionNet> => {
+const buildBlenderNet = (): DymaxionNet => {
   // Icosahedron vertices in y-up space
   const SP:  Vec3 = [0, -1, 0];
   const NP:  Vec3 = [0,  1, 0];
@@ -221,7 +223,7 @@ const buildBlenderNet = (): ReturnType<typeof buildDymaxionNet> => {
   return { faces };
 };
 
-export const buildDymaxionNet = (layout: DymaxionLayout) => {
+export const buildDymaxionNet = (layout: DymaxionLayout): DymaxionNet => {
   if (layout === 'blender') return buildBlenderNet();
   const { facesLonLat, facesIdx, facesCart } = buildFaces();
   const { root, parents } = buildParents(layout, buildAdjacency(FACES));
@@ -355,7 +357,13 @@ export const createDymaxionProjection = (layout: DymaxionLayout): GeoProjection 
   const adjacency = buildAdjacency(FACES);
   const { root, parents } = buildParents(layout, adjacency);
 
-  const nodes = facesLonLat.map((face, i) => {
+  interface NetNode {
+    face: [number, number][];
+    project: GeoProjection;
+    children?: NetNode[];
+  }
+
+  const nodes: NetNode[] = facesLonLat.map((face, i) => {
     const c = cartesianToLonLat(normals[i]);
     return {
       face,

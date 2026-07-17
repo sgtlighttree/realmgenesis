@@ -7,7 +7,7 @@ import Inspector from './components/Inspector';
 import { BiomeLegend } from './components/Legend';
 import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode, InspectMode, DymaxionSettings, EditMode, PaintStyle, UndoSnapshot, BiomeType, POLITICAL_ERASER_ID } from './types';
 import { generateWorld, recalculateCivs, recalculateProvinces } from './utils/worldGen';
-import { getCellsInRadius, snapshotCells, applyTerrainStroke, applyFlattenStroke, applySmoothStroke, applyPoliticalStroke, applyBiomeStroke, refreshBiomes } from './utils/paintUtils';
+import { getCellsInRadius, applyTerrainStroke, applyFlattenStroke, applySmoothStroke, applyPoliticalStroke, applyBiomeStroke, refreshBiomes } from './utils/paintUtils';
 import { generateWorldLore, setRuntimeApiKey } from './services/gemini';
 import EditToolbar from './components/EditToolbar';
 import { Menu, X } from 'lucide-react';
@@ -20,7 +20,7 @@ const DEFAULT_PARAMS: WorldParams = {
   plates: 12,
   seaLevel: 0.55,
   roughness: 0.5,
-  detailLevel: 2, 
+  detailLevel: 3, // FBM octaves; 3 = historical default terrain character
   landStyle: 'Continents',
   cellJitter: 0.5,
   noiseScale: 0.4,
@@ -184,7 +184,7 @@ const App: React.FC = () => {
         setWorld(newWorld);
         setGenProgress(1);
         addLog('World Generation Complete.');
-    } catch (e: any) { // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (e: any) {  
         if (e.message === "Generation Cancelled") {
             addLog('Cancelled by user.');
         } else {
@@ -218,6 +218,9 @@ const App: React.FC = () => {
          const newWorld = await generateWorld(newParams, (msg) => { addLog(msg); }, controller.signal);
          
          // 2. Restore Saved Metadata (Names, Descriptions, Colors)
+         // Wrapped separately: corrupt metadata degrades to "terrain only"
+         // instead of failing the whole load
+         try {
          if (savedCivData && newWorld.civData) {
               addLog("Restoring historical records...");
               savedCivData.factions.forEach(savedF => {
@@ -242,10 +245,14 @@ const App: React.FC = () => {
                   }
               });
          }
+         } catch (metaErr) {
+             console.error("civData restore failed", metaErr);
+             addLog('Warning: saved names/colors could not be restored; loaded terrain only.');
+         }
 
          setWorld(newWorld);
          addLog('Map Loaded Successfully.');
-     } catch (e: any) { // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     } catch (e: any) {  
         if (e.message === "Generation Cancelled") addLog('Cancelled.');
         else {
             console.error("Load failed", e);
@@ -324,7 +331,7 @@ const App: React.FC = () => {
       setLore(newLore);
       setWorld({ ...world });
       addLog('Lore Received.');
-    } catch (e: any) { // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (e: any) {  
         console.error("Lore gen failed", e);
         addLog(`Lore Error: ${e.message}`);
     }

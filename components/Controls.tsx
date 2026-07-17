@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode, DymaxionSettings, DymaxionControlMode } from '../types';
-import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Download, FileJson, Box, Copy, Check } from 'lucide-react';
+import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Box, Copy, Check, Users, Landmark } from 'lucide-react';
 import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
 import { exportGLB } from '../utils/exportGLB';
 import { WorldData } from '../types';
@@ -8,7 +8,7 @@ import DymaxionPreview2D from './DymaxionPreview2D';
 
 interface ControlsProps {
   params: WorldParams;
-  setParams: (p: WorldParams) => void;
+  setParams: React.Dispatch<React.SetStateAction<WorldParams>>;
   onGenerate: (p?: WorldParams) => void;
   onLoadWorld: (p: WorldParams, civData?: CivData) => void;
   onCancel?: () => void;
@@ -134,7 +134,9 @@ const Controls: React.FC<ControlsProps> = ({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Re-register whenever anything the handlers close over changes, so the
+    // G shortcut never generates from (or writes back) stale params
+  }, [loading, params, seedLocked, civSeedLocked, onInspect]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
      if (autoUpdate && !loading && params.points <= 20000) {
@@ -153,6 +155,10 @@ const Controls: React.FC<ControlsProps> = ({
       params.warpStrength, 
       params.plateInfluence,
       params.ridgeBlend,
+      params.mountainHeight,
+      params.oceanDepth,
+      params.cellJitter,
+      params.detailLevel,
       params.erosionIterations,
       params.baseTemperature,
       params.poleTemperature,
@@ -178,7 +184,7 @@ const Controls: React.FC<ControlsProps> = ({
 
   const clamp = (val: number, min: number, max: number) => Math.max(min, Math.min(max, val));
 
-  const handleChange = <K extends keyof WorldParams>(key: K, value: WorldParams[K]) => { // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleChange = <K extends keyof WorldParams>(key: K, value: WorldParams[K]) => {  
     setParams({ ...params, [key]: value });
   };
 
@@ -189,7 +195,7 @@ const Controls: React.FC<ControlsProps> = ({
     setParams({ ...params, [key]: val as WorldParams[K] });
   };
 
-  const handleAdvancedChange = <K extends keyof WorldParams>(key: K, value: WorldParams[K]) => { // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleAdvancedChange = <K extends keyof WorldParams>(key: K, value: WorldParams[K]) => {  
       setParams({ ...params, [key]: value, landStyle: 'Custom' });
   };
 
@@ -461,13 +467,13 @@ const Controls: React.FC<ControlsProps> = ({
              <div className="space-y-1">
               <div className="flex justify-between items-center text-xs text-gray-400">
                 <label>Resolution</label>
-                <input 
+                <input
                     type="number"
                     min="2000"
-                    max="1000000"
+                    max="200000"
                     step="1000"
                     value={params.points}
-                    onChange={(e) => { handleNumberChange('points', e.target.value, 2000, 1000000); }}
+                    onChange={(e) => { handleNumberChange('points', e.target.value, 2000, 200000); }}
                     className="w-24 bg-gray-900 border border-gray-700 px-1 py-0.5 text-right text-white text-xs"
                 />
               </div>
@@ -546,6 +552,8 @@ const Controls: React.FC<ControlsProps> = ({
                 <ViewButton mode="moisture" icon={Droplets} label="Rain" />
                 <ViewButton mode="plates" icon={Layers} label="Plates" />
                 <ViewButton mode="political" icon={Flag} label="Borders" />
+                <ViewButton mode="province" icon={Landmark} label="Provinces" />
+                <ViewButton mode="population" icon={Users} label="Population" />
               </div>
             </div>
 
@@ -683,6 +691,30 @@ const Controls: React.FC<ControlsProps> = ({
                   value={params.roughness}
                   onChange={(e) => { handleAdvancedChange('roughness', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-slate-400"
+                />
+              </div>
+              <div className="space-y-1" title="FBM octave count for structural terrain noise. More octaves = finer nested detail; fewer = smoother, broader forms.">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <label>Detail Octaves</label>
+                  <span>{params.detailLevel}</span>
+                </div>
+                <input
+                  type="range" min="1" max="6" step="1"
+                  value={params.detailLevel}
+                  onChange={(e) => { handleAdvancedChange('detailLevel', parseInt(e.target.value, 10)); }}
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-emerald-500"
+                />
+              </div>
+              <div className="space-y-1" title="Randomizes the cell grid. 0 = regular Fibonacci lattice; 1 = fully jittered organic cells.">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <label>Cell Jitter</label>
+                  <span>{(params.cellJitter * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range" min="0" max="1" step="0.05"
+                  value={params.cellJitter}
+                  onChange={(e) => { handleAdvancedChange('cellJitter', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-lime-500"
                 />
               </div>
               <div className="space-y-1" title="Controls terrain feature size. Lower = broader continents; higher = more fragmented detail.">
