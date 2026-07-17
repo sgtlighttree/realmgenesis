@@ -3,8 +3,11 @@ import { geoWinkel3, geoRobinson, geoMollweide } from 'd3-geo-projection';
 import { WorldData, ViewMode, WorldParams, CivData, DymaxionSettings } from '../types';
 import { buildFactionColorMap, getCellColor } from './colors';
 import { buildDymaxionNet } from './dymaxion';
+import { insideTri, barycentric, normalizeVec, toLonLat } from './geo';
 
-export type ExportResolution = 4096 | 8192 | 16384 | 32768;
+// Matches the options offered in the Export tab. 16K+ exceeded browser
+// canvas limits on most devices and was removed from the UI.
+export type ExportResolution = 2048 | 4096 | 8192;
 export type ProjectionType = 'equirectangular' | 'mercator' | 'winkeltripel' | 'orthographic' | 'robinson' | 'mollweide' | 'dymaxion';
 export type DymaxionExportSettings = Pick<DymaxionSettings, 'layout' | 'lon' | 'lat' | 'roll'>;
 
@@ -111,54 +114,6 @@ const exportDymaxionRaster = (
 
   const output = ctx.getImageData(0, 0, width, height);
   const outData = output.data;
-
-  const insideTri = (p: [number, number], a: [number, number], b: [number, number], c: [number, number]) => {
-    const v0 = [c[0] - a[0], c[1] - a[1]];
-    const v1 = [b[0] - a[0], b[1] - a[1]];
-    const v2 = [p[0] - a[0], p[1] - a[1]];
-    const dot00 = v0[0] * v0[0] + v0[1] * v0[1];
-    const dot01 = v0[0] * v1[0] + v0[1] * v1[1];
-    const dot02 = v0[0] * v2[0] + v0[1] * v2[1];
-    const dot11 = v1[0] * v1[0] + v1[1] * v1[1];
-    const dot12 = v1[0] * v2[0] + v1[1] * v2[1];
-    const invDenom = 1 / (dot00 * dot11 - dot01 * dot01);
-    const u = (dot11 * dot02 - dot01 * dot12) * invDenom;
-    const v = (dot00 * dot12 - dot01 * dot02) * invDenom;
-    return u >= -1e-6 && v >= -1e-6 && u + v <= 1 + 1e-6;
-  };
-
-  const applyMatrix = (m: [number, number, number, number, number, number], p: [number, number]) => ([
-    m[0] * p[0] + m[1] * p[1] + m[2],
-    m[3] * p[0] + m[4] * p[1] + m[5]
-  ] as [number, number]);
-
-  const barycentric = (p: [number, number], a: [number, number], b: [number, number], c: [number, number]) => {
-    const v0 = [b[0] - a[0], b[1] - a[1]];
-    const v1 = [c[0] - a[0], c[1] - a[1]];
-    const v2 = [p[0] - a[0], p[1] - a[1]];
-    const d00 = v0[0] * v0[0] + v0[1] * v0[1];
-    const d01 = v0[0] * v1[0] + v0[1] * v1[1];
-    const d11 = v1[0] * v1[0] + v1[1] * v1[1];
-    const d20 = v2[0] * v0[0] + v2[1] * v0[1];
-    const d21 = v2[0] * v1[0] + v2[1] * v1[1];
-    const denom = d00 * d11 - d01 * d01;
-    if (!denom) return null;
-    const v = (d11 * d20 - d01 * d21) / denom;
-    const w = (d00 * d21 - d01 * d20) / denom;
-    const u = 1 - v - w;
-    return [u, v, w] as [number, number, number];
-  };
-
-  const normalizeVec = (v: [number, number, number]) => {
-    const len = Math.hypot(v[0], v[1], v[2]) || 1;
-    return [v[0] / len, v[1] / len, v[2] / len] as [number, number, number];
-  };
-
-  const toLonLat = (v: [number, number, number]) => {
-    const lon = Math.atan2(v[2], v[0]) * (180 / Math.PI);
-    const lat = Math.asin(Math.max(-1, Math.min(1, v[1]))) * (180 / Math.PI);
-    return [lon, lat] as [number, number];
-  };
 
   faces.forEach((face) => {
     const verts = isBlender
@@ -346,13 +301,15 @@ export const saveMapConfig = (params: WorldParams, world?: WorldData) => {
   linkElement.click();
 };
 
-const validateWorldParams = (params: unknown): params is Record<string, unknown> => {
+export const validateWorldParams = (params: unknown): params is Record<string, unknown> => {
     if (typeof params !== 'object' || params === null || Array.isArray(params)) {
         return false;
     }
     const p = params as Record<string, unknown>;
     const numericBounds: Record<string, [number, number]> = {
-        points: [2000, 1000000],
+        // Upper bound matches the UI maximum: generation is single-threaded
+        // and larger worlds freeze the tab
+        points: [2000, 200000],
         plates: [2, 50],
         seaLevel: [0.1, 0.9],
         roughness: [0, 1],
@@ -398,6 +355,28 @@ const validateWorldParams = (params: unknown): params is Record<string, unknown>
     return true;
 };
 
+// Shape-check imported civData so a hand-edited or corrupt file can't crash
+// the restore loop or downstream rendering. Params are bounds-checked above;
+// civData is metadata (names/colors) so a failed check degrades gracefully
+// to "load terrain without metadata" rather than rejecting the file.
+export const validateCivData = (civData: unknown): civData is CivData => {
+    if (typeof civData !== 'object' || civData === null) return false;
+    const c = civData as { factions?: unknown };
+    if (!Array.isArray(c.factions)) return false;
+    return c.factions.every((f: unknown) => {
+        if (typeof f !== 'object' || f === null) return false;
+        const fac = f as Record<string, unknown>;
+        if (typeof fac.id !== 'number' || typeof fac.name !== 'string') return false;
+        if (typeof fac.color !== 'string' || typeof fac.capitalId !== 'number') return false;
+        if (!Array.isArray(fac.provinces)) return false;
+        return fac.provinces.every((p: unknown) => {
+            if (typeof p !== 'object' || p === null) return false;
+            const prov = p as Record<string, unknown>;
+            return typeof prov.id === 'number' && typeof prov.name === 'string' && Array.isArray(prov.towns);
+        });
+    });
+};
+
 export const loadMapConfig = async (file: File): Promise<LoadedMap | null> => {
     return new Promise((resolve) => {
         const reader = new FileReader();
@@ -411,9 +390,17 @@ export const loadMapConfig = async (file: File): Promise<LoadedMap | null> => {
                         resolve(null);
                         return;
                     }
+                    let civData: CivData | undefined;
+                    if (json.civData != null) {
+                        if (validateCivData(json.civData)) {
+                            civData = json.civData;
+                        } else {
+                            console.error("Ignoring malformed civData in config file; loading terrain only");
+                        }
+                    }
                     resolve({
                         params: json.params as unknown as WorldParams,
-                        civData: json.civData
+                        civData
                     });
                 } else if (json.points) {
                     if (!validateWorldParams(json)) {
@@ -449,7 +436,7 @@ export const getSavedMaps = (): SavedMapEntry[] => {
     try {
         const raw = localStorage.getItem(LS_KEY);
         return raw ? JSON.parse(raw) : [];
-    } catch(e) {
+    } catch {
         return [];
     }
 };
@@ -467,7 +454,7 @@ export const saveMapToBrowser = (name: string, params: WorldParams, civData?: Ci
         }
         localStorage.setItem(LS_KEY, JSON.stringify(current));
         return true;
-    } catch (e) {
+    } catch {
         return false;
     }
 };
