@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import type { GoogleGenAI } from "@google/genai";
 import { WorldData, LoreData } from "../types";
 
 let ai: GoogleGenAI | null = null;
@@ -9,26 +9,26 @@ export const setRuntimeApiKey = (key: string) => {
     ai = null; // Reset instance to use new key
 };
 
-const getAI = () => {
+// The Gemini client is dynamically imported so ~200 kB of SDK stays out of
+// the main bundle until the user actually generates lore.
+const getAI = async (): Promise<GoogleGenAI | null> => {
     if (ai) return ai;
     const key = runtimeKey || process.env.GEMINI_API_KEY || '';
     if (!key) return null;
+    const { GoogleGenAI } = await import("@google/genai");
     ai = new GoogleGenAI({ apiKey: key });
     return ai;
 };
 
 export const generateWorldLore = async (world: WorldData): Promise<LoreData> => {
-  const aiInstance = getAI();
+  const aiInstance = await getAI();
   if (!aiInstance) {
-    return {
-      name: "Lore Disabled",
-      description: "Please provide a Gemini API Key in the System settings to enable AI features.",
-    };
+    throw new Error("No Gemini API key configured — add one in the Sys tab (or set GEMINI_API_KEY at build time).");
   }
-  
+
   const level = world.params.loreLevel;
   const civs = world.civData;
-  if (!civs) return { name: "Wilderness", description: "No civilization data." };
+  if (!civs) throw new Error("No civilization data — generate a world first.");
 
   // Prepare minimal context to save tokens
   const factionSummaries = civs.factions.map(f => {
@@ -94,9 +94,6 @@ export const generateWorldLore = async (world: WorldData): Promise<LoreData> => 
   }
 
   try {
-    const aiInstance = getAI();
-    if (!aiInstance) throw new Error("GoogleGenAI not initialized. API Key likely missing.");
-
     const response = await aiInstance.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
@@ -106,50 +103,59 @@ export const generateWorldLore = async (world: WorldData): Promise<LoreData> => 
     });
 
     const text = response.text;
-    if (!text) throw new Error("No response text");
-    const json = JSON.parse(text);
+    if (!text) throw new Error("Gemini returned an empty response.");
+    const json = JSON.parse(text) as {
+        worldName?: unknown;
+        description?: unknown;
+        factions?: unknown;
+    };
 
-    // Apply names back to WorldData (Mutating the object in memory)
-    if (json.factions && world.civData) {
-        json.factions.forEach((fJson: { id: number, name: string, description: string, capitalName?: string, provinceNames?: string[] }) => {
+    // Apply names back to WorldData (mutating the object in memory).
+    // The model's output is untrusted: validate every field before applying
+    // so a malformed response never corrupts civData.
+    if (Array.isArray(json.factions) && world.civData) {
+        json.factions.forEach((fJson: { id?: unknown, name?: unknown, description?: unknown, capitalName?: unknown, provinceNames?: unknown }) => {
+            if (typeof fJson?.id !== 'number') return;
             const fData = world.civData!.factions.find(f => f.id === fJson.id);
-            if (fData) {
-                fData.name = fJson.name;
-                fData.description = fJson.description;
-                // Apply Capital Name
-                if (fData.provinces.length > 0 && fData.provinces[0].towns.length > 0) {
-                     // Usually province 0 is capital province in our gen
-                     const capTown = fData.provinces[0].towns.find(t => t.isCapital);
-                     if (capTown) capTown.name = fJson.capitalName;
-                }
-                
-                // Apply Province Names
-                if (fJson.provinceNames && Array.isArray(fJson.provinceNames)) {
-                    fData.provinces.forEach((p, idx) => {
-                if (fJson.provinceNames[idx]) {
-                            p.name = fJson.provinceNames[idx];
-                            // Name the main town same as province for simplicity if Level 2
-                            if (p.towns.length > 0 && !p.towns[0].isCapital) {
-                                p.towns[0].name = p.name + " City";
-                            }
+            if (!fData) return;
+
+            if (typeof fJson.name === 'string' && fJson.name) fData.name = fJson.name;
+            if (typeof fJson.description === 'string') fData.description = fJson.description;
+
+            // Apply Capital Name (province 0 is the capital province in our gen)
+            if (typeof fJson.capitalName === 'string' && fJson.capitalName &&
+                fData.provinces.length > 0 && fData.provinces[0].towns.length > 0) {
+                const capTown = fData.provinces[0].towns.find(t => t.isCapital);
+                if (capTown) capTown.name = fJson.capitalName;
+            }
+
+            // Apply Province Names
+            if (Array.isArray(fJson.provinceNames)) {
+                const provinceNames = fJson.provinceNames;
+                fData.provinces.forEach((p, idx) => {
+                    const pName = provinceNames[idx];
+                    if (typeof pName === 'string' && pName) {
+                        p.name = pName;
+                        // Name the main town same as province for simplicity if Level 2
+                        if (p.towns.length > 0 && !p.towns[0].isCapital) {
+                            p.towns[0].name = p.name + " City";
                         }
-                    });
-                }
+                    }
+                });
             }
         });
     }
 
     return {
-        name: json.worldName || "Unnamed",
-        description: json.description || "No description."
+        name: typeof json.worldName === 'string' && json.worldName ? json.worldName : "Unnamed",
+        description: typeof json.description === 'string' && json.description ? json.description : "No description."
     };
 
   } catch (error) {
+    // Surface the failure to the caller (App shows it in the console log);
+    // never return sentinel lore that looks like a successful result.
     console.error("Gemini Error:", error);
-    return {
-      name: "Error World",
-      description: "Lore generation failed."
-    };
+    throw error instanceof Error ? error : new Error(String(error));
   }
 };
 

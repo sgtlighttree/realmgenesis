@@ -148,10 +148,25 @@ export interface CivData {
     factions: FactionData[];
 }
 
+// Minimal GeoJSON shape for the cached d3-geo-voronoi polygons.
+// Feature index i corresponds to WorldData.cells[i]. Structurally
+// compatible with d3's ExtendedFeature so features can be passed to
+// d3.geoPath generators without casts.
+export interface GeoJsonFeature {
+  type: 'Feature';
+  geometry: { type: 'Polygon'; coordinates: number[][][] } | null;
+  properties: Record<string, unknown> | null;
+}
+
+export interface GeoJsonCollection {
+  type: 'FeatureCollection';
+  features: GeoJsonFeature[];
+}
+
 export interface WorldData {
   cells: Cell[];
   params: WorldParams;
-  geoJson: Record<string, unknown>; // Cached for export
+  geoJson: GeoJsonCollection; // Cached for export
   civData?: CivData;
   rivers?: Point[][]; // Array of paths for smooth river rendering
 }

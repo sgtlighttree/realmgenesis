@@ -1,7 +1,7 @@
 import { geoVoronoi } from 'd3-geo-voronoi';
-import { Cell, Point, WorldData, WorldParams, BiomeType, CivData, FactionData, ProvinceData, TownData } from '../types';
+import { Cell, Point, WorldData, WorldParams, BiomeType, FactionData } from '../types';
 import { RNG, SimplexNoise } from './rng';
-import { BIOME_COLORS, FACTION_COLORS } from './colors';
+import { FACTION_COLORS } from './colors';
 
 // --- DATA STRUCTURES ---
 
@@ -489,7 +489,9 @@ function enforceConnectivity(cells: Cell[], numPlates: number) {
 // --- GEOGRAPHY GENERATION ---
 
 export async function generateWorld(params: WorldParams, onLog?: (msg: string) => void, signal?: AbortSignal, onProgress?: (stage: number, total: number) => void): Promise<WorldData> {
-  const TOTAL_STAGES = 8;
+  // Must equal the number of progress() calls below (the erosion tick fires
+  // even when erosion is skipped) so the bar reaches 100%
+  const TOTAL_STAGES = 7;
   let stage = 0;
   const progress = () => onProgress?.(++stage, TOTAL_STAGES);
 
@@ -666,8 +668,12 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
       plateHeights[i] = isLand ? (landLevel + pRng.next() * 0.3) : (oceanLevel + pRng.next() * 0.3);
   }
 
+  // detailLevel is the FBM octave count for the structural terrain noise
+  // (default 3 = the historical hardcoded value, so default worlds are unchanged)
+  const octaves = Math.min(8, Math.max(1, Math.round(params.detailLevel ?? 3)));
+
   cells.forEach(c => {
-      const fbmVal = fbm(simplex, c.center.x * freq, c.center.y * freq, c.center.z * freq, 3, 0.5, 2.0);
+      const fbmVal = fbm(simplex, c.center.x * freq, c.center.y * freq, c.center.z * freq, octaves, 0.5, 2.0);
       const ridgedVal = ridgedNoise(simplex, c.center.x * freq, c.center.y * freq, c.center.z * freq, 3, 2.0);
       const ridgedRemapped = (ridgedVal * 2.0) - 1.0;
       const blend = params.ridgeBlend === undefined ? 0 : params.ridgeBlend;
@@ -709,9 +715,9 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   cells.forEach(c => c.height = (c.height - minH) / range);
 
   // EROSION
+  progress();
   if (params.erosionIterations > 0) {
       onLog?.(`Eroding Terrain (${params.erosionIterations} iter)...`);
-      progress();
       await new Promise(r => setTimeout(r, 0));
       checkAbort(signal);
 
@@ -863,18 +869,22 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
     }
 
     const capitals: number[] = [];
-    const minDist = (world.cells.length / numFactions) * params.capitalSpacing * 0.5; 
-    
+    // Scale-independent minimum separation: at spacing 1.0 the squared-chord
+    // threshold is 4/numFactions (approaching an even spread over the sphere);
+    // at 0 capitals may land anywhere. The old formula scaled with cell count
+    // and effectively never rejected candidates on smaller maps.
+    const minChordSq = (params.capitalSpacing ?? 0.5) ** 2 * (4 / numFactions);
+
     let attempts = 0;
     while(capitals.length < numFactions && attempts < 1000) {
         attempts++;
         const candidate = candidates[Math.floor(civRng.next() * candidates.length)];
-        
+
         let tooClose = false;
         for(const capId of capitals) {
             const cap = world.cells[capId];
             const d = (candidate.center.x - cap.center.x)**2 + (candidate.center.y - cap.center.y)**2 + (candidate.center.z - cap.center.z)**2;
-            if (d < minDist * 0.0001) { 
+            if (d < minChordSq) {
                 tooClose = true;
                 break;
             }
@@ -895,11 +905,14 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
         }
     }
 
-    // Per-faction expansion budgets: civSizeVariance spreads how far each
-    // faction's Dijkstra frontier may reach (0 = all equal, 1 = ~0.25x-2x spread)
+    // civSizeVariance: per-faction competitive movement-cost scaling.
+    // A faction with a larger size factor pays proportionally less per cell,
+    // so it wins Dijkstra frontier races against neighbors and grows bigger.
+    // Cost scaling (rather than an absolute budget) works at any map
+    // resolution because expansion is competitive, not distance-capped.
     const sizeVariance = params.civSizeVariance ?? 0;
-    const budgets = capitals.map(() =>
-        200 * Math.min(2, Math.max(0.25, 1 + (civRng.next() * 2 - 1) * sizeVariance))
+    const costMult = capitals.map(() =>
+        1 / Math.min(2, Math.max(0.25, 1 + (civRng.next() * 2 - 1) * sizeVariance))
     );
 
     const pq = new MinHeap<{id: number, cost: number, region: number}>(x => x.cost);
@@ -918,7 +931,7 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
         const { id, cost, region } = pq.pop()!;
         if (world.cells[id].regionId !== undefined && world.cells[id].regionId !== region) continue;
         world.cells[id].regionId = region;
-        if (cost > budgets[region]) continue;
+        if (cost > 200) continue;
         const currCell = world.cells[id];
         for(const nId of currCell.neighbors) {
             const nCell = world.cells[nId];
@@ -930,7 +943,8 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
             moveCost += slope * 20;
             const isWater = nCell.height < params.seaLevel;
             if (isWater) moveCost = waterCost;
-            moveCost *= (1 + (civRng.next() * params.borderRoughness)); 
+            moveCost *= (1 + (civRng.next() * params.borderRoughness));
+            moveCost *= costMult[region];
             const newCost = cost + moveCost;
             if (isWater && newCost > territorialRange) continue;
             if (!costs.has(nId) || newCost < costs.get(nId)!) {
@@ -989,6 +1003,9 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
         }
         if (coast) suitability += 0.3;
         if (c.height > 0.6) suitability -= (c.height - 0.6) * 2;
+        // High peaks could drive suitability negative, producing negative
+        // populations that silently deflated faction totals
+        suitability = Math.max(0, suitability);
         c.population = Math.floor(suitability * 10000 * (0.8 + provRng.next() * 0.4));
     });
 
