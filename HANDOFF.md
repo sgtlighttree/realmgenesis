@@ -13,13 +13,67 @@ React 19, Three.js/R3F, Canvas2D, d3 geo tooling, and Gemini BYOK lore support.
 There is no backend.
 
 - Dev server: `npm run dev` on port 3000
-- Quality gates: `npm run build` and `npm run lint`
-- No test framework or formatter is configured
+- Quality gates (all enforced in CI): `npm run lint`, `npm run typecheck`,
+  `npm test`, `npm run build`
+- Vitest engine suite in `tests/`; no formatter is configured
 - Deployment target: Netlify static SPA
 
 ---
 
 ## Work Completed In This Session
+
+### Audit Hardening Batch (remaining AUDIT.md items)
+
+- **CI added**: `.github/workflows/ci.yml` runs lint + typecheck + test + build
+  on pushes to main and all PRs.
+- **TypeScript strict mode enabled** (`"strict": true`); zero errors. Added
+  `@types/d3`, `@types/react`, `@types/react-dom` and a local `vendor.d.ts`
+  shim for `d3-geo-projection` / `d3-geo-voronoi` (no registry types).
+  `WorldData.geoJson` is now a typed `GeoJsonCollection` (d3-compatible).
+- **Vitest suite added** (`tests/`, 35 tests, ~2 s): RNG determinism, biome
+  classification table, generation determinism/structure/abort/progress,
+  param liveness (fails if any tunable param stops affecting output), paint
+  utils, and import validation. `npm test`.
+- **Engine fixes surfaced by the tests**:
+  - `civSizeVariance` reworked from expansion budgets (which never bound on
+    small maps) to per-faction competitive movement-cost scaling — effective
+    at any map resolution.
+  - Negative cell populations fixed (high-elevation suitability went negative
+    and silently deflated faction totals).
+  - `capitalSpacing` threshold was resolution-dependent and almost never
+    fired; now a scale-independent squared-chord minimum
+    (`spacing^2 * 4 / numFactions`).
+- **Tailwind moved from CDN to the build pipeline** (tailwindcss v3 + PostCSS,
+  `index.css`, purged ~23 kB output). CSP no longer allows any external script
+  host or `unsafe-eval`.
+- **`npm audit fix` applied**: 0 vulnerabilities (was 1 critical / 5 high).
+- **Lore errors surfaced properly**: `generateWorldLore` throws instead of
+  returning sentinel "Error World" lore, and validates the model's JSON field
+  by field before mutating civData. `@google/genai` and `GLTFExporter` are now
+  dynamically imported (smaller main bundle).
+- **Import hardening**: `validateCivData` shape-checks imported civData
+  (malformed metadata degrades to terrain-only load); points input capped at
+  200k (UI + validation) to match the slider and avoid main-thread freezes.
+- **`detailLevel` implemented** as the FBM octave count with a "Detail
+  Octaves" Geo slider (default 3 = historical hardcoded value, so default
+  worlds are unchanged).
+- **Misc**: progress bar reaches exactly 100% (7 ticks / TOTAL_STAGES 7);
+  Map2D caption reflects Mercator vs Dymaxion; `ExportResolution` type matches
+  the UI (2K/4K/8K); shared Dymaxion geo helpers consolidated into
+  `utils/geo.ts`; unused imports removed; lint script has a
+  `--max-warnings 30` ratchet (remaining warnings are documented-intentional
+  R3F `any`s and hook-dep patterns).
+
+Validation this session: `npm run lint`, `npm run typecheck`, `npm test`
+(35/35), `npm run build`, plus a Playwright pass with the bundled Tailwind:
+fully styled UI, globe + Dymaxion rendering, new Geo sliders present,
+Dymaxion caption correct, no console errors.
+
+---
+
+## Previous Session
+
+
 
 ### New Features (from AUDIT.md open questions)
 

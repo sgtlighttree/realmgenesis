@@ -1,0 +1,76 @@
+import { describe, it, expect } from 'vitest';
+import { generateWorld } from '../utils/worldGen';
+import { WorldParams } from '../types';
+import { makeParams, terrainSignature, civSignature } from './helpers';
+
+// Every tunable parameter must provably influence the generated world.
+// This guards against "dead slider" regressions (a UI control bound to a
+// param the engine never reads — see AUDIT.md finding A3).
+//
+// Display-only params are explicitly allowlisted:
+//   mapName        – filename/label only
+//   planetRadius   – documented display-only
+//   loreLevel      – only affects the Gemini prompt
+//   civSeed/seed   – covered by their own cases below
+
+type Perturbation = Partial<WorldParams>;
+
+// Terrain-layer params: expect height/biome/temp/moisture changes
+const TERRAIN_PERTURBATIONS: Record<string, Perturbation> = {
+  seed: { seed: 'other_seed' },
+  points: { points: 320 },
+  plates: { plates: 12 },
+  seaLevel: { seaLevel: 0.45 },
+  roughness: { roughness: 0.9 },
+  detailLevel: { detailLevel: 1 },
+  landStyle: { landStyle: 'Islands' },
+  cellJitter: { cellJitter: 0.1 },
+  noiseScale: { noiseScale: 1.2 },
+  ridgeBlend: { ridgeBlend: 0.7 },
+  mountainHeight: { mountainHeight: 1.8 },
+  oceanDepth: { oceanDepth: 1.8 },
+  maskType: { maskType: 'Pangea' },
+  warpStrength: { warpStrength: 1.5 },
+  plateInfluence: { plateInfluence: 0.9 },
+  erosionIterations: { erosionIterations: 5 },
+  baseTemperature: { baseTemperature: 10 },
+  poleTemperature: { poleTemperature: -10 },
+  rainfallMultiplier: { rainfallMultiplier: 2.5 },
+  moistureTransport: { moistureTransport: 0.9 },
+  temperatureVariance: { temperatureVariance: 15 },
+  axialTilt: { axialTilt: 60 },
+};
+
+// Civ-layer params: expect regionId/provinceId/population changes
+const CIV_PERTURBATIONS: Record<string, Perturbation> = {
+  civSeed: { civSeed: 'other_civs' },
+  numFactions: { numFactions: 2 },
+  borderRoughness: { borderRoughness: 0.9 },
+  civSizeVariance: { civSizeVariance: 1.0 },
+  waterCrossingCost: { waterCrossingCost: 0.1 },
+  territorialWaters: { territorialWaters: 0.9 },
+  capitalSpacing: { capitalSpacing: 1.0 },
+  provinceSize: { provinceSize: 0.1 },
+};
+
+describe('every tunable param influences the world', () => {
+  it('terrain params change the terrain signature', async () => {
+    const baseline = await generateWorld(makeParams());
+    const baseSig = terrainSignature(baseline);
+
+    for (const [name, perturbation] of Object.entries(TERRAIN_PERTURBATIONS)) {
+      const world = await generateWorld(makeParams(perturbation));
+      expect(terrainSignature(world), `param "${name}" appears to be dead — output unchanged`).not.toBe(baseSig);
+    }
+  }, 120000);
+
+  it('civ params change the civilization signature', async () => {
+    const baseline = await generateWorld(makeParams());
+    const baseSig = civSignature(baseline);
+
+    for (const [name, perturbation] of Object.entries(CIV_PERTURBATIONS)) {
+      const world = await generateWorld(makeParams(perturbation));
+      expect(civSignature(world), `param "${name}" appears to be dead — output unchanged`).not.toBe(baseSig);
+    }
+  }, 120000);
+});
