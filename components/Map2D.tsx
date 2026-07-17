@@ -877,10 +877,15 @@ const Map2D: React.FC<{
       roll: dymaxionRoll,
     });
     ctx.putImageData(output, 0, 0);
+    // The pick buffer encodes cell IDs from the world's structure (cells +
+    // geoJson are stable references across paint strokes), so keying on
+    // world.cells instead of world identity skips a full-canvas per-pixel
+    // reprojection on every stroke event while painting
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     size.width,
     size.height,
-    world,
+    world?.cells,
     projectionType,
     dymaxionLayout,
     dymaxionLon,
