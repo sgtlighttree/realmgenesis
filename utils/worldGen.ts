@@ -1,5 +1,5 @@
 import { geoVoronoi } from 'd3-geo-voronoi';
-import { Cell, Point, WorldData, WorldParams, BiomeType, FactionData } from '../types';
+import { Cell, LakeData, Point, WorldData, WorldParams, BiomeType, FactionData } from '../types';
 import { RNG, SimplexNoise } from './rng';
 import { FACTION_COLORS } from './colors';
 import { createNameGenerator, NameStyle } from './namegen';
@@ -240,9 +240,15 @@ async function applyThermalErosion(cells: Cell[], iterations: number, signal?: A
     }
 }
 
+// Lakes are land-height depressions, not ocean. Civ suitability, drainage, and
+// coast checks must treat them as water even though height >= seaLevel.
+export function isLakeCell(cell: Cell): boolean {
+  return cell.biome === BiomeType.LAKE || cell.biome === BiomeType.SALT_LAKE;
+}
+
 // --- RIVER GENERATION ---
 
-async function generateRivers(cells: Cell[], seaLevel: number, params: WorldParams, onProgress?: (msg: string) => void, signal?: AbortSignal): Promise<Point[][]> {
+async function generateRivers(cells: Cell[], seaLevel: number, params: WorldParams, onProgress?: (msg: string) => void, signal?: AbortSignal): Promise<{ rivers: Point[][]; lakes: LakeData[] }> {
     const numCells = cells.length;
     onProgress?.("Rivers: Initializing drainage map...");
     await new Promise(r => setTimeout(r, 0));
@@ -267,7 +273,7 @@ async function generateRivers(cells: Cell[], seaLevel: number, params: WorldPara
 
     if (oceanCount === 0) {
         onProgress?.("Warning: No ocean found. River generation skipped.");
-        return [];
+        return { rivers: [], lakes: [] };
     }
 
     let processed = 0;
@@ -299,6 +305,67 @@ async function generateRivers(cells: Cell[], seaLevel: number, params: WorldPara
         }
     }
 
+    // 1b. Surface depressions as lakes.
+    // A land cell whose enforced water level sits above its own terrain is
+    // flooded — the fill pooled water there. Group contiguous flooded land
+    // cells into discrete lakes, then classify and stamp their biome so it
+    // wins over the earlier terrestrial assignment. EPS guards float equality
+    // (a freely-draining cell settles at exactly its own height).
+    const EPS = 1e-9;
+    const lakes: LakeData[] = [];
+    const isFlooded = (id: number) => cells[id].height >= seaLevel && waterLevel[id] > cells[id].height + EPS;
+    const lakeVisited = new Uint8Array(numCells);
+
+    for (let s = 0; s < numCells; s++) {
+        if (lakeVisited[s] || !isFlooded(s)) continue;
+        // BFS the flooded component on the cell adjacency graph.
+        const group: number[] = [];
+        const stack = [s];
+        lakeVisited[s] = 1;
+        while (stack.length > 0) {
+            const id = stack.pop()!;
+            group.push(id);
+            for (const nId of cells[id].neighbors) {
+                if (!lakeVisited[nId] && isFlooded(nId)) {
+                    lakeVisited[nId] = 1;
+                    stack.push(nId);
+                }
+            }
+        }
+
+        const groupSet = new Set(group);
+        let surfaceLevel = 0;
+        let sumTemp = 0;
+        let sumMoist = 0;
+        // Outflow: the basin spills through one sill cell whose downstream
+        // pointer leaves the lake toward the ocean. That neighbour is the pour
+        // point just outside the lake (null only if the basin never drains).
+        let outflowCellId: number | null = null;
+        for (const id of group) {
+            surfaceLevel = Math.max(surfaceLevel, waterLevel[id]);
+            sumTemp += cells[id].temperature;
+            sumMoist += cells[id].moisture;
+            const d = downstream[id];
+            if (outflowCellId === null && d !== -1 && !groupSet.has(d)) outflowCellId = d;
+        }
+
+        const meanTemp = sumTemp / group.length;
+        const meanMoist = sumMoist / group.length;
+        // Salt lakes form where a closed/arid basin loses water to evaporation
+        // faster than inflow, concentrating dissolved salts. Model that as a
+        // hot + dry basin: mean temp above ~18C and mean moisture below ~0.3.
+        const isSalt = meanTemp > 18 && meanMoist < 0.3;
+        // Priority-Flood gives every filled basin a spill point, so a truly
+        // outflow-less basin is rare; a salt (evaporative) basin is a terminal
+        // sink regardless, so it also reads as endorheic.
+        const isEndorheic = outflowCellId === null || isSalt;
+
+        const biome = isSalt ? BiomeType.SALT_LAKE : BiomeType.LAKE;
+        for (const id of group) cells[id].biome = biome;
+
+        lakes.push({ id: lakes.length, cellIds: group, surfaceLevel, outflowCellId, isEndorheic, isSalt });
+    }
+
     onProgress?.("Rivers: Accumulating flux...");
     await new Promise(r => setTimeout(r, 0));
     checkAbort(signal);
@@ -325,7 +392,9 @@ async function generateRivers(cells: Cell[], seaLevel: number, params: WorldPara
     const visited = new Set<number>();
     const riverPaths: Point[][] = [];
     
-    const candidates = sortedIndices.filter(i => flux[i] > threshold && cells[i].height >= seaLevel);
+    // Rivers must not start inside a lake — flux routes through the basin to
+    // the outflow, where a fresh segment restarts on its own downstream path.
+    const candidates = sortedIndices.filter(i => flux[i] > threshold && cells[i].height >= seaLevel && !isLakeCell(cells[i]));
 
     const getRenderPoint = (c: Cell) => {
         const r = 1 + c.height * 0.05 + 0.005;
@@ -349,9 +418,14 @@ async function generateRivers(cells: Cell[], seaLevel: number, params: WorldPara
             visited.add(curr);
             
             const next = downstream[curr];
-            if (next === -1) break; 
-            
+            if (next === -1) break;
+
             if (cells[next].height < seaLevel) {
+                path.push(getRenderPoint(cells[next]));
+                break;
+            }
+            // Cut the polyline at the lake shore; the interior is open water.
+            if (isLakeCell(cells[next])) {
                 path.push(getRenderPoint(cells[next]));
                 break;
             }
@@ -365,8 +439,8 @@ async function generateRivers(cells: Cell[], seaLevel: number, params: WorldPara
         if (path.length >= 2) riverPaths.push(path);
     }
     
-    onProgress?.(`Rivers: Generated ${riverPaths.length} segments.`);
-    return riverPaths;
+    onProgress?.(`Rivers: Generated ${riverPaths.length} segments, ${lakes.length} lakes.`);
+    return { rivers: riverPaths, lakes };
 }
 
 // --- BIOME ---
@@ -832,8 +906,8 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   });
 
   progress();
-  const rivers = await generateRivers(cells, params.seaLevel, params, onLog, signal);
-  const world: WorldData = { cells, params, geoJson: polygons, rivers };
+  const { rivers, lakes } = await generateRivers(cells, params.seaLevel, params, onLog, signal);
+  const world: WorldData = { cells, params, geoJson: polygons, rivers, lakes };
 
   progress();
   return recalculateCivs(world, params, onLog);
@@ -861,13 +935,14 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
     const numFactions = params.numFactions;
     const factions: FactionData[] = [];
     
-    const suitable = world.cells.filter(c => 
-        c.height >= params.seaLevel && 
+    const suitable = world.cells.filter(c =>
+        c.height >= params.seaLevel &&
+        !isLakeCell(c) &&
         c.biome !== BiomeType.ICE_CAP &&
         c.biome !== BiomeType.VOLCANIC
     );
-    
-    const candidates = suitable.length > 0 ? suitable : world.cells.filter(c => c.height >= params.seaLevel);
+
+    const candidates = suitable.length > 0 ? suitable : world.cells.filter(c => c.height >= params.seaLevel && !isLakeCell(c));
     
     if (candidates.length === 0) {
         world.civData = { factions: [] };
@@ -947,7 +1022,7 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
             if (nCell.biome === BiomeType.VOLCANIC) moveCost *= 5;
             const slope = Math.abs(nCell.height - currCell.height);
             moveCost += slope * 20;
-            const isWater = nCell.height < params.seaLevel;
+            const isWater = nCell.height < params.seaLevel || isLakeCell(nCell);
             if (isWater) moveCost = waterCost;
             moveCost *= (1 + (civRng.next() * params.borderRoughness));
             moveCost *= costMult[region];
@@ -986,7 +1061,7 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
 
     world.cells.forEach(c => {
         let suitability = 0;
-        if (c.height < params.seaLevel) {
+        if (c.height < params.seaLevel || isLakeCell(c)) {
             c.population = 0;
             return;
         }
@@ -1010,7 +1085,8 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
         if ((c.flux || 0) > 2.0) suitability += 0.2; 
         let coast = false;
         for(const nId of c.neighbors) {
-            if (world.cells[nId].height < params.seaLevel) { coast = true; break; }
+            const n = world.cells[nId];
+            if (n.height < params.seaLevel || isLakeCell(n)) { coast = true; break; }
         }
         if (coast) suitability += 0.3;
         if (c.height > 0.6) suitability -= (c.height - 0.6) * 2;
@@ -1023,7 +1099,7 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
     world.civData.factions.forEach(faction => {
         faction.provinces = [];
         faction.totalPopulation = 0;
-        const landCells = world.cells.filter(c => c.regionId === faction.id && c.height >= params.seaLevel);
+        const landCells = world.cells.filter(c => c.regionId === faction.id && c.height >= params.seaLevel && !isLakeCell(c));
         if (landCells.length === 0) return;
         const density = params.provinceSize || 0.5; 
         const targetSize = 20 + density * 100; 

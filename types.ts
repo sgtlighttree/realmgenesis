@@ -56,6 +56,10 @@ export enum BiomeType {
   // Special
   BEACH = 'Beach',
   VOLCANIC = 'Volcanic',
+
+  // Hydrology (derived — assigned after biome classification, never by classifyBiome)
+  LAKE = 'Lake',
+  SALT_LAKE = 'Salt Lake',
 }
 
 export type LandStyle = 'Continents' | 'Archipelago' | 'Islands' | 'Pangea' | 'Custom';
@@ -166,12 +170,24 @@ export interface GeoJsonCollection {
   features: GeoJsonFeature[];
 }
 
+// A filled depression surfaced as a first-class water body. Derived from the
+// Priority-Flood drainage solve in generateRivers — deterministic from terrain.
+export interface LakeData {
+  id: number;
+  cellIds: number[]; // contiguous flooded land cells forming the lake
+  surfaceLevel: number; // filled water level (spill elevation), normalized 0-1
+  outflowCellId: number | null; // land cell just outside the sill the lake spills to; null if none
+  isEndorheic: boolean; // no surface drainage to the ocean (arid evaporative sink or no spill)
+  isSalt: boolean; // hot + arid basin — concentrates salt via evaporation
+}
+
 export interface WorldData {
   cells: Cell[];
   params: WorldParams;
   geoJson: GeoJsonCollection; // Cached for export
   civData?: CivData;
   rivers?: Point[][]; // Array of paths for smooth river rendering
+  lakes?: LakeData[];
 }
 
 export type DisplayMode = 'globe' | 'mercator' | 'dymaxion';
