@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode, DymaxionSettings, DymaxionControlMode, LabelVisibility } from '../types';
 import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Box, Copy, Check, Users, Landmark } from 'lucide-react';
 import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
+import { NAME_STYLES, NameStyle } from '../utils/namegen';
 import { exportGLB } from '../utils/exportGLB';
 import { WorldData } from '../types';
 import DymaxionPreview2D from './DymaxionPreview2D';
@@ -1053,6 +1054,21 @@ const Controls: React.FC<ControlsProps> = ({
                   ))}
                 </div>
               )}
+
+              {/* Name Style */}
+              <div className="space-y-1 border-t border-gray-800 pt-3">
+                  <label className="text-xs text-gray-400 block mb-1">Name Style</label>
+                  <select
+                     value={params.nameStyle || 'fantasy'}
+                     onChange={(e) => { handleChange('nameStyle', e.target.value as NameStyle); }}
+                     className="w-full bg-gray-800 text-white text-xs border border-gray-700 p-2"
+                  >
+                     {NAME_STYLES.map(style => (
+                       <option key={style} value={style}>{style.charAt(0).toUpperCase() + style.slice(1)}</option>
+                     ))}
+                  </select>
+                  <p className="text-[9px] text-gray-500">Applies on Reroll Borders or regeneration.</p>
+              </div>
 
               {/* Lore Level */}
               <div className="space-y-1 border-t border-gray-800 pt-3">

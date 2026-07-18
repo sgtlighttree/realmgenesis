@@ -1,3 +1,4 @@
+import { NameStyle } from './utils/namegen';
 
 export interface Point {
   x: number;
@@ -115,6 +116,8 @@ export interface WorldParams {
   capitalSpacing: number; 
   provinceSize: number; // 0.1 (Small) to 1.0 (Huge)
   
+  nameStyle: NameStyle;
+
   // Meta
   loreLevel: 1 | 2 | 3;
 }

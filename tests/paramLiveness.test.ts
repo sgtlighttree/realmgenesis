@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateWorld } from '../utils/worldGen';
 import { WorldParams } from '../types';
-import { makeParams, terrainSignature, civSignature } from './helpers';
+import { makeParams, terrainSignature, civSignature, nameSignature } from './helpers';
 
 // Every tunable parameter must provably influence the generated world.
 // This guards against "dead slider" regressions (a UI control bound to a
@@ -72,5 +72,20 @@ describe('every tunable param influences the world', () => {
       const world = await generateWorld(makeParams(perturbation));
       expect(civSignature(world), `param "${name}" appears to be dead — output unchanged`).not.toBe(baseSig);
     }
+  }, 120000);
+
+  // nameStyle is a labels-only param: it must change the generated names but
+  // must NOT perturb terrain or civ geometry, so it gets its own case rather
+  // than joining CIV_PERTURBATIONS (which asserts civSignature *changes*).
+  it('nameStyle changes names while leaving geometry untouched', async () => {
+    const baseline = await generateWorld(makeParams({ nameStyle: 'fantasy' }));
+    const restyled = await generateWorld(makeParams({ nameStyle: 'norse' }));
+
+    expect(nameSignature(restyled), 'param "nameStyle" appears to be dead — names unchanged')
+      .not.toBe(nameSignature(baseline));
+    expect(civSignature(restyled), 'nameStyle must not alter civ geometry')
+      .toBe(civSignature(baseline));
+    expect(terrainSignature(restyled), 'nameStyle must not alter terrain')
+      .toBe(terrainSignature(baseline));
   }, 120000);
 });

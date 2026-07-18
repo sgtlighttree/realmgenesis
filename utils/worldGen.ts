@@ -2,6 +2,7 @@ import { geoVoronoi } from 'd3-geo-voronoi';
 import { Cell, Point, WorldData, WorldParams, BiomeType, FactionData } from '../types';
 import { RNG, SimplexNoise } from './rng';
 import { FACTION_COLORS } from './colors';
+import { createNameGenerator, NameStyle } from './namegen';
 
 // --- DATA STRUCTURES ---
 
@@ -852,6 +853,11 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
     });
 
     const civRng = new RNG(params.civSeed);
+    // Names draw from a dedicated stream so existing seeds keep identical
+    // terrain and civ geometry — only the labels change.
+    const nameStyle: NameStyle = params.nameStyle ?? 'fantasy';
+    const facNameRng = new RNG(params.civSeed + '_facnames');
+    const nameGen = createNameGenerator(nameStyle, () => facNameRng.next());
     const numFactions = params.numFactions;
     const factions: FactionData[] = [];
     
@@ -896,8 +902,8 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
             candidate.regionId = capitals.length - 1;
             factions.push({
                 id: capitals.length - 1,
-                name: `Faction ${capitals.length}`,
-                color: '#ffffff', 
+                name: nameGen.faction(),
+                color: '#ffffff',
                 capitalId: candidate.id,
                 provinces: [],
                 totalPopulation: 0
@@ -972,6 +978,11 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
 export function recalculateProvinces(world: WorldData, params: WorldParams): WorldData {
     if (!world.civData) return world;
     const provRng = new RNG(params.civSeed + '_prov');
+    // Separate name stream from recalculateCivs so faction names and the first
+    // town name never come out byte-identical; still deterministic from civSeed.
+    const nameStyle: NameStyle = params.nameStyle ?? 'fantasy';
+    const provNameRng = new RNG(params.civSeed + '_provnames');
+    const nameGen = createNameGenerator(nameStyle, () => provNameRng.next());
 
     world.cells.forEach(c => {
         let suitability = 0;
@@ -1045,8 +1056,8 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
             tCell.population = (tCell.population || 0) * 5; 
             faction.provinces.push({
                 id: idx,
-                name: idx === 0 ? "Capital Region" : `Province ${idx}`,
-                towns: [{ name: idx === 0 ? "Capital City" : "Town", cellId: tId, population: tCell.population || 0, isCapital: tId === faction.capitalId }],
+                name: nameGen.province(),
+                towns: [{ name: nameGen.town(), cellId: tId, population: tCell.population || 0, isCapital: tId === faction.capitalId }],
                 totalPopulation: 0
             });
         });

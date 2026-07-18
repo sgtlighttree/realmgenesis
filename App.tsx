@@ -44,6 +44,7 @@ const DEFAULT_PARAMS: WorldParams = {
   territorialWaters: 0.15,
   capitalSpacing: 0.5,
   provinceSize: 0.5,
+  nameStyle: 'fantasy',
   loreLevel: 1,
   seed: 'realmgenesis',
 };
