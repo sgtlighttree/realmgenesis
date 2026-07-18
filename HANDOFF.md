@@ -22,6 +22,53 @@ There is no backend.
 
 ## Work Completed In This Session (Session 3 - 2026-07-18/19)
 
+### "Map identity" milestone — COMPLETE (A1 + A2 + B1 + B3)
+
+All four features of the ROADMAP's recommended first milestone landed this
+session, each gate-verified (typecheck 0 / lint 0 errors at the 30-warning
+ratchet / tests all green / build OK) and browser-verified via Playwright.
+A2/B1/B3 were implemented by delegated Opus subagents and cross-checked by
+the orchestrator. Test suite grew 35 → 52 tests (9 files).
+
+### Feature A2: Offline namebases — COMPLETE
+
+- `utils/namegen.ts`: order-2 char-level Markov generator, 4 embedded styles
+  (fantasy/norse/latin/desert), deterministic from the caller's rng stream.
+- Factions/provinces/towns named via dedicated RNG side-streams
+  (`civSeed + '_facnames'` / `'_provnames'`) — existing seeds keep
+  byte-identical terrain/civ geometry. Gemini is now an optional enhancer.
+- `nameStyle` param + Civ-tab select; old saved configs default to 'fantasy'.
+- Param-liveness proves nameStyle changes names but not geometry.
+
+### Feature B1: Lakes — COMPLETE
+
+- `generateRivers` returns `{ rivers, lakes }`; contiguous flooded land cells
+  (Priority-Flood `waterLevel` above terrain) become `LakeData` entities with
+  surface level, outflow pour-point, endorheic + salt flags.
+- Salt classification is CLIMATE-driven (mean temp >18°C, moisture <0.3) —
+  structural endorheic basins are near-impossible post-Priority-Flood (it
+  always finds a spill), so "endorheic → salt" literally would be dead code.
+- New LAKE/SALT_LAKE biomes render as water in every view (colors.ts);
+  legend auto-picks them up; paint palette excludes them; refreshBiomes
+  preserves them. Rivers cut at lake shores and never start in lakes.
+- Civs treat lakes as water: no capitals/towns/population, water-cost
+  crossing, lake adjacency counts as coast. Heights never mutated.
+- Default seed: 29 lakes / 142 cells. Test seed yields 0 lakes so all
+  pre-existing signatures stay byte-identical.
+
+### Feature B3: Named geographic features — COMPLETE
+
+- `utils/features.ts`: `detectFeatures(world)` BFS-clusters ranges, deserts,
+  forests, oceans/seas, islands; lakes reuse B1 entities 1:1. Read-only, O(n).
+- Names via A2 generator on `params.seed + '_geonames'` (TERRAIN seed, not
+  civSeed) with kind templates ("X Mountains", "Sea of X", "X Flats" for salt
+  lakes). Re-rolling civs never renames terrain — test-enforced.
+- Label integration: 7 new LabelKinds through the A1 pipeline; water labels
+  italic + blued fill; priorities interleave with civ labels in the shared
+  declutter; single `labelVisibility.geography` toggle (default on).
+- Inspector shows "Part of: <feature>". Default seed: 5 ranges, 10 deserts,
+  7 forests, 1 ocean, 4 islands, 29 lakes.
+
 ### Feature A1: Map Labels & Typography — COMPLETE
 
 Multi-tier label system for factions, capitals, provinces, and towns across
@@ -251,10 +298,10 @@ See `ROADMAP.md` for the full detail. Themes, by leverage:
 - **E. Interoperability** — SVG export, GeoJSON export, Azgaar `.map` import
   (stretch).
 
-**Recommended first milestone — "Map identity"**: labels + offline namebases
-+ lakes + named geographic features (A1, A2, B1, B3). Turns the simulation
-viewer into something that reads as a map; consumes data the pipeline already
-computes. A phased implementation design is summarized in `ROADMAP.md`.
+**"Map identity" milestone (A1, A2, B1, B3) SHIPPED in session 3.** The next
+tier per ROADMAP's suggested order: A3 (map styles), A4 (hillshading), A5
+(great-circle ruler + scale bar), B2 (river/lake editing), C3 (roads/trade
+routes), C4 (markers/POIs), E1/E2 (SVG/GeoJSON export).
 
 ---
 
