@@ -34,6 +34,7 @@ export const makeParams = (overrides: Partial<WorldParams> = {}): WorldParams =>
   territorialWaters: 0.15,
   capitalSpacing: 0.5,
   provinceSize: 0.5,
+  nameStyle: 'fantasy',
   loreLevel: 1,
   seed: 'test_seed',
   ...overrides,
@@ -49,4 +50,10 @@ export const terrainSignature = (world: WorldData): string =>
 export const civSignature = (world: WorldData): string =>
   world.cells
     .map(c => `${c.regionId ?? '-'}|${c.provinceId ?? '-'}|${c.population ?? 0}`)
+    .join(';');
+
+// Compact signature of every generated name (factions, provinces, towns).
+export const nameSignature = (world: WorldData): string =>
+  (world.civData?.factions ?? [])
+    .map(f => `${f.name}[${f.provinces.map(p => `${p.name}:${p.towns.map(t => t.name).join(',')}`).join('|')}]`)
     .join(';');

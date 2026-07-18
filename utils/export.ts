@@ -5,6 +5,14 @@ import { buildFactionColorMap, getCellColor } from './colors';
 import { buildDymaxionNet } from './dymaxion';
 import { insideTri, barycentric, normalizeVec, toLonLat, projectToDymaxionNet, Point2 } from './geo';
 import { collectLabels, drawMapLabels } from './labels';
+import { NAME_STYLES, NameStyle } from './namegen';
+
+// Older saved configs predate nameStyle; default them so the generator and
+// the UI select always receive a valid style.
+const withNameStyleDefault = (params: WorldParams): WorldParams => ({
+  ...params,
+  nameStyle: NAME_STYLES.includes(params.nameStyle as NameStyle) ? params.nameStyle : 'fantasy',
+});
 
 // Matches the options offered in the Export tab. 16K+ exceeded browser
 // canvas limits on most devices and was removed from the UI.
@@ -396,6 +404,7 @@ export const validateWorldParams = (params: unknown): params is Record<string, u
     if ('civSeed' in p && typeof p.civSeed !== 'string') return false;
     if ('landStyle' in p && typeof p.landStyle !== 'string') return false;
     if ('maskType' in p && typeof p.maskType !== 'string') return false;
+    if ('nameStyle' in p && typeof p.nameStyle !== 'string') return false;
     if ('loreLevel' in p) {
         const ll = p.loreLevel;
         if (typeof ll !== 'number' || ![1, 2, 3].includes(ll)) return false;
@@ -447,7 +456,7 @@ export const loadMapConfig = async (file: File): Promise<LoadedMap | null> => {
                         }
                     }
                     resolve({
-                        params: json.params as unknown as WorldParams,
+                        params: withNameStyleDefault(json.params as unknown as WorldParams),
                         civData
                     });
                 } else if (json.points) {
@@ -456,7 +465,7 @@ export const loadMapConfig = async (file: File): Promise<LoadedMap | null> => {
                         resolve(null);
                         return;
                     }
-                    resolve({ params: json as unknown as WorldParams });
+                    resolve({ params: withNameStyleDefault(json as unknown as WorldParams) });
                 } else {
                     throw new Error("Invalid structure");
                 }
