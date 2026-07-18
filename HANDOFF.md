@@ -192,6 +192,32 @@ Last successful checks:
 
 ---
 
+## Feature Roadmap (shortlist)
+
+See `ROADMAP.md` for the full detail. Themes, by leverage:
+
+- **A. Cartographic presentation** — map labels/typography, offline Markov
+  namebases (Gemini becomes optional), fantasy map styles, hillshading +
+  contours, great-circle ruler + scale bar, geodesic hex grid.
+- **B. Physical geography** — lakes as first-class entities (the Priority-
+  Flood fill in `generateRivers` already computes them and throws them away),
+  river/lake editing, auto-detected + named ranges/seas/deserts/islands.
+- **C. Worldbuilding depth** — cultures layer, religions, roads + sea trade
+  routes (reuse civ Dijkstra costs), markers/POIs, editor completeness,
+  diplomacy later.
+- **D. Planet-scale simulation** — seasonal cycle from axial tilt, ocean
+  currents feeding climate, ice caps, regional submap generation, planetary
+  parameters. These are the sphere-native differentiators vs. flat-map tools.
+- **E. Interoperability** — SVG export, GeoJSON export, Azgaar `.map` import
+  (stretch).
+
+**Recommended first milestone — "Map identity"**: labels + offline namebases
++ lakes + named geographic features (A1, A2, B1, B3). Turns the simulation
+viewer into something that reads as a map; consumes data the pipeline already
+computes. A phased implementation design is summarized in `ROADMAP.md`.
+
+---
+
 ## Potential Next Tasks
 
 - Manual browser regression pass across 3D, 2D Mercator, and 2D Dymaxion with
