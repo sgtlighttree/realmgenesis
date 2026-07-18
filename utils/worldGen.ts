@@ -3,6 +3,7 @@ import { Cell, LakeData, Point, WorldData, WorldParams, BiomeType, FactionData }
 import { RNG, SimplexNoise } from './rng';
 import { FACTION_COLORS } from './colors';
 import { createNameGenerator, NameStyle } from './namegen';
+import { detectFeatures } from './features';
 
 // --- DATA STRUCTURES ---
 
@@ -908,6 +909,10 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   progress();
   const { rivers, lakes } = await generateRivers(cells, params.seaLevel, params, onLog, signal);
   const world: WorldData = { cells, params, geoJson: polygons, rivers, lakes };
+
+  // Named geographic features are terrain-derived (B3) — detect them before
+  // civs so they never depend on, and are never mutated by, the civ passes.
+  world.features = detectFeatures(world);
 
   progress();
   return recalculateCivs(world, params, onLog);
