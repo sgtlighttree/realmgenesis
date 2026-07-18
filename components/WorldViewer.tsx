@@ -2,8 +2,9 @@ import React, { useMemo, useRef, useEffect, useLayoutEffect, useState, useCallba
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Stars, Line } from '@react-three/drei';
 import * as THREE from 'three';
-import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMode } from '../types';
+import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY } from '../types';
 import { getCellColor } from '../utils/colors';
+import { collectLabels, MapLabel } from '../utils/labels';
 
 const Mesh = 'mesh' as any;
 const Group = 'group' as any;
@@ -17,6 +18,9 @@ const MeshBasicMaterial = 'meshBasicMaterial' as any;
 const LineSegments = 'lineSegments' as any;
 const LineBasicMaterial = 'lineBasicMaterial' as any;
 const IcosahedronGeometry = 'icosahedronGeometry' as any;
+type R3FIntrinsic = React.FC<{ children?: React.ReactNode } & Record<string, unknown>>;
+const Sprite = 'sprite' as unknown as R3FIntrinsic;
+const SpriteMaterial = 'spriteMaterial' as unknown as R3FIntrinsic;
 
 const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ world, viewMode }) => {
     const capitalsRef = useRef<THREE.InstancedMesh>(null);
@@ -273,6 +277,126 @@ const CountryLabels: React.FC<{ world: WorldData; visible: boolean }> = ({ world
     );
 };
 
+const POINT_LABEL_CONFIG: Record<string, { height: number; fontWeight: number; alpha: number; offset: number }> = {
+  // Offsets sit above max terrain displacement (1 + height*0.05 = 1.05) and
+  // the city marker pins (~1.062) so sprites never get depth-clipped by relief.
+  capital: { height: 0.042, fontWeight: 700, alpha: 0.95, offset: 1.1 },
+  province: { height: 0.034, fontWeight: 400, alpha: 0.8, offset: 1.09 },
+  town: { height: 0.028, fontWeight: 400, alpha: 0.7, offset: 1.08 },
+};
+
+// Canvas-texture sprite labels (same recipe as CurvedFactionLabel). The strict
+// CSP (script-src/connect-src 'self') rules out SDF text libraries that spawn
+// blob workers or fetch glyph data from CDNs, so labels stay canvas-rendered.
+const PointLabels: React.FC<{
+  labels: MapLabel[];
+  visibility: LabelVisibility;
+}> = ({ labels, visibility }) => {
+  const groupRef = useRef<THREE.Group>(null);
+  const { camera } = useThree();
+  const worldPos = useMemo(() => new THREE.Vector3(), []);
+  const camDir = useMemo(() => new THREE.Vector3(), []);
+
+  const filteredLabels = useMemo(() =>
+    labels.filter(l => {
+      if (l.kind === 'faction') return false;
+      if (l.kind === 'capital' && !visibility.capitals) return false;
+      if (l.kind === 'province' && !visibility.provinces) return false;
+      if (l.kind === 'town' && !visibility.towns) return false;
+      return true;
+    }),
+    [labels, visibility],
+  );
+
+  const sprites = useMemo(() => {
+    const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
+    return filteredLabels.map((label) => {
+      const config = POINT_LABEL_CONFIG[label.kind] || POINT_LABEL_CONFIG.town;
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const fontSize = 30 * pixelRatio;
+      const paddingX = 10 * pixelRatio;
+      const paddingY = 8 * pixelRatio;
+      const font = `${config.fontWeight} ${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
+
+      if (ctx) {
+        ctx.font = font;
+        const textWidth = Math.ceil(ctx.measureText(label.name).width);
+        canvas.width = Math.max(1, textWidth + paddingX * 2);
+        canvas.height = Math.max(1, fontSize + paddingY * 2);
+        ctx.font = font;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = Math.max(4, 5 * pixelRatio);
+        ctx.strokeStyle = '#020617';
+        ctx.fillStyle = '#f8fafc';
+        ctx.strokeText(label.name, canvas.width / 2, canvas.height / 2);
+        ctx.fillText(label.name, canvas.width / 2, canvas.height / 2);
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.generateMipmaps = false;
+
+      const height = config.height;
+      const width = height * (canvas.width / canvas.height);
+      const position = new THREE.Vector3(label.position.x, label.position.y, label.position.z)
+        .normalize()
+        .multiplyScalar(config.offset);
+
+      return { texture, scale: [width, height, 1] as [number, number, number], position, alpha: config.alpha, kind: label.kind };
+    });
+  }, [filteredLabels]);
+
+  useEffect(() => () => {
+    sprites.forEach(s => s.texture.dispose());
+  }, [sprites]);
+
+  useFrame(() => {
+    if (!groupRef.current) return;
+    camDir.copy(camera.position).normalize();
+    const camDist = camera.position.length();
+
+    groupRef.current.children.forEach((child, i) => {
+      const label = filteredLabels[i];
+      if (!label) return;
+      // Labels live inside the spinning globe group — cull against the
+      // sprite's world-space direction, not its unrotated data position.
+      child.getWorldPosition(worldPos).normalize();
+      let visible = worldPos.dot(camDir) > -0.1;
+
+      if (visible) {
+        if (label.kind === 'town' && camDist > 2) visible = false;
+        else if (label.kind === 'province' && camDist > 3) visible = false;
+        else if (label.kind === 'capital' && camDist > 4) visible = false;
+      }
+
+      child.visible = visible;
+    });
+  });
+
+  if (sprites.length === 0) return null;
+
+  return (
+    <Group ref={groupRef}>
+      {sprites.map((sprite, i) => (
+        <Sprite key={i} position={sprite.position} scale={sprite.scale} renderOrder={8}>
+          <SpriteMaterial
+            map={sprite.texture}
+            transparent
+            opacity={sprite.alpha}
+            depthTest
+            depthWrite={false}
+            toneMapped={false}
+          />
+        </Sprite>
+      ))}
+    </Group>
+  );
+};
+
 const FactionBorders: React.FC<{ world: WorldData; visible: boolean }> = ({ world, visible }) => {
   const geometry = useMemo(() => {
       if (!visible || !world.civData) return null;
@@ -503,14 +627,15 @@ const WorldMesh: React.FC<{
   factionColors?: Map<number, string>;
   brushSize: number;
   selectedCellId?: number | null;
-  showFactionOverlay: boolean;
-}> = ({ world, viewMode, onHover, paused, showGrid, showRivers, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, brushSize, selectedCellId = null, showFactionOverlay }) => {
+  labelVisibility: LabelVisibility;
+}> = ({ world, viewMode, onHover, paused, showGrid, showRivers, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, brushSize, selectedCellId = null, labelVisibility }) => {
   const spinRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const lastUpdate = useRef<number>(0);
   const lastPaintedCell = useRef<number | null>(null);
   const paintPointerActive = useRef(false);
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
+  const mapLabels = useMemo(() => collectLabels(world), [world]);
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
   const pointer = useMemo(() => new THREE.Vector2(), []);
   const { camera, gl } = useThree();
@@ -767,9 +892,10 @@ const WorldMesh: React.FC<{
                 )}
                 <CityMarkers world={world} viewMode={viewMode} />
                 <React.Suspense fallback={null}>
-                    <CountryLabels world={world} visible={showFactionOverlay} />
+                    <CountryLabels world={world} visible={labelVisibility.factions} />
+                    <PointLabels labels={mapLabels} visibility={labelVisibility} />
                 </React.Suspense>
-                <FactionBorders world={world} visible={showFactionOverlay} />
+                <FactionBorders world={world} visible={labelVisibility.borders} />
                 <RiverLines world={world} visible={showRivers} />
                 {showGrid && <LatLongGrid radius={1.06} />}
                 {/* Cell highlight outline */}
@@ -795,7 +921,7 @@ const WorldMesh: React.FC<{
   );
 };
 
-const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean; showFactionOverlay?: boolean; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; brushSize?: number; }> = ({ world, viewMode, showGrid = false, showRivers = true, showFactionOverlay = true, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, brushSize = 1 }) => {
+const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; brushSize?: number; }> = ({ world, viewMode, showGrid = false, showRivers = true, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, brushSize = 1 }) => {
   const [hoveredCell, setHoveredCell] = useState<Cell | null>(null);
   const [paused, setPaused] = useState(false);
   const [isSpaceHeld, setIsSpaceHeld] = useState(false);
@@ -880,7 +1006,7 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
                paused={paused}
                showGrid={showGrid}
                showRivers={showRivers}
-               showFactionOverlay={showFactionOverlay}
+               labelVisibility={labelVisibility}
                inspectMode={inspectMode}
                onInspect={onInspect}
                selectedCellId={selectedCellId}
