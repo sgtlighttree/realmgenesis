@@ -528,6 +528,7 @@ const Controls: React.FC<ControlsProps> = ({
                      ['capitals', 'Capital Names'],
                      ['provinces', 'Province Names'],
                      ['towns', 'Town Names'],
+                     ['geography', 'Geographic Names'],
                    ] as [keyof LabelVisibility, string][]).map(([key, label]) => (
                      <div key={key} className="flex items-center justify-between text-xs text-gray-400">
                        <label>{label}</label>

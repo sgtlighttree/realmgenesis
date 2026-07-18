@@ -41,6 +41,21 @@ const Inspector: React.FC<InspectorProps> = ({
     return new Map(world.civData.factions.map(f => [f.id, f]));
   }, [world?.civData]);
 
+  // Lazy cell -> geographic feature name lookup. First match wins, and detection
+  // orders specific kinds (ranges/deserts/forests) ahead of broad ones (islands),
+  // so a mountain on an island reads as its range.
+  const featureByCell = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const feature of world?.features ?? []) {
+      for (const id of feature.cellIds) {
+        if (!map.has(id)) map.set(id, feature.name);
+      }
+    }
+    return map;
+  }, [world?.features]);
+
+  const featureName = cell ? featureByCell.get(cell.id) ?? null : null;
+
   const faction = cell?.regionId !== undefined ? factionMap.get(cell.regionId) : null;
   const province = (faction && cell?.provinceId !== undefined) ? faction.provinces[cell.provinceId] : null;
   const town = province?.towns.find((t: TownData) => t.cellId === cell?.id) ?? null;
@@ -98,6 +113,7 @@ const Inspector: React.FC<InspectorProps> = ({
               <div className="flex flex-col">
                 <span>Cell {cell.id}</span>
                 {locationName && <div className="mt-1">{locationName}</div>}
+                {featureName && <div className="mt-1 text-[10px] text-gray-400 italic">Part of: <span className="text-gray-200">{featureName}</span></div>}
               </div>
               <span style={{ color: '#aaa' }}>{cell.biome}</span>
             </div>
