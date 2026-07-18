@@ -186,3 +186,19 @@ export interface LoreData {
   name: string;
   description: string;
 }
+
+export interface LabelVisibility {
+  factions: boolean;
+  capitals: boolean;
+  towns: boolean;
+  provinces: boolean;
+  borders: boolean;
+}
+
+export const DEFAULT_LABEL_VISIBILITY: LabelVisibility = {
+  factions: true,
+  capitals: true,
+  towns: false,
+  provinces: false,
+  borders: true,
+};
