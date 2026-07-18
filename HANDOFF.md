@@ -20,7 +20,51 @@ There is no backend.
 
 ---
 
-## Work Completed In This Session
+## Work Completed In This Session (Session 3 - 2026-07-18/19)
+
+### Feature A1: Map Labels & Typography — COMPLETE
+
+Multi-tier label system for factions, capitals, provinces, and towns across
+3D globe, 2D Mercator, 2D Dymaxion, and PNG export. Committed in 4 chunks
+(label engine → 2D/state/export wiring → 3D sprites → docs).
+
+- `utils/labels.ts` (NEW): `MapLabel` model, `collectLabels()` with O(cells)
+  bucketing and land-biased centroids, `drawMapLabels()` with greedy priority
+  declutter, zoom LOD, and an optional `fontScale` for hi-res exports.
+- `utils/geo.ts`: Dymaxion projection promoted from Map2D —
+  `projectToDymaxionNet()` returns NET-space coords so each raster pipeline
+  applies its own net→canvas fit; `projectDymaxionPoint()` wraps it with the
+  screen fit. Export uses its own pad-12/Blender-UV mapping (labels align).
+- `types.ts`: `LabelVisibility` + `DEFAULT_LABEL_VISIBILITY` (towns/provinces
+  default off). Replaces `showFactionOverlay` everywhere.
+- `components/Controls.tsx`: "Map Overlays" checkbox group (borders, faction/
+  capital/province/town names); export passes live `labelVisibility` (WYSIWYG).
+- `components/Map2D.tsx`: `drawMapLabels()` on Mercator + Dymaxion paths;
+  label LOD reads settled zoom via `scaleRef` (no per-wheel-tick cell redraws).
+- `components/WorldViewer.tsx`: `PointLabels` canvas-texture sprites at
+  r=1.08–1.10 (above 1.05 max terrain + marker pins), camera-distance LOD,
+  back-of-globe culling via **world-space** sprite positions (labels spin
+  inside the globe group — data-space culling was a real bug, fixed).
+- `utils/export.ts`: labels drawn post-raster in `exportMap()` (mirror-
+  corrected x, orthographic back-hemisphere skip) and `exportDymaxionRaster()`.
+
+**Key decision — no SDF text in 3D**: drei `<Text>` (troika) spawns a blob
+worker and fetches font data from cdn.jsdelivr.net; both violate the strict
+CSP (`script-src 'self'`, pinned `connect-src`). Canvas-texture sprites (the
+CurvedFactionLabel recipe) keep the CSP untouched and work offline. Do not
+reintroduce troika/drei-Text without revisiting the CSP.
+
+**Environment fix**: local `node_modules` was stale (declared `@types/d3`,
+`@types/react-dom`, `vitest` missing) — `npm install` fixed it; typecheck is
+0 errors, tests 35/35, lint 0 errors/30 warnings (at ratchet), build OK.
+
+**Browser-verified via Playwright**: curved faction labels + capital sprites
+on the globe (toggles live), labels on Mercator + Dymaxion, 4K equirect
+export PNG contains correctly-placed labels.
+
+---
+
+## Work Completed In This Session (Session 2 - 2026-07-17)
 
 ### Audit Hardening Batch (remaining AUDIT.md items)
 
@@ -71,7 +115,7 @@ Dymaxion caption correct, no console errors.
 
 ---
 
-## Previous Session
+## Previous Session (Session 1 - 2026-07-17)
 
 
 
@@ -144,18 +188,14 @@ Dymaxion caption correct, no console errors.
 
 | File | Notes |
 |------|-------|
-| `components/WorldViewer.tsx` | Geometry reuse + in-place refill, disposal everywhere, no normals, rivers/labels keyed on stable refs, `CellHighlightOutline` component. |
-| `utils/colors.ts` | `population` + `province` view modes, `buildFactionColorMap`, `getProvinceVariant` strength param. |
-| `utils/worldGen.ts` | `civSizeVariance` expansion budgets; `Pangea` land style branch. |
-| `components/Controls.tsx` | Provinces/Population view buttons, Cell Jitter slider, `setParams` Dispatch type, keyboard shortcut staleness fix, auto-update deps. |
-| `components/Map2D.tsx` | Pick buffer keyed on `world.cells` (skips per-stroke rebuild). |
-| `components/MiniMap.tsx` | Debounced redraw, live faction colors. |
-| `utils/export.ts` | Live faction colors in both render loops; dead dymaxion branch removed. |
-| `utils/exportGLB.ts` | Live faction colors in GLB vertex colors. |
-| `services/gemini.ts` | Reads `process.env.GEMINI_API_KEY`. |
-| `components/Inspector.tsx` | Dead comparison removed. |
-| `utils/dymaxion.ts` | Projection tree nodes typed (`children`). |
-| `README.md`, `ARCHITECTURE.md` | New view modes, civSizeVariance behavior, env var name, invariants 26–28 (geometry reuse, disposal, pick-buffer keying). |
+| `utils/labels.ts` | **NEW** — `MapLabel`, `LabelKind`, `collectLabels()`, `drawMapLabels()` with declutter + LOD. |
+| `utils/geo.ts` | Promoted Dymaxion helpers from Map2D: `projectDymaxionPoint`, `getDymaxionNetTransform`, `dot3`/`sub3`/`cross3`, `barycentric3D`, `pointInsideSphericalFace`. |
+| `types.ts` | Added `LabelVisibility` interface, `DEFAULT_LABEL_VISIBILITY`. |
+| `App.tsx` | `showFactionOverlay` → `labelVisibility` state; prop-drills to children. |
+| `components/Controls.tsx` | Per-kind Map Overlays toggles replacing single Faction Overlay checkbox. |
+| `components/Map2D.tsx` | `drawMapLabels()` replaces `drawFactionLabels()`; `getFactionBorders()` replaces `getFactionOverlayData()`. Removed promoted helpers. |
+| `components/WorldViewer.tsx` | `PointLabels` component (drei `Text`+`Billboard`, SDF rendering). `labelVisibility` wired into `CountryLabels` + `FactionBorders`. |
+| `utils/export.ts` | Labels drawn in both export paths, honoring visibility toggles. |
 
 ---
 
