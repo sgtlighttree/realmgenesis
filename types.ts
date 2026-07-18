@@ -181,6 +181,19 @@ export interface LakeData {
   isSalt: boolean; // hot + arid basin — concentrates salt via evaporation
 }
 
+// Auto-detected, named geographic feature (B3). Purely terrain-derived —
+// clustered from the cell graph after biomes/lakes, never touched by civ passes.
+export type GeoFeatureKind = 'range' | 'desert' | 'forest' | 'sea' | 'ocean' | 'island' | 'lake';
+
+export interface GeoFeature {
+  id: number;
+  kind: GeoFeatureKind;
+  name: string; // filled by the naming pass; seeded from the TERRAIN seed
+  cellIds: number[]; // member cells (contiguous over the neighbor graph)
+  anchor: Point; // unit-sphere centroid of the member cells (label position)
+  size: number; // cellIds.length
+}
+
 export interface WorldData {
   cells: Cell[];
   params: WorldParams;
@@ -188,6 +201,7 @@ export interface WorldData {
   civData?: CivData;
   rivers?: Point[][]; // Array of paths for smooth river rendering
   lakes?: LakeData[];
+  features?: GeoFeature[]; // named geographic features (B3)
 }
 
 export type DisplayMode = 'globe' | 'mercator' | 'dymaxion';
@@ -212,6 +226,7 @@ export interface LabelVisibility {
   towns: boolean;
   provinces: boolean;
   borders: boolean;
+  geography: boolean; // single toggle for all auto-detected geographic labels (B3)
 }
 
 export const DEFAULT_LABEL_VISIBILITY: LabelVisibility = {
@@ -220,4 +235,5 @@ export const DEFAULT_LABEL_VISIBILITY: LabelVisibility = {
   towns: false,
   provinces: false,
   borders: true,
+  geography: true,
 };
