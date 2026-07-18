@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode, DymaxionSettings, DymaxionControlMode } from '../types';
+import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode, DymaxionSettings, DymaxionControlMode, LabelVisibility } from '../types';
 import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Box, Copy, Check, Users, Landmark } from 'lucide-react';
 import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
 import { exportGLB } from '../utils/exportGLB';
@@ -29,8 +29,8 @@ interface ControlsProps {
   setShowGrid: (b: boolean) => void;
   showRivers: boolean;
   setShowRivers: (b: boolean) => void;
-  showFactionOverlay: boolean;
-  setShowFactionOverlay: (b: boolean) => void;
+  labelVisibility: LabelVisibility;
+  setLabelVisibility: React.Dispatch<React.SetStateAction<LabelVisibility>>;
   dymaxionSettings: DymaxionSettings;
   onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>;
   apiKey: string;
@@ -88,8 +88,8 @@ const Controls: React.FC<ControlsProps> = ({
   setShowGrid,
   showRivers,
   setShowRivers,
-  showFactionOverlay,
-  setShowFactionOverlay,
+  labelVisibility,
+  setLabelVisibility,
   dymaxionSettings,
   onDymaxionChange,
   apiKey,
@@ -310,7 +310,8 @@ const Controls: React.FC<ControlsProps> = ({
           viewMode,
           expRes,
           expProj,
-          expProj === 'dymaxion' ? { layout: dymaxionSettings.layout, lon: dymaxionSettings.lon, lat: dymaxionSettings.lat, roll: dymaxionSettings.roll } : undefined
+          expProj === 'dymaxion' ? { layout: dymaxionSettings.layout, lon: dymaxionSettings.lon, lat: dymaxionSettings.lat, roll: dymaxionSettings.roll } : undefined,
+          labelVisibility
         );
     } catch(e) {
         console.error(e);
@@ -514,17 +515,30 @@ const Controls: React.FC<ControlsProps> = ({
                  />
             </div>
 
-            <div className="flex items-center justify-between text-xs text-gray-400 pt-2">
-                 <div className="flex items-center gap-2">
-                    <Flag size={12} className={showFactionOverlay ? "text-blue-400" : "text-gray-600"}/>
-                    <label>Faction Overlay</label>
+            <div className="pt-2">
+                 <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
+                    <Flag size={12} className={(labelVisibility.borders || labelVisibility.factions) ? "text-blue-400" : "text-gray-600"}/>
+                    <label className="font-medium">Map Overlays</label>
                  </div>
-                 <input
-                    type="checkbox"
-                    checked={showFactionOverlay}
-                    onChange={(e) => { setShowFactionOverlay(e.target.checked); }}
-                    className="bg-gray-700"
-                 />
+                 <div className="ml-5 space-y-1">
+                   {([
+                     ['borders', 'Faction Borders'],
+                     ['factions', 'Faction Names'],
+                     ['capitals', 'Capital Names'],
+                     ['provinces', 'Province Names'],
+                     ['towns', 'Town Names'],
+                   ] as [keyof LabelVisibility, string][]).map(([key, label]) => (
+                     <div key={key} className="flex items-center justify-between text-xs text-gray-400">
+                       <label>{label}</label>
+                       <input
+                         type="checkbox"
+                         checked={labelVisibility[key]}
+                         onChange={(e) => { setLabelVisibility(prev => ({ ...prev, [key]: e.target.checked })); }}
+                         className="bg-gray-700"
+                       />
+                     </div>
+                   ))}
+                 </div>
             </div>
 
             <div className="flex items-center justify-between text-xs text-gray-400 pt-2">

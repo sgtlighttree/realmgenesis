@@ -1,145 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { WorldData, ViewMode, InspectMode, DymaxionSettings, EditMode } from '../types';
+import { WorldData, ViewMode, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY } from '../types';
 import { getCellColor } from '../utils/colors';
-import { buildDymaxionNet } from '../utils/dymaxion';
-import { insideTri, barycentric, normalizeVec, toLonLat, lonLatToPoint3, Point2, Point3 } from '../utils/geo';
+import { insideTri, barycentric, normalizeVec, toLonLat, getDymaxionNetTransform, projectDymaxionPoint, Point2, Point3 } from '../utils/geo';
+import { collectLabels, drawMapLabels } from '../utils/labels';
 
 type Size = { width: number; height: number };
-type FactionLabel = { id: number; name: string; position: Point3 };
-type FactionOverlayData = { labels: FactionLabel[]; borders: Array<[Point3, Point3]> };
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 const INTERACTION_DPR = 1;
 const MAX_SHARP_DPR = 3;
 const MAX_SHARP_SCALE = 2.5;
 const SETTLE_MS = 200;
-
-const getDymaxionNetTransform = (layout: DymaxionSettings['layout'], canvasWidth: number, canvasHeight: number) => {
-  const net = buildDymaxionNet(layout);
-  const faces = net.faces;
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  faces.forEach((face) => {
-    face.vertices.forEach((v) => {
-      minX = Math.min(minX, v[0]);
-      minY = Math.min(minY, v[1]);
-      maxX = Math.max(maxX, v[0]);
-      maxY = Math.max(maxY, v[1]);
-    });
-  });
-
-  const pad = 8;
-  const netWidth = Math.max(1e-6, maxX - minX);
-  const netHeight = Math.max(1e-6, maxY - minY);
-  const scale = Math.min((canvasWidth - pad * 2) / netWidth, (canvasHeight - pad * 2) / netHeight);
-  const offsetX = (canvasWidth - netWidth * scale) / 2 - minX * scale;
-  const offsetY = (canvasHeight - netHeight * scale) / 2 - minY * scale;
-
-  return { faces, scale, offsetX, offsetY };
-};
-
-const dot3 = (a: Point3, b: Point3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const sub3 = (a: Point3, b: Point3): Point3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const cross3 = (a: Point3, b: Point3): Point3 => [
-  a[1] * b[2] - a[2] * b[1],
-  a[2] * b[0] - a[0] * b[2],
-  a[0] * b[1] - a[1] * b[0],
-];
-
-const barycentric3D = (p: Point3, a: Point3, b: Point3, c: Point3) => {
-  const v0 = sub3(b, a);
-  const v1 = sub3(c, a);
-  const v2 = sub3(p, a);
-  const d00 = dot3(v0, v0);
-  const d01 = dot3(v0, v1);
-  const d11 = dot3(v1, v1);
-  const d20 = dot3(v2, v0);
-  const d21 = dot3(v2, v1);
-  const denom = d00 * d11 - d01 * d01;
-  if (!denom) return null;
-  const v = (d11 * d20 - d01 * d21) / denom;
-  const w = (d00 * d21 - d01 * d20) / denom;
-  return [1 - v - w, v, w] as [number, number, number];
-};
-
-const pointInsideSphericalFace = (p: Point3, vertices: Point3[]) => {
-  const centroid = normalizeVec([
-    vertices[0][0] + vertices[1][0] + vertices[2][0],
-    vertices[0][1] + vertices[1][1] + vertices[2][1],
-    vertices[0][2] + vertices[1][2] + vertices[2][2],
-  ]);
-  for (let i = 0; i < 3; i++) {
-    const a = vertices[i];
-    const b = vertices[(i + 1) % 3];
-    let edgeNormal = normalizeVec(cross3(a, b));
-    if (dot3(edgeNormal, centroid) < 0) {
-      edgeNormal = [-edgeNormal[0], -edgeNormal[1], -edgeNormal[2]];
-    }
-    if (dot3(edgeNormal, p) < -1e-7) return false;
-  }
-  return true;
-};
-
-const projectDymaxionPoint = (
-  position: Point3,
-  layout: DymaxionSettings['layout'],
-  canvasWidth: number,
-  canvasHeight: number,
-  lon: number,
-  lat: number,
-  roll: number,
-): Point2 | null => {
-  const { faces, scale, offsetX, offsetY } = getDymaxionNetTransform(layout, canvasWidth, canvasHeight);
-  const rotate = d3.geoRotation([lon, lat, roll]);
-  const [sourceLon, sourceLat] = toLonLat(position);
-  const inverted = rotate.invert([-sourceLon, sourceLat]);
-  if (!inverted) return null;
-  const p3 = lonLatToPoint3(inverted as Point2);
-
-  let selectedFace = faces[0];
-  let selectedInside = false;
-  let bestScore = -Infinity;
-
-  for (const face of faces) {
-    const faceCenter = normalizeVec([
-      face.vertices3D[0][0] + face.vertices3D[1][0] + face.vertices3D[2][0],
-      face.vertices3D[0][1] + face.vertices3D[1][1] + face.vertices3D[2][1],
-      face.vertices3D[0][2] + face.vertices3D[1][2] + face.vertices3D[2][2],
-    ]);
-    const score = dot3(p3, faceCenter);
-    const inside = pointInsideSphericalFace(p3, face.vertices3D);
-    if (inside) {
-      selectedFace = face;
-      selectedInside = true;
-      break;
-    }
-    if (!selectedInside && score > bestScore) {
-      bestScore = score;
-      selectedFace = face;
-    }
-  }
-
-  const weights = barycentric3D(
-    p3,
-    selectedFace.vertices3D[0],
-    selectedFace.vertices3D[1],
-    selectedFace.vertices3D[2],
-  );
-  if (!weights) return null;
-
-  const clamped = selectedInside ? weights : weights.map(w => Math.max(0, w)) as [number, number, number];
-  const weightSum = clamped[0] + clamped[1] + clamped[2] || 1;
-  const u = clamped[0] / weightSum;
-  const v = clamped[1] / weightSum;
-  const w = clamped[2] / weightSum;
-  const x = selectedFace.vertices[0][0] * u + selectedFace.vertices[1][0] * v + selectedFace.vertices[2][0] * w;
-  const y = selectedFace.vertices[0][1] * u + selectedFace.vertices[1][1] * v + selectedFace.vertices[2][1] * w;
-
-  return [x * scale + offsetX, y * scale + offsetY];
-};
 
 const getNearestCellId = (world: WorldData, lon: number, lat: number) => {
   const lonRad = lon * (Math.PI / 180);
@@ -162,30 +34,8 @@ const getNearestCellId = (world: WorldData, lon: number, lat: number) => {
   return bestId;
 };
 
-const getFactionOverlayData = (world: WorldData | null, visible: boolean): FactionOverlayData => {
-  if (!world?.civData || !visible) return { labels: [], borders: [] };
-
-  const labels = world.civData.factions.map((faction) => {
-    const factionCells = world.cells.filter(cell => cell.regionId === faction.id);
-    const landCells = factionCells.filter(cell => cell.height >= world.params.seaLevel);
-    const labelCells = landCells.length > 0 ? landCells : factionCells;
-    if (labelCells.length === 0) return null;
-
-    let sumX = 0;
-    let sumY = 0;
-    let sumZ = 0;
-    labelCells.forEach((cell) => {
-      sumX += cell.center.x;
-      sumY += cell.center.y;
-      sumZ += cell.center.z;
-    });
-
-    return {
-      id: faction.id,
-      name: faction.name,
-      position: normalizeVec([sumX, sumY, sumZ]),
-    };
-  }).filter(Boolean) as FactionLabel[];
+const getFactionBorders = (world: WorldData | null, visible: boolean): Array<[Point3, Point3]> => {
+  if (!world?.civData || !visible) return [];
 
   const borders: Array<[Point3, Point3]> = [];
   const threshold = 0.000001;
@@ -211,7 +61,7 @@ const getFactionOverlayData = (world: WorldData | null, visible: boolean): Facti
     });
   });
 
-  return { labels, borders };
+  return borders;
 };
 
 const drawFactionBorders = (ctx: CanvasRenderingContext2D, pathGenerator: d3.GeoPath, borders: Array<[Point3, Point3]>, lineWidth: number) => {
@@ -238,32 +88,6 @@ const drawFactionBorders = (ctx: CanvasRenderingContext2D, pathGenerator: d3.Geo
   ctx.strokeStyle = 'rgba(248, 250, 252, 0.95)';
   ctx.lineWidth = lineWidth;
   drawPass();
-  ctx.restore();
-};
-
-const drawFactionLabels = (
-  ctx: CanvasRenderingContext2D,
-  labels: FactionLabel[],
-  project: (position: Point3) => Point2 | null,
-  fontSize: number,
-  maxWidth: number,
-) => {
-  if (labels.length === 0) return;
-
-  ctx.save();
-  ctx.font = `700 ${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.lineJoin = 'round';
-  ctx.lineWidth = Math.max(3, fontSize * 0.28);
-  ctx.strokeStyle = 'rgba(2, 6, 23, 0.95)';
-  ctx.fillStyle = '#f8fafc';
-  labels.forEach((label) => {
-    const projected = project(label.position);
-    if (!projected) return;
-    ctx.strokeText(label.name, projected[0], projected[1], maxWidth);
-    ctx.fillText(label.name, projected[0], projected[1], maxWidth);
-  });
   ctx.restore();
 };
 
@@ -356,12 +180,12 @@ const Map2D: React.FC<{
   dymaxionSettings?: DymaxionSettings;
   showGrid?: boolean;
   showRivers?: boolean;
-  showFactionOverlay?: boolean;
+  labelVisibility?: LabelVisibility;
   editMode?: EditMode;
   onPaint?: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void;
   factionColors?: Map<number, string>;
   brushSize?: number;
-}> = ({ world, viewMode, inspectMode, onInspect, highlightCellId = null, projectionType = 'mercator', dymaxionSettings, showGrid = false, showRivers = true, showFactionOverlay = true, editMode = 'off', onPaint, factionColors, brushSize = 1 }) => {
+}> = ({ world, viewMode, inspectMode, onInspect, highlightCellId = null, projectionType = 'mercator', dymaxionSettings, showGrid = false, showRivers = true, labelVisibility = DEFAULT_LABEL_VISIBILITY, editMode = 'off', onPaint, factionColors, brushSize = 1 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
@@ -381,9 +205,13 @@ const Map2D: React.FC<{
   const dymaxionLon = dymaxionSettings?.lon ?? 0;
   const dymaxionLat = dymaxionSettings?.lat ?? 0;
   const dymaxionRoll = dymaxionSettings?.roll ?? 0;
-  const factionOverlay = useMemo(
-    () => getFactionOverlayData(world, showFactionOverlay),
-    [world, showFactionOverlay],
+  const factionBorders = useMemo(
+    () => getFactionBorders(world, labelVisibility.borders),
+    [world, labelVisibility.borders],
+  );
+  const mapLabels = useMemo(
+    () => (world ? collectLabels(world) : []),
+    [world],
   );
 
   useEffect(() => {
@@ -438,6 +266,17 @@ const Map2D: React.FC<{
       settleTimer.current = null;
     }, SETTLE_MS);
   }, [isInteracting, scale]);
+
+  const scaleRef = useRef(scale);
+  const offsetRef = useRef(offset);
+
+  useEffect(() => {
+    scaleRef.current = scale;
+  }, [scale]);
+
+  useEffect(() => {
+    offsetRef.current = offset;
+  }, [offset]);
 
   const projection = useMemo(() => {
     if (!size.width || !size.height) return null;
@@ -544,7 +383,7 @@ const Map2D: React.FC<{
       drawFactionBorders(
         srcCtx,
         pathGenerator,
-        factionOverlay.borders,
+        factionBorders,
         Math.max(1.5, 2 * renderDpr),
       );
 
@@ -588,12 +427,12 @@ const Map2D: React.FC<{
       });
 
       tCtx.putImageData(output, 0, 0);
-      drawFactionLabels(
+      drawMapLabels(
         tCtx,
-        factionOverlay.labels,
+        mapLabels,
         (position) => {
           const projected = projectDymaxionPoint(
-            position,
+            [position.x, position.y, position.z],
             dymaxionLayout,
             canvasWidth,
             canvasHeight,
@@ -603,8 +442,8 @@ const Map2D: React.FC<{
           );
           return projected ? [projected[0] * renderDpr, projected[1] * renderDpr] : null;
         },
-        Math.max(12, 12 * renderDpr),
-        Math.max(120, 120 * renderDpr),
+        renderDpr,
+        labelVisibility,
       );
       
       // Update the main offscreen canvas only once the heavy rendering is complete
@@ -682,7 +521,7 @@ const Map2D: React.FC<{
     drawFactionBorders(
       ctx,
       pathGenerator,
-      factionOverlay.borders,
+      factionBorders,
       Math.max(1, 2 / qualityDpr),
     );
 
@@ -716,18 +555,20 @@ const Map2D: React.FC<{
       }
     }
 
-    if (factionOverlay.labels.length > 0) {
+    if (mapLabels.length > 0) {
       ctx.save();
       ctx.setTransform(renderDpr, 0, 0, renderDpr, 0, 0);
-      drawFactionLabels(
+      drawMapLabels(
         ctx,
-        factionOverlay.labels,
+        mapLabels,
         (position) => {
-          const projected = projection(toLonLat(position));
+          const projected = projection(toLonLat([position.x, position.y, position.z]));
           return projected ? [size.width - projected[0], projected[1]] : null;
         },
-        12,
-        120,
+        // Read via ref: the effect re-runs on the qualityDpr settle cycle, so
+        // LOD tracks settled zoom without redrawing every cell per wheel tick.
+        scaleRef.current,
+        labelVisibility,
       );
       ctx.restore();
     }
@@ -746,7 +587,9 @@ const Map2D: React.FC<{
     dymaxionRoll,
     showGrid,
     showRivers,
-    factionOverlay,
+    factionBorders,
+    mapLabels,
+    labelVisibility,
     factionColors,
   ]);
 
@@ -857,17 +700,6 @@ const Map2D: React.FC<{
     ctx.setTransform(displayDpr * scale, 0, 0, displayDpr * scale, displayDpr * offset.x, displayDpr * offset.y);
     ctx.drawImage(offscreen, 0, 0, size.width, size.height);
   }, [size.width, size.height, scale, offset.x, offset.y, qualityDpr, viewMode, world?.params.seed, world, projectionType, renderCount]);
-
-  const scaleRef = useRef(scale);
-  const offsetRef = useRef(offset);
-
-  useEffect(() => {
-    scaleRef.current = scale;
-  }, [scale]);
-
-  useEffect(() => {
-    offsetRef.current = offset;
-  }, [offset]);
 
   const handleWheel = useCallback((event: WheelEvent) => {
     event.preventDefault();

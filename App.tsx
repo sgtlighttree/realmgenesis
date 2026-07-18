@@ -5,7 +5,7 @@ import Map2D from './components/Map2D';
 import MiniMap from './components/MiniMap';
 import Inspector from './components/Inspector';
 import { BiomeLegend } from './components/Legend';
-import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode, InspectMode, DymaxionSettings, EditMode, PaintStyle, UndoSnapshot, BiomeType, POLITICAL_ERASER_ID } from './types';
+import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode, InspectMode, DymaxionSettings, EditMode, PaintStyle, UndoSnapshot, BiomeType, POLITICAL_ERASER_ID, LabelVisibility, DEFAULT_LABEL_VISIBILITY } from './types';
 import { generateWorld, recalculateCivs, recalculateProvinces } from './utils/worldGen';
 import { getCellsInRadius, applyTerrainStroke, applyFlattenStroke, applySmoothStroke, applyPoliticalStroke, applyBiomeStroke, refreshBiomes } from './utils/paintUtils';
 import { generateWorldLore, setRuntimeApiKey } from './services/gemini';
@@ -112,7 +112,7 @@ const App: React.FC = () => {
   const [isLoreLoading, setIsLoreLoading] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
   const [showRivers, setShowRivers] = useState(true);
-  const [showFactionOverlay, setShowFactionOverlay] = useState(true);
+  const [labelVisibility, setLabelVisibility] = useState<LabelVisibility>(DEFAULT_LABEL_VISIBILITY);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [dymaxionSettings, setDymaxionSettings] = useState<DymaxionSettings>({
     layout: 'classic',
@@ -502,7 +502,7 @@ const App: React.FC = () => {
           worldData={world} 
           showGrid={showGrid} setShowGrid={setShowGrid}
           showRivers={showRivers} setShowRivers={setShowRivers}
-          showFactionOverlay={showFactionOverlay} setShowFactionOverlay={setShowFactionOverlay}
+          labelVisibility={labelVisibility} setLabelVisibility={setLabelVisibility}
           dymaxionSettings={dymaxionSettings}
           onDymaxionChange={setDymaxionSettings}
           apiKey={apiKey}
@@ -536,7 +536,7 @@ const App: React.FC = () => {
             viewMode={viewMode}
             showGrid={showGrid}
             showRivers={showRivers}
-            showFactionOverlay={showFactionOverlay}
+            labelVisibility={labelVisibility}
             inspectMode={inspectMode}
             onInspect={setInspectedCellId}
             selectedCellId={inspectedCellId}
@@ -558,7 +558,7 @@ const App: React.FC = () => {
             dymaxionSettings={dymaxionSettings}
             showGrid={showGrid}
             showRivers={showRivers}
-            showFactionOverlay={showFactionOverlay}
+            labelVisibility={labelVisibility}
             editMode={editMode}
             onPaint={handlePaint}
             factionColors={factionColors}

@@ -1,9 +1,10 @@
 import * as d3 from 'd3';
 import { geoWinkel3, geoRobinson, geoMollweide } from 'd3-geo-projection';
-import { WorldData, ViewMode, WorldParams, CivData, DymaxionSettings } from '../types';
+import { WorldData, ViewMode, WorldParams, CivData, DymaxionSettings, LabelVisibility, DEFAULT_LABEL_VISIBILITY } from '../types';
 import { buildFactionColorMap, getCellColor } from './colors';
 import { buildDymaxionNet } from './dymaxion';
-import { insideTri, barycentric, normalizeVec, toLonLat } from './geo';
+import { insideTri, barycentric, normalizeVec, toLonLat, projectToDymaxionNet, Point2 } from './geo';
+import { collectLabels, drawMapLabels } from './labels';
 
 // Matches the options offered in the Export tab. 16K+ exceeded browser
 // canvas limits on most devices and was removed from the UI.
@@ -59,7 +60,8 @@ const exportDymaxionRaster = (
   viewMode: ViewMode,
   width: number,
   height: number,
-  dymaxionSettings?: DymaxionExportSettings
+  dymaxionSettings?: DymaxionExportSettings,
+  labelVisibility: LabelVisibility = DEFAULT_LABEL_VISIBILITY
 ) => {
   const srcWidth = width;
   const srcHeight = Math.round(width / 2);
@@ -161,6 +163,32 @@ const exportDymaxionRaster = (
 
   ctx.putImageData(output, 0, 0);
 
+  const labels = collectLabels(world);
+  if (labels.length > 0) {
+    // Net→canvas mapping must mirror this raster's own fit (blender UV flip /
+    // pad-12 classic fit), not getDymaxionNetTransform's pad-8 screen fit.
+    const netToCanvas: (p: Point2) => Point2 = isBlender
+      ? (p) => [p[0] * width, (1 - p[1]) * height]
+      : (p) => [p[0] * scale + offsetX, p[1] * scale + offsetY];
+    drawMapLabels(
+      ctx,
+      labels,
+      (position) => {
+        const net = projectToDymaxionNet(
+          [position.x, position.y, position.z],
+          faces,
+          dymaxionSettings?.lon ?? 0,
+          dymaxionSettings?.lat ?? 0,
+          dymaxionSettings?.roll ?? 0,
+        );
+        return net ? netToCanvas(net) : null;
+      },
+      2.5,
+      labelVisibility,
+      width / 1024,
+    );
+  }
+
   if (DEBUG_DYMAXION) {
     ctx.save();
     ctx.lineWidth = Math.max(1, Math.round(width / 1024));
@@ -194,11 +222,12 @@ const exportDymaxionRaster = (
 };
 
 export const exportMap = async (
-  world: WorldData, 
-  viewMode: ViewMode, 
+  world: WorldData,
+  viewMode: ViewMode,
   resolution: ExportResolution = 4096,
   projectionType: ProjectionType = 'equirectangular',
-  dymaxionSettings?: DymaxionExportSettings
+  dymaxionSettings?: DymaxionExportSettings,
+  labelVisibility: LabelVisibility = DEFAULT_LABEL_VISIBILITY
 ) => {
   const width = resolution;
   let height = resolution / 2;
@@ -209,7 +238,7 @@ export const exportMap = async (
   }
 
   if (projectionType === 'dymaxion') {
-    exportDymaxionRaster(world, viewMode, width, height, dymaxionSettings);
+    exportDymaxionRaster(world, viewMode, width, height, dymaxionSettings, labelVisibility);
     return;
   }
 
@@ -260,6 +289,25 @@ export const exportMap = async (
   });
 
   ctx.restore();
+
+  const labels = collectLabels(world);
+  if (labels.length > 0) {
+    drawMapLabels(
+      ctx,
+      labels,
+      (position) => {
+        // Orthographic clips paths to the front hemisphere but projection()
+        // still maps back-hemisphere points through the disc — skip them.
+        if (projectionType === 'orthographic' && position.x <= 0.02) return null;
+        const projected = projection(toLonLat([position.x, position.y, position.z]));
+        // Cells were drawn under a horizontal mirror; labels draw post-restore.
+        return projected ? [width - projected[0], projected[1]] : null;
+      },
+      2.5,
+      labelVisibility,
+      width / 1024,
+    );
+  }
 
   const link = document.createElement('a');
   // realmgenesis_mapName_seedValue_viewLayer_projection_resolution.png
