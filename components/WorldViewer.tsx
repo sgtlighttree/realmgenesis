@@ -277,13 +277,25 @@ const CountryLabels: React.FC<{ world: WorldData; visible: boolean }> = ({ world
     );
 };
 
-const POINT_LABEL_CONFIG: Record<string, { height: number; fontWeight: number; alpha: number; offset: number }> = {
+const POINT_LABEL_CONFIG: Record<string, { height: number; fontWeight: number; alpha: number; offset: number; italic?: boolean; fill?: string }> = {
   // Offsets sit above max terrain displacement (1 + height*0.05 = 1.05) and
   // the city marker pins (~1.062) so sprites never get depth-clipped by relief.
   capital: { height: 0.042, fontWeight: 700, alpha: 0.95, offset: 1.1 },
   province: { height: 0.034, fontWeight: 400, alpha: 0.8, offset: 1.09 },
   town: { height: 0.028, fontWeight: 400, alpha: 0.7, offset: 1.08 },
+  // Geographic features (B3). Water kinds italic + blued fill; all sit at 1.08.
+  ocean: { height: 0.04, fontWeight: 400, alpha: 0.9, offset: 1.08, italic: true, fill: '#dbeafe' },
+  sea: { height: 0.032, fontWeight: 400, alpha: 0.85, offset: 1.08, italic: true, fill: '#dbeafe' },
+  lake: { height: 0.026, fontWeight: 400, alpha: 0.8, offset: 1.08, italic: true, fill: '#dbeafe' },
+  range: { height: 0.032, fontWeight: 400, alpha: 0.85, offset: 1.08 },
+  desert: { height: 0.032, fontWeight: 400, alpha: 0.85, offset: 1.08 },
+  forest: { height: 0.032, fontWeight: 400, alpha: 0.85, offset: 1.08 },
+  island: { height: 0.026, fontWeight: 400, alpha: 0.8, offset: 1.08 },
 };
+
+// Geographic label kinds by zoom tier, mirroring the 2D LOD in labels.ts.
+const GEO_MID_KINDS = new Set(['sea', 'range', 'desert', 'forest']);
+const GEO_SMALL_KINDS = new Set(['island', 'lake']);
 
 // Canvas-texture sprite labels (same recipe as CurvedFactionLabel). The strict
 // CSP (script-src/connect-src 'self') rules out SDF text libraries that spawn
@@ -303,6 +315,8 @@ const PointLabels: React.FC<{
       if (l.kind === 'capital' && !visibility.capitals) return false;
       if (l.kind === 'province' && !visibility.provinces) return false;
       if (l.kind === 'town' && !visibility.towns) return false;
+      // Geographic kinds share a single toggle.
+      if ((GEO_MID_KINDS.has(l.kind) || GEO_SMALL_KINDS.has(l.kind) || l.kind === 'ocean') && !visibility.geography) return false;
       return true;
     }),
     [labels, visibility],
@@ -317,7 +331,7 @@ const PointLabels: React.FC<{
       const fontSize = 30 * pixelRatio;
       const paddingX = 10 * pixelRatio;
       const paddingY = 8 * pixelRatio;
-      const font = `${config.fontWeight} ${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
+      const font = `${config.italic ? 'italic ' : ''}${config.fontWeight} ${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
 
       if (ctx) {
         ctx.font = font;
@@ -330,7 +344,7 @@ const PointLabels: React.FC<{
         ctx.lineJoin = 'round';
         ctx.lineWidth = Math.max(4, 5 * pixelRatio);
         ctx.strokeStyle = '#020617';
-        ctx.fillStyle = '#f8fafc';
+        ctx.fillStyle = config.fill ?? '#f8fafc';
         ctx.strokeText(label.name, canvas.width / 2, canvas.height / 2);
         ctx.fillText(label.name, canvas.width / 2, canvas.height / 2);
       }
@@ -371,6 +385,9 @@ const PointLabels: React.FC<{
         if (label.kind === 'town' && camDist > 2) visible = false;
         else if (label.kind === 'province' && camDist > 3) visible = false;
         else if (label.kind === 'capital' && camDist > 4) visible = false;
+        // Geographic LOD: oceans always; mid kinds up close-ish; small kinds nearest.
+        else if (GEO_SMALL_KINDS.has(label.kind) && camDist > 2.5) visible = false;
+        else if (GEO_MID_KINDS.has(label.kind) && camDist > 3.5) visible = false;
       }
 
       child.visible = visible;

@@ -1,7 +1,9 @@
 import { WorldData, Cell, LabelVisibility } from '../types';
 import { normalizeVec, Point3 } from './geo';
 
-export type LabelKind = 'faction' | 'capital' | 'town' | 'province';
+export type LabelKind =
+  | 'faction' | 'capital' | 'town' | 'province'
+  | 'range' | 'desert' | 'forest' | 'sea' | 'ocean' | 'island' | 'lake';
 
 export interface MapLabel {
   kind: LabelKind;
@@ -17,11 +19,21 @@ const LABEL_CONFIG: Record<LabelKind, {
   alpha: number;
   uppercase: boolean;
   visibilityKey: keyof LabelVisibility;
+  italic?: boolean; // cartographic feel for geographic (esp. water) labels
+  fill?: string; // override the default light fill (water kinds run slightly blued)
 }> = {
   faction: { fontWeight: 700, baseFontSize: 14, alpha: 1.0, uppercase: true, visibilityKey: 'factions' },
   capital: { fontWeight: 700, baseFontSize: 11, alpha: 0.95, uppercase: false, visibilityKey: 'capitals' },
   province: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'provinces' },
   town: { fontWeight: 400, baseFontSize: 9, alpha: 0.75, uppercase: false, visibilityKey: 'towns' },
+  // Geographic features (B3) — one shared visibility toggle. Water kinds italic + blued.
+  ocean: { fontWeight: 400, baseFontSize: 13, alpha: 0.9, uppercase: false, visibilityKey: 'geography', italic: true, fill: '#dbeafe' },
+  sea: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography', italic: true, fill: '#dbeafe' },
+  lake: { fontWeight: 400, baseFontSize: 9, alpha: 0.8, uppercase: false, visibilityKey: 'geography', italic: true, fill: '#dbeafe' },
+  range: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography' },
+  desert: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography' },
+  forest: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography' },
+  island: { fontWeight: 400, baseFontSize: 9, alpha: 0.8, uppercase: false, visibilityKey: 'geography' },
 };
 
 const ZOOM_THRESHOLDS: Record<LabelKind, number> = {
@@ -29,6 +41,14 @@ const ZOOM_THRESHOLDS: Record<LabelKind, number> = {
   capital: 0.7,
   province: 1.2,
   town: 2.0,
+  // Oceans always; mid-scale geography from ~1.0; small features only when zoomed in.
+  ocean: 0,
+  sea: 1.0,
+  range: 1.0,
+  desert: 1.0,
+  forest: 1.0,
+  island: 1.8,
+  lake: 1.8,
 };
 
 interface LabelRect {
@@ -51,11 +71,37 @@ const computeCentroid = (cells: Cell[]): Point3 => {
   return normalizeVec([sumX, sumY, sumZ]);
 };
 
-export const collectLabels = (world: WorldData): MapLabel[] => {
-  if (!world.civData) return [];
+// Geographic features (B3) carry their own anchor; priorities interleave with
+// the civ labels so the shared declutter pass ranks them sensibly. Oceans sit
+// just below faction names; mid kinds around provinces; islands/lakes lowest.
+const GEO_PRIORITY: Record<string, number> = {
+  ocean: 0.5,
+  sea: 2.5,
+  range: 2.5,
+  desert: 2.5,
+  forest: 2.5,
+  island: 3.5,
+  lake: 3.5,
+};
 
+export const collectLabels = (world: WorldData): MapLabel[] => {
   const labels: MapLabel[] = [];
   const seaLevel = world.params.seaLevel;
+
+  // Geographic labels are terrain-derived — emitted even when civData is absent.
+  for (const feature of world.features ?? []) {
+    labels.push({
+      kind: feature.kind,
+      name: feature.name,
+      position: { x: feature.anchor.x, y: feature.anchor.y, z: feature.anchor.z },
+      priority: GEO_PRIORITY[feature.kind] ?? 3,
+    });
+  }
+
+  if (!world.civData) {
+    labels.sort((a, b) => a.priority - b.priority);
+    return labels;
+  }
 
   const cellsByFaction = new Map<number, Cell[]>();
   const cellsByProvince = new Map<string, Cell[]>();
@@ -154,7 +200,8 @@ export const drawMapLabels = (
     const text = config.uppercase ? label.name.toUpperCase() : label.name;
     const padding = Math.max(4, fontSize * 0.3);
 
-    ctx.font = `${config.fontWeight} ${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
+    const style = config.italic ? 'italic ' : '';
+    ctx.font = `${style}${config.fontWeight} ${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
     const textWidth = ctx.measureText(text).width;
     const textHeight = fontSize * 1.2;
 
@@ -173,7 +220,7 @@ export const drawMapLabels = (
     ctx.lineJoin = 'round';
     ctx.lineWidth = Math.max(3, fontSize * 0.28);
     ctx.strokeStyle = 'rgba(2, 6, 23, 0.95)';
-    ctx.fillStyle = '#f8fafc';
+    ctx.fillStyle = config.fill ?? '#f8fafc';
     ctx.globalAlpha = config.alpha;
     ctx.strokeText(text, projected[0], projected[1]);
     ctx.fillText(text, projected[0], projected[1]);
