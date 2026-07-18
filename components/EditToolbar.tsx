@@ -24,7 +24,10 @@ interface EditToolbarProps {
   world: WorldData;
 }
 
-const BIOME_LIST = Object.values(BiomeType);
+// Lakes are hydrology-derived (surfaced from depressions), not hand-painted.
+const BIOME_LIST = Object.values(BiomeType).filter(
+  b => b !== BiomeType.LAKE && b !== BiomeType.SALT_LAKE,
+);
 
 const ModeBtn: React.FC<{
   active: boolean;

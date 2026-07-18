@@ -35,6 +35,10 @@ export const BIOME_COLORS: Record<BiomeType, string> = {
   // Special
   [BiomeType.BEACH]: '#fff59d',      // Sand
   [BiomeType.VOLCANIC]: '#37474f',   // Dark Grey Rock
+
+  // Hydrology
+  [BiomeType.LAKE]: '#3aa0cf',       // Fresh mid blue — lighter/greener than ocean
+  [BiomeType.SALT_LAKE]: '#cfe8e4',  // Pale turquoise-white — evaporite basin
 };
 
 export const PLATE_COLORS = [
@@ -93,6 +97,9 @@ export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, facti
          const deep = new THREE.Color(0x051e3e);
          const shallow = new THREE.Color(0x006994);
          color.copy(deep).lerp(shallow, Math.pow(depth, 2));
+      } else if (cell.biome === BiomeType.LAKE || cell.biome === BiomeType.SALT_LAKE) {
+         // Lakes are inland water — render as open water, not terrain.
+         color.setHex(cell.biome === BiomeType.SALT_LAKE ? 0xd2e6df : 0x2f7fa6);
       } else {
          const t = (cell.height - seaLevel) / (1 - seaLevel);
          switch(cell.biome) {
@@ -172,7 +179,11 @@ export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, facti
       break;
       
     case 'political':
-      if (cell.regionId !== undefined) {
+      // Lakes read as water regardless of any territorial claim on them.
+      if (cell.biome === BiomeType.LAKE || cell.biome === BiomeType.SALT_LAKE) {
+        color.setHex(0x1a237e);
+        color.multiplyScalar(0.7);
+      } else if (cell.regionId !== undefined) {
         const baseColor = factionColors?.get(cell.regionId) ?? FACTION_COLORS[cell.regionId % FACTION_COLORS.length];
         if (cell.provinceId !== undefined) {
           color.copy(getProvinceVariant(baseColor, cell.provinceId));
@@ -190,7 +201,10 @@ export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, facti
     case 'province':
       // Distinct shade per province: same base hue family as its faction,
       // but with amplified variation so admin borders read at a glance
-      if (cell.regionId !== undefined) {
+      if (cell.biome === BiomeType.LAKE || cell.biome === BiomeType.SALT_LAKE) {
+        color.setHex(0x1a237e);
+        color.multiplyScalar(0.7);
+      } else if (cell.regionId !== undefined) {
         const baseColor = factionColors?.get(cell.regionId) ?? FACTION_COLORS[cell.regionId % FACTION_COLORS.length];
         if (cell.provinceId !== undefined) {
           color.copy(getProvinceVariant(baseColor, cell.provinceId, 1.8));

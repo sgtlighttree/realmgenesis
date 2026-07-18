@@ -114,6 +114,10 @@ export function applyBiomeStroke(
 
 export function refreshBiomes(brushCells: Cell[], seaLevel: number): void {
     brushCells.forEach(c => {
+        // Lakes are hydrology-derived and determineBiome can never reproduce
+        // them; leave them intact so a terrain brush doesn't turn a lake into a
+        // stray land biome sitting in a depression. (Lake re-solve is B2.)
+        if (c.biome === BiomeType.LAKE || c.biome === BiomeType.SALT_LAKE) return;
         c.biome = determineBiome(c.height, c.temperature, c.moisture, seaLevel);
     });
 }
