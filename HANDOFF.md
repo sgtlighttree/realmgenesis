@@ -15,32 +15,12 @@ workflow/style rules.
 
 ## ⚡ NEW-THREAD PICKUP (written 2026-07-19, end of Session 3)
 
-Session 3 ended near the usage limit with one delegated agent still running.
-A fresh Fable thread should do the following, in order:
+Session 3 ended near the usage limit. **C2 landed in time**: verified
+(gates green, 127 tests, Religions view browser-checked — organized faiths
+radiating from holy cities inside muted folk regions) and committed
+(0d446c6 engine, 926be41 threading). A fresh Fable thread starts at:
 
-1. **Check for uncommitted C2 (religions) work**: a Sonnet subagent was
-   implementing C2 when this session wound down. Its changes land in the
-   working tree regardless of whether this thread saw its completion report.
-   `git status` — if you see modified `types.ts`/`utils/worldGen.ts`/
-   `utils/colors.ts`/component files + new `tests/religions.test.ts`, C2 is
-   done or partial. Run all four gates. If green, review the diff against the
-   C2 design (below) and commit in chunks; if partial/red, finish it inline
-   (the A4 precedent: agent died mid-flight, orchestrator completed from the
-   design spec).
-2. **C2 design contract** (what the agent was told to build): ReligionData
-   { id, name, kind: 'folk'|'organized', color, cultureId, holyCellId };
-   Cell.religionId; ViewMode 'religion'. One folk religion per culture
-   (desaturated culture color, land defaults to its culture's folk faith);
-   organized count = max(1, floor(numCultures/2)), seeded at top-population
-   spaced "holy cities", named via the holy city's culture namebase, spread
-   by budgeted Dijkstra (beyond budget stays folk — intentional). Dedicated
-   stream `civSeed + '_religions'`; MUST NOT advance civRng/provRng/culture
-   streams (existing geometry + culture signatures byte-identical). Hooked
-   where towns exist (end of recalculateProvinces or equivalent). NO new
-   WorldParams. religionColors threaded like cultureColors (C1 diff is the
-   template). Verify: gates + browser (Religions view button, Inspector
-   "Faith:" line).
-3. **Then C3 (roads & trade routes)** — last pre-D6 feature. Design sketch:
+1. **C3 (roads & trade routes)** — last pre-D6 feature. Design sketch:
    A* / Dijkstra paths between towns over the recalculateCivs terrain-cost
    model (reuse its cost logic), land roads between towns of the same
    faction + major inter-capital routes, sea routes between coastal towns
@@ -50,7 +30,7 @@ A fresh Fable thread should do the following, in order:
    says route connectivity should feed town importance — defer that feedback
    loop (note it) to keep C3 additive. Delegate to Sonnet with a brief in
    the established format (see Session 3 delegation protocol below).
-4. **Then session wrap**: full gates, browser pass on all three views,
+2. **Then session wrap**: full gates, browser pass on all three views,
    update this file, commit in chunks.
 
 ### Session 3 delegation protocol (working policies, also in memory)
