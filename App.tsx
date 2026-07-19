@@ -7,6 +7,7 @@ import Inspector from './components/Inspector';
 import { BiomeLegend } from './components/Legend';
 import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode, InspectMode, DymaxionSettings, EditMode, PaintStyle, UndoSnapshot, BiomeType, POLITICAL_ERASER_ID, LabelVisibility, DEFAULT_LABEL_VISIBILITY, Point, MarkerData } from './types';
 import { generateWorld, recalculateCivs, recalculateProvinces } from './utils/worldGen';
+import { mergeFactions, renameProvince, renameTown, relocateCapital } from './utils/civEdit';
 import { getCellsInRadius, applyTerrainStroke, applyFlattenStroke, applySmoothStroke, applyPoliticalStroke, applyBiomeStroke, refreshBiomes } from './utils/paintUtils';
 import { generateWorldLore, setRuntimeApiKey } from './services/gemini';
 import { greatCircleDistanceKm, sampleGreatCircleArc } from './utils/measure';
@@ -583,6 +584,35 @@ const App: React.FC = () => {
     setWorld({ ...world });
   }, [world]);
 
+  const handleMergeFactions = useCallback((srcId: number, dstId: number) => {
+    if (!world) return;
+    if (mergeFactions(world, srcId, dstId)) {
+      recalculatePoliticalTotals(world);
+      setWorld({ ...world });
+    }
+  }, [world]);
+
+  const handleRenameProvince = useCallback((factionId: number, provinceId: number, name: string) => {
+    if (!world) return;
+    if (renameProvince(world, factionId, provinceId, name)) {
+      setWorld({ ...world });
+    }
+  }, [world]);
+
+  const handleRenameTown = useCallback((factionId: number, provinceId: number, cellId: number, name: string) => {
+    if (!world) return;
+    if (renameTown(world, factionId, provinceId, cellId, name)) {
+      setWorld({ ...world });
+    }
+  }, [world]);
+
+  const handleRelocateCapital = useCallback((factionId: number, townCellId: number) => {
+    if (!world) return;
+    if (relocateCapital(world, factionId, townCellId)) {
+      setWorld({ ...world });
+    }
+  }, [world]);
+
   return (
     <div className="flex flex-col md:flex-row w-full h-full bg-black overflow-hidden font-sans text-gray-200">
       {/* Sidebar / Bottom Drawer */}
@@ -612,8 +642,9 @@ const App: React.FC = () => {
           onApiKeyChange={setApiKey}
           onInspect={handleInspect}
           onEditFaction={handleEditFaction}
+          onMergeFactions={handleMergeFactions}
         />
-        <button 
+        <button
           onClick={() => { setSidebarOpen(false); }}
           className="md:hidden absolute -top-12 right-4 bg-gray-900 text-white p-2 border border-gray-700 shadow-lg"
         >
@@ -694,6 +725,9 @@ const App: React.FC = () => {
           onToggleCollapsed={() => { setInspectorCollapsed(v => !v); }}
           editMode={editMode}
           onEditWorldData={handleEditWorldData}
+          onRenameProvince={handleRenameProvince}
+          onRenameTown={handleRenameTown}
+          onRelocateCapital={handleRelocateCapital}
           rulerActive={rulerActive}
           onToggleRuler={toggleRuler}
           markerMode={markerMode}

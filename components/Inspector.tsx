@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Eye, EyeOff, ChevronDown, ChevronUp, Ruler, MapPin, Trash2 } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Eye, EyeOff, ChevronDown, ChevronUp, Ruler, MapPin, Trash2, Star } from 'lucide-react';
 import { WorldData, InspectMode, EditMode, TownData, MarkerKind } from '../types';
 
 interface WorldDataUpdates {
@@ -28,6 +28,9 @@ interface InspectorProps {
   onToggleCollapsed: () => void;
   editMode?: EditMode;
   onEditWorldData?: (cellId: number, updates: WorldDataUpdates) => void;
+  onRenameProvince?: (factionId: number, provinceId: number, name: string) => void;
+  onRenameTown?: (factionId: number, provinceId: number, cellId: number, name: string) => void;
+  onRelocateCapital?: (factionId: number, townCellId: number) => void;
   rulerActive?: boolean;
   onToggleRuler?: () => void;
   markerMode?: boolean;
@@ -47,6 +50,9 @@ const Inspector: React.FC<InspectorProps> = ({
   onToggleCollapsed,
   editMode = 'off',
   onEditWorldData,
+  onRenameProvince,
+  onRenameTown,
+  onRelocateCapital,
   rulerActive = false,
   onToggleRuler,
   markerMode = false,
@@ -57,6 +63,15 @@ const Inspector: React.FC<InspectorProps> = ({
   onDeleteMarker,
 }) => {
   const [markersListOpen, setMarkersListOpen] = useState(false);
+  // Local drafts for the province/town name inputs below — committed (and
+  // validated) on blur rather than on every keystroke, so a rejected empty
+  // value reverts to the real name instead of the field looking frozen.
+  const [provinceDraft, setProvinceDraft] = useState<string | null>(null);
+  const [townDraft, setTownDraft] = useState<string | null>(null);
+  useEffect(() => {
+    setProvinceDraft(null);
+    setTownDraft(null);
+  }, [cellId]);
   const markers = world?.markers ?? [];
   const selectedMarker = selectedMarkerId !== null ? markers.find(m => m.id === selectedMarkerId) ?? null : null;
   const cell = world && cellId !== null ? world.cells[cellId] : null;
@@ -254,13 +269,17 @@ const Inspector: React.FC<InspectorProps> = ({
             )}
 
             {/* Province fields */}
-            {province && (
+            {province && faction && (
               <div className="space-y-1.5">
                 <p className="text-[10px] text-gray-500 uppercase tracking-wide">Province</p>
                 <input
                   type="text"
-                  value={province.name}
-                  onChange={e => emit({ provinceName: e.target.value })}
+                  value={provinceDraft ?? province.name}
+                  onChange={e => setProvinceDraft(e.target.value)}
+                  onBlur={() => {
+                    if (provinceDraft !== null) onRenameProvince?.(faction.id, province.id, provinceDraft);
+                    setProvinceDraft(null);
+                  }}
                   className={inputCls}
                   placeholder="Province name"
                 />
@@ -268,13 +287,28 @@ const Inspector: React.FC<InspectorProps> = ({
             )}
 
             {/* Town fields */}
-            {town && (
+            {town && faction && province && (
               <div className="space-y-1.5">
-                <p className="text-[10px] text-gray-500 uppercase tracking-wide">{town.isCapital ? 'Capital' : 'Town'}</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wide">{town.isCapital ? 'Capital' : 'Town'}</p>
+                  {!town.isCapital && onRelocateCapital && (
+                    <button
+                      onClick={() => onRelocateCapital(faction.id, town.cellId)}
+                      className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-amber-900/40 text-amber-300 border border-amber-700 hover:bg-amber-900/70"
+                      title="Promote this town to faction capital"
+                    >
+                      <Star size={9} /> Make Capital
+                    </button>
+                  )}
+                </div>
                 <input
                   type="text"
-                  value={town.name}
-                  onChange={e => emit({ townName: e.target.value })}
+                  value={townDraft ?? town.name}
+                  onChange={e => setTownDraft(e.target.value)}
+                  onBlur={() => {
+                    if (townDraft !== null) onRenameTown?.(faction.id, province.id, town.cellId, townDraft);
+                    setTownDraft(null);
+                  }}
                   className={inputCls}
                   placeholder="Town name"
                 />

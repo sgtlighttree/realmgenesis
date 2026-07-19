@@ -43,6 +43,7 @@ interface ControlsProps {
   onApiKeyChange: (key: string) => void;
   onInspect: (id: number | null) => void;
   onEditFaction?: (factionId: number, updates: { name?: string; color?: string; description?: string }) => void;
+  onMergeFactions?: (srcId: number, dstId: number) => void;
 }
 
 type Tab = 'geo' | 'climate' | 'political' | 'system' | 'export';
@@ -106,6 +107,7 @@ const Controls: React.FC<ControlsProps> = ({
   onApiKeyChange,
   onInspect,
   onEditFaction,
+  onMergeFactions,
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('system');
   const [seedLocked, setSeedLocked] = useState(false);
@@ -113,6 +115,9 @@ const Controls: React.FC<ControlsProps> = ({
   const [autoUpdate, setAutoUpdate] = useState(true);
   const [consoleOpen, setConsoleOpen] = useState(true);
   const [showCivParams, setShowCivParams] = useState(false);
+  // Per-faction "merge into" target, keyed by source faction id. Two-step:
+  // pick a target in the select, then click Merge to confirm (no window.confirm).
+  const [mergeTargets, setMergeTargets] = useState<Record<number, number | ''>>({});
   
   // Export State
   const [expRes, setExpRes] = useState<ExportResolution>(4096);
@@ -1073,24 +1078,59 @@ const Controls: React.FC<ControlsProps> = ({
               {worldData?.civData && (
                 <div className="space-y-2 pt-2 border-t border-gray-800">
                   <h3 className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide pt-1">Factions</h3>
-                  {worldData.civData.factions.map(f => (
-                    <div key={f.id} className="flex items-center gap-2 bg-gray-900 p-2 border border-gray-800">
-                      <input
-                        type="color"
-                        value={f.color}
-                        onChange={e => onEditFaction?.(f.id, { color: e.target.value })}
-                        className="w-7 h-6 border border-gray-700 bg-transparent cursor-pointer flex-shrink-0"
-                        title="Faction color"
-                      />
-                      <input
-                        type="text"
-                        value={f.name}
-                        onChange={e => onEditFaction?.(f.id, { name: e.target.value })}
-                        className="flex-1 bg-black border border-gray-700 px-2 py-1 text-white text-xs focus:outline-none focus:border-blue-500"
-                        placeholder="Faction name"
-                      />
+                  {worldData.civData.factions.map(f => {
+                    const otherFactions = worldData.civData!.factions.filter(o => o.id !== f.id);
+                    const mergeTarget = mergeTargets[f.id] ?? '';
+                    return (
+                    <div key={f.id} className="flex flex-col gap-1.5 bg-gray-900 p-2 border border-gray-800">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={f.color}
+                          onChange={e => onEditFaction?.(f.id, { color: e.target.value })}
+                          className="w-7 h-6 border border-gray-700 bg-transparent cursor-pointer flex-shrink-0"
+                          title="Faction color"
+                        />
+                        <input
+                          type="text"
+                          value={f.name}
+                          onChange={e => onEditFaction?.(f.id, { name: e.target.value })}
+                          className="flex-1 bg-black border border-gray-700 px-2 py-1 text-white text-xs focus:outline-none focus:border-blue-500"
+                          placeholder="Faction name"
+                        />
+                      </div>
+                      {onMergeFactions && otherFactions.length > 0 && (
+                        <div className="flex items-center gap-1.5 pl-1">
+                          <select
+                            value={mergeTarget}
+                            onChange={e => {
+                              const val = e.target.value === '' ? '' : parseInt(e.target.value, 10);
+                              setMergeTargets(prev => ({ ...prev, [f.id]: val }));
+                            }}
+                            className="flex-1 bg-black border border-gray-700 px-1.5 py-1 text-gray-300 text-[10px] focus:outline-none focus:border-blue-500"
+                          >
+                            <option value="">Merge into…</option>
+                            {otherFactions.map(o => (
+                              <option key={o.id} value={o.id}>{o.name}</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => {
+                              if (mergeTarget === '') return;
+                              onMergeFactions(f.id, mergeTarget);
+                              setMergeTargets(prev => ({ ...prev, [f.id]: '' }));
+                            }}
+                            disabled={mergeTarget === ''}
+                            className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide bg-red-900/50 text-red-300 border border-red-800 hover:bg-red-900 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-red-900/50"
+                            title={`Merge ${f.name} into the selected faction`}
+                          >
+                            Merge
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
@@ -1154,7 +1194,7 @@ const Controls: React.FC<ControlsProps> = ({
                             {worldData.civData.factions.map(f => (
                                 <div key={f.id} className="text-[10px] bg-gray-900 p-1 border border-gray-700">
                                     <div style={{color: f.color}} className="font-bold">{f.name}</div>
-                                    <div className="text-gray-500 pl-1">Cap: {f.provinces[0]?.towns[0]?.name || 'Unknown'}</div>
+                                    <div className="text-gray-500 pl-1">Cap: {f.provinces.flatMap(p => p.towns).find(t => t.cellId === f.capitalId)?.name || 'Unknown'}</div>
                                     {f.description && <div className="text-gray-400 italic pl-1 mt-1 border-t border-gray-800 pt-1">{f.description}</div>}
                                 </div>
                             ))}
