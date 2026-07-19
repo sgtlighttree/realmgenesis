@@ -200,7 +200,7 @@ parent-world values as boundary constraints.
 Day length, gravity, star class, moons — mostly lore/export metadata at
 first, but D1 (seasons) and tides give them mechanical hooks over time.
 
-### D6. Planetary parameters (added by Matt/Maintainer)
+### D6.  (added by Matt/Maintainer)
 
 Another overhaul of terrain generaton algorithm to make it more realistic
 and get rid of seam lines on plate boundaries, and more detailed heightmap
@@ -229,6 +229,13 @@ Project an Azgaar flat map onto the sphere (equirectangular assumption,
 re-tessellate onto the cell graph). Lossy by nature; stretch goal.
 
 ---
+
+## F. UI Overhaul
+
+# F1. Reorganizing the UI
+The UI has become a mess in an attempt to add more features, especially on mobile.
+A full redesign and rearchitecture is warranted here.
+Can come *before* D6 with the roadmap in mind.
 
 ## Recommended first milestone — "Map identity"
 
