@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode, DymaxionSettings, DymaxionControlMode, LabelVisibility, MarkerData } from '../types';
-import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Box, Copy, Check, Users, Landmark, Sun, LineChart, FileCode, FileJson, Palette } from 'lucide-react';
+import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Box, Copy, Check, Users, Landmark, Sun, LineChart, FileCode, FileJson, Palette, Church } from 'lucide-react';
 import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
 import { downloadSVG, downloadGeoJSON } from '../utils/exportVector';
 import { NAME_STYLES, NameStyle } from '../utils/namegen';
@@ -613,6 +613,7 @@ const Controls: React.FC<ControlsProps> = ({
                 <ViewButton mode="political" icon={Flag} label="Borders" />
                 <ViewButton mode="province" icon={Landmark} label="Provinces" />
                 <ViewButton mode="culture" icon={Palette} label="Cultures" />
+                <ViewButton mode="religion" icon={Church} label="Religions" />
                 <ViewButton mode="population" icon={Users} label="Population" />
               </div>
             </div>

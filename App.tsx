@@ -453,6 +453,12 @@ const App: React.FC = () => {
     return m;
   }, [world]);
 
+  const religionColors = useMemo<Map<number, string>>(() => {
+    const m = new Map<number, string>();
+    world?.religions?.forEach(r => m.set(r.id, r.color));
+    return m;
+  }, [world]);
+
   const handlePaint = useCallback((cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick = false) => {
     if (!world || editMode === 'off' || editMode === 'world-edit') return;
     const center = world.cells[cellId];
@@ -689,6 +695,7 @@ const App: React.FC = () => {
             onPaint={handlePaint}
             factionColors={factionColors}
             cultureColors={cultureColors}
+            religionColors={religionColors}
             brushSize={brushSize}
             rulerArc={rulerArc}
           />
@@ -710,6 +717,7 @@ const App: React.FC = () => {
             onPaint={handlePaint}
             factionColors={factionColors}
             cultureColors={cultureColors}
+            religionColors={religionColors}
             brushSize={brushSize}
             rulerArc={rulerArc}
           />
