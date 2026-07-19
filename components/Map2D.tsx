@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { WorldData, ViewMode, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY } from '../types';
+import { WorldData, ViewMode, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, Point } from '../types';
 import { getCellColor } from '../utils/colors';
 import { insideTri, barycentric, normalizeVec, toLonLat, getDymaxionNetTransform, projectDymaxionPoint, Point2, Point3 } from '../utils/geo';
 import { collectLabels, drawMapLabels } from '../utils/labels';
 import { computeShadeMap, computeContourSegments, drawContourPaths } from '../utils/shading';
+import { computeScaleBar, niceScaleBarLength, drawScaleBar } from '../utils/measure';
 
 type Size = { width: number; height: number };
 
@@ -188,7 +189,8 @@ const Map2D: React.FC<{
   onPaint?: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void;
   factionColors?: Map<number, string>;
   brushSize?: number;
-}> = ({ world, viewMode, inspectMode, onInspect, highlightCellId = null, projectionType = 'mercator', dymaxionSettings, showGrid = false, showRivers = true, showHillshade = false, showContours = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, editMode = 'off', onPaint, factionColors, brushSize = 1 }) => {
+  rulerArc?: Point[] | null;
+}> = ({ world, viewMode, inspectMode, onInspect, highlightCellId = null, projectionType = 'mercator', dymaxionSettings, showGrid = false, showRivers = true, showHillshade = false, showContours = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, editMode = 'off', onPaint, factionColors, brushSize = 1, rulerArc = null }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
@@ -461,7 +463,47 @@ const Map2D: React.FC<{
         renderDpr,
         labelVisibility,
       );
-      
+
+      // Ruler arc: projected per-sample (not baked into the source equirect
+      // raster like rivers) so a jump across net faces can break the polyline
+      // instead of drawing a spurious line straight across the canvas.
+      if (rulerArc && rulerArc.length > 1) {
+        tCtx.save();
+        tCtx.strokeStyle = '#fbbf24';
+        tCtx.lineWidth = Math.max(1.5, 2 * renderDpr);
+        tCtx.globalAlpha = 0.9;
+        tCtx.beginPath();
+        let hasPoint = false;
+        let lastPt: [number, number] | null = null;
+        const jumpThreshold = canvasWidth * renderDpr * 0.15;
+        rulerArc.forEach((p) => {
+          const projected = projectDymaxionPoint(
+            [p.x, p.y, p.z],
+            dymaxionLayout,
+            canvasWidth,
+            canvasHeight,
+            dymaxionLon,
+            dymaxionLat,
+            dymaxionRoll,
+          );
+          if (!projected) {
+            lastPt = null;
+            return;
+          }
+          const pt: [number, number] = [projected[0] * renderDpr, projected[1] * renderDpr];
+          const isJump = lastPt !== null && Math.hypot(pt[0] - lastPt[0], pt[1] - lastPt[1]) > jumpThreshold;
+          if (!hasPoint || isJump) {
+            tCtx.moveTo(pt[0], pt[1]);
+            hasPoint = true;
+          } else {
+            tCtx.lineTo(pt[0], pt[1]);
+          }
+          lastPt = pt;
+        });
+        tCtx.stroke();
+        tCtx.restore();
+      }
+
       // Update the main offscreen canvas only once the heavy rendering is complete
       offscreen.width = outWidth;
       offscreen.height = outHeight;
@@ -534,6 +576,28 @@ const Map2D: React.FC<{
         });
         ctx.stroke();
       });
+      ctx.globalAlpha = 1.0;
+    }
+
+    // Ruler arc — same antimeridian-jump projection pattern as rivers above.
+    if (rulerArc && rulerArc.length > 1) {
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 2 / qualityDpr;
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      let lastLon: number | null = null;
+      rulerArc.forEach((p, i) => {
+        const lon = Math.atan2(p.z, p.x) * (180 / Math.PI);
+        const lat = Math.asin(Math.max(-1, Math.min(1, p.y))) * (180 / Math.PI);
+        const isJump = lastLon !== null && Math.abs(lon - lastLon) > 180;
+        const pt = projection([lon, lat]);
+        if (pt) {
+          if (i === 0 || isJump) ctx.moveTo(pt[0], pt[1]);
+          else ctx.lineTo(pt[0], pt[1]);
+        }
+        lastLon = lon;
+      });
+      ctx.stroke();
       ctx.globalAlpha = 1.0;
     }
 
@@ -612,6 +676,7 @@ const Map2D: React.FC<{
     shadeMap,
     contourSegments,
     factionColors,
+    rulerArc,
   ]);
 
   useEffect(() => {
@@ -720,7 +785,31 @@ const Map2D: React.FC<{
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.setTransform(displayDpr * scale, 0, 0, displayDpr * scale, displayDpr * offset.x, displayDpr * offset.y);
     ctx.drawImage(offscreen, 0, 0, size.width, size.height);
-  }, [size.width, size.height, scale, offset.x, offset.y, qualityDpr, viewMode, world?.params.seed, world, projectionType, renderCount]);
+
+    // Scale bar: fixed screen-space overlay (not part of the offscreen bitmap,
+    // so it never grows/shrinks or pans with the map). pixelsPerKm is scaled
+    // by the current zoom so its bar length reflects the visible ground scale.
+    // Dymaxion is skipped — net distortion varies per face, so a single
+    // scale figure would be misleading.
+    if (world && projectionType === 'mercator' && projection) {
+      const centerMapX = (size.width / 2 - offset.x) / scale;
+      const centerMapY = (size.height / 2 - offset.y) / scale;
+      const centerLonLat = projection.invert?.([size.width - centerMapX, centerMapY]);
+      if (centerLonLat && Number.isFinite(centerLonLat[0]) && Number.isFinite(centerLonLat[1])) {
+        const scaleBarInfo = computeScaleBar(projection, centerLonLat, world.params.planetRadius);
+        if (scaleBarInfo) {
+          const screenPixelsPerKm = scaleBarInfo.pixelsPerKm * scale;
+          const { km, px } = niceScaleBarLength(screenPixelsPerKm, 140);
+          if (km > 0) {
+            ctx.setTransform(displayDpr, 0, 0, displayDpr, 0, 0);
+            // x clears the BiomeLegend panel (bottom-4 left-4, w-48 when expanded)
+            // so the bar isn't drawn underneath it.
+            drawScaleBar(ctx, 224, size.height - 16, km, px);
+          }
+        }
+      }
+    }
+  }, [size.width, size.height, scale, offset.x, offset.y, qualityDpr, viewMode, world?.params.seed, world, projectionType, renderCount, projection, rulerArc]);
 
   const handleWheel = useCallback((event: WheelEvent) => {
     event.preventDefault();

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Eye, EyeOff, ChevronDown, ChevronUp } from 'lucide-react';
+import { Eye, EyeOff, ChevronDown, ChevronUp, Ruler } from 'lucide-react';
 import { WorldData, InspectMode, EditMode, TownData } from '../types';
 
 interface WorldDataUpdates {
@@ -20,6 +20,8 @@ interface InspectorProps {
   onToggleCollapsed: () => void;
   editMode?: EditMode;
   onEditWorldData?: (cellId: number, updates: WorldDataUpdates) => void;
+  rulerActive?: boolean;
+  onToggleRuler?: () => void;
 }
 
 const Inspector: React.FC<InspectorProps> = ({
@@ -31,6 +33,8 @@ const Inspector: React.FC<InspectorProps> = ({
   onToggleCollapsed,
   editMode = 'off',
   onEditWorldData,
+  rulerActive = false,
+  onToggleRuler,
 }) => {
   const cell = world && cellId !== null ? world.cells[cellId] : null;
   const enabled = inspectMode === 'click' || editMode === 'world-edit';
@@ -91,6 +95,15 @@ const Inspector: React.FC<InspectorProps> = ({
             </span>
           )}
           <div className="flex items-center gap-2">
+            {onToggleRuler && (
+              <button
+                onClick={onToggleRuler}
+                className={`p-1 transition-colors ${rulerActive ? 'text-amber-400 hover:bg-amber-900/40' : 'text-gray-600 hover:bg-gray-800'}`}
+                title={rulerActive ? 'Disable Ruler' : 'Measure Distance'}
+              >
+                <Ruler size={12} />
+              </button>
+            )}
             {editMode !== 'world-edit' && (
               <button
                 onClick={onToggleEnabled}

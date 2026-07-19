@@ -5,10 +5,11 @@ import Map2D from './components/Map2D';
 import MiniMap from './components/MiniMap';
 import Inspector from './components/Inspector';
 import { BiomeLegend } from './components/Legend';
-import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode, InspectMode, DymaxionSettings, EditMode, PaintStyle, UndoSnapshot, BiomeType, POLITICAL_ERASER_ID, LabelVisibility, DEFAULT_LABEL_VISIBILITY } from './types';
+import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode, InspectMode, DymaxionSettings, EditMode, PaintStyle, UndoSnapshot, BiomeType, POLITICAL_ERASER_ID, LabelVisibility, DEFAULT_LABEL_VISIBILITY, Point } from './types';
 import { generateWorld, recalculateCivs, recalculateProvinces } from './utils/worldGen';
 import { getCellsInRadius, applyTerrainStroke, applyFlattenStroke, applySmoothStroke, applyPoliticalStroke, applyBiomeStroke, refreshBiomes } from './utils/paintUtils';
 import { generateWorldLore, setRuntimeApiKey } from './services/gemini';
+import { greatCircleDistanceKm, sampleGreatCircleArc } from './utils/measure';
 import EditToolbar from './components/EditToolbar';
 import { Menu, X } from 'lucide-react';
 
@@ -106,6 +107,8 @@ const App: React.FC = () => {
   const [inspectMode, setInspectMode] = useState<InspectMode>('click');
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const [inspectedCellId, setInspectedCellId] = useState<number | null>(null);
+  const [rulerActive, setRulerActive] = useState(false);
+  const [rulerCells, setRulerCells] = useState<[number, number | null] | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [genProgress, setGenProgress] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
@@ -314,6 +317,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     setInspectedCellId(null);
+    setRulerCells(null);
   }, [world?.params.seed, displayMode]);
 
   const toggleInspectEnabled = useCallback(() => {
@@ -322,6 +326,47 @@ const App: React.FC = () => {
       setInspectedCellId(null);
     }
   }, [inspectMode]);
+
+  // Ruler toggle forces inspectMode to 'click': the 3D/2D pickers only ever
+  // fire onInspect from click handling when inspectMode === 'click' (hover
+  // mode fires it continuously on pointer move, which would spam ruler points).
+  const toggleRuler = useCallback(() => {
+    setRulerActive(prev => {
+      const next = !prev;
+      if (next) setInspectMode('click');
+      return next;
+    });
+    setRulerCells(null);
+  }, []);
+
+  // Intercepts the shared onInspect plumbing: while the ruler is active, cell
+  // clicks build up the two-point measurement instead of updating the
+  // Inspector's selection. Children (WorldViewer/Map2D/Controls) are unaware
+  // of the ruler — they just keep calling onInspect(cellId) as before.
+  const handleInspect = useCallback((cellId: number | null) => {
+    if (rulerActive) {
+      if (cellId === null) return; // misses/hover-outs never touch ruler state
+      setRulerCells(prev => (!prev || prev[1] !== null) ? [cellId, null] : [prev[0], cellId]);
+      return;
+    }
+    setInspectedCellId(cellId);
+  }, [rulerActive]);
+
+  const rulerArc = useMemo<Point[] | null>(() => {
+    if (!world || !rulerCells || rulerCells[1] === null) return null;
+    const a = world.cells[rulerCells[0]]?.center;
+    const b = world.cells[rulerCells[1]]?.center;
+    if (!a || !b) return null;
+    return sampleGreatCircleArc(a, b);
+  }, [world, rulerCells]);
+
+  const rulerDistanceKm = useMemo<number | null>(() => {
+    if (!world || !rulerCells || rulerCells[1] === null) return null;
+    const a = world.cells[rulerCells[0]]?.center;
+    const b = world.cells[rulerCells[1]]?.center;
+    if (!a || !b) return null;
+    return greatCircleDistanceKm(a, b, world.params.planetRadius);
+  }, [world, rulerCells]);
 
   useEffect(() => { handleGenerate(); }, []);
 
@@ -512,7 +557,7 @@ const App: React.FC = () => {
           onDymaxionChange={setDymaxionSettings}
           apiKey={apiKey}
           onApiKeyChange={setApiKey}
-          onInspect={setInspectedCellId}
+          onInspect={handleInspect}
           onEditFaction={handleEditFaction}
         />
         <button 
@@ -545,7 +590,7 @@ const App: React.FC = () => {
             showContours={showContours}
             labelVisibility={labelVisibility}
             inspectMode={inspectMode}
-            onInspect={setInspectedCellId}
+            onInspect={handleInspect}
             selectedCellId={inspectedCellId}
             dymaxionSettings={dymaxionSettings}
             onDymaxionChange={setDymaxionSettings}
@@ -553,13 +598,14 @@ const App: React.FC = () => {
             onPaint={handlePaint}
             factionColors={factionColors}
             brushSize={brushSize}
+            rulerArc={rulerArc}
           />
         ) : (
           <Map2D
             world={world}
             viewMode={viewMode}
             inspectMode={inspectMode}
-            onInspect={setInspectedCellId}
+            onInspect={handleInspect}
             highlightCellId={inspectedCellId}
             projectionType={displayMode === 'dymaxion' ? 'dymaxion' : 'mercator'}
             dymaxionSettings={dymaxionSettings}
@@ -572,6 +618,7 @@ const App: React.FC = () => {
             onPaint={handlePaint}
             factionColors={factionColors}
             brushSize={brushSize}
+            rulerArc={rulerArc}
           />
         )}
 
@@ -594,7 +641,18 @@ const App: React.FC = () => {
           onToggleCollapsed={() => { setInspectorCollapsed(v => !v); }}
           editMode={editMode}
           onEditWorldData={handleEditWorldData}
+          rulerActive={rulerActive}
+          onToggleRuler={toggleRuler}
         />
+        {rulerActive && (
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none z-10">
+            <div className="bg-black/80 backdrop-blur text-white text-xs font-bold px-3 py-1.5 border border-white/20 shadow-xl">
+              {rulerDistanceKm !== null
+                ? `${Math.round(rulerDistanceKm).toLocaleString()} km`
+                : 'Click two points'}
+            </div>
+          </div>
+        )}
         {world && (
           <EditToolbar
             editMode={editMode} setEditMode={setEditMode}

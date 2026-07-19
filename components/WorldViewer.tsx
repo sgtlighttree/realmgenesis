@@ -643,6 +643,49 @@ const CellSelectionOverlay: React.FC<{ cell: Cell }> = ({ cell }) => {
   );
 };
 
+// Sits above max terrain relief (1.05) and city marker pins (~1.062 shares
+// the same offset intentionally, so the ruler line clears the highest peaks).
+const RULER_RADIUS = 1.062;
+
+const RulerArc: React.FC<{ points: Point[] }> = ({ points }) => {
+  const geometry = useMemo(() => {
+    if (points.length < 2) return null;
+    const positions: number[] = [];
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[i];
+      const p1 = points[i + 1];
+      positions.push(p0.x * RULER_RADIUS, p0.y * RULER_RADIUS, p0.z * RULER_RADIUS);
+      positions.push(p1.x * RULER_RADIUS, p1.y * RULER_RADIUS, p1.z * RULER_RADIUS);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    return geo;
+  }, [points]);
+
+  useEffect(() => () => { geometry?.dispose(); }, [geometry]);
+
+  if (!geometry || points.length < 2) return null;
+
+  const start = points[0];
+  const end = points[points.length - 1];
+
+  return (
+    <Group>
+      <LineSegments geometry={geometry} renderOrder={9}>
+        <LineBasicMaterial color="#fbbf24" opacity={0.9} transparent depthTest={false} />
+      </LineSegments>
+      <Mesh position={[start.x * RULER_RADIUS, start.y * RULER_RADIUS, start.z * RULER_RADIUS]} renderOrder={10}>
+        <IcosahedronGeometry args={[0.012, 1]} />
+        <MeshBasicMaterial color="#fbbf24" depthTest={false} />
+      </Mesh>
+      <Mesh position={[end.x * RULER_RADIUS, end.y * RULER_RADIUS, end.z * RULER_RADIUS]} renderOrder={10}>
+        <IcosahedronGeometry args={[0.012, 1]} />
+        <MeshBasicMaterial color="#fbbf24" depthTest={false} />
+      </Mesh>
+    </Group>
+  );
+};
+
 const CellHighlightOutline: React.FC<{ cell: Cell }> = ({ cell }) => {
   const geometry = useMemo(() => {
     const hm = 1 + cell.height * 0.05 + 0.004;
@@ -684,7 +727,8 @@ const WorldMesh: React.FC<{
   brushSize: number;
   selectedCellId?: number | null;
   labelVisibility: LabelVisibility;
-}> = ({ world, viewMode, onHover, paused, showGrid, showRivers, showHillshade, showContours, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, brushSize, selectedCellId = null, labelVisibility }) => {
+  rulerArc?: Point[] | null;
+}> = ({ world, viewMode, onHover, paused, showGrid, showRivers, showHillshade, showContours, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, brushSize, selectedCellId = null, labelVisibility, rulerArc = null }) => {
   const spinRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const lastUpdate = useRef<number>(0);
@@ -973,6 +1017,7 @@ const WorldMesh: React.FC<{
                     const selectedCell = world.cells[selectedCellId];
                     return selectedCell ? <CellSelectionOverlay cell={selectedCell} /> : null;
                 })()}
+                {rulerArc && rulerArc.length > 1 && <RulerArc points={rulerArc} />}
             </Mesh>
             {/* Brush size ring */}
             {isPaintMode && brushCenter && (
@@ -988,7 +1033,7 @@ const WorldMesh: React.FC<{
   );
 };
 
-const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean; showHillshade?: boolean; showContours?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; brushSize?: number; }> = ({ world, viewMode, showGrid = false, showRivers = true, showHillshade = false, showContours = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, brushSize = 1 }) => {
+const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean; showHillshade?: boolean; showContours?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; brushSize?: number; rulerArc?: Point[] | null; }> = ({ world, viewMode, showGrid = false, showRivers = true, showHillshade = false, showContours = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, brushSize = 1, rulerArc = null }) => {
   const [hoveredCell, setHoveredCell] = useState<Cell | null>(null);
   const [paused, setPaused] = useState(false);
   const [isSpaceHeld, setIsSpaceHeld] = useState(false);
@@ -1084,6 +1129,7 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
                onPaint={onPaint}
                factionColors={factionColors}
                brushSize={brushSize}
+               rulerArc={rulerArc}
              />
           </Group>
         )}
