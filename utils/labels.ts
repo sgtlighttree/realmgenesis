@@ -13,7 +13,7 @@ export interface MapLabel {
   factionId?: number;
 }
 
-const LABEL_CONFIG: Record<LabelKind, {
+export interface LabelStyleConfig {
   fontWeight: number;
   baseFontSize: number;
   alpha: number;
@@ -21,7 +21,11 @@ const LABEL_CONFIG: Record<LabelKind, {
   visibilityKey: keyof LabelVisibility;
   italic?: boolean; // cartographic feel for geographic (esp. water) labels
   fill?: string; // override the default light fill (water kinds run slightly blued)
-}> = {
+}
+
+// Exported so vector exporters (SVG/GeoJSON) can mirror the exact per-kind
+// styling used by the canvas label pass instead of duplicating the table.
+export const LABEL_CONFIG: Record<LabelKind, LabelStyleConfig> = {
   faction: { fontWeight: 700, baseFontSize: 14, alpha: 1.0, uppercase: true, visibilityKey: 'factions' },
   capital: { fontWeight: 700, baseFontSize: 11, alpha: 0.95, uppercase: false, visibilityKey: 'capitals' },
   province: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'provinces' },

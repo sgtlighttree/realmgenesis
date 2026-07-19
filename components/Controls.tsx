@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode, DymaxionSettings, DymaxionControlMode, LabelVisibility } from '../types';
-import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Box, Copy, Check, Users, Landmark, Sun, LineChart } from 'lucide-react';
+import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Box, Copy, Check, Users, Landmark, Sun, LineChart, FileCode, FileJson } from 'lucide-react';
 import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
+import { downloadSVG, downloadGeoJSON } from '../utils/exportVector';
 import { NAME_STYLES, NameStyle } from '../utils/namegen';
 import { exportGLB } from '../utils/exportGLB';
 import { WorldData } from '../types';
@@ -1344,6 +1345,26 @@ const Controls: React.FC<ControlsProps> = ({
                         className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white py-2 text-xs disabled:opacity-50 border border-gray-600"
                     >
                         <Mountain size={14}/> Export Heightmap (BW)
+                    </button>
+                </div>
+
+                <div className="border-t border-gray-800 pt-4 space-y-2">
+                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Vector Export</h3>
+                    <p className="text-[10px] text-gray-500">Editable coastlines, borders, rivers, and labels for Inkscape/Illustrator, or geodesic GeoJSON for QGIS/web-GIS.</p>
+                    <button
+                        onClick={() => { if (worldData && expProj !== 'dymaxion') downloadSVG(worldData, viewMode, expProj); }}
+                        disabled={!worldData || expProj === 'dymaxion'}
+                        title={expProj === 'dymaxion' ? 'SVG export is raster-only for Dymaxion — choose another projection' : undefined}
+                        className="w-full flex items-center justify-center gap-2 bg-teal-700 hover:bg-teal-600 text-white py-2 text-xs disabled:opacity-50 border border-teal-600"
+                    >
+                        <FileCode size={14}/> Download SVG
+                    </button>
+                    <button
+                        onClick={() => { if (worldData) downloadGeoJSON(worldData); }}
+                        disabled={!worldData}
+                        className="w-full flex items-center justify-center gap-2 bg-teal-700 hover:bg-teal-600 text-white py-2 text-xs disabled:opacity-50 border border-teal-600"
+                    >
+                        <FileJson size={14}/> Download GeoJSON
                     </button>
                 </div>
 
