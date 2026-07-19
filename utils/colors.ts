@@ -1,4 +1,4 @@
-import { BiomeType, Cell, CivData, CultureData, ViewMode } from '../types';
+import { BiomeType, Cell, CivData, CultureData, ReligionData, ViewMode } from '../types';
 import * as THREE from 'three';
 
 // Builds the live faction-color map from civData so every render/export path
@@ -9,6 +9,10 @@ export const buildFactionColorMap = (civData?: CivData): Map<number, string> | u
 // Same pattern as buildFactionColorMap, for the culture layer (C1).
 export const buildCultureColorMap = (cultures?: CultureData[]): Map<number, string> | undefined =>
   cultures ? new Map(cultures.map(c => [c.id, c.color])) : undefined;
+
+// Same pattern again, for the religion layer (C2).
+export const buildReligionColorMap = (religions?: ReligionData[]): Map<number, string> | undefined =>
+  religions ? new Map(religions.map(r => [r.id, r.color])) : undefined;
 
 // Earth-like Natural Colors
 export const BIOME_COLORS: Record<BiomeType, string> = {
@@ -87,6 +91,29 @@ export const CULTURE_COLORS = [
   '#c5cae9', // muted periwinkle
 ];
 
+// Saturated, distinct palette for organized religions (C2) — deliberately
+// more vivid than CULTURE_COLORS so a spreading faith reads clearly against
+// the muted culture-layer shading of the folk faith it displaces.
+export const RELIGION_COLORS = [
+  '#ffd700', // gold
+  '#7b1fa2', // deep violet
+  '#c62828', // crimson
+  '#00838f', // deep teal
+  '#3949ab', // indigo
+  '#ef6c00', // burnt orange
+];
+
+// Folk-religion color: the parent culture's color, darkened and desaturated
+// ~30% so folk faith reads as a muted variant of its culture rather than
+// competing visually with the vivid RELIGION_COLORS palette.
+export const darkenForFolk = (hex: string): string => {
+  const c = new THREE.Color(hex);
+  const hsl = { h: 0, s: 0, l: 0 };
+  c.getHSL(hsl);
+  c.setHSL(hsl.h, hsl.s * 0.7, hsl.l * 0.7);
+  return '#' + c.getHexString();
+};
+
 const getProvinceVariant = (baseColorHex: string, provId: number, strength = 1): THREE.Color => {
   const c = new THREE.Color(baseColorHex);
   const r = Math.sin(provId * 12.9898) * 43758.5453;
@@ -105,7 +132,7 @@ const getProvinceVariant = (baseColorHex: string, provId: number, strength = 1):
   return c;
 };
 
-export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, factionColors?: Map<number, string>, cultureColors?: Map<number, string>): THREE.Color => {
+export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, factionColors?: Map<number, string>, cultureColors?: Map<number, string>, religionColors?: Map<number, string>): THREE.Color => {
   const color = new THREE.Color();
 
   switch (mode) {
@@ -266,6 +293,24 @@ export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, facti
       } else if (cell.cultureId !== undefined) {
         const cultureColor = cultureColors?.get(cell.cultureId) ?? CULTURE_COLORS[cell.cultureId % CULTURE_COLORS.length];
         color.set(cultureColor);
+      } else {
+        color.setHex(0x333333);
+      }
+      break;
+
+    case 'religion':
+      // Same water/unassigned handling as 'culture' above — water reads as
+      // political water, unassigned land (transient, pre-recalculation) is
+      // dark grey rather than falling back to a faction or culture color.
+      if (cell.biome === BiomeType.LAKE || cell.biome === BiomeType.SALT_LAKE) {
+        color.setHex(0x1a237e);
+        color.multiplyScalar(0.7);
+      } else if (cell.height < seaLevel) {
+        color.setHex(0x1a237e);
+        color.multiplyScalar(0.5 + cell.height * 0.5);
+      } else if (cell.religionId !== undefined) {
+        const religionColor = religionColors?.get(cell.religionId) ?? RELIGION_COLORS[cell.religionId % RELIGION_COLORS.length];
+        color.set(religionColor);
       } else {
         color.setHex(0x333333);
       }

@@ -27,6 +27,7 @@ export interface Cell {
   isTown?: boolean;
   population?: number;
   cultureId?: number; // Culture ID (C1) — undefined on water cells
+  religionId?: number; // Religion ID (C2) — undefined on water cells
 }
 
 export enum BiomeType {
@@ -169,6 +170,21 @@ export interface CultureData {
   homeCellId: number;
 }
 
+// The religion layer (C2). 'folk' faiths are one-per-culture and cover
+// every land cell by default; 'organized' faiths spread outward from a
+// holy city (a town cell) and convert folk cells within a limited budget,
+// leaving unreached land as folk. See recalculateReligions in worldGen.ts.
+export type ReligionKind = 'folk' | 'organized';
+
+export interface ReligionData {
+  id: number;
+  name: string;
+  kind: ReligionKind;
+  color: string;
+  cultureId: number | null; // set for folk religions, null for organized
+  holyCellId: number | null; // set for organized religions, null for folk
+}
+
 // Minimal GeoJSON shape for the cached d3-geo-voronoi polygons.
 // Feature index i corresponds to WorldData.cells[i]. Structurally
 // compatible with d3's ExtendedFeature so features can be passed to
@@ -233,11 +249,12 @@ export interface WorldData {
   features?: GeoFeature[]; // named geographic features (B3)
   markers?: MarkerData[]; // user-placed POIs (C4)
   cultures?: CultureData[]; // culture layer (C1)
+  religions?: ReligionData[]; // religion layer (C2)
 }
 
 export type DisplayMode = 'globe' | 'mercator' | 'dymaxion';
 export type InspectMode = 'click' | 'hover' | 'off';
-export type ViewMode = 'biome' | 'height' | 'height_bw' | 'temperature' | 'moisture' | 'plates' | 'political' | 'population' | 'province' | 'satellite' | 'culture';
+export type ViewMode = 'biome' | 'height' | 'height_bw' | 'temperature' | 'moisture' | 'plates' | 'political' | 'population' | 'province' | 'satellite' | 'culture' | 'religion';
 export type EditMode = 'off' | 'terrain-raise' | 'terrain-lower' | 'terrain-flatten' | 'terrain-smooth' | 'biome' | 'political' | 'world-edit';
 export type PaintStyle = 'adaptive' | 'freeform';
 export const POLITICAL_ERASER_ID = -1;
