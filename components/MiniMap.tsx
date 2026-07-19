@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { WorldData, ViewMode } from '../types';
-import { buildFactionColorMap, getCellColor } from '../utils/colors';
+import { buildFactionColorMap, buildCultureColorMap, getCellColor } from '../utils/colors';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 
 interface MiniMapProps {
@@ -29,11 +29,12 @@ const MiniMap: React.FC<MiniMapProps> = ({ world, viewMode }) => {
       const projection = d3.geoEquirectangular().fitSize([width, height], { type: "Sphere" } as d3.GeoPermissibleObjects);
       const pathGenerator = d3.geoPath(projection, ctx);
       const factionColors = buildFactionColorMap(world.civData);
+      const cultureColors = buildCultureColorMap(world.cultures);
       world.cells.forEach((cell, i) => {
           if (!world.geoJson || !world.geoJson.features[i]) { return; }
           const feature = world.geoJson.features[i];
           if (!feature.geometry || feature.geometry.coordinates.length === 0) return;
-          const color = getCellColor(cell, viewMode, world.params.seaLevel, factionColors);
+          const color = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors);
           ctx.beginPath(); pathGenerator(feature);
           ctx.fillStyle = '#' + color.getHexString(); ctx.fill();
       });

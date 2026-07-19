@@ -46,6 +46,7 @@ const DEFAULT_PARAMS: WorldParams = {
   territorialWaters: 0.15,
   capitalSpacing: 0.5,
   provinceSize: 0.5,
+  numCultures: 4,
   nameStyle: 'fantasy',
   loreLevel: 1,
   seed: 'realmgenesis',
@@ -446,6 +447,12 @@ const App: React.FC = () => {
     return m;
   }, [world]);
 
+  const cultureColors = useMemo<Map<number, string>>(() => {
+    const m = new Map<number, string>();
+    world?.cultures?.forEach(c => m.set(c.id, c.color));
+    return m;
+  }, [world]);
+
   const handlePaint = useCallback((cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick = false) => {
     if (!world || editMode === 'off' || editMode === 'world-edit') return;
     const center = world.cells[cellId];
@@ -681,6 +688,7 @@ const App: React.FC = () => {
             editMode={editMode}
             onPaint={handlePaint}
             factionColors={factionColors}
+            cultureColors={cultureColors}
             brushSize={brushSize}
             rulerArc={rulerArc}
           />
@@ -701,6 +709,7 @@ const App: React.FC = () => {
             editMode={editMode}
             onPaint={handlePaint}
             factionColors={factionColors}
+            cultureColors={cultureColors}
             brushSize={brushSize}
             rulerArc={rulerArc}
           />

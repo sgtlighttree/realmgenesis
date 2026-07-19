@@ -764,11 +764,12 @@ const WorldMesh: React.FC<{
   editMode: EditMode;
   onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void;
   factionColors?: Map<number, string>;
+  cultureColors?: Map<number, string>;
   brushSize: number;
   selectedCellId?: number | null;
   labelVisibility: LabelVisibility;
   rulerArc?: Point[] | null;
-}> = ({ world, viewMode, onHover, paused, showGrid, showRivers, showHillshade, showContours, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, brushSize, selectedCellId = null, labelVisibility, rulerArc = null }) => {
+}> = ({ world, viewMode, onHover, paused, showGrid, showRivers, showHillshade, showContours, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, cultureColors, brushSize, selectedCellId = null, labelVisibility, rulerArc = null }) => {
   const spinRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const lastUpdate = useRef<number>(0);
@@ -827,7 +828,7 @@ const WorldMesh: React.FC<{
     const col = colAttr.array as Float32Array;
     let o = 0;
     for (const cell of world.cells) {
-      const c = getCellColor(cell, viewMode, world.params.seaLevel, factionColors);
+      const c = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors);
       // Multiply in relief shading only when toggled; the off path stays a
       // straight color copy so rendering is unchanged.
       if (showHillshade) c.multiplyScalar(shadeMap[cell.id]);
@@ -846,7 +847,7 @@ const WorldMesh: React.FC<{
     }
     posAttr.needsUpdate = true;
     colAttr.needsUpdate = true;
-  }, [geometry, world, viewMode, factionColors, showHillshade, shadeMap]);
+  }, [geometry, world, viewMode, factionColors, cultureColors, showHillshade, shadeMap]);
 
   const faceMap = useMemo(() => {
      const map: number[] = [];
@@ -1074,7 +1075,7 @@ const WorldMesh: React.FC<{
   );
 };
 
-const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean; showHillshade?: boolean; showContours?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; brushSize?: number; rulerArc?: Point[] | null; }> = ({ world, viewMode, showGrid = false, showRivers = true, showHillshade = false, showContours = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, brushSize = 1, rulerArc = null }) => {
+const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean; showHillshade?: boolean; showContours?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; cultureColors?: Map<number, string>; brushSize?: number; rulerArc?: Point[] | null; }> = ({ world, viewMode, showGrid = false, showRivers = true, showHillshade = false, showContours = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, cultureColors, brushSize = 1, rulerArc = null }) => {
   const [hoveredCell, setHoveredCell] = useState<Cell | null>(null);
   const [paused, setPaused] = useState(false);
   const [isSpaceHeld, setIsSpaceHeld] = useState(false);
@@ -1169,6 +1170,7 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
                editMode={editMode}
                onPaint={onPaint}
                factionColors={factionColors}
+               cultureColors={cultureColors}
                brushSize={brushSize}
                rulerArc={rulerArc}
              />

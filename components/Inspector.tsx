@@ -98,6 +98,13 @@ const Inspector: React.FC<InspectorProps> = ({
 
   const featureName = cell ? featureByCell.get(cell.id) ?? null : null;
 
+  const cultureMap = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const culture of world?.cultures ?? []) map.set(culture.id, culture.name);
+    return map;
+  }, [world?.cultures]);
+  const cultureName = cell?.cultureId !== undefined ? cultureMap.get(cell.cultureId) ?? null : null;
+
   const faction = cell?.regionId !== undefined ? factionMap.get(cell.regionId) : null;
   const province = (faction && cell?.provinceId !== undefined) ? faction.provinces[cell.provinceId] : null;
   const town = province?.towns.find((t: TownData) => t.cellId === cell?.id) ?? null;
@@ -221,6 +228,9 @@ const Inspector: React.FC<InspectorProps> = ({
               <div className="text-gray-400">Rain: <span className="text-white">{(cell.moisture * 100).toFixed(0)}%</span></div>
               <div className="text-gray-400">Elev: <span className="text-white">{(cell.height * 100).toFixed(0)}%</span></div>
               <div className="text-gray-400">Pop: <span className="text-white">{cell.population?.toLocaleString()}</span></div>
+              {cultureName && (
+                <div className="text-gray-400 col-span-2">Culture: <span className="text-white">{cultureName}</span></div>
+              )}
             </div>
           </div>
         )}

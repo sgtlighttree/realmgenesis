@@ -219,9 +219,10 @@ const Map2D: React.FC<{
   editMode?: EditMode;
   onPaint?: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void;
   factionColors?: Map<number, string>;
+  cultureColors?: Map<number, string>;
   brushSize?: number;
   rulerArc?: Point[] | null;
-}> = ({ world, viewMode, inspectMode, onInspect, highlightCellId = null, projectionType = 'mercator', dymaxionSettings, showGrid = false, showRivers = true, showHillshade = false, showContours = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, editMode = 'off', onPaint, factionColors, brushSize = 1, rulerArc = null }) => {
+}> = ({ world, viewMode, inspectMode, onInspect, highlightCellId = null, projectionType = 'mercator', dymaxionSettings, showGrid = false, showRivers = true, showHillshade = false, showContours = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, editMode = 'off', onPaint, factionColors, cultureColors, brushSize = 1, rulerArc = null }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
@@ -363,7 +364,7 @@ const Map2D: React.FC<{
       for (let i = 0; i < world.cells.length; i++) {
         const feature = world.geoJson?.features?.[i];
         if (!feature || !feature.geometry) continue;
-        const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel, factionColors);
+        const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel, factionColors, cultureColors);
         if (shadeMap) color.multiplyScalar(shadeMap[i]);
         const hexColor = '#' + color.getHexString();
         srcCtx.beginPath();
@@ -566,7 +567,7 @@ const Map2D: React.FC<{
     for (let i = 0; i < world.cells.length; i++) {
         const feature = world.geoJson?.features?.[i];
       if (!feature || !feature.geometry) continue;
-        const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel, factionColors);
+        const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel, factionColors, cultureColors);
         if (shadeMap) color.multiplyScalar(shadeMap[i]);
         const hexColor = '#' + color.getHexString();
       ctx.beginPath();
@@ -727,6 +728,7 @@ const Map2D: React.FC<{
     shadeMap,
     contourSegments,
     factionColors,
+    cultureColors,
     rulerArc,
   ]);
 

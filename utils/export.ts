@@ -1,7 +1,7 @@
 import * as d3 from 'd3';
 import { geoWinkel3, geoRobinson, geoMollweide } from 'd3-geo-projection';
 import { WorldData, ViewMode, WorldParams, CivData, DymaxionSettings, LabelVisibility, DEFAULT_LABEL_VISIBILITY, MarkerData, MarkerKind } from '../types';
-import { buildFactionColorMap, getCellColor } from './colors';
+import { buildFactionColorMap, buildCultureColorMap, getCellColor } from './colors';
 import { buildDymaxionNet } from './dymaxion';
 import { insideTri, barycentric, normalizeVec, toLonLat, projectToDymaxionNet, Point2 } from './geo';
 import { collectLabels, drawMapLabels } from './labels';
@@ -9,11 +9,15 @@ import { computeShadeMap, computeContourSegments, drawContourPaths } from './sha
 import { computeScaleBar, niceScaleBarLength, drawScaleBar } from './measure';
 import { NAME_STYLES, NameStyle } from './namegen';
 
-// Older saved configs predate nameStyle; default them so the generator and
-// the UI select always receive a valid style.
-const withNameStyleDefault = (params: WorldParams): WorldParams => ({
+// Older saved configs predate params added after the config format was
+// established (nameStyle, then numCultures for C1); default them here so the
+// generator and every UI control bound to these params always receive a
+// valid value instead of `undefined` (which would e.g. turn the Cultures
+// slider into an uncontrolled input).
+const withParamDefaults = (params: WorldParams): WorldParams => ({
   ...params,
   nameStyle: NAME_STYLES.includes(params.nameStyle as NameStyle) ? params.nameStyle : 'fantasy',
+  numCultures: typeof params.numCultures === 'number' && isFinite(params.numCultures) ? params.numCultures : 4,
 });
 
 // Matches the options offered in the Export tab. 16K+ exceeded browser
@@ -46,12 +50,13 @@ const renderEquirectangular = (
   const projection = d3.geoEquirectangular().fitSize([width, height], { type: 'Sphere' } as any);
   const pathGenerator = d3.geoPath(projection, ctx);
   const factionColors = buildFactionColorMap(world.civData);
+  const cultureColors = buildCultureColorMap(world.cultures);
   const shadeMap = showHillshade ? computeShadeMap(world.cells, world.params.seaLevel) : null;
 
   world.cells.forEach((cell, i) => {
     const feature = world.geoJson.features[i];
     if (!feature) return;
-    const threeColor = getCellColor(cell, viewMode, world.params.seaLevel, factionColors);
+    const threeColor = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors);
     if (shadeMap) threeColor.multiplyScalar(shadeMap[cell.id]);
     const hexColor = '#' + threeColor.getHexString();
     ctx.beginPath();
@@ -295,12 +300,13 @@ export const exportMap = async (
   projection.fitSize([width, height], { type: "Sphere" } as any);
   const pathGenerator = d3.geoPath(projection, ctx);
   const factionColors = buildFactionColorMap(world.civData);
+  const cultureColors = buildCultureColorMap(world.cultures);
   const shadeMap = showHillshade ? computeShadeMap(world.cells, world.params.seaLevel) : null;
 
   world.cells.forEach((cell, i) => {
     const feature = world.geoJson.features[i];
     if (!feature) return;
-    const threeColor = getCellColor(cell, viewMode, world.params.seaLevel, factionColors);
+    const threeColor = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors);
     if (shadeMap) threeColor.multiplyScalar(shadeMap[cell.id]);
     const hexColor = '#' + threeColor.getHexString();
     ctx.beginPath();
@@ -419,6 +425,7 @@ export const validateWorldParams = (params: unknown): params is Record<string, u
         moistureTransport: [0, 1],
         temperatureVariance: [0, 20],
         numFactions: [2, 20],
+        numCultures: [2, 8],
         capitalSpacing: [0, 1],
         provinceSize: [0.1, 1.0],
         civSizeVariance: [0, 1],
@@ -523,7 +530,7 @@ export const loadMapConfig = async (file: File): Promise<LoadedMap | null> => {
                     }
                     const markers = json.markers != null ? validateMarkers(json.markers) : undefined;
                     resolve({
-                        params: withNameStyleDefault(json.params as unknown as WorldParams),
+                        params: withParamDefaults(json.params as unknown as WorldParams),
                         civData,
                         markers,
                     });
@@ -533,7 +540,7 @@ export const loadMapConfig = async (file: File): Promise<LoadedMap | null> => {
                         resolve(null);
                         return;
                     }
-                    resolve({ params: withNameStyleDefault(json as unknown as WorldParams) });
+                    resolve({ params: withParamDefaults(json as unknown as WorldParams) });
                 } else {
                     throw new Error("Invalid structure");
                 }

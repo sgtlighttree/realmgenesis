@@ -1,7 +1,7 @@
 import * as d3 from 'd3';
 import { geoWinkel3, geoRobinson, geoMollweide } from 'd3-geo-projection';
 import { WorldData, ViewMode, Cell, BiomeType, Point } from '../types';
-import { buildFactionColorMap, getCellColor } from './colors';
+import { buildFactionColorMap, buildCultureColorMap, getCellColor } from './colors';
 import { toLonLat, Point3 } from './geo';
 import { collectLabels, LABEL_CONFIG } from './labels';
 import { ProjectionType } from './export';
@@ -88,6 +88,7 @@ const buildProjection = (projectionType: VectorProjectionType, width: number, he
 
 const renderCellPaths = (world: WorldData, viewMode: ViewMode, pathGenerator: d3.GeoPath): string => {
   const factionColors = buildFactionColorMap(world.civData);
+  const cultureColors = buildCultureColorMap(world.cultures);
   const seaLevel = world.params.seaLevel;
   const parts: string[] = [];
   world.cells.forEach((cell, i) => {
@@ -95,7 +96,7 @@ const renderCellPaths = (world: WorldData, viewMode: ViewMode, pathGenerator: d3
     if (!feature?.geometry) return;
     const d = pathGenerator(feature);
     if (!d) return;
-    const hex = '#' + getCellColor(cell, viewMode, seaLevel, factionColors).getHexString();
+    const hex = '#' + getCellColor(cell, viewMode, seaLevel, factionColors, cultureColors).getHexString();
     parts.push(`<path d="${d}" fill="${hex}" stroke="${hex}" stroke-width="1"/>`);
   });
   return parts.join('');
