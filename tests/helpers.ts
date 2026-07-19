@@ -65,3 +65,11 @@ export const cultureSignature = (world: WorldData): string =>
   world.cells.map(c => `${c.cultureId ?? '-'}`).join(';') +
   '|' +
   (world.cultures ?? []).map(c => `${c.name}:${c.nameStyle}:${c.homeCellId}`).join(',');
+
+// Compact signature of the religion layer (C2) — per-cell religionId, plus
+// the religion roster's own identity fields so naming/holy-city changes
+// show up too.
+export const religionSignature = (world: WorldData): string =>
+  world.cells.map(c => `${c.religionId ?? '-'}`).join(';') +
+  '|' +
+  (world.religions ?? []).map(r => `${r.name}:${r.kind}:${r.cultureId ?? '-'}:${r.holyCellId ?? '-'}`).join(',');

@@ -1,7 +1,7 @@
 import { geoVoronoi } from 'd3-geo-voronoi';
-import { Cell, LakeData, Point, WorldData, WorldParams, BiomeType, FactionData, CultureData } from '../types';
+import { Cell, LakeData, Point, WorldData, WorldParams, BiomeType, FactionData, CultureData, ReligionData } from '../types';
 import { RNG, SimplexNoise } from './rng';
-import { FACTION_COLORS, CULTURE_COLORS } from './colors';
+import { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS, darkenForFolk } from './colors';
 import { createNameGenerator, NameGenerator, NameStyle, NAME_STYLES } from './namegen';
 import { detectFeatures } from './features';
 
@@ -1121,6 +1121,233 @@ export function recalculateCultures(world: WorldData, params: WorldParams, onLog
     return world;
 }
 
+// Naming templates for the religion layer (C2). Each takes the fresh name
+// drawn from the relevant culture's style generator (X) and, where useful,
+// the culture's own name; which template is picked is itself an rng draw so
+// two runs of the same seed still agree on phrasing.
+const FOLK_TEMPLATES: Array<(x: string, cultureName: string) => string> = [
+  (x) => `${x} Rites`,
+  (_x, cultureName) => `Old Faith of ${cultureName}`,
+  (x) => `${x} Creed`,
+];
+const ORGANIZED_TEMPLATES: Array<(x: string) => string> = [
+  (x) => `Church of ${x}`,
+  (x) => `${x} Path`,
+  (x) => `Temple of ${x}`,
+];
+
+// C2: the religion layer. Two kinds share the world: exactly one 'folk'
+// religion per culture (covering every land cell by default) and a handful
+// of 'organized' religions that spread outward from holy cities (the
+// highest-population towns) and convert folk cells within a limited budget.
+// Called at the end of recalculateProvinces (see below) because holy-city
+// selection needs towns/populations, which only exist once provinces have
+// run — recalculateCivs's own last statement is `return
+// recalculateProvinces(...)`, so hooking there still covers every civ
+// recalculation, plus the standalone "Update Provinces" path in App.tsx.
+//
+// DETERMINISM CONSTRAINT: mirrors recalculateCultures — this function owns
+// a single new side-stream, civSeed + '_religions', and never reads from or
+// advances civRng/provRng/cultureRng or any cell field other than
+// religionId, so numCultures/numFactions/provinceSize signatures
+// (terrainSignature/civSignature/cultureSignature in tests/helpers.ts) stay
+// byte-identical — only world.religions and cell.religionId are new.
+export function recalculateReligions(world: WorldData, params: WorldParams, onLog?: (msg: string) => void): WorldData {
+    onLog?.('Kindling Religions...');
+
+    world.cells.forEach(c => { c.religionId = undefined; });
+
+    if (!world.cultures || world.cultures.length === 0) {
+        world.religions = [];
+        return world;
+    }
+
+    const religionRng = new RNG(params.civSeed + '_religions');
+
+    // Land = same definition used everywhere else in the civ passes.
+    const candidates = world.cells.filter(c => c.height >= params.seaLevel && !isLakeCell(c));
+    if (candidates.length === 0) {
+        world.religions = [];
+        return world;
+    }
+
+    // Names are drawn directly from this single religionRng stream rather
+    // than spinning a fresh per-style sub-stream (contrast
+    // makeStyleNameGenCache, used for faction/province naming) — the design
+    // calls for "a fresh name from the culture's style generator on the
+    // religions stream," so every religion name, of any style, shares one
+    // deterministic draw order.
+    const relNameGenCache = new Map<NameStyle, NameGenerator>();
+    const getRelNameGen = (style: NameStyle): NameGenerator => {
+        let gen = relNameGenCache.get(style);
+        if (!gen) {
+            gen = createNameGenerator(style, () => religionRng.next());
+            relNameGenCache.set(style, gen);
+        }
+        return gen;
+    };
+
+    // --- Folk religions: exactly one per culture ---
+    // Folk id === culture id (cultures are indexed 0..n-1 in creation
+    // order), which lets the final stamping pass below fall back to
+    // `cell.cultureId` directly as the matching folk religion id.
+    const folkReligions: ReligionData[] = world.cultures.map((culture) => {
+        const gen = getRelNameGen(culture.nameStyle);
+        const template = FOLK_TEMPLATES[Math.floor(religionRng.next() * FOLK_TEMPLATES.length)];
+        return {
+            id: culture.id,
+            name: template(gen.faction(), culture.name),
+            kind: 'folk',
+            color: darkenForFolk(culture.color),
+            cultureId: culture.id,
+            holyCellId: null,
+        };
+    });
+
+    // --- Organized religions: seeded at holy cities ---
+    // Count derives from numCultures rather than a new param, per design.
+    const organizedCount = Math.max(1, Math.floor((params.numCultures || 4) / 2));
+
+    const townCells = world.cells.filter(c => c.isTown);
+    let organizedReligions: ReligionData[] = [];
+    let holyCityIds: number[] = [];
+
+    if (townCells.length > 0) {
+        // rng-tiebreak for equal-population towns, pre-drawn per town (in
+        // world.cells id order) so the number of religionRng draws never
+        // depends on how the sort algorithm orders its comparisons.
+        const tiebreak = new Map<number, number>();
+        for (const t of townCells) tiebreak.set(t.id, religionRng.next());
+        const sortedTowns = [...townCells].sort((a, b) => {
+            const diff = (b.population || 0) - (a.population || 0);
+            if (diff !== 0) return diff;
+            return tiebreak.get(a.id)! - tiebreak.get(b.id)!;
+        });
+
+        // Spaced like faction capitals / culture homes (squared-chord minimum).
+        const HOLY_CITY_SPACING = 0.5;
+        const minChordSq = HOLY_CITY_SPACING ** 2 * (4 / organizedCount);
+        for (const cell of sortedTowns) {
+            if (holyCityIds.length >= organizedCount) break;
+            let tooClose = false;
+            for (const hId of holyCityIds) {
+                const h = world.cells[hId];
+                const d = (cell.center.x - h.center.x) ** 2 + (cell.center.y - h.center.y) ** 2 + (cell.center.z - h.center.z) ** 2;
+                if (d < minChordSq) { tooClose = true; break; }
+            }
+            if (!tooClose) holyCityIds.push(cell.id);
+        }
+        // Fallback for maps with too few well-spaced towns: fill remaining
+        // slots from the same population-ranked list, ignoring spacing, so
+        // organizedCount is honored whenever at least that many towns exist.
+        if (holyCityIds.length < organizedCount) {
+            for (const cell of sortedTowns) {
+                if (holyCityIds.length >= organizedCount) break;
+                if (!holyCityIds.includes(cell.id)) holyCityIds.push(cell.id);
+            }
+        }
+
+        organizedReligions = holyCityIds.map((holyCellId, i) => {
+            const style = getCultureNameStyle(world, params, holyCellId);
+            const gen = getRelNameGen(style);
+            const template = ORGANIZED_TEMPLATES[Math.floor(religionRng.next() * ORGANIZED_TEMPLATES.length)];
+            return {
+                id: folkReligions.length + i,
+                name: template(gen.faction()),
+                kind: 'organized',
+                color: RELIGION_COLORS[i % RELIGION_COLORS.length],
+                cultureId: null,
+                holyCellId,
+            };
+        });
+    }
+
+    // --- Multi-source Dijkstra spread from holy cities over land ---
+    // (bounded water hops copied from recalculateCultures so organized
+    // faiths can still reach nearby islands, same as culture regions do).
+    const converted = new Map<number, number>(); // land cellId -> organizedReligions index
+
+    if (organizedReligions.length > 0) {
+        const holyCultureIds = holyCityIds.map(id => world.cells[id].cultureId);
+
+        // Per-religion expansion budget is a CELL-COUNT quota, not a cost
+        // ceiling: Dijkstra cost grows with map size (more hops to cross a
+        // bigger map), so a cost-based cap would either convert nothing or
+        // everything depending on map scale. A count quota scales with the
+        // map instead, guaranteeing roughly half of all land stays folk at
+        // any resolution. Base ~ half of an equal per-religion share of
+        // land cells, varied 0.7-1.3x via religionRng so organized faiths
+        // don't all claim identically-sized territories.
+        const baseBudget = (candidates.length / organizedReligions.length) * 0.5;
+        const budgets = organizedReligions.map(() =>
+            Math.max(1, Math.round(baseBudget * (0.7 + religionRng.next() * 0.6)))
+        );
+        const convertedCount = organizedReligions.map(() => 0);
+
+        const pq = new MinHeap<{ id: number; cost: number; religion: number }>(x => x.cost);
+        const costs = new Map<number, number>();
+        holyCityIds.forEach((cellId, idx) => {
+            pq.push({ id: cellId, cost: 0, religion: idx });
+            costs.set(cellId, 0);
+        });
+
+        const waterHopCost = (params.waterCrossingCost || 0.5) * 2;
+        const maxWaterCost = waterHopCost * 3;
+
+        while (pq.size() > 0) {
+            const { id, cost, religion } = pq.pop()!;
+            const cell = world.cells[id];
+            const isWater = cell.height < params.seaLevel || isLakeCell(cell);
+
+            if (isWater) {
+                if (cost > maxWaterCost) continue;
+            } else {
+                if (converted.has(id)) continue;
+                // Budget exhausted: this religion's frontier stops
+                // expanding from here, so the cell (and everything beyond
+                // it) stays folk. Deliberate contrast with C1 cultures,
+                // which snap every straggler — organized faiths plateau.
+                if (convertedCount[religion] >= budgets[religion]) continue;
+                converted.set(id, religion);
+                convertedCount[religion]++;
+            }
+
+            for (const nId of cell.neighbors) {
+                const nCell = world.cells[nId];
+                const nIsWater = nCell.height < params.seaLevel || isLakeCell(nCell);
+                if (!nIsWater && converted.has(nId)) continue;
+                let moveCost: number;
+                if (nIsWater) {
+                    moveCost = waterHopCost;
+                } else {
+                    const slope = Math.abs(nCell.height - cell.height);
+                    // Cheaper to spread within the holy city's own culture
+                    // region — an organized faith travels easiest among
+                    // its founding people.
+                    const withinHomeCulture = nCell.cultureId === holyCultureIds[religion];
+                    moveCost = slope + (withinHomeCulture ? 0.35 : 0.6) + religionRng.next() * 0.3;
+                }
+                const newCost = cost + moveCost;
+                if (nIsWater && newCost > maxWaterCost) continue;
+                if (!costs.has(nId) || newCost < costs.get(nId)!) {
+                    costs.set(nId, newCost);
+                    pq.push({ id: nId, cost: newCost, religion });
+                }
+            }
+        }
+    }
+
+    // --- Stamp every land cell: converted -> its organized religion, else folk ---
+    // (folk id === culture id, so cell.cultureId is the direct fallback).
+    for (const cell of candidates) {
+        const relIdx = converted.get(cell.id);
+        cell.religionId = relIdx !== undefined ? organizedReligions[relIdx].id : cell.cultureId;
+    }
+
+    world.religions = [...folkReligions, ...organizedReligions];
+    return world;
+}
+
 // ... (recalculateCivs and recalculateProvinces remain unchanged as they are synchronous)
 export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (msg: string) => void): WorldData {
     // Cultures are computed first and are purely additive: recalculateCultures
@@ -1381,6 +1608,11 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
         }
         faction.totalPopulation = faction.provinces.reduce((sum, p) => sum + p.totalPopulation, 0);
     });
+
+    // C2: religions need towns/populations for holy-city selection, which
+    // this function just finished computing above — see the determinism
+    // and hook-point comment on recalculateReligions itself.
+    recalculateReligions(world, params);
 
     return world;
 }
