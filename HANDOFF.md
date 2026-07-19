@@ -4,6 +4,13 @@ This file is the quick state transfer for the next session. Read
 `ARCHITECTURE.md` for deeper technical context and `AGENTS.md` for repo
 workflow/style rules.
 
+## Matt's (maintainer's) notes
+
+> Matt's scratchpad and notes for things observed outside an active coding session. If an item is addressed, click the checkbox, and/or add a ~~strikethrough~~ for emphasis.
+
+- [ ] Make a true vector 2D mode instead of raster, but keep it optimized
+- [ ] V3 of terrain generation algorithm. Goal is to make plate boundaries far more realistic, make part of Milestone D
+
 ---
 
 ## Project Snapshot
@@ -29,6 +36,20 @@ session, each gate-verified (typecheck 0 / lint 0 errors at the 30-warning
 ratchet / tests all green / build OK) and browser-verified via Playwright.
 A2/B1/B3 were implemented by delegated Opus subagents and cross-checked by
 the orchestrator. Test suite grew 35 → 52 tests (9 files).
+
+### Feature A4: Hillshading & contours — COMPLETE (post-milestone)
+
+- `utils/shading.ts`: `computeShadeMap()` — per-cell Lambert relief factor
+  from the tangential height gradient, decoupled from the radial baseline so
+  flat land/water sit at exactly 1.0 (no day/night terminator; overlays any
+  view). Clamp 0.6–1.15, fixed NW light. `computeContourSegments()` — shared
+  Voronoi edges between land cells in different 0.1-elevation bands.
+  `drawContourPaths()` shared by Map2D + export.
+- Two toggles (default off) through globe (refill-pass color multiply +
+  ContourLines segments), both Map2D paths, and PNG export (mirrors
+  on-screen toggles). Off = byte-identical rendering. 59 tests green.
+- Delegated agent was cut off mid-implementation by the subagent spend
+  limit; orchestrator completed Map2D/export/wiring inline.
 
 ### Feature A2: Offline namebases — COMPLETE
 

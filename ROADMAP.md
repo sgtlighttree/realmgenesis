@@ -200,6 +200,12 @@ parent-world values as boundary constraints.
 Day length, gravity, star class, moons — mostly lore/export metadata at
 first, but D1 (seasons) and tides give them mechanical hooks over time.
 
+### D6. Planetary parameters (added by Matt/Maintainer)
+
+Another overhaul of terrain generaton algorithm to make it more realistic
+and get rid of seam lines on plate boundaries, and more detailed heightmap
+rendering and calculation without increasing cell count
+
 ---
 
 ## E. Interoperability & export
