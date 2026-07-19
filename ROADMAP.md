@@ -235,7 +235,7 @@ re-tessellate onto the cell graph). Lossy by nature; stretch goal.
 # F1. Reorganizing the UI
 The UI has become a mess in an attempt to add more features, especially on mobile.
 A full redesign and rearchitecture is warranted here.
-Can come *before* D6 with the roadmap in mind.
+Can come *before or alongside* D6 with the roadmap in mind.
 
 ## Recommended first milestone — "Map identity"
 
