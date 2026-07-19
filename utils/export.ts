@@ -5,6 +5,7 @@ import { buildFactionColorMap, getCellColor } from './colors';
 import { buildDymaxionNet } from './dymaxion';
 import { insideTri, barycentric, normalizeVec, toLonLat, projectToDymaxionNet, Point2 } from './geo';
 import { collectLabels, drawMapLabels } from './labels';
+import { computeShadeMap, computeContourSegments, drawContourPaths } from './shading';
 import { NAME_STYLES, NameStyle } from './namegen';
 
 // Older saved configs predate nameStyle; default them so the generator and
@@ -24,7 +25,9 @@ const renderEquirectangular = (
   world: WorldData,
   viewMode: ViewMode,
   width: number,
-  height: number
+  height: number,
+  showHillshade = false,
+  showContours = false
 ) => {
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -42,11 +45,13 @@ const renderEquirectangular = (
   const projection = d3.geoEquirectangular().fitSize([width, height], { type: 'Sphere' } as any);
   const pathGenerator = d3.geoPath(projection, ctx);
   const factionColors = buildFactionColorMap(world.civData);
+  const shadeMap = showHillshade ? computeShadeMap(world.cells, world.params.seaLevel) : null;
 
   world.cells.forEach((cell, i) => {
     const feature = world.geoJson.features[i];
     if (!feature) return;
     const threeColor = getCellColor(cell, viewMode, world.params.seaLevel, factionColors);
+    if (shadeMap) threeColor.multiplyScalar(shadeMap[cell.id]);
     const hexColor = '#' + threeColor.getHexString();
     ctx.beginPath();
     pathGenerator(feature);
@@ -56,6 +61,10 @@ const renderEquirectangular = (
     ctx.fill();
     ctx.stroke();
   });
+
+  if (showContours) {
+    drawContourPaths(ctx, pathGenerator, computeContourSegments(world.cells, world.params.seaLevel, 0.1), Math.max(1, width / 2048));
+  }
 
   ctx.restore();
   return canvas;
@@ -69,11 +78,13 @@ const exportDymaxionRaster = (
   width: number,
   height: number,
   dymaxionSettings?: DymaxionExportSettings,
-  labelVisibility: LabelVisibility = DEFAULT_LABEL_VISIBILITY
+  labelVisibility: LabelVisibility = DEFAULT_LABEL_VISIBILITY,
+  showHillshade = false,
+  showContours = false
 ) => {
   const srcWidth = width;
   const srcHeight = Math.round(width / 2);
-  const source = renderEquirectangular(world, viewMode, srcWidth, srcHeight);
+  const source = renderEquirectangular(world, viewMode, srcWidth, srcHeight, showHillshade, showContours);
   if (!source) return;
   const srcCtx = source.getContext('2d');
   if (!srcCtx) return;
@@ -235,7 +246,9 @@ export const exportMap = async (
   resolution: ExportResolution = 4096,
   projectionType: ProjectionType = 'equirectangular',
   dymaxionSettings?: DymaxionExportSettings,
-  labelVisibility: LabelVisibility = DEFAULT_LABEL_VISIBILITY
+  labelVisibility: LabelVisibility = DEFAULT_LABEL_VISIBILITY,
+  showHillshade = false,
+  showContours = false
 ) => {
   const width = resolution;
   let height = resolution / 2;
@@ -246,7 +259,7 @@ export const exportMap = async (
   }
 
   if (projectionType === 'dymaxion') {
-    exportDymaxionRaster(world, viewMode, width, height, dymaxionSettings, labelVisibility);
+    exportDymaxionRaster(world, viewMode, width, height, dymaxionSettings, labelVisibility, showHillshade, showContours);
     return;
   }
 
@@ -281,11 +294,13 @@ export const exportMap = async (
   projection.fitSize([width, height], { type: "Sphere" } as any);
   const pathGenerator = d3.geoPath(projection, ctx);
   const factionColors = buildFactionColorMap(world.civData);
+  const shadeMap = showHillshade ? computeShadeMap(world.cells, world.params.seaLevel) : null;
 
   world.cells.forEach((cell, i) => {
     const feature = world.geoJson.features[i];
     if (!feature) return;
     const threeColor = getCellColor(cell, viewMode, world.params.seaLevel, factionColors);
+    if (shadeMap) threeColor.multiplyScalar(shadeMap[cell.id]);
     const hexColor = '#' + threeColor.getHexString();
     ctx.beginPath();
     pathGenerator(feature);
@@ -295,6 +310,10 @@ export const exportMap = async (
     ctx.fill();
     ctx.stroke();
   });
+
+  if (showContours) {
+    drawContourPaths(ctx, pathGenerator, computeContourSegments(world.cells, world.params.seaLevel, 0.1), Math.max(1, width / 2048));
+  }
 
   ctx.restore();
 

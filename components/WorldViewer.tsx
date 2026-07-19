@@ -4,6 +4,7 @@ import { OrbitControls, Stars, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY } from '../types';
 import { getCellColor } from '../utils/colors';
+import { computeShadeMap, computeContourSegments } from '../utils/shading';
 import { collectLabels, MapLabel } from '../utils/labels';
 
 const Mesh = 'mesh' as any;
@@ -481,6 +482,42 @@ const FactionBorders: React.FC<{ world: WorldData; visible: boolean }> = ({ worl
   );
 };
 
+const CONTOUR_INTERVAL = 0.1;
+// Isolines float just above the tallest terrain (max hMult = 1 + 1*0.05 = 1.05).
+// Segments carry no per-level height, so a single fixed radius keeps them out of
+// z-fighting range everywhere — chunky cell-edge lines, consistent with the aesthetic.
+const CONTOUR_RADIUS = 1.053;
+
+const ContourLines: React.FC<{ world: WorldData; visible: boolean }> = ({ world, visible }) => {
+  // Keyed on world identity: heights mutate in place on paint and WorldData is
+  // shallow-copied, so isolines must recompute per stroke.
+  const geometry = useMemo(() => {
+    if (!visible) return null;
+    const segments = computeContourSegments(world.cells, world.params.seaLevel, CONTOUR_INTERVAL);
+    if (segments.length === 0) return null;
+
+    const positions: number[] = [];
+    segments.forEach(([p1, p2]) => {
+      positions.push(p1[0] * CONTOUR_RADIUS, p1[1] * CONTOUR_RADIUS, p1[2] * CONTOUR_RADIUS);
+      positions.push(p2[0] * CONTOUR_RADIUS, p2[1] * CONTOUR_RADIUS, p2[2] * CONTOUR_RADIUS);
+    });
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    return geo;
+  }, [world, visible]);
+
+  useEffect(() => () => { geometry?.dispose(); }, [geometry]);
+
+  if (!geometry) return null;
+
+  return (
+    <LineSegments geometry={geometry} renderOrder={4}>
+      <LineBasicMaterial color="#3a2a1a" linewidth={1} opacity={0.35} transparent depthTest={true} />
+    </LineSegments>
+  );
+};
+
 const DymaxionOverlay: React.FC<{ settings: DymaxionSettings }> = ({ settings }) => {
   const { faceGeometry, edgeGeometry } = useMemo(() => {
     const faceGeometry = new THREE.IcosahedronGeometry(1.12, 0);
@@ -636,6 +673,8 @@ const WorldMesh: React.FC<{
   paused: boolean,
   showGrid: boolean,
   showRivers: boolean,
+  showHillshade: boolean,
+  showContours: boolean,
   inspectMode: InspectMode;
   onInspect: (cellId: number | null) => void;
   dymaxionSettings: DymaxionSettings;
@@ -645,7 +684,7 @@ const WorldMesh: React.FC<{
   brushSize: number;
   selectedCellId?: number | null;
   labelVisibility: LabelVisibility;
-}> = ({ world, viewMode, onHover, paused, showGrid, showRivers, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, brushSize, selectedCellId = null, labelVisibility }) => {
+}> = ({ world, viewMode, onHover, paused, showGrid, showRivers, showHillshade, showContours, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, brushSize, selectedCellId = null, labelVisibility }) => {
   const spinRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const lastUpdate = useRef<number>(0);
@@ -688,6 +727,13 @@ const WorldMesh: React.FC<{
 
   useEffect(() => () => { geometry.dispose(); }, [geometry]);
 
+  // Per-cell hillshade relief factor. Keyed on world identity (heights mutate in
+  // place on paint, WorldData shallow-copied) so it refreshes exactly like colors.
+  const shadeMap = useMemo(
+    () => computeShadeMap(world.cells, world.params.seaLevel),
+    [world],
+  );
+
   // Refill runs synchronously before the next painted frame so a fresh
   // geometry is never displayed with empty buffers
   useLayoutEffect(() => {
@@ -698,6 +744,9 @@ const WorldMesh: React.FC<{
     let o = 0;
     for (const cell of world.cells) {
       const c = getCellColor(cell, viewMode, world.params.seaLevel, factionColors);
+      // Multiply in relief shading only when toggled; the off path stays a
+      // straight color copy so rendering is unchanged.
+      if (showHillshade) c.multiplyScalar(shadeMap[cell.id]);
       const hMult = 1 + (cell.height * 0.05);
       const cx = cell.center.x * hMult; const cy = cell.center.y * hMult; const cz = cell.center.z * hMult;
       for (let i = 0; i < cell.vertices.length; i++) {
@@ -713,7 +762,7 @@ const WorldMesh: React.FC<{
     }
     posAttr.needsUpdate = true;
     colAttr.needsUpdate = true;
-  }, [geometry, world, viewMode, factionColors]);
+  }, [geometry, world, viewMode, factionColors, showHillshade, shadeMap]);
 
   const faceMap = useMemo(() => {
      const map: number[] = [];
@@ -914,6 +963,7 @@ const WorldMesh: React.FC<{
                 </React.Suspense>
                 <FactionBorders world={world} visible={labelVisibility.borders} />
                 <RiverLines world={world} visible={showRivers} />
+                <ContourLines world={world} visible={showContours} />
                 {showGrid && <LatLongGrid radius={1.06} />}
                 {/* Cell highlight outline */}
                 {highlightCellId !== null && world.cells[highlightCellId] && (
@@ -938,7 +988,7 @@ const WorldMesh: React.FC<{
   );
 };
 
-const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; brushSize?: number; }> = ({ world, viewMode, showGrid = false, showRivers = true, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, brushSize = 1 }) => {
+const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean; showHillshade?: boolean; showContours?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; brushSize?: number; }> = ({ world, viewMode, showGrid = false, showRivers = true, showHillshade = false, showContours = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, brushSize = 1 }) => {
   const [hoveredCell, setHoveredCell] = useState<Cell | null>(null);
   const [paused, setPaused] = useState(false);
   const [isSpaceHeld, setIsSpaceHeld] = useState(false);
@@ -1023,6 +1073,8 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
                paused={paused}
                showGrid={showGrid}
                showRivers={showRivers}
+               showHillshade={showHillshade}
+               showContours={showContours}
                labelVisibility={labelVisibility}
                inspectMode={inspectMode}
                onInspect={onInspect}

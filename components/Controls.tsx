@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode, DymaxionSettings, DymaxionControlMode, LabelVisibility } from '../types';
-import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Box, Copy, Check, Users, Landmark } from 'lucide-react';
+import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Box, Copy, Check, Users, Landmark, Sun, LineChart } from 'lucide-react';
 import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
 import { NAME_STYLES, NameStyle } from '../utils/namegen';
 import { exportGLB } from '../utils/exportGLB';
@@ -30,6 +30,10 @@ interface ControlsProps {
   setShowGrid: (b: boolean) => void;
   showRivers: boolean;
   setShowRivers: (b: boolean) => void;
+  showHillshade: boolean;
+  setShowHillshade: (b: boolean) => void;
+  showContours: boolean;
+  setShowContours: (b: boolean) => void;
   labelVisibility: LabelVisibility;
   setLabelVisibility: React.Dispatch<React.SetStateAction<LabelVisibility>>;
   dymaxionSettings: DymaxionSettings;
@@ -89,6 +93,10 @@ const Controls: React.FC<ControlsProps> = ({
   setShowGrid,
   showRivers,
   setShowRivers,
+  showHillshade,
+  setShowHillshade,
+  showContours,
+  setShowContours,
   labelVisibility,
   setLabelVisibility,
   dymaxionSettings,
@@ -312,7 +320,9 @@ const Controls: React.FC<ControlsProps> = ({
           expRes,
           expProj,
           expProj === 'dymaxion' ? { layout: dymaxionSettings.layout, lon: dymaxionSettings.lon, lat: dymaxionSettings.lat, roll: dymaxionSettings.roll } : undefined,
-          labelVisibility
+          labelVisibility,
+          showHillshade,
+          showContours
         );
     } catch(e) {
         console.error(e);
@@ -508,10 +518,36 @@ const Controls: React.FC<ControlsProps> = ({
                     <Waves size={12} className={showRivers ? "text-blue-400" : "text-gray-600"}/>
                     <label>River Network</label>
                  </div>
-                 <input 
+                 <input
                     type="checkbox"
                     checked={showRivers}
                     onChange={(e) => { setShowRivers(e.target.checked); }}
+                    className="bg-gray-700"
+                 />
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-gray-400 pt-2">
+                 <div className="flex items-center gap-2">
+                    <Sun size={12} className={showHillshade ? "text-blue-400" : "text-gray-600"}/>
+                    <label>Hillshading</label>
+                 </div>
+                 <input
+                    type="checkbox"
+                    checked={showHillshade}
+                    onChange={(e) => { setShowHillshade(e.target.checked); }}
+                    className="bg-gray-700"
+                 />
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-gray-400 pt-2">
+                 <div className="flex items-center gap-2">
+                    <LineChart size={12} className={showContours ? "text-blue-400" : "text-gray-600"}/>
+                    <label>Contour Lines</label>
+                 </div>
+                 <input
+                    type="checkbox"
+                    checked={showContours}
+                    onChange={(e) => { setShowContours(e.target.checked); }}
                     className="bg-gray-700"
                  />
             </div>

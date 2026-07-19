@@ -4,6 +4,7 @@ import { WorldData, ViewMode, InspectMode, DymaxionSettings, EditMode, LabelVisi
 import { getCellColor } from '../utils/colors';
 import { insideTri, barycentric, normalizeVec, toLonLat, getDymaxionNetTransform, projectDymaxionPoint, Point2, Point3 } from '../utils/geo';
 import { collectLabels, drawMapLabels } from '../utils/labels';
+import { computeShadeMap, computeContourSegments, drawContourPaths } from '../utils/shading';
 
 type Size = { width: number; height: number };
 
@@ -180,12 +181,14 @@ const Map2D: React.FC<{
   dymaxionSettings?: DymaxionSettings;
   showGrid?: boolean;
   showRivers?: boolean;
+  showHillshade?: boolean;
+  showContours?: boolean;
   labelVisibility?: LabelVisibility;
   editMode?: EditMode;
   onPaint?: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void;
   factionColors?: Map<number, string>;
   brushSize?: number;
-}> = ({ world, viewMode, inspectMode, onInspect, highlightCellId = null, projectionType = 'mercator', dymaxionSettings, showGrid = false, showRivers = true, labelVisibility = DEFAULT_LABEL_VISIBILITY, editMode = 'off', onPaint, factionColors, brushSize = 1 }) => {
+}> = ({ world, viewMode, inspectMode, onInspect, highlightCellId = null, projectionType = 'mercator', dymaxionSettings, showGrid = false, showRivers = true, showHillshade = false, showContours = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, editMode = 'off', onPaint, factionColors, brushSize = 1 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
@@ -212,6 +215,16 @@ const Map2D: React.FC<{
   const mapLabels = useMemo(
     () => (world ? collectLabels(world) : []),
     [world],
+  );
+  // Keyed on world identity: heights mutate in place on paint strokes and
+  // WorldData is shallow-copied, matching the other paint-sensitive memos.
+  const shadeMap = useMemo(
+    () => (world && showHillshade ? computeShadeMap(world.cells, world.params.seaLevel) : null),
+    [world, showHillshade],
+  );
+  const contourSegments = useMemo(
+    () => (world && showContours ? computeContourSegments(world.cells, world.params.seaLevel, 0.1) : []),
+    [world, showContours],
   );
 
   useEffect(() => {
@@ -318,6 +331,7 @@ const Map2D: React.FC<{
         const feature = world.geoJson?.features?.[i];
         if (!feature || !feature.geometry) continue;
         const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel, factionColors);
+        if (shadeMap) color.multiplyScalar(shadeMap[i]);
         const hexColor = '#' + color.getHexString();
         srcCtx.beginPath();
         pathGenerator(feature);
@@ -327,6 +341,8 @@ const Map2D: React.FC<{
         srcCtx.fill();
         srcCtx.stroke();
       }
+
+      drawContourPaths(srcCtx, pathGenerator, contourSegments, Math.max(1, renderDpr));
 
       if (highlightCellId !== null) {
         const feature = world.geoJson?.features?.[highlightCellId];
@@ -471,6 +487,7 @@ const Map2D: React.FC<{
         const feature = world.geoJson?.features?.[i];
       if (!feature || !feature.geometry) continue;
         const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel, factionColors);
+        if (shadeMap) color.multiplyScalar(shadeMap[i]);
         const hexColor = '#' + color.getHexString();
       ctx.beginPath();
       pathGenerator(feature);
@@ -480,6 +497,8 @@ const Map2D: React.FC<{
       ctx.fill();
       ctx.stroke();
     }
+
+    drawContourPaths(ctx, pathGenerator, contourSegments, Math.max(0.75, 1.5 / qualityDpr));
 
     // Draw Grid
     if (showGrid) {
@@ -590,6 +609,8 @@ const Map2D: React.FC<{
     factionBorders,
     mapLabels,
     labelVisibility,
+    shadeMap,
+    contourSegments,
     factionColors,
   ]);
 

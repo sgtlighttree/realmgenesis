@@ -113,6 +113,8 @@ const App: React.FC = () => {
   const [isLoreLoading, setIsLoreLoading] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
   const [showRivers, setShowRivers] = useState(true);
+  const [showHillshade, setShowHillshade] = useState(false);
+  const [showContours, setShowContours] = useState(false);
   const [labelVisibility, setLabelVisibility] = useState<LabelVisibility>(DEFAULT_LABEL_VISIBILITY);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [dymaxionSettings, setDymaxionSettings] = useState<DymaxionSettings>({
@@ -503,6 +505,8 @@ const App: React.FC = () => {
           worldData={world} 
           showGrid={showGrid} setShowGrid={setShowGrid}
           showRivers={showRivers} setShowRivers={setShowRivers}
+          showHillshade={showHillshade} setShowHillshade={setShowHillshade}
+          showContours={showContours} setShowContours={setShowContours}
           labelVisibility={labelVisibility} setLabelVisibility={setLabelVisibility}
           dymaxionSettings={dymaxionSettings}
           onDymaxionChange={setDymaxionSettings}
@@ -537,6 +541,8 @@ const App: React.FC = () => {
             viewMode={viewMode}
             showGrid={showGrid}
             showRivers={showRivers}
+            showHillshade={showHillshade}
+            showContours={showContours}
             labelVisibility={labelVisibility}
             inspectMode={inspectMode}
             onInspect={setInspectedCellId}
@@ -559,6 +565,8 @@ const App: React.FC = () => {
             dymaxionSettings={dymaxionSettings}
             showGrid={showGrid}
             showRivers={showRivers}
+            showHillshade={showHillshade}
+            showContours={showContours}
             labelVisibility={labelVisibility}
             editMode={editMode}
             onPaint={handlePaint}
