@@ -13,6 +13,99 @@ workflow/style rules.
 
 ---
 
+## ⚡ NEW-THREAD PICKUP (written 2026-07-19, end of Session 3)
+
+Session 3 ended near the usage limit with one delegated agent still running.
+A fresh Fable thread should do the following, in order:
+
+1. **Check for uncommitted C2 (religions) work**: a Sonnet subagent was
+   implementing C2 when this session wound down. Its changes land in the
+   working tree regardless of whether this thread saw its completion report.
+   `git status` — if you see modified `types.ts`/`utils/worldGen.ts`/
+   `utils/colors.ts`/component files + new `tests/religions.test.ts`, C2 is
+   done or partial. Run all four gates. If green, review the diff against the
+   C2 design (below) and commit in chunks; if partial/red, finish it inline
+   (the A4 precedent: agent died mid-flight, orchestrator completed from the
+   design spec).
+2. **C2 design contract** (what the agent was told to build): ReligionData
+   { id, name, kind: 'folk'|'organized', color, cultureId, holyCellId };
+   Cell.religionId; ViewMode 'religion'. One folk religion per culture
+   (desaturated culture color, land defaults to its culture's folk faith);
+   organized count = max(1, floor(numCultures/2)), seeded at top-population
+   spaced "holy cities", named via the holy city's culture namebase, spread
+   by budgeted Dijkstra (beyond budget stays folk — intentional). Dedicated
+   stream `civSeed + '_religions'`; MUST NOT advance civRng/provRng/culture
+   streams (existing geometry + culture signatures byte-identical). Hooked
+   where towns exist (end of recalculateProvinces or equivalent). NO new
+   WorldParams. religionColors threaded like cultureColors (C1 diff is the
+   template). Verify: gates + browser (Religions view button, Inspector
+   "Faith:" line).
+3. **Then C3 (roads & trade routes)** — last pre-D6 feature. Design sketch:
+   A* / Dijkstra paths between towns over the recalculateCivs terrain-cost
+   model (reuse its cost logic), land roads between towns of the same
+   faction + major inter-capital routes, sea routes between coastal towns
+   (port detection = coastal town), stored as WorldData.routes?: polylines
+   with kind ('road'|'searoute'), rendered like rivers (2D + 3D line
+   segments, own toggle), deterministic from civSeed side-stream. ROADMAP
+   says route connectivity should feed town importance — defer that feedback
+   loop (note it) to keep C3 additive. Delegate to Sonnet with a brief in
+   the established format (see Session 3 delegation protocol below).
+4. **Then session wrap**: full gates, browser pass on all three views,
+   update this file, commit in chunks.
+
+### Session 3 delegation protocol (working policies, also in memory)
+
+- **Sonnet 5 subagents by default** — Matt's directive. Opus only if
+  unavoidable (and then he wants 4.6; the Agent tool can't pin versions, so
+  flag to him instead of silently using another Opus). Subagent spend limit
+  was hit once mid-session (killed the A4 agent mid-task) — if agents fail
+  with a spend-limit error, finish the work inline from the brief.
+- **Briefs carry ALL design decisions** (exact files, integration points,
+  acceptance criteria incl. "lint ratchet exactly 30 warnings, add none",
+  "do not commit", "do not touch HANDOFF/CLAUDE/ROADMAP"). Sonnet's
+  literalness is an asset with a complete brief.
+- **One agent at a time** — every feature funnels through App.tsx/
+  Controls.tsx (prop-drilled architecture); parallel agents collide.
+- **Fallback heartbeat**: alongside each agent launch, arm a ~40-min Monitor
+  timer (`sleep 2400; echo ...`). Agent finishes first → TaskStop the timer.
+  Timer fires first → SendMessage the agent for status. Never heartbeat with
+  no agent running. (Cache economics: at this context size one miss ≈ ten
+  warm turns.)
+- **Orchestrator verifies everything**: re-run all four gates yourself,
+  read the key diffs, browser-verify via Playwright (dev server on :3000;
+  synthetic clicks need MouseEvent not PointerEvent for Map2D picking),
+  commit in logical chunks with 50/72 messages. Do NOT push (standing rule).
+
+### Post-milestone tier — SHIPPED this session (commits 47ef94f..f0459a0)
+
+| Feature | Commits | Notes |
+|---|---|---|
+| A4 hillshading + contours | 47ef94f | Relief-only Lambert shade map (no terminator), cell-edge isolines, toggles + export. Agent died at spend limit; finished inline. |
+| A5 geodesic ruler + scale bar | a78c60c | measure.ts pure math; ruler intercepts onInspect (children untouched); projection-aware scale bar (project-2-points method); agent caught a Map2D blit-deps bug itself. |
+| E1/E2 SVG + GeoJSON export | 3461990 | Layered SVG (mirror on geo groups, counter-mirrored text); RFC 7946 FeatureCollection; validated with xmllint + python beyond the suite. |
+| C4 markers/POIs | b429b83 | Sphere-position-anchored (survive regen), 'marker' LabelKind through shared pipeline, save/load with sanitizer; agent caught a pin double-mirroring bug. |
+| C5 civ editor ops | 117a0d5 | mergeFactions (full province-id map built BEFORE cell rewrite), renames, capital relocation (dual isCapital flag pair). Split deferred. |
+| C1 cultures | 09f4bdf, f0459a0 | Terrain-affinity Dijkstra cultures on '_cultures' stream (civRng untouched — liveness-proven); per-culture namebase styles drive faction/town naming by capital's culture. Browser-verified: NAJRA/ZAGHATI (desert) beside VESTAD/Isgard (norse). |
+
+Suite: 52 → 119 tests across the tier. Every feature: typecheck 0, lint
+0 errors / exactly 30 warnings (ratchet — do not exceed), build OK.
+
+### D6 / F1 sequencing analysis (agreed with Matt)
+
+- D6 (terrain V3: realistic plate boundaries, sub-cell heightmap detail)
+  breaks VALUES not INTERFACES for most features — derived layers (civs,
+  cultures, routes) regenerate by design. True wait-list: D4 submaps
+  (reuses the generator), A3 raster-heavy styling, B2 resurvey semantics,
+  D1–D3 tuning. The D6 planning phase should absorb THREE things as one
+  rendering-contract decision: terrain V3 + Matt's vector-2D note + A3.
+- F1 (UI overhaul, Matt's addition): may come before or alongside D6.
+  Deliberately NOT started in full-auto — needs Matt's design input. C-tier
+  UI additions were kept minimal (buttons/selects) to limit rework.
+- Pre-D6 batch order was: A5 → E1/E2 → C4 → C5 → C1 → C2 → C3 (all shipped
+  except C2 in-flight, C3 next).
+
+---
+
 ## Project Snapshot
 
 RealmGenesis 3D is a browser-only procedural fantasy world generator built with
