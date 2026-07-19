@@ -1,7 +1,7 @@
 import * as d3 from 'd3';
 import { geoWinkel3, geoRobinson, geoMollweide } from 'd3-geo-projection';
 import { WorldData, ViewMode, WorldParams, CivData, DymaxionSettings, LabelVisibility, DEFAULT_LABEL_VISIBILITY, MarkerData, MarkerKind } from '../types';
-import { buildFactionColorMap, buildCultureColorMap, getCellColor } from './colors';
+import { buildFactionColorMap, buildCultureColorMap, buildReligionColorMap, getCellColor } from './colors';
 import { buildDymaxionNet } from './dymaxion';
 import { insideTri, barycentric, normalizeVec, toLonLat, projectToDymaxionNet, Point2 } from './geo';
 import { collectLabels, drawMapLabels } from './labels';
@@ -51,12 +51,13 @@ const renderEquirectangular = (
   const pathGenerator = d3.geoPath(projection, ctx);
   const factionColors = buildFactionColorMap(world.civData);
   const cultureColors = buildCultureColorMap(world.cultures);
+  const religionColors = buildReligionColorMap(world.religions);
   const shadeMap = showHillshade ? computeShadeMap(world.cells, world.params.seaLevel) : null;
 
   world.cells.forEach((cell, i) => {
     const feature = world.geoJson.features[i];
     if (!feature) return;
-    const threeColor = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors);
+    const threeColor = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors);
     if (shadeMap) threeColor.multiplyScalar(shadeMap[cell.id]);
     const hexColor = '#' + threeColor.getHexString();
     ctx.beginPath();
@@ -301,12 +302,13 @@ export const exportMap = async (
   const pathGenerator = d3.geoPath(projection, ctx);
   const factionColors = buildFactionColorMap(world.civData);
   const cultureColors = buildCultureColorMap(world.cultures);
+  const religionColors = buildReligionColorMap(world.religions);
   const shadeMap = showHillshade ? computeShadeMap(world.cells, world.params.seaLevel) : null;
 
   world.cells.forEach((cell, i) => {
     const feature = world.geoJson.features[i];
     if (!feature) return;
-    const threeColor = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors);
+    const threeColor = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors);
     if (shadeMap) threeColor.multiplyScalar(shadeMap[cell.id]);
     const hexColor = '#' + threeColor.getHexString();
     ctx.beginPath();

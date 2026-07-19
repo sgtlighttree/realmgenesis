@@ -105,6 +105,13 @@ const Inspector: React.FC<InspectorProps> = ({
   }, [world?.cultures]);
   const cultureName = cell?.cultureId !== undefined ? cultureMap.get(cell.cultureId) ?? null : null;
 
+  const religionMap = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const religion of world?.religions ?? []) map.set(religion.id, religion.name);
+    return map;
+  }, [world?.religions]);
+  const religionName = cell?.religionId !== undefined ? religionMap.get(cell.religionId) ?? null : null;
+
   const faction = cell?.regionId !== undefined ? factionMap.get(cell.regionId) : null;
   const province = (faction && cell?.provinceId !== undefined) ? faction.provinces[cell.provinceId] : null;
   const town = province?.towns.find((t: TownData) => t.cellId === cell?.id) ?? null;
@@ -230,6 +237,9 @@ const Inspector: React.FC<InspectorProps> = ({
               <div className="text-gray-400">Pop: <span className="text-white">{cell.population?.toLocaleString()}</span></div>
               {cultureName && (
                 <div className="text-gray-400 col-span-2">Culture: <span className="text-white">{cultureName}</span></div>
+              )}
+              {religionName && (
+                <div className="text-gray-400 col-span-2">Faith: <span className="text-white">{religionName}</span></div>
               )}
             </div>
           </div>

@@ -1,15 +1,16 @@
 import * as THREE from 'three';
 import { WorldData, ViewMode, Cell } from '../types';
-import { buildFactionColorMap, buildCultureColorMap, getCellColor } from './colors';
+import { buildFactionColorMap, buildCultureColorMap, buildReligionColorMap, getCellColor } from './colors';
 
 const buildWorldMesh = (world: WorldData, viewMode: ViewMode): THREE.Mesh => {
   const positions: number[] = [];
   const colors: number[] = [];
   const factionColors = buildFactionColorMap(world.civData);
   const cultureColors = buildCultureColorMap(world.cultures);
+  const religionColors = buildReligionColorMap(world.religions);
 
   world.cells.forEach(cell => {
-    const c = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors);
+    const c = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors);
     const hMult = 1 + cell.height * 0.05;
     const cx = cell.center.x * hMult;
     const cy = cell.center.y * hMult;
