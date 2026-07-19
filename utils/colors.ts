@@ -1,10 +1,14 @@
-import { BiomeType, Cell, CivData, ViewMode } from '../types';
+import { BiomeType, Cell, CivData, CultureData, ViewMode } from '../types';
 import * as THREE from 'three';
 
 // Builds the live faction-color map from civData so every render/export path
 // (viewer, minimap, PNG, GLB) reflects user-edited faction colors identically.
 export const buildFactionColorMap = (civData?: CivData): Map<number, string> | undefined =>
   civData ? new Map(civData.factions.map(f => [f.id, f.color])) : undefined;
+
+// Same pattern as buildFactionColorMap, for the culture layer (C1).
+export const buildCultureColorMap = (cultures?: CultureData[]): Map<number, string> | undefined =>
+  cultures ? new Map(cultures.map(c => [c.id, c.color])) : undefined;
 
 // Earth-like Natural Colors
 export const BIOME_COLORS: Record<BiomeType, string> = {
@@ -69,6 +73,20 @@ export const FACTION_COLORS = [
   '#78909c', // blue-grey
 ];
 
+// Muted, desaturated palette for the culture layer (C1) — deliberately
+// softer than FACTION_COLORS so faction borders (drawn on top, in political
+// mode) stay the visually dominant political layer.
+export const CULTURE_COLORS = [
+  '#a1887f', // muted taupe
+  '#90a4ae', // muted blue-grey
+  '#a5d6a7', // muted sage green
+  '#ce93d8', // muted lavender
+  '#ffcc80', // muted amber
+  '#80cbc4', // muted teal
+  '#ef9a9a', // muted rose
+  '#c5cae9', // muted periwinkle
+];
+
 const getProvinceVariant = (baseColorHex: string, provId: number, strength = 1): THREE.Color => {
   const c = new THREE.Color(baseColorHex);
   const r = Math.sin(provId * 12.9898) * 43758.5453;
@@ -87,7 +105,7 @@ const getProvinceVariant = (baseColorHex: string, provId: number, strength = 1):
   return c;
 };
 
-export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, factionColors?: Map<number, string>): THREE.Color => {
+export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, factionColors?: Map<number, string>, cultureColors?: Map<number, string>): THREE.Color => {
   const color = new THREE.Color();
 
   switch (mode) {
@@ -234,6 +252,24 @@ export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, facti
       color.setHSL(Math.max(0, 0.66 - p * 0.55), 0.85, 0.12 + p * 0.55);
       break;
     }
+
+    case 'culture':
+      // Water renders identically to political mode; unassigned land (should
+      // only happen transiently, e.g. before recalculateCultures has run)
+      // reads as dark grey rather than falling back to a faction color.
+      if (cell.biome === BiomeType.LAKE || cell.biome === BiomeType.SALT_LAKE) {
+        color.setHex(0x1a237e);
+        color.multiplyScalar(0.7);
+      } else if (cell.height < seaLevel) {
+        color.setHex(0x1a237e);
+        color.multiplyScalar(0.5 + cell.height * 0.5);
+      } else if (cell.cultureId !== undefined) {
+        const cultureColor = cultureColors?.get(cell.cultureId) ?? CULTURE_COLORS[cell.cultureId % CULTURE_COLORS.length];
+        color.set(cultureColor);
+      } else {
+        color.setHex(0x333333);
+      }
+      break;
 
     case 'biome':
     default:
