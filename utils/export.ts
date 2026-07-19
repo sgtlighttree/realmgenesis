@@ -6,6 +6,7 @@ import { buildDymaxionNet } from './dymaxion';
 import { insideTri, barycentric, normalizeVec, toLonLat, projectToDymaxionNet, Point2 } from './geo';
 import { collectLabels, drawMapLabels } from './labels';
 import { computeShadeMap, computeContourSegments, drawContourPaths } from './shading';
+import { computeScaleBar, niceScaleBarLength, drawScaleBar } from './measure';
 import { NAME_STYLES, NameStyle } from './namegen';
 
 // Older saved configs predate nameStyle; default them so the generator and
@@ -334,6 +335,22 @@ export const exportMap = async (
       labelVisibility,
       width / 1024,
     );
+  }
+
+  // Scale bar: bottom-left, post-restore/screen space, for every d3
+  // projection reaching this function (dymaxion is the separate raster path
+  // above and never gets here). maxPixels scales with resolution so the bar
+  // stays proportionally sized across export sizes.
+  const scaleBarCenter = projection.invert?.([width / 2, height / 2]);
+  if (scaleBarCenter && Number.isFinite(scaleBarCenter[0]) && Number.isFinite(scaleBarCenter[1])) {
+    const scaleBarInfo = computeScaleBar(projection, scaleBarCenter, world.params.planetRadius);
+    if (scaleBarInfo) {
+      const { km, px } = niceScaleBarLength(scaleBarInfo.pixelsPerKm, width * 0.12);
+      if (km > 0) {
+        const margin = width * 0.02;
+        drawScaleBar(ctx, margin, height - margin, km, px);
+      }
+    }
   }
 
   const link = document.createElement('a');
