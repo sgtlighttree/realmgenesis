@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { WorldData, ViewMode, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, Point } from '../types';
+import { WorldData, ViewMode, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, Point, MarkerData } from '../types';
 import { getCellColor } from '../utils/colors';
 import { insideTri, barycentric, normalizeVec, toLonLat, getDymaxionNetTransform, projectDymaxionPoint, Point2, Point3 } from '../utils/geo';
 import { collectLabels, drawMapLabels } from '../utils/labels';
@@ -90,6 +90,37 @@ const drawFactionBorders = (ctx: CanvasRenderingContext2D, pathGenerator: d3.Geo
   ctx.strokeStyle = 'rgba(248, 250, 252, 0.95)';
   ctx.lineWidth = lineWidth;
   drawPass();
+  ctx.restore();
+};
+
+// Small amber diamond per marker, drawn in the same projected space as the
+// adjacent drawMapLabels call so both share one projection lambda. halfSize
+// is in the caller's coordinate space (CSS px for the transformed mercator
+// ctx, device px for the raw dymaxion raster) — see call sites.
+const drawMarkerPins = (
+  ctx: CanvasRenderingContext2D,
+  markers: MarkerData[],
+  project: (position: { x: number; y: number; z: number }) => [number, number] | null,
+  halfSize: number,
+): void => {
+  if (markers.length === 0) return;
+  ctx.save();
+  ctx.fillStyle = '#f59e0b';
+  ctx.strokeStyle = 'rgba(28, 18, 7, 0.9)';
+  ctx.lineWidth = Math.max(0.75, halfSize * 0.3);
+  for (const marker of markers) {
+    const projected = project(marker.position);
+    if (!projected) continue;
+    const [x, y] = projected;
+    ctx.beginPath();
+    ctx.moveTo(x, y - halfSize);
+    ctx.lineTo(x + halfSize, y);
+    ctx.lineTo(x, y + halfSize);
+    ctx.lineTo(x - halfSize, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
   ctx.restore();
 };
 
@@ -445,21 +476,28 @@ const Map2D: React.FC<{
       });
 
       tCtx.putImageData(output, 0, 0);
+
+      const dymaxionMarkerProject = (position: { x: number; y: number; z: number }): [number, number] | null => {
+        const projected = projectDymaxionPoint(
+          [position.x, position.y, position.z],
+          dymaxionLayout,
+          canvasWidth,
+          canvasHeight,
+          dymaxionLon,
+          dymaxionLat,
+          dymaxionRoll,
+        );
+        return projected ? [projected[0] * renderDpr, projected[1] * renderDpr] : null;
+      };
+
+      if (labelVisibility.markers && world?.markers) {
+        drawMarkerPins(tCtx, world.markers, dymaxionMarkerProject, Math.max(2, 2.5 * renderDpr));
+      }
+
       drawMapLabels(
         tCtx,
         mapLabels,
-        (position) => {
-          const projected = projectDymaxionPoint(
-            [position.x, position.y, position.z],
-            dymaxionLayout,
-            canvasWidth,
-            canvasHeight,
-            dymaxionLon,
-            dymaxionLat,
-            dymaxionRoll,
-          );
-          return projected ? [projected[0] * renderDpr, projected[1] * renderDpr] : null;
-        },
+        dymaxionMarkerProject,
         renderDpr,
         labelVisibility,
       );
@@ -638,16 +676,29 @@ const Map2D: React.FC<{
       }
     }
 
+    const mercatorMarkerProject = (position: { x: number; y: number; z: number }): [number, number] | null => {
+      const projected = projection(toLonLat([position.x, position.y, position.z]));
+      return projected ? [size.width - projected[0], projected[1]] : null;
+    };
+
+    // mercatorMarkerProject applies its own manual mirror (size.width - x), so
+    // it must run under the same *absolute* (un-mirrored) transform as the
+    // label pass below — the ambient ctx transform above still carries the
+    // translate/scale(-1,1) cell-drawing mirror, which would double it up.
+    if (labelVisibility.markers && world?.markers) {
+      ctx.save();
+      ctx.setTransform(renderDpr, 0, 0, renderDpr, 0, 0);
+      drawMarkerPins(ctx, world.markers, mercatorMarkerProject, Math.max(1.5, 2.5 / qualityDpr));
+      ctx.restore();
+    }
+
     if (mapLabels.length > 0) {
       ctx.save();
       ctx.setTransform(renderDpr, 0, 0, renderDpr, 0, 0);
       drawMapLabels(
         ctx,
         mapLabels,
-        (position) => {
-          const projected = projection(toLonLat([position.x, position.y, position.z]));
-          return projected ? [size.width - projected[0], projected[1]] : null;
-        },
+        mercatorMarkerProject,
         // Read via ref: the effect re-runs on the qualityDpr settle cycle, so
         // LOD tracks settled zoom without redrawing every cell per wheel tick.
         scaleRef.current,

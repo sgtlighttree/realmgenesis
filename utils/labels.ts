@@ -3,7 +3,8 @@ import { normalizeVec, Point3 } from './geo';
 
 export type LabelKind =
   | 'faction' | 'capital' | 'town' | 'province'
-  | 'range' | 'desert' | 'forest' | 'sea' | 'ocean' | 'island' | 'lake';
+  | 'range' | 'desert' | 'forest' | 'sea' | 'ocean' | 'island' | 'lake'
+  | 'marker';
 
 export interface MapLabel {
   kind: LabelKind;
@@ -38,6 +39,8 @@ export const LABEL_CONFIG: Record<LabelKind, LabelStyleConfig> = {
   desert: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography' },
   forest: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography' },
   island: { fontWeight: 400, baseFontSize: 9, alpha: 0.8, uppercase: false, visibilityKey: 'geography' },
+  // Warm amber, distinct from both civ (blue/white) and geo (light/blued) labels.
+  marker: { fontWeight: 600, baseFontSize: 10, alpha: 0.95, uppercase: false, visibilityKey: 'markers', fill: '#fde68a' },
 };
 
 const ZOOM_THRESHOLDS: Record<LabelKind, number> = {
@@ -53,6 +56,7 @@ const ZOOM_THRESHOLDS: Record<LabelKind, number> = {
   forest: 1.0,
   island: 1.8,
   lake: 1.8,
+  marker: 0.7,
 };
 
 interface LabelRect {
@@ -99,6 +103,17 @@ export const collectLabels = (world: WorldData): MapLabel[] => {
       name: feature.name,
       position: { x: feature.anchor.x, y: feature.anchor.y, z: feature.anchor.z },
       priority: GEO_PRIORITY[feature.kind] ?? 3,
+    });
+  }
+
+  // User-placed markers are sphere-anchored, not civ/terrain-derived — emitted
+  // independent of civData, same as geo features above.
+  for (const marker of world.markers ?? []) {
+    labels.push({
+      kind: 'marker',
+      name: marker.name,
+      position: { x: marker.position.x, y: marker.position.y, z: marker.position.z },
+      priority: 1.5,
     });
   }
 

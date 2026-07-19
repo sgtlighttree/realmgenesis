@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useEffect, useLayoutEffect, useState, useCallba
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Stars, Line } from '@react-three/drei';
 import * as THREE from 'three';
-import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY } from '../types';
+import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, MarkerData } from '../types';
 import { getCellColor } from '../utils/colors';
 import { computeShadeMap, computeContourSegments } from '../utils/shading';
 import { collectLabels, MapLabel } from '../utils/labels';
@@ -22,6 +22,7 @@ const IcosahedronGeometry = 'icosahedronGeometry' as any;
 type R3FIntrinsic = React.FC<{ children?: React.ReactNode } & Record<string, unknown>>;
 const Sprite = 'sprite' as unknown as R3FIntrinsic;
 const SpriteMaterial = 'spriteMaterial' as unknown as R3FIntrinsic;
+const OctahedronGeometry = 'octahedronGeometry' as unknown as R3FIntrinsic;
 
 const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ world, viewMode }) => {
     const capitalsRef = useRef<THREE.InstancedMesh>(null);
@@ -75,6 +76,42 @@ const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ world
                 </InstancedMesh>
             )}
         </>
+    );
+};
+
+// User-placed POI pins (C4). Markers are sphere-anchored (MarkerData.position),
+// not cell-derived, so they're positioned directly rather than via cell.center
+// like CityMarkers above. Offset (1.055) sits just under the point-label offset
+// (1.09+) so the pin renders under its name sprite without z-fighting.
+const MarkerPins: React.FC<{ markers: MarkerData[]; visible: boolean }> = ({ markers, visible }) => {
+    const meshRef = useRef<THREE.InstancedMesh>(null);
+    const dummy = useMemo(() => new THREE.Object3D(), []);
+
+    useEffect(() => {
+        const mesh = meshRef.current;
+        if (!mesh) return;
+        markers.forEach((marker, i) => {
+            const len = Math.hypot(marker.position.x, marker.position.y, marker.position.z) || 1;
+            dummy.position.set(
+                (marker.position.x / len) * 1.055,
+                (marker.position.y / len) * 1.055,
+                (marker.position.z / len) * 1.055,
+            );
+            dummy.rotation.set(0, 0, 0);
+            dummy.scale.set(1, 1, 1);
+            dummy.updateMatrix();
+            mesh.setMatrixAt(i, dummy.matrix);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+    }, [markers, dummy]);
+
+    if (markers.length === 0) return null;
+
+    return (
+        <InstancedMesh ref={meshRef} args={[undefined, undefined, markers.length]} visible={visible}>
+            <OctahedronGeometry args={[0.016, 0]} />
+            <MeshBasicMaterial color="#f59e0b" toneMapped={false} />
+        </InstancedMesh>
     );
 };
 
@@ -292,6 +329,8 @@ const POINT_LABEL_CONFIG: Record<string, { height: number; fontWeight: number; a
   desert: { height: 0.032, fontWeight: 400, alpha: 0.85, offset: 1.08 },
   forest: { height: 0.032, fontWeight: 400, alpha: 0.85, offset: 1.08 },
   island: { height: 0.026, fontWeight: 400, alpha: 0.8, offset: 1.08 },
+  // Sits just above the marker pin offset (1.055) so labels don't clip into pins.
+  marker: { height: 0.03, fontWeight: 600, alpha: 0.95, offset: 1.09, fill: '#fde68a' },
 };
 
 // Geographic label kinds by zoom tier, mirroring the 2D LOD in labels.ts.
@@ -316,6 +355,7 @@ const PointLabels: React.FC<{
       if (l.kind === 'capital' && !visibility.capitals) return false;
       if (l.kind === 'province' && !visibility.provinces) return false;
       if (l.kind === 'town' && !visibility.towns) return false;
+      if (l.kind === 'marker' && !visibility.markers) return false;
       // Geographic kinds share a single toggle.
       if ((GEO_MID_KINDS.has(l.kind) || GEO_SMALL_KINDS.has(l.kind) || l.kind === 'ocean') && !visibility.geography) return false;
       return true;
@@ -1001,6 +1041,7 @@ const WorldMesh: React.FC<{
                     <MeshStandardMaterial vertexColors roughness={0.8} metalness={0.1} flatShading side={THREE.FrontSide} />
                 )}
                 <CityMarkers world={world} viewMode={viewMode} />
+                <MarkerPins markers={world.markers ?? []} visible={labelVisibility.markers} />
                 <React.Suspense fallback={null}>
                     <CountryLabels world={world} visible={labelVisibility.factions} />
                     <PointLabels labels={mapLabels} visibility={labelVisibility} />

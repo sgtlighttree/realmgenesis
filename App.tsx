@@ -5,7 +5,7 @@ import Map2D from './components/Map2D';
 import MiniMap from './components/MiniMap';
 import Inspector from './components/Inspector';
 import { BiomeLegend } from './components/Legend';
-import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode, InspectMode, DymaxionSettings, EditMode, PaintStyle, UndoSnapshot, BiomeType, POLITICAL_ERASER_ID, LabelVisibility, DEFAULT_LABEL_VISIBILITY, Point } from './types';
+import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode, InspectMode, DymaxionSettings, EditMode, PaintStyle, UndoSnapshot, BiomeType, POLITICAL_ERASER_ID, LabelVisibility, DEFAULT_LABEL_VISIBILITY, Point, MarkerData } from './types';
 import { generateWorld, recalculateCivs, recalculateProvinces } from './utils/worldGen';
 import { getCellsInRadius, applyTerrainStroke, applyFlattenStroke, applySmoothStroke, applyPoliticalStroke, applyBiomeStroke, refreshBiomes } from './utils/paintUtils';
 import { generateWorldLore, setRuntimeApiKey } from './services/gemini';
@@ -109,6 +109,8 @@ const App: React.FC = () => {
   const [inspectedCellId, setInspectedCellId] = useState<number | null>(null);
   const [rulerActive, setRulerActive] = useState(false);
   const [rulerCells, setRulerCells] = useState<[number, number | null] | null>(null);
+  const [markerMode, setMarkerMode] = useState(false);
+  const [selectedMarkerId, setSelectedMarkerId] = useState<number | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [genProgress, setGenProgress] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
@@ -187,7 +189,13 @@ const App: React.FC = () => {
 
     try {
         const newWorld = await generateWorld(p, (msg) => { addLog(msg); }, controller.signal, (s, t) => setGenProgress(s / t));
-        setWorld(newWorld);
+        // Markers are sphere-anchored (not cellId-based), so they stay
+        // meaningful across regeneration — carry them over from the world
+        // being replaced. Functional updater avoids a stale `world` closure.
+        setWorld(prev => {
+          newWorld.markers = prev?.markers;
+          return newWorld;
+        });
         setGenProgress(1);
         addLog('World Generation Complete.');
     } catch (e: any) {  
@@ -207,7 +215,7 @@ const App: React.FC = () => {
     }
   }, [params, addLog]);
 
-  const handleLoadWorld = useCallback(async (newParams: WorldParams, savedCivData?: CivData) => {
+  const handleLoadWorld = useCallback(async (newParams: WorldParams, savedCivData?: CivData, savedMarkers?: MarkerData[]) => {
      if (abortControllerRef.current) abortControllerRef.current.abort();
      const controller = new AbortController();
      abortControllerRef.current = controller;
@@ -256,6 +264,7 @@ const App: React.FC = () => {
              addLog('Warning: saved names/colors could not be restored; loaded terrain only.');
          }
 
+         newWorld.markers = savedMarkers;
          setWorld(newWorld);
          addLog('Map Loaded Successfully.');
      } catch (e: any) {  
@@ -327,30 +336,74 @@ const App: React.FC = () => {
     }
   }, [inspectMode]);
 
-  // Ruler toggle forces inspectMode to 'click': the 3D/2D pickers only ever
-  // fire onInspect from click handling when inspectMode === 'click' (hover
-  // mode fires it continuously on pointer move, which would spam ruler points).
+  // Ruler and marker placement are mutually exclusive click-capture modes;
+  // both force inspectMode to 'click' for the same reason: the 3D/2D pickers
+  // only ever fire onInspect from click handling when inspectMode === 'click'
+  // (hover mode fires it continuously on pointer move, which would spam
+  // ruler points / drop a marker on every hover).
   const toggleRuler = useCallback(() => {
     setRulerActive(prev => {
       const next = !prev;
-      if (next) setInspectMode('click');
+      if (next) { setInspectMode('click'); setMarkerMode(false); }
       return next;
     });
     setRulerCells(null);
   }, []);
 
-  // Intercepts the shared onInspect plumbing: while the ruler is active, cell
-  // clicks build up the two-point measurement instead of updating the
-  // Inspector's selection. Children (WorldViewer/Map2D/Controls) are unaware
-  // of the ruler — they just keep calling onInspect(cellId) as before.
+  const toggleMarkerMode = useCallback(() => {
+    setMarkerMode(prev => {
+      const next = !prev;
+      if (next) { setInspectMode('click'); setRulerActive(false); }
+      return next;
+    });
+  }, []);
+
+  // Intercepts the shared onInspect plumbing: while the ruler or marker mode
+  // is active, cell clicks build up a measurement / drop a pin instead of
+  // updating the Inspector's selection. Children (WorldViewer/Map2D/Controls)
+  // are unaware of either mode — they just keep calling onInspect(cellId).
   const handleInspect = useCallback((cellId: number | null) => {
+    if (markerMode) {
+      if (cellId === null || !world) return;
+      const cell = world.cells[cellId];
+      if (!cell) return;
+      const markers = world.markers ?? [];
+      const nextId = markers.reduce((max, m) => Math.max(max, m.id), -1) + 1;
+      const len = Math.hypot(cell.center.x, cell.center.y, cell.center.z) || 1;
+      const newMarker: MarkerData = {
+        id: nextId,
+        kind: 'poi',
+        name: `Marker ${nextId}`,
+        note: '',
+        position: { x: cell.center.x / len, y: cell.center.y / len, z: cell.center.z / len },
+      };
+      world.markers = [...markers, newMarker];
+      setWorld({ ...world });
+      setSelectedMarkerId(nextId);
+      return; // stay in markerMode for multiple placements
+    }
     if (rulerActive) {
       if (cellId === null) return; // misses/hover-outs never touch ruler state
       setRulerCells(prev => (!prev || prev[1] !== null) ? [cellId, null] : [prev[0], cellId]);
       return;
     }
     setInspectedCellId(cellId);
-  }, [rulerActive]);
+  }, [rulerActive, markerMode, world]);
+
+  const updateMarker = useCallback((id: number, patch: Partial<Pick<MarkerData, 'kind' | 'name' | 'note'>>) => {
+    if (!world?.markers) return;
+    const marker = world.markers.find(m => m.id === id);
+    if (!marker) return;
+    Object.assign(marker, patch);
+    setWorld({ ...world });
+  }, [world]);
+
+  const deleteMarker = useCallback((id: number) => {
+    if (!world?.markers) return;
+    world.markers = world.markers.filter(m => m.id !== id);
+    setWorld({ ...world });
+    setSelectedMarkerId(prev => (prev === id ? null : prev));
+  }, [world]);
 
   const rulerArc = useMemo<Point[] | null>(() => {
     if (!world || !rulerCells || rulerCells[1] === null) return null;
@@ -643,6 +696,12 @@ const App: React.FC = () => {
           onEditWorldData={handleEditWorldData}
           rulerActive={rulerActive}
           onToggleRuler={toggleRuler}
+          markerMode={markerMode}
+          onToggleMarkerMode={toggleMarkerMode}
+          selectedMarkerId={selectedMarkerId}
+          onSelectMarker={setSelectedMarkerId}
+          onUpdateMarker={updateMarker}
+          onDeleteMarker={deleteMarker}
         />
         {rulerActive && (
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none z-10">
