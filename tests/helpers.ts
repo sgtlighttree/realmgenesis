@@ -34,6 +34,7 @@ export const makeParams = (overrides: Partial<WorldParams> = {}): WorldParams =>
   territorialWaters: 0.15,
   capitalSpacing: 0.5,
   provinceSize: 0.5,
+  numCultures: 4,
   nameStyle: 'fantasy',
   loreLevel: 1,
   seed: 'test_seed',
@@ -57,3 +58,10 @@ export const nameSignature = (world: WorldData): string =>
   (world.civData?.factions ?? [])
     .map(f => `${f.name}[${f.provinces.map(p => `${p.name}:${p.towns.map(t => t.name).join(',')}`).join('|')}]`)
     .join(';');
+
+// Compact signature of the culture layer (C1) — per-cell cultureId, plus the
+// culture roster's own names/styles so home-cell/naming changes show up too.
+export const cultureSignature = (world: WorldData): string =>
+  world.cells.map(c => `${c.cultureId ?? '-'}`).join(';') +
+  '|' +
+  (world.cultures ?? []).map(c => `${c.name}:${c.nameStyle}:${c.homeCellId}`).join(',');

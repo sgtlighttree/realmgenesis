@@ -26,6 +26,7 @@ export interface Cell {
   isCapital?: boolean;
   isTown?: boolean;
   population?: number;
+  cultureId?: number; // Culture ID (C1) — undefined on water cells
 }
 
 export enum BiomeType {
@@ -117,9 +118,11 @@ export interface WorldParams {
   civSizeVariance: number; 
   waterCrossingCost: number;
   territorialWaters: number; // Max distance from land to claim water
-  capitalSpacing: number; 
+  capitalSpacing: number;
   provinceSize: number; // 0.1 (Small) to 1.0 (Huge)
-  
+
+  numCultures: number; // 2-8, home count for the culture layer (C1)
+
   nameStyle: NameStyle;
 
   // Meta
@@ -153,6 +156,17 @@ export interface FactionData {
 
 export interface CivData {
     factions: FactionData[];
+}
+
+// A culture region (C1): a terrain-affinity-driven population cluster,
+// distinct from (and predating) faction borders. Factions inherit their
+// naming style from the culture their capital sits in.
+export interface CultureData {
+  id: number;
+  name: string;
+  color: string;
+  nameStyle: NameStyle;
+  homeCellId: number;
 }
 
 // Minimal GeoJSON shape for the cached d3-geo-voronoi polygons.
@@ -218,11 +232,12 @@ export interface WorldData {
   lakes?: LakeData[];
   features?: GeoFeature[]; // named geographic features (B3)
   markers?: MarkerData[]; // user-placed POIs (C4)
+  cultures?: CultureData[]; // culture layer (C1)
 }
 
 export type DisplayMode = 'globe' | 'mercator' | 'dymaxion';
 export type InspectMode = 'click' | 'hover' | 'off';
-export type ViewMode = 'biome' | 'height' | 'height_bw' | 'temperature' | 'moisture' | 'plates' | 'political' | 'population' | 'province' | 'satellite';
+export type ViewMode = 'biome' | 'height' | 'height_bw' | 'temperature' | 'moisture' | 'plates' | 'political' | 'population' | 'province' | 'satellite' | 'culture';
 export type EditMode = 'off' | 'terrain-raise' | 'terrain-lower' | 'terrain-flatten' | 'terrain-smooth' | 'biome' | 'political' | 'world-edit';
 export type PaintStyle = 'adaptive' | 'freeform';
 export const POLITICAL_ERASER_ID = -1;

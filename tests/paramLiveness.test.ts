@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateWorld } from '../utils/worldGen';
 import { WorldParams } from '../types';
-import { makeParams, terrainSignature, civSignature, nameSignature } from './helpers';
+import { makeParams, terrainSignature, civSignature, nameSignature, cultureSignature } from './helpers';
 
 // Every tunable parameter must provably influence the generated world.
 // This guards against "dead slider" regressions (a UI control bound to a
@@ -86,6 +86,25 @@ describe('every tunable param influences the world', () => {
     expect(civSignature(restyled), 'nameStyle must not alter civ geometry')
       .toBe(civSignature(baseline));
     expect(terrainSignature(restyled), 'nameStyle must not alter terrain')
+      .toBe(terrainSignature(baseline));
+  }, 120000);
+
+  // numCultures is a culture-layer-only param (C1): it must reshape culture
+  // assignment (and therefore, indirectly, faction/province/town names — see
+  // recalculateCivs/recalculateProvinces), but recalculateCultures runs on
+  // its own RNG side-stream before civRng is ever created, so it must NOT
+  // perturb civ geometry (regionId/provinceId/population) or terrain at all.
+  // The civSignature/terrainSignature assertions here double as the
+  // enforcement of that determinism constraint.
+  it('numCultures changes culture assignment while leaving civ/terrain geometry untouched', async () => {
+    const baseline = await generateWorld(makeParams({ numCultures: 4 }));
+    const changed = await generateWorld(makeParams({ numCultures: 8 }));
+
+    expect(cultureSignature(changed), 'param "numCultures" appears to be dead — culture assignment unchanged')
+      .not.toBe(cultureSignature(baseline));
+    expect(civSignature(changed), 'numCultures must not alter civ geometry')
+      .toBe(civSignature(baseline));
+    expect(terrainSignature(changed), 'numCultures must not alter terrain')
       .toBe(terrainSignature(baseline));
   }, 120000);
 });

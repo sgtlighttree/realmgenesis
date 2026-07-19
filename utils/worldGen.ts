@@ -1,8 +1,8 @@
 import { geoVoronoi } from 'd3-geo-voronoi';
-import { Cell, LakeData, Point, WorldData, WorldParams, BiomeType, FactionData } from '../types';
+import { Cell, LakeData, Point, WorldData, WorldParams, BiomeType, FactionData, CultureData } from '../types';
 import { RNG, SimplexNoise } from './rng';
-import { FACTION_COLORS } from './colors';
-import { createNameGenerator, NameStyle } from './namegen';
+import { FACTION_COLORS, CULTURE_COLORS } from './colors';
+import { createNameGenerator, NameGenerator, NameStyle, NAME_STYLES } from './namegen';
 import { detectFeatures } from './features';
 
 // --- DATA STRUCTURES ---
@@ -918,10 +918,218 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   return recalculateCivs(world, params, onLog);
 }
 
+// Biome groups used by the culture terrain-affinity profiles below.
+const FOREST_BIOMES = new Set<BiomeType>([
+  BiomeType.TROPICAL_RAINFOREST,
+  BiomeType.TEMPERATE_FOREST,
+  BiomeType.TEMPERATE_RAINFOREST,
+  BiomeType.BOREAL_FOREST,
+]);
+const DESERT_BIOMES = new Set<BiomeType>([
+  BiomeType.HOT_DESERT,
+  BiomeType.COLD_DESERT,
+  BiomeType.STEPPE,
+]);
+
+// Looks up the naming style a cell's culture speaks, falling back to the
+// world's base nameStyle for cells with no culture assignment yet (e.g. an
+// oceanic world where recalculateCultures found zero land candidates).
+function getCultureNameStyle(world: WorldData, params: WorldParams, cellId: number): NameStyle {
+  const cell = world.cells[cellId];
+  const culture = cell?.cultureId !== undefined ? world.cultures?.find(c => c.id === cell.cultureId) : undefined;
+  return culture?.nameStyle ?? (params.nameStyle ?? 'fantasy');
+}
+
+// One NameGenerator per NameStyle, lazily created on first use and cached for
+// the life of the caller. Each style gets its own RNG side-stream (seedPrefix
+// + style) so faction/province naming stays fully deterministic regardless of
+// which cultures happen to touch which capitals/towns.
+function makeStyleNameGenCache(seedPrefix: string): (style: NameStyle) => NameGenerator {
+  const cache = new Map<NameStyle, NameGenerator>();
+  return (style: NameStyle) => {
+    let gen = cache.get(style);
+    if (!gen) {
+      const rng = new RNG(seedPrefix + style);
+      gen = createNameGenerator(style, () => rng.next());
+      cache.set(style, gen);
+    }
+    return gen;
+  };
+}
+
+// C1: the culture layer. Distinct from (and computed before) factions —
+// culture regions spread by terrain affinity and give faction/province/town
+// naming a consistent regional flavor. Deterministic from civSeed alone.
+//
+// DETERMINISM CONSTRAINT: this function must never read from or advance
+// civRng (created afterwards in recalculateCivs) or any other existing RNG
+// stream. It owns a single new side-stream, civSeed + '_cultures', so every
+// existing seed keeps byte-identical faction/province geometry — only the
+// generated names change (see recalculateCivs/recalculateProvinces below).
+export function recalculateCultures(world: WorldData, params: WorldParams, onLog?: (msg: string) => void): WorldData {
+    const numCultures = Math.max(1, params.numCultures || 4);
+    onLog?.(`Weaving ${numCultures} Cultures...`);
+
+    world.cells.forEach(c => { c.cultureId = undefined; });
+
+    const cultureRng = new RNG(params.civSeed + '_cultures');
+
+    // Land = same definition used everywhere else in the civ passes.
+    const candidates = world.cells.filter(c => c.height >= params.seaLevel && !isLakeCell(c));
+    if (candidates.length === 0) {
+        world.cultures = [];
+        return world;
+    }
+
+    // --- Seed home cells, spaced like faction capitals (squared-chord minimum) ---
+    // No dedicated spacing slider exists yet for cultures, so a fixed mid
+    // spacing factor (matching the capitalSpacing default) is used.
+    const CULTURE_SPACING = 0.5;
+    const minChordSq = CULTURE_SPACING ** 2 * (4 / numCultures);
+    const homes: number[] = [];
+    let attempts = 0;
+    while (homes.length < numCultures && attempts < 1000) {
+        attempts++;
+        const candidate = candidates[Math.floor(cultureRng.next() * candidates.length)];
+        let tooClose = false;
+        for (const homeId of homes) {
+            const h = world.cells[homeId];
+            const d = (candidate.center.x - h.center.x) ** 2 + (candidate.center.y - h.center.y) ** 2 + (candidate.center.z - h.center.z) ** 2;
+            if (d < minChordSq) { tooClose = true; break; }
+        }
+        if (!tooClose) homes.push(candidate.id);
+    }
+
+    // Coastal land cells, precomputed once — reused both by the coastal
+    // affinity profile and by classifying a culture's own home cell.
+    const coastalIds = new Set<number>();
+    for (const c of candidates) {
+        for (const nId of c.neighbors) {
+            const n = world.cells[nId];
+            if (n.height < params.seaLevel || isLakeCell(n)) { coastalIds.add(c.id); break; }
+        }
+    }
+
+    // Culture 0 always gets params.nameStyle (keeps the nameStyle param live
+    // even at numCultures=1); the rest rotate through NAME_STYLES from there.
+    const startIdx = NAME_STYLES.indexOf(params.nameStyle ?? 'fantasy');
+    const cultures: CultureData[] = homes.map((homeId, i) => {
+        const style = NAME_STYLES[(startIdx + i) % NAME_STYLES.length];
+        const gen = createNameGenerator(style, () => cultureRng.next());
+        return {
+            id: i,
+            name: gen.faction(),
+            color: CULTURE_COLORS[i % CULTURE_COLORS.length],
+            nameStyle: style,
+            homeCellId: homeId,
+        };
+    });
+
+    // --- Per-culture terrain-affinity cost profile ---
+    // Each profile returns an additive cost term for a candidate cell during
+    // expansion (summed with slope + roughness below): a low value pulls the
+    // frontier toward that terrain, a higher value mildly resists it so the
+    // bias actually shapes the region instead of being lost in noise. Priority
+    // order mirrors the design: coastal > highland > forest/desert > generic.
+    const affinityFns: Array<(cell: Cell) => number> = homes.map((homeId) => {
+        const home = world.cells[homeId];
+        if (coastalIds.has(homeId)) {
+            // Coastal culture: cheap to hug the shoreline, pricier inland.
+            return (cell: Cell) => (coastalIds.has(cell.id) ? 0.4 : 1.1);
+        }
+        if (home.height > 0.7) {
+            // Highland culture: cheap at altitude, pricier in the lowlands.
+            return (cell: Cell) => (cell.height > 0.7 ? 0.4 : 1.1);
+        }
+        if (FOREST_BIOMES.has(home.biome)) {
+            // Forest culture: cheap in matching forest biomes.
+            return (cell: Cell) => (FOREST_BIOMES.has(cell.biome) ? 0.4 : 1.1);
+        }
+        if (DESERT_BIOMES.has(home.biome)) {
+            // Desert/steppe culture: cheap in matching arid biomes.
+            return (cell: Cell) => (DESERT_BIOMES.has(cell.biome) ? 0.4 : 1.1);
+        }
+        // Generic culture: no terrain preference — flat cost roughly midway
+        // between the "favored" (0.4) and "disfavored" (1.1) cases above so
+        // it neither dominates nor loses every frontier race.
+        return () => 0.75;
+    });
+
+    // --- Multi-source Dijkstra over the full cell graph ---
+    // Water is impassable except a bounded coastal hop so islands still pick
+    // up a culture; land cells beyond the hop's reach are caught by the
+    // straggler snap pass below instead of chaining indefinitely across water.
+    const pq = new MinHeap<{ id: number; cost: number; culture: number }>(x => x.cost);
+    const costs = new Map<number, number>();
+    homes.forEach((homeId, idx) => {
+        pq.push({ id: homeId, cost: 0, culture: idx });
+        costs.set(homeId, 0);
+    });
+
+    const waterHopCost = (params.waterCrossingCost || 0.5) * 2;
+    const maxWaterCost = waterHopCost * 3;
+
+    while (pq.size() > 0) {
+        const { id, cost, culture } = pq.pop()!;
+        const cell = world.cells[id];
+        const isWater = cell.height < params.seaLevel || isLakeCell(cell);
+        if (!isWater) {
+            if (cell.cultureId !== undefined && cell.cultureId !== culture) continue;
+            cell.cultureId = culture;
+        } else if (cost > maxWaterCost) {
+            continue;
+        }
+        for (const nId of cell.neighbors) {
+            const nCell = world.cells[nId];
+            const nIsWater = nCell.height < params.seaLevel || isLakeCell(nCell);
+            let moveCost: number;
+            if (nIsWater) {
+                moveCost = waterHopCost;
+            } else {
+                const slope = Math.abs(nCell.height - cell.height);
+                moveCost = slope + affinityFns[culture](nCell) + cultureRng.next() * 0.3;
+            }
+            const newCost = cost + moveCost;
+            if (nIsWater && newCost > maxWaterCost) continue;
+            if (!costs.has(nId) || newCost < costs.get(nId)!) {
+                costs.set(nId, newCost);
+                if (nCell.cultureId === undefined) {
+                    pq.push({ id: nId, cost: newCost, culture });
+                }
+            }
+        }
+    }
+
+    // Stragglers: land cells the bounded hop never reached (isolated islands)
+    // snap to whichever assigned cell is nearest by chord distance, so every
+    // land cell ends this pass with a cultureId.
+    const unassigned = candidates.filter(c => c.cultureId === undefined);
+    if (unassigned.length > 0) {
+        const assignedCells = candidates.filter(c => c.cultureId !== undefined);
+        for (const c of unassigned) {
+            let bestCultureId: number | undefined;
+            let bestDistSq = Infinity;
+            for (const a of assignedCells) {
+                const d = (c.center.x - a.center.x) ** 2 + (c.center.y - a.center.y) ** 2 + (c.center.z - a.center.z) ** 2;
+                if (d < bestDistSq) { bestDistSq = d; bestCultureId = a.cultureId; }
+            }
+            if (bestCultureId !== undefined) c.cultureId = bestCultureId;
+        }
+    }
+
+    world.cultures = cultures;
+    return world;
+}
+
 // ... (recalculateCivs and recalculateProvinces remain unchanged as they are synchronous)
 export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (msg: string) => void): WorldData {
+    // Cultures are computed first and are purely additive: recalculateCultures
+    // owns its own RNG stream and never touches civRng below, so existing
+    // seeds keep byte-identical faction/province geometry.
+    recalculateCultures(world, params, onLog);
+
     onLog?.(`Forging ${params.numFactions} Civilizations...`);
-    
+
     // Reset
     world.cells.forEach(c => {
         c.regionId = undefined;
@@ -932,11 +1140,11 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
     });
 
     const civRng = new RNG(params.civSeed);
-    // Names draw from a dedicated stream so existing seeds keep identical
-    // terrain and civ geometry — only the labels change.
-    const nameStyle: NameStyle = params.nameStyle ?? 'fantasy';
-    const facNameRng = new RNG(params.civSeed + '_facnames');
-    const nameGen = createNameGenerator(nameStyle, () => facNameRng.next());
+    // Faction names draw from a per-NameStyle cache, each on its own RNG
+    // side-stream (civSeed + '_facnames_' + style) — so naming a faction
+    // after its capital's culture never touches civRng and stays fully
+    // deterministic regardless of culture layout.
+    const getFacNameGen = makeStyleNameGenCache(params.civSeed + '_facnames_');
     const numFactions = params.numFactions;
     const factions: FactionData[] = [];
     
@@ -982,7 +1190,7 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
             candidate.regionId = capitals.length - 1;
             factions.push({
                 id: capitals.length - 1,
-                name: nameGen.faction(),
+                name: getFacNameGen(getCultureNameStyle(world, params, candidate.id)).faction(),
                 color: '#ffffff',
                 capitalId: candidate.id,
                 provinces: [],
@@ -1058,11 +1266,11 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
 export function recalculateProvinces(world: WorldData, params: WorldParams): WorldData {
     if (!world.civData) return world;
     const provRng = new RNG(params.civSeed + '_prov');
-    // Separate name stream from recalculateCivs so faction names and the first
-    // town name never come out byte-identical; still deterministic from civSeed.
-    const nameStyle: NameStyle = params.nameStyle ?? 'fantasy';
-    const provNameRng = new RNG(params.civSeed + '_provnames');
-    const nameGen = createNameGenerator(nameStyle, () => provNameRng.next());
+    // Province/town names draw from a per-NameStyle cache, keyed by each
+    // town cell's own culture, on dedicated RNG side-streams (civSeed +
+    // '_provnames_' + style) — separate from recalculateCivs's faction
+    // stream and from provRng, so naming never perturbs geometry.
+    const getProvNameGen = makeStyleNameGenCache(params.civSeed + '_provnames_');
 
     world.cells.forEach(c => {
         let suitability = 0;
@@ -1134,7 +1342,8 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
         townIds.forEach((tId, idx) => {
             const tCell = world.cells[tId];
             tCell.isTown = true;
-            tCell.population = (tCell.population || 0) * 5; 
+            tCell.population = (tCell.population || 0) * 5;
+            const nameGen = getProvNameGen(getCultureNameStyle(world, params, tId));
             faction.provinces.push({
                 id: idx,
                 name: nameGen.province(),
