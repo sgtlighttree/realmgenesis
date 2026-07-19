@@ -1,6 +1,6 @@
-import React, { useMemo } from 'react';
-import { Eye, EyeOff, ChevronDown, ChevronUp, Ruler } from 'lucide-react';
-import { WorldData, InspectMode, EditMode, TownData } from '../types';
+import React, { useMemo, useState } from 'react';
+import { Eye, EyeOff, ChevronDown, ChevronUp, Ruler, MapPin, Trash2 } from 'lucide-react';
+import { WorldData, InspectMode, EditMode, TownData, MarkerKind } from '../types';
 
 interface WorldDataUpdates {
   townName?: string;
@@ -10,6 +10,14 @@ interface WorldDataUpdates {
   factionDescription?: string;
   provinceName?: string;
 }
+
+interface MarkerUpdates {
+  kind?: MarkerKind;
+  name?: string;
+  note?: string;
+}
+
+const MARKER_KINDS: MarkerKind[] = ['dungeon', 'ruin', 'battlefield', 'portal', 'poi'];
 
 interface InspectorProps {
   world: WorldData | null;
@@ -22,6 +30,12 @@ interface InspectorProps {
   onEditWorldData?: (cellId: number, updates: WorldDataUpdates) => void;
   rulerActive?: boolean;
   onToggleRuler?: () => void;
+  markerMode?: boolean;
+  onToggleMarkerMode?: () => void;
+  selectedMarkerId?: number | null;
+  onSelectMarker?: (id: number) => void;
+  onUpdateMarker?: (id: number, updates: MarkerUpdates) => void;
+  onDeleteMarker?: (id: number) => void;
 }
 
 const Inspector: React.FC<InspectorProps> = ({
@@ -35,7 +49,16 @@ const Inspector: React.FC<InspectorProps> = ({
   onEditWorldData,
   rulerActive = false,
   onToggleRuler,
+  markerMode = false,
+  onToggleMarkerMode,
+  selectedMarkerId = null,
+  onSelectMarker,
+  onUpdateMarker,
+  onDeleteMarker,
 }) => {
+  const [markersListOpen, setMarkersListOpen] = useState(false);
+  const markers = world?.markers ?? [];
+  const selectedMarker = selectedMarkerId !== null ? markers.find(m => m.id === selectedMarkerId) ?? null : null;
   const cell = world && cellId !== null ? world.cells[cellId] : null;
   const enabled = inspectMode === 'click' || editMode === 'world-edit';
   const isEditing = editMode === 'world-edit' && cell !== null && onEditWorldData !== undefined;
@@ -87,7 +110,7 @@ const Inspector: React.FC<InspectorProps> = ({
 
   return (
     <div className="absolute top-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none z-10">
-      <div className={`bg-black/80 backdrop-blur text-white shadow-xl border border-white/20 transition-all duration-300 pointer-events-auto ${collapsed ? 'w-28' : isEditing ? 'w-64' : 'min-w-[220px]'}`}>
+      <div className={`bg-black/80 backdrop-blur text-white shadow-xl border border-white/20 transition-all duration-300 pointer-events-auto ${collapsed ? 'w-28' : selectedMarker || isEditing ? 'w-64' : 'min-w-[220px]'}`}>
         <div className="flex items-center justify-between p-2 border-b border-white/10">
           {!collapsed && (
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">
@@ -95,6 +118,15 @@ const Inspector: React.FC<InspectorProps> = ({
             </span>
           )}
           <div className="flex items-center gap-2">
+            {onToggleMarkerMode && (
+              <button
+                onClick={onToggleMarkerMode}
+                className={`p-1 transition-colors ${markerMode ? 'text-amber-400 hover:bg-amber-900/40' : 'text-gray-600 hover:bg-gray-800'}`}
+                title={markerMode ? 'Disable Marker Placement' : 'Place Marker'}
+              >
+                <MapPin size={12} />
+              </button>
+            )}
             {onToggleRuler && (
               <button
                 onClick={onToggleRuler}
@@ -119,8 +151,47 @@ const Inspector: React.FC<InspectorProps> = ({
           </div>
         </div>
 
+        {/* Marker editing panel — takes priority over cell views while a marker is selected */}
+        {!collapsed && selectedMarker && (
+          <div className="p-2 text-xs space-y-1.5">
+            <div className="flex items-center justify-between border-b border-white/10 pb-1 mb-1">
+              <span className="font-bold text-amber-300">Marker</span>
+              {onDeleteMarker && (
+                <button
+                  onClick={() => onDeleteMarker(selectedMarker.id)}
+                  className="p-0.5 text-red-400 hover:text-red-300"
+                  title="Delete marker"
+                >
+                  <Trash2 size={12} />
+                </button>
+              )}
+            </div>
+            <select
+              value={selectedMarker.kind}
+              onChange={e => onUpdateMarker?.(selectedMarker.id, { kind: e.target.value as MarkerKind })}
+              className={inputCls}
+            >
+              {MARKER_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
+            </select>
+            <input
+              type="text"
+              value={selectedMarker.name}
+              onChange={e => onUpdateMarker?.(selectedMarker.id, { name: e.target.value })}
+              className={inputCls}
+              placeholder="Marker name"
+            />
+            <textarea
+              value={selectedMarker.note}
+              onChange={e => onUpdateMarker?.(selectedMarker.id, { note: e.target.value })}
+              rows={3}
+              className={inputCls + ' resize-none'}
+              placeholder="Notes..."
+            />
+          </div>
+        )}
+
         {/* Read-only inspect view */}
-        {!collapsed && enabled && cell && !isEditing && (
+        {!collapsed && !selectedMarker && enabled && cell && !isEditing && (
           <div className="p-2 text-xs">
             <div className="font-bold flex justify-between gap-4 mb-2 border-b border-white/10 pb-1 items-start">
               <div className="flex flex-col">
@@ -140,7 +211,7 @@ const Inspector: React.FC<InspectorProps> = ({
         )}
 
         {/* World-edit view with editable fields */}
-        {!collapsed && isEditing && cell && (
+        {!collapsed && !selectedMarker && isEditing && cell && (
           <div className="p-2 text-xs space-y-2">
             {/* Read-only physical stats */}
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 pb-2 border-b border-white/10">
@@ -224,14 +295,41 @@ const Inspector: React.FC<InspectorProps> = ({
           </div>
         )}
 
-        {!collapsed && !enabled && (
+        {!collapsed && !selectedMarker && !enabled && (
           <div className="p-4 text-[10px] text-gray-500 text-center italic">
             Inspector Disabled
           </div>
         )}
-        {!collapsed && enabled && !cell && (
+        {!collapsed && !selectedMarker && enabled && !cell && (
           <div className="p-4 text-[10px] text-gray-500 text-center italic">
-            {editMode === 'world-edit' ? 'Click a cell to edit...' : 'Click a cell...'}
+            {markerMode ? 'Click the map to place a marker...' : editMode === 'world-edit' ? 'Click a cell to edit...' : 'Click a cell...'}
+          </div>
+        )}
+
+        {/* Markers list — always available at the bottom when any markers exist */}
+        {!collapsed && markers.length > 0 && (
+          <div className="border-t border-white/10">
+            <button
+              onClick={() => { setMarkersListOpen(v => !v); }}
+              className="w-full flex items-center justify-between p-2 text-[10px] text-gray-400 hover:bg-gray-800"
+            >
+              <span>Markers ({markers.length})</span>
+              {markersListOpen ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+            </button>
+            {markersListOpen && (
+              <div className="max-h-32 overflow-y-auto">
+                {markers.map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => onSelectMarker?.(m.id)}
+                    className={`w-full flex items-center justify-between gap-2 px-2 py-1 text-[10px] text-left ${m.id === selectedMarkerId ? 'bg-blue-900/40 text-blue-200' : 'text-gray-300 hover:bg-gray-800'}`}
+                  >
+                    <span className="truncate">{m.name}</span>
+                    <span className="text-gray-500 uppercase shrink-0">{m.kind}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

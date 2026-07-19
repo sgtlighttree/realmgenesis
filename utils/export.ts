@@ -1,6 +1,6 @@
 import * as d3 from 'd3';
 import { geoWinkel3, geoRobinson, geoMollweide } from 'd3-geo-projection';
-import { WorldData, ViewMode, WorldParams, CivData, DymaxionSettings, LabelVisibility, DEFAULT_LABEL_VISIBILITY } from '../types';
+import { WorldData, ViewMode, WorldParams, CivData, DymaxionSettings, LabelVisibility, DEFAULT_LABEL_VISIBILITY, MarkerData, MarkerKind } from '../types';
 import { buildFactionColorMap, getCellColor } from './colors';
 import { buildDymaxionNet } from './dymaxion';
 import { insideTri, barycentric, normalizeVec, toLonLat, projectToDymaxionNet, Point2 } from './geo';
@@ -367,6 +367,7 @@ export const exportMap = async (
 export interface LoadedMap {
     params: WorldParams;
     civData?: CivData;
+    markers?: MarkerData[];
 }
 
 export const saveMapConfig = (params: WorldParams, world?: WorldData) => {
@@ -377,9 +378,11 @@ export const saveMapConfig = (params: WorldParams, world?: WorldData) => {
       version: "1.4",
       date: date.toISOString(),
       params,
-      // We only save the metadata (lore/names). 
+      // We only save the metadata (lore/names).
       // The geometry (borders/provinces) will be regenerated deterministically from the seed.
       civData: world?.civData || null,
+      // Sphere-anchored, so they carry over unchanged across regeneration.
+      markers: world?.markers || null,
   };
 
   const dataStr = JSON.stringify(content, null, 2);
@@ -470,6 +473,33 @@ export const validateCivData = (civData: unknown): civData is CivData => {
     });
 };
 
+const MARKER_KINDS: MarkerKind[] = ['dungeon', 'ruin', 'battlefield', 'portal', 'poi'];
+
+// Sanitizer, not a type guard: markers are cosmetic overlays, so a malformed
+// individual entry is dropped rather than failing the whole load (same
+// "degrade gracefully" posture as validateCivData). Returns undefined only
+// when the top-level shape isn't an array at all.
+export const validateMarkers = (markers: unknown): MarkerData[] | undefined => {
+    if (!Array.isArray(markers)) return undefined;
+    const result: MarkerData[] = [];
+    for (const m of markers) {
+        if (typeof m !== 'object' || m === null) continue;
+        const rec = m as Record<string, unknown>;
+        if (typeof rec.id !== 'number' || !isFinite(rec.id)) continue;
+        if (typeof rec.kind !== 'string' || !MARKER_KINDS.includes(rec.kind as MarkerKind)) continue;
+        if (typeof rec.name !== 'string') continue;
+        if (typeof rec.note !== 'string') continue;
+        const pos = rec.position as Record<string, unknown> | undefined;
+        if (typeof pos !== 'object' || pos === null) continue;
+        const { x, y, z } = pos;
+        if (typeof x !== 'number' || !isFinite(x)) continue;
+        if (typeof y !== 'number' || !isFinite(y)) continue;
+        if (typeof z !== 'number' || !isFinite(z)) continue;
+        result.push({ id: rec.id, kind: rec.kind as MarkerKind, name: rec.name, note: rec.note, position: { x, y, z } });
+    }
+    return result;
+};
+
 export const loadMapConfig = async (file: File): Promise<LoadedMap | null> => {
     return new Promise((resolve) => {
         const reader = new FileReader();
@@ -491,9 +521,11 @@ export const loadMapConfig = async (file: File): Promise<LoadedMap | null> => {
                             console.error("Ignoring malformed civData in config file; loading terrain only");
                         }
                     }
+                    const markers = json.markers != null ? validateMarkers(json.markers) : undefined;
                     resolve({
                         params: withNameStyleDefault(json.params as unknown as WorldParams),
-                        civData
+                        civData,
+                        markers,
                     });
                 } else if (json.points) {
                     if (!validateWorldParams(json)) {
@@ -523,6 +555,7 @@ export interface SavedMapEntry {
     date: number; // timestamp
     params: WorldParams;
     civData?: CivData;
+    markers?: MarkerData[];
 }
 
 export const getSavedMaps = (): SavedMapEntry[] => {
@@ -534,11 +567,11 @@ export const getSavedMaps = (): SavedMapEntry[] => {
     }
 };
 
-export const saveMapToBrowser = (name: string, params: WorldParams, civData?: CivData) => {
+export const saveMapToBrowser = (name: string, params: WorldParams, civData?: CivData, markers?: MarkerData[]) => {
     try {
         const current = getSavedMaps();
         const existingIdx = current.findIndex(m => m.name === name);
-        const entry: SavedMapEntry = { name, date: Date.now(), params, civData };
+        const entry: SavedMapEntry = { name, date: Date.now(), params, civData, markers };
         
         if (existingIdx >= 0) {
             current[existingIdx] = entry;

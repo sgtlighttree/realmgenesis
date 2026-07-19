@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode, DymaxionSettings, DymaxionControlMode, LabelVisibility } from '../types';
+import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode, DymaxionSettings, DymaxionControlMode, LabelVisibility, MarkerData } from '../types';
 import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Box, Copy, Check, Users, Landmark, Sun, LineChart, FileCode, FileJson } from 'lucide-react';
 import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
 import { downloadSVG, downloadGeoJSON } from '../utils/exportVector';
@@ -12,7 +12,7 @@ interface ControlsProps {
   params: WorldParams;
   setParams: React.Dispatch<React.SetStateAction<WorldParams>>;
   onGenerate: (p?: WorldParams) => void;
-  onLoadWorld: (p: WorldParams, civData?: CivData) => void;
+  onLoadWorld: (p: WorldParams, civData?: CivData, markers?: MarkerData[]) => void;
   onCancel?: () => void;
   onUpdateCivs: (p?: WorldParams) => void;
   onUpdateProvinces: (p?: WorldParams) => void;
@@ -333,8 +333,8 @@ const Controls: React.FC<ControlsProps> = ({
 
   const handleSaveBrowser = () => {
       if (!saveName) return;
-      // Pass civData if available to save lore
-      if (saveMapToBrowser(saveName, params, worldData?.civData)) {
+      // Pass civData/markers if available to save lore and POIs
+      if (saveMapToBrowser(saveName, params, worldData?.civData, worldData?.markers)) {
           setSavedMaps(getSavedMaps());
           // Generate next default name
           const now = new Date();
@@ -346,11 +346,11 @@ const Controls: React.FC<ControlsProps> = ({
       }
   };
 
-  const handleLoadBrowser = (entryParams: WorldParams, civData?: CivData) => {
+  const handleLoadBrowser = (entryParams: WorldParams, civData?: CivData, markers?: MarkerData[]) => {
       if (confirm("Load this map configuration? Unsaved changes will be lost.")) {
           setParams(entryParams);
           // Use the dedicated load function that handles restoration
-          setTimeout(() => onLoadWorld(entryParams, civData), 50);
+          setTimeout(() => onLoadWorld(entryParams, civData, markers), 50);
       }
   };
   
@@ -367,7 +367,7 @@ const Controls: React.FC<ControlsProps> = ({
           if (loaded) {
               setParams(loaded.params);
               // Use the dedicated load function that handles restoration
-              setTimeout(() => onLoadWorld(loaded.params, loaded.civData), 50);
+              setTimeout(() => onLoadWorld(loaded.params, loaded.civData, loaded.markers), 50);
           } else {
               alert("Invalid config file");
           }
@@ -566,6 +566,7 @@ const Controls: React.FC<ControlsProps> = ({
                      ['provinces', 'Province Names'],
                      ['towns', 'Town Names'],
                      ['geography', 'Geographic Names'],
+                     ['markers', 'Markers'],
                    ] as [keyof LabelVisibility, string][]).map(([key, label]) => (
                      <div key={key} className="flex items-center justify-between text-xs text-gray-400">
                        <label>{label}</label>
@@ -1432,7 +1433,7 @@ const Controls: React.FC<ControlsProps> = ({
                                     <span className="text-[10px] text-gray-500">{new Date(entry.date).toLocaleDateString()}</span>
                                 </div>
                                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => { handleLoadBrowser(entry.params, entry.civData); }} className="text-blue-400 hover:text-white p-1"><FolderOpen size={12}/></button>
+                                    <button onClick={() => { handleLoadBrowser(entry.params, entry.civData, entry.markers); }} className="text-blue-400 hover:text-white p-1"><FolderOpen size={12}/></button>
                                     <button onClick={() => { handleDeleteBrowser(entry.name); }} className="text-red-400 hover:text-white p-1"><Trash2 size={12}/></button>
                                 </div>
                             </div>

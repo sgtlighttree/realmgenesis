@@ -194,6 +194,21 @@ export interface GeoFeature {
   size: number; // cellIds.length
 }
 
+// User-placed point of interest (C4). Kind is an open-ended flavor tag, not
+// tied to generation data.
+export type MarkerKind = 'dungeon' | 'ruin' | 'battlefield' | 'portal' | 'poi';
+
+// Anchored to the unit sphere (not a cellId) so it survives regeneration —
+// terrain/civ data is rebuilt from the seed, but a sphere position is stable.
+// A marker may end up over water after terrain changes; that's acceptable.
+export interface MarkerData {
+  id: number;
+  kind: MarkerKind;
+  name: string;
+  note: string;
+  position: Point;
+}
+
 export interface WorldData {
   cells: Cell[];
   params: WorldParams;
@@ -202,6 +217,7 @@ export interface WorldData {
   rivers?: Point[][]; // Array of paths for smooth river rendering
   lakes?: LakeData[];
   features?: GeoFeature[]; // named geographic features (B3)
+  markers?: MarkerData[]; // user-placed POIs (C4)
 }
 
 export type DisplayMode = 'globe' | 'mercator' | 'dymaxion';
@@ -227,6 +243,7 @@ export interface LabelVisibility {
   provinces: boolean;
   borders: boolean;
   geography: boolean; // single toggle for all auto-detected geographic labels (B3)
+  markers: boolean; // user-placed POI labels/pins (C4)
 }
 
 export const DEFAULT_LABEL_VISIBILITY: LabelVisibility = {
@@ -236,4 +253,5 @@ export const DEFAULT_LABEL_VISIBILITY: LabelVisibility = {
   provinces: false,
   borders: true,
   geography: true,
+  markers: true,
 };
