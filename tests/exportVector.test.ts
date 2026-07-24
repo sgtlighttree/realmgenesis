@@ -128,3 +128,24 @@ describe('exportGeoJSON', () => {
     expect(parsed.crs).toBeUndefined();
   });
 });
+
+describe('route export (C3)', () => {
+  // 'route-test' is the seed routes.test.ts confirms yields road routes.
+  let routeWorld: Awaited<ReturnType<typeof generateWorld>>;
+  beforeAll(async () => {
+    routeWorld = await generateWorld(makeParams({ seed: 'route-test', civSeed: 'route-test' }));
+  });
+
+  it('SVG emits an id="routes" group with the road stroke color', () => {
+    expect((routeWorld.routes ?? []).some(r => r.kind === 'road')).toBe(true);
+    const svg = exportSVG(routeWorld, 'biome', 'equirectangular');
+    expect(svg).toContain('id="routes"');
+    expect(svg).toContain('stroke="#c8a25a"'); // road color
+  });
+
+  it('GeoJSON includes road route features with a "road" kind', () => {
+    const parsed = JSON.parse(exportGeoJSON(routeWorld));
+    const kinds = new Set(parsed.features.map((f: { properties: { kind?: string } }) => f.properties.kind));
+    expect(kinds.has('road')).toBe(true);
+  });
+});

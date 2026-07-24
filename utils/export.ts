@@ -1,6 +1,6 @@
 import * as d3 from 'd3';
 import { geoWinkel3, geoRobinson, geoMollweide } from 'd3-geo-projection';
-import { WorldData, ViewMode, WorldParams, CivData, DymaxionSettings, LabelVisibility, DEFAULT_LABEL_VISIBILITY, MarkerData, MarkerKind } from '../types';
+import { WorldData, ViewMode, WorldParams, CivData, DymaxionSettings, LabelVisibility, DEFAULT_LABEL_VISIBILITY, MarkerData, MarkerKind, RouteData } from '../types';
 import { buildFactionColorMap, buildCultureColorMap, buildReligionColorMap, getCellColor } from './colors';
 import { buildDymaxionNet } from './dymaxion';
 import { insideTri, barycentric, normalizeVec, toLonLat, projectToDymaxionNet, Point2 } from './geo';
@@ -26,13 +26,49 @@ export type ExportResolution = 2048 | 4096 | 8192;
 export type ProjectionType = 'equirectangular' | 'mercator' | 'winkeltripel' | 'orthographic' | 'robinson' | 'mollweide' | 'dymaxion';
 export type DymaxionExportSettings = Pick<DymaxionSettings, 'layout' | 'lon' | 'lat' | 'roll'>;
 
+// C3: draw roads (solid) + sea routes (dashed) onto an already-mirrored ctx,
+// using the same antimeridian-jump handling as the on-screen Map2D route pass.
+const drawRoutesOnCtx = (
+  ctx: CanvasRenderingContext2D,
+  projection: d3.GeoProjection,
+  routes: RouteData[] | undefined,
+  lineScale: number,
+) => {
+  if (!routes) return;
+  ctx.save();
+  ctx.globalAlpha = 0.9;
+  routes.forEach(route => {
+    if (route.path.length < 2) return;
+    ctx.strokeStyle = route.kind === 'road' ? '#c8a25a' : '#5eb8c8';
+    ctx.lineWidth = (route.kind === 'road' ? 1.4 : 1.2) * lineScale;
+    ctx.setLineDash(route.kind === 'searoute' ? [5 * lineScale, 4 * lineScale] : []);
+    ctx.beginPath();
+    let lastLon: number | null = null;
+    route.path.forEach((p, i) => {
+      const lon = Math.atan2(p.z, p.x) * (180 / Math.PI);
+      const lat = Math.asin(Math.max(-1, Math.min(1, p.y))) * (180 / Math.PI);
+      const isJump = lastLon !== null && Math.abs(lon - lastLon) > 180;
+      const pt = projection([lon, lat]);
+      if (pt) {
+        if (i === 0 || isJump) ctx.moveTo(pt[0], pt[1]);
+        else ctx.lineTo(pt[0], pt[1]);
+      }
+      lastLon = lon;
+    });
+    ctx.stroke();
+  });
+  ctx.setLineDash([]);
+  ctx.restore();
+};
+
 const renderEquirectangular = (
   world: WorldData,
   viewMode: ViewMode,
   width: number,
   height: number,
   showHillshade = false,
-  showContours = false
+  showContours = false,
+  showRoutes = false
 ) => {
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -73,6 +109,10 @@ const renderEquirectangular = (
     drawContourPaths(ctx, pathGenerator, computeContourSegments(world.cells, world.params.seaLevel, 0.1), Math.max(1, width / 2048));
   }
 
+  if (showRoutes) {
+    drawRoutesOnCtx(ctx, projection, world.routes, Math.max(1, width / 2048));
+  }
+
   ctx.restore();
   return canvas;
 };
@@ -87,11 +127,12 @@ const exportDymaxionRaster = (
   dymaxionSettings?: DymaxionExportSettings,
   labelVisibility: LabelVisibility = DEFAULT_LABEL_VISIBILITY,
   showHillshade = false,
-  showContours = false
+  showContours = false,
+  showRoutes = false
 ) => {
   const srcWidth = width;
   const srcHeight = Math.round(width / 2);
-  const source = renderEquirectangular(world, viewMode, srcWidth, srcHeight, showHillshade, showContours);
+  const source = renderEquirectangular(world, viewMode, srcWidth, srcHeight, showHillshade, showContours, showRoutes);
   if (!source) return;
   const srcCtx = source.getContext('2d');
   if (!srcCtx) return;
@@ -255,7 +296,8 @@ export const exportMap = async (
   dymaxionSettings?: DymaxionExportSettings,
   labelVisibility: LabelVisibility = DEFAULT_LABEL_VISIBILITY,
   showHillshade = false,
-  showContours = false
+  showContours = false,
+  showRoutes = false
 ) => {
   const width = resolution;
   let height = resolution / 2;
@@ -266,7 +308,7 @@ export const exportMap = async (
   }
 
   if (projectionType === 'dymaxion') {
-    exportDymaxionRaster(world, viewMode, width, height, dymaxionSettings, labelVisibility, showHillshade, showContours);
+    exportDymaxionRaster(world, viewMode, width, height, dymaxionSettings, labelVisibility, showHillshade, showContours, showRoutes);
     return;
   }
 
@@ -322,6 +364,10 @@ export const exportMap = async (
 
   if (showContours) {
     drawContourPaths(ctx, pathGenerator, computeContourSegments(world.cells, world.params.seaLevel, 0.1), Math.max(1, width / 2048));
+  }
+
+  if (showRoutes) {
+    drawRoutesOnCtx(ctx, projection, world.routes, Math.max(1, width / 2048));
   }
 
   ctx.restore();

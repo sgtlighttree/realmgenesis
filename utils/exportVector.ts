@@ -173,6 +173,27 @@ const buildRiversGroup = (world: WorldData, projection: d3.GeoProjection, width:
     `stroke="#38bdf8" stroke-width="${strokeWidth}" stroke-opacity="0.8">${paths.join('')}</g>`;
 };
 
+// C3: roads (solid tan) and sea routes (dashed teal) as two styled sub-groups,
+// reusing the same antimeridian-aware polyline builder as rivers.
+const buildRoutesGroup = (world: WorldData, projection: d3.GeoProjection, width: number): string => {
+  if (!world.routes || world.routes.length === 0) return '';
+  const scale = width / 2048;
+  const roadWidth = Math.max(0.5, 1.4 * scale);
+  const seaWidth = Math.max(0.5, 1.2 * scale);
+  const roadPaths: string[] = [];
+  const seaPaths: string[] = [];
+  world.routes.forEach(route => {
+    if (route.path.length < 2) return;
+    const d = buildRiverPathData(route.path, projection);
+    if (!d) return;
+    (route.kind === 'road' ? roadPaths : seaPaths).push(`<path d="${d}"/>`);
+  });
+  return `<g id="routes" transform="translate(${width},0) scale(-1,1)" fill="none" stroke-opacity="0.9">` +
+    `<g stroke="#c8a25a" stroke-width="${roadWidth}">${roadPaths.join('')}</g>` +
+    `<g stroke="#5eb8c8" stroke-width="${seaWidth}" stroke-dasharray="${5 * scale} ${4 * scale}">${seaPaths.join('')}</g>` +
+    `</g>`;
+};
+
 // Labels are drawn OUTSIDE the mirrored geographic groups: text inside a
 // horizontally-flipped <g> would render backwards, so we counter-mirror by
 // projecting normally and placing at x = width - projected[0] (matching the
@@ -232,6 +253,7 @@ export const exportSVG = (
   const cellPaths = renderCellPaths(world, viewMode, pathGenerator);
   const coastlines = buildCoastlinesGroup(world, pathGenerator, width);
   const rivers = buildRiversGroup(world, projection, width);
+  const routes = buildRoutesGroup(world, projection, width);
   const borders = buildBordersGroup(world, pathGenerator, width);
   const labels = buildLabelsGroup(world, projection, projectionType, width);
 
@@ -241,6 +263,7 @@ export const exportSVG = (
     `<g id="cells" transform="${mirror}">${cellPaths}</g>` +
     coastlines +
     rivers +
+    routes +
     borders +
     labels +
     `</svg>`
@@ -349,6 +372,19 @@ const buildRiverFeatures = (world: WorldData): GeoJsonFeatureOut<LineStringGeome
   return features;
 };
 
+const buildRouteFeatures = (world: WorldData): GeoJsonFeatureOut<LineStringGeometry>[] => {
+  const features: GeoJsonFeatureOut<LineStringGeometry>[] = [];
+  (world.routes ?? []).forEach((route, index) => {
+    if (route.path.length < 2) return;
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: route.path.map(p => toLonLat(toPoint3(p))) },
+      properties: { kind: route.kind, index },
+    });
+  });
+  return features;
+};
+
 const buildSegmentFeatures = (
   segments: Array<[Point3, Point3]>,
   kind: 'border' | 'coastline',
@@ -383,6 +419,7 @@ export const exportGeoJSON = (world: WorldData): string => {
   const features: GeoJsonFeatureOut<AnyGeometry>[] = [
     ...buildCellFeatures(world),
     ...buildRiverFeatures(world),
+    ...buildRouteFeatures(world),
     ...buildSegmentFeatures(computeFactionBorderSegments(world), 'border'),
     ...buildSegmentFeatures(computeCoastlineSegments(world), 'coastline'),
     ...buildLabelFeatures(world),
