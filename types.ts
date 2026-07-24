@@ -250,6 +250,16 @@ export interface WorldData {
   markers?: MarkerData[]; // user-placed POIs (C4)
   cultures?: CultureData[]; // culture layer (C1)
   religions?: ReligionData[]; // religion layer (C2)
+  routes?: RouteData[]; // roads & sea trade routes (C3)
+}
+
+// C3: a land road or sea trade route between two towns. Derived from civData +
+// terrain, never serialized — regenerates deterministically like rivers.
+export interface RouteData {
+  path: Point[];
+  kind: 'road' | 'searoute';
+  fromCellId: number;
+  toCellId: number;
 }
 
 export type DisplayMode = 'globe' | 'mercator' | 'dymaxion';
