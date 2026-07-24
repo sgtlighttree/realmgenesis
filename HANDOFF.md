@@ -172,10 +172,19 @@ already used elsewhere rendered), collapsing the layout. `npm run build` +
 build, not the standing dev server.** Also: Tailwind arbitrary `calc()` needs
 underscores for spaces — `max-w-[calc(100%_-_18rem)]`, not `-18rem)]`.
 
-**Next step:** refine the prototype with Matt, THEN write the formal F1 spec
-(`docs/superpowers/specs/`) reflecting the settled shell design, THEN the real
-component-extraction plan. Advisor consult for this commitment boundary is DONE
-(one per boundary).
+**F1 implementation spec written + advisor-reviewed:**
+`docs/superpowers/specs/2026-07-24-f1-ui-redesign-design.md`. Covers the
+`useWorldEngine()` hook extraction, `Controls` decomposition, the §3.3-A
+shared-component positioning decision, the `?globe=0` toggle, and a 5-phase plan
+(1 hook extract → 1b positioning extract → 2 shell v1 playable → 3 decompose
+Controls → 4 polish). **Two phases (1, 1b) touch the classic app**, each with its
+own regression pass; the extraction freezes App's return block (zero-char diff)
+so TypeScript + the frozen render carry most of the fidelity proof — manual review
+is scoped to effect deps + ref timing. Classic layout is transitional (retired at
+shell parity). Second advisor consult DONE for the wiring architecture.
+
+**Next step:** Matt reviews the spec; then `writing-plans` for the step-by-step
+implementation plan; then execute Phase 1.
 
 ---
 
