@@ -212,8 +212,59 @@ Tailwind won't hot-scan new files). Matt's `:3000` dev server is his — do not 
   View strip, contextual Do via edit toggle) reusing WideShell/NarrowShell, which
   is where the component-docking aesthetics need his eye. `?shell=stub` still
   serves the DesignShell prototype for that layout reference.
-- **Phase 2 (v1 reframe) — IN PROGRESS.**
-- Phases 3–4 pending (see spec §4).
+- **Phase 2 (v1 reframe) — DONE** (commits `a3e7702`, `a919610`). `ShellApp`
+  (`components/shell/ShellApp.tsx`) is the F1 redesign entry, consuming the same
+  `useWorldEngine` hook as classic App. Delivered + browser-verified on a fresh
+  `:4180` build:
+  - **`?shell=1`** → real, playable redesign entry (generate/orbit/inspect all
+    work); **`?shell=stub`** → DesignShell prototype; else classic App.
+  - **`?globe=0`** → swaps the Three.js globe for `PlaceholderGlobe` + a mode
+    banner, hides floaters (fast UI iteration, no WebGL cost). Works via
+    `?shell=1&globe=0`.
+  - **Contextual Do bucket DONE:** EditToolbar is hidden by default, summoned by
+    an "Edit" toggle (top-right, amber when active), dismissed with Esc / toggle
+    (which also clears paint mode). Local `editOpen` state — no engine change.
+  - v1 keeps the four floaters self-positioned over the canvas (like classic) —
+    NO component surgery, NO collisions.
+
+### NEXT PASS (do with Matt present — aesthetically sensitive): docked bucket model
+
+Goal: replace v1's floaters with the approved A-wide/C-narrow docked layout
+(`WideShell`/`NarrowShell`). Learnings from tonight that make it fast:
+
+- **The blocker is collisions:** the floaters' fixed viewport anchors (Inspector
+  `top-6 left-1/2`, seed HUD `top-4 left-24`, MiniMap `bottom-4 right-4`, Legend
+  `bottom-4 left-4`, EditToolbar `bottom-20 left-1/2`) collide with any View strip
+  / Read rail. So docking Read (right) and adding the View strip (top) must happen
+  together — you can't add the top strip while Inspector floats top-center.
+- **Positioning surgery — use the `className`-override-with-default pattern, NOT a
+  `bare` boolean** (the boolean is the two-personality smell the advisor flagged;
+  a `className` prop defaulting to the current positioning string is idiomatic and
+  keeps classic + ShellApp-v1 working with zero changes). Roots to parameterize:
+  - Inspector `components/Inspector.tsx:141` — pos: `absolute top-6 left-1/2 -translate-x-1/2 z-10`; internal: `flex flex-col items-center gap-2 pointer-events-none`.
+  - Legend `components/Legend.tsx:9` — pos: `absolute bottom-4 left-4 z-10`; internal: `bg-gray-900/80 backdrop-blur border border-gray-700 shadow-xl transition-all duration-300`.
+  - MiniMap `components/MiniMap.tsx:50` — pos: `absolute bottom-4 right-4 z-10`; internal: `bg-black/80 border border-gray-700 shadow-2xl overflow-hidden transition-all duration-300`.
+  - EditToolbar `components/EditToolbar.tsx:107` — pos: `absolute bottom-20 left-1/2 -translate-x-1/2 z-20`; internal: `flex flex-col items-center gap-1 pointer-events-auto select-none`.
+- **Chrome reconciliation:** these components bring their OWN bg/border/shadow. In
+  the shell Read slot, either (a) render them bare of the shell `Panel` wrapper
+  (accept their own chrome — fastest, slightly inconsistent), or (b) strip their
+  chrome too and wrap in `Panel` (cleaner, more surgery). Decide with Matt.
+- **View strip content:** split `Controls` (1571 lines) — render-mode + layer
+  toggles → a new `ViewControls`; gen params stay in Make. This is Phase 3 and the
+  one delegable chunk (tight `sonnet-medium` brief, verify no visual change).
+- **Reuse:** `WideShell`/`NarrowShell` already take `make/view/read/doTools/canvas`
+  slots; wire `ShellApp` to them. The contextual-Do toggle logic is already built
+  in ShellApp — port it to the shell's Edit affordance.
+
+### Full-auto session summary (2026-07-25, ~00:00–early AM)
+
+Shipped on `redesign`, all gates green throughout (typecheck 0, lint 0/30, 138
+tests, build OK), each step browser-verified on a fresh `:4180` preview:
+`e6dc6ee` spec → `bcddffc` Phase-1 plan → `0c373f4` hook extraction →
+`a3e7702` ShellApp+?globe=0 → `a919610` contextual Edit toggle. Preview server may
+still be running on `:4180` (static build of this state — kill with
+`lsof -ti:4180 | xargs kill`; for live dev restart `:3000`). NOT pushed. Classic
+App verified unchanged. Deferred the docked bucket model (above) for Matt's eye.
 
 ---
 

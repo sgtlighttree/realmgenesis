@@ -1,6 +1,6 @@
 # F1 Phase 1 — `useWorldEngine` Extraction Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Extract all of `App.tsx`'s state, refs, effects, memos, and handlers into a `useWorldEngine()` hook, leaving `App`'s render output byte-identical, so a future `ShellApp` can consume the same state.
 
@@ -38,7 +38,7 @@ This is one atomic relocation: the code only compiles once *all* interdependent 
 **Interfaces:**
 - Produces: `useWorldEngine(): WorldEngine`, where `WorldEngine` is an interface exposing **every binding the return block (654–810) references** — state values + their setters, derived memos, and handlers. Exact member list is mechanical: it is precisely the set of identifiers used inside `return ( … )`.
 
-- [ ] **Step 1: Snapshot the return block for the frozen-block check**
+- [x] **Step 1: Snapshot the return block for the frozen-block check**
 
 Before editing, capture the current return block so you can prove it didn't change:
 
@@ -47,7 +47,7 @@ sed -n '654,810p' App.tsx > /tmp/app-return-before.txt
 wc -l /tmp/app-return-before.txt   # expect 157 lines
 ```
 
-- [ ] **Step 2: Create the hook file with all logic moved verbatim**
+- [x] **Step 2: Create the hook file with all logic moved verbatim**
 
 Create `hooks/useWorldEngine.ts`. Move, **without editing their bodies**:
 1. The module-level `DEFAULT_PARAMS` const and the three pure helpers (`isValidProvinceId`, `resolvePoliticalProvinceId`, `recalculatePoliticalTotals`) from `App.tsx:18-103`.
@@ -81,7 +81,7 @@ export function useWorldEngine(): WorldEngine {
 
 Do not change effect dependency arrays, ref initial values, or handler bodies. This is a move, not a rewrite.
 
-- [ ] **Step 3: Rewire `App.tsx` to consume the hook, return block untouched**
+- [x] **Step 3: Rewire `App.tsx` to consume the hook, return block untouched**
 
 `App.tsx` collapses to:
 
@@ -113,12 +113,12 @@ export default App;
 
 Keep only the type imports the return block itself needs (e.g. any `types.ts` types referenced in JSX). If the return block references no bare types, drop the `types` import from `App`.
 
-- [ ] **Step 4: Typecheck (catches every un-threaded binding)**
+- [x] **Step 4: Typecheck (catches every un-threaded binding)**
 
 Run: `npm run typecheck`
 Expected: **0 errors.** Any "Cannot find name 'X'" means `X` is used in the return block but missing from the destructure/`WorldEngine` return — add it to both. This is the compiler doing the fidelity proof for you.
 
-- [ ] **Step 5: Prove the return block is unchanged (frozen-block invariant)**
+- [x] **Step 5: Prove the return block is unchanged (frozen-block invariant)**
 
 ```bash
 diff <(sed -n '/^  return (/,/^};$/p' App.tsx) /tmp/app-return-before.txt
@@ -126,7 +126,7 @@ diff <(sed -n '/^  return (/,/^};$/p' App.tsx) /tmp/app-return-before.txt
 
 Expected: **no diff** (the return block content is identical; only its line numbers moved). If `diff` reports changes, you edited JSX — revert those edits.
 
-- [ ] **Step 6: Lint + full test suite (regression gate)**
+- [x] **Step 6: Lint + full test suite (regression gate)**
 
 Run: `npm run lint`
 Expected: 0 errors, **exactly 30 warnings**.
@@ -134,7 +134,7 @@ Expected: 0 errors, **exactly 30 warnings**.
 Run: `npm test`
 Expected: all green (138 tests), same count as before.
 
-- [ ] **Step 7: Manual browser regression — the real equivalence check**
+- [x] **Step 7: Manual browser regression — the real equivalence check**
 
 The dev server picks up new files only on restart (known Tailwind gotcha), so restart it first if it's running.
 
@@ -147,7 +147,7 @@ Verify against the pre-refactor app:
 
 Focus attention on the ref/effect surface the spec flagged: generation abort (regenerate mid-run), paint-stroke undo, and the API-key effect — these are where a mis-moved dep would surface.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add hooks/useWorldEngine.ts App.tsx
