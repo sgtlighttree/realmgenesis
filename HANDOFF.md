@@ -266,6 +266,30 @@ still be running on `:4180` (static build of this state — kill with
 `lsof -ti:4180 | xargs kill`; for live dev restart `:3000`). NOT pushed. Classic
 App verified unchanged. Deferred the docked bucket model (above) for Matt's eye.
 
+**Advisor resume notes (read before the next pass):**
+
+1. **ShellApp is a BESPOKE frame — it does NOT use WideShell/NarrowShell yet.**
+   The "reuse the shells" line above is aspirational, not current. So the next
+   session's FIRST decision is an explicit fork: **(a) migrate ShellApp onto
+   WideShell/NarrowShell** (realizes the approved A/C bucket layout, more rework)
+   **vs (b) grow the bespoke frame** (keep ShellApp's current structure, add a
+   docked Read rail + View strip in place). Pick deliberately; don't drift.
+2. **ShellApp duplicates classic App's render JSX** (both consume the one hook).
+   Until classic is retired they're a fork — mirror any component-wiring change in
+   both, and **retire classic promptly once ShellApp reaches parity** to end the
+   fork. `index.tsx` routing is the switch.
+3. **Interactive paths are UNVERIFIED** (not by tests, not by browser). The 138
+   tests cover the pure engine; the browser smoke only covered *generation*. So
+   `handlePaint`, `handleUndo`, abort-mid-generate (`abortControllerRef` never
+   actually fired — first generate has no prior controller), lore/`apiKey`, and
+   save/load have zero coverage. Verbatim-move keeps them low-risk, but **run a
+   ~3-min interactive smoke (paint a stroke, undo, regenerate mid-run, save/load)
+   as the GATE before deleting classic** — that deletion is the irreversible step.
+4. **`?globe=0` skips WebGL, not generation.** A world still auto-generates on
+   mount (seen: full gen ran under globe=0, seed `realmgenesis`); confirm the
+   auto-gen source. The "fast UI iteration" benefit is real but partial (no globe
+   render/interaction cost; generation still runs).
+
 ---
 
 ## Session 4 (2026-07-24) — C3 roads & trade routes SHIPPED
