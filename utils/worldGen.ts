@@ -4,75 +4,9 @@ import { RNG, SimplexNoise } from './rng';
 import { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS, darkenForFolk } from './colors';
 import { createNameGenerator, NameGenerator, NameStyle, NAME_STYLES } from './namegen';
 import { detectFeatures } from './features';
+import { MinHeap, landTerrainStepCost } from './pathfinding';
 
 // --- DATA STRUCTURES ---
-
-class MinHeap<T> {
-    private heap: T[];
-    private scoreFunction: (t: T) => number;
-
-    constructor(scoreFunction: (t: T) => number) {
-        this.heap = [];
-        this.scoreFunction = scoreFunction;
-    }
-
-    push(node: T) {
-        this.heap.push(node);
-        this.bubbleUp(this.heap.length - 1);
-    }
-
-    pop(): T | undefined {
-        if (this.heap.length === 0) return undefined;
-        const top = this.heap[0];
-        const bottom = this.heap.pop();
-        if (this.heap.length > 0 && bottom !== undefined) {
-            this.heap[0] = bottom;
-            this.sinkDown(0);
-        }
-        return top;
-    }
-
-    size(): number { return this.heap.length; }
-
-    private bubbleUp(index: number) {
-        while (index > 0) {
-            const parentIndex = Math.floor((index - 1) / 2);
-            if (this.scoreFunction(this.heap[index]) >= this.scoreFunction(this.heap[parentIndex])) break;
-            [this.heap[index], this.heap[parentIndex]] = [this.heap[parentIndex], this.heap[index]];
-            index = parentIndex;
-        }
-    }
-
-    private sinkDown(index: number) {
-        const length = this.heap.length;
-        const element = this.heap[index];
-        const elemScore = this.scoreFunction(element);
-
-        while (true) {
-            let leftChildIdx = 2 * index + 1;
-            let rightChildIdx = 2 * index + 2;
-            let leftScore, rightScore;
-            let swap = null;
-
-            if (leftChildIdx < length) {
-                leftScore = this.scoreFunction(this.heap[leftChildIdx]);
-                if (leftScore < elemScore) swap = leftChildIdx;
-            }
-            if (rightChildIdx < length) {
-                rightScore = this.scoreFunction(this.heap[rightChildIdx]);
-                if (swap === null) {
-                    if (rightScore < elemScore) swap = rightChildIdx;
-                } else {
-                    if (rightScore < leftScore!) swap = rightChildIdx;
-                }
-            }
-
-            if (swap === null) break;
-            [this.heap[index], this.heap[swap]] = [this.heap[swap], this.heap[index]];
-            index = swap;
-        }
-    }
-}
 
 // --- MATH HELPERS ---
 
@@ -1444,9 +1378,8 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
         costs.set(capId, 0);
     });
 
-    const waterCost = (params.waterCrossingCost || 0.5) * 50; 
-    const landCost = 1;
-    const territorialRange = (params.territorialWaters || 0.2) * 50; 
+    const waterCost = (params.waterCrossingCost || 0.5) * 50;
+    const territorialRange = (params.territorialWaters || 0.2) * 50;
 
     while(pq.size() > 0) {
         const { id, cost, region } = pq.pop()!;
@@ -1456,12 +1389,7 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
         const currCell = world.cells[id];
         for(const nId of currCell.neighbors) {
             const nCell = world.cells[nId];
-            let moveCost = landCost;
-            if (nCell.biome === BiomeType.ICE_CAP) moveCost *= 4;
-            if (nCell.biome === BiomeType.HOT_DESERT) moveCost *= 2;
-            if (nCell.biome === BiomeType.VOLCANIC) moveCost *= 5;
-            const slope = Math.abs(nCell.height - currCell.height);
-            moveCost += slope * 20;
+            let moveCost = landTerrainStepCost(currCell, nCell);
             const isWater = nCell.height < params.seaLevel || isLakeCell(nCell);
             if (isWater) moveCost = waterCost;
             moveCost *= (1 + (civRng.next() * params.borderRoughness));
