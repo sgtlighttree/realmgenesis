@@ -230,12 +230,22 @@ re-tessellate onto the cell graph). Lossy by nature; stretch goal.
 
 ---
 
-## F. UI Overhaul
+## F. Frontend/Rendering/UI Overhaul
 
-# F1. Reorganizing the UI
+# F1. Redesigning the UI/Frontend
 The UI has become a mess in an attempt to add more features, especially on mobile.
 A full redesign and rearchitecture is warranted here.
 Can come *before or alongside* D6 with the roadmap in mind.
+
+# F2. 3D Mode Presentation
+Part of redesign is figuring out how the planet is presented; overlays like borders, rivers and roads and routes and the lat/lon grid are also 3D objects, not 2D overlays simply composited over the 3D globe, which affects visibility and accuracy. Or maybe make the globe entirely smooth by default, instead of applying height per cell. Perhaps 3D mode should more like Google Earth Pro in this respect.
+
+# F3. True 2D vector map
+Make it a true vector map like most web mapping apps, but keep it as optimized as possible
+
+# F4. Performance Optimizations
+Self-explanatory, optimize wherever while keeping visual fidelity. Can come last, but better to make efficient renderers/frontends and code wherever possible.
+
 
 ## Recommended first milestone — "Map identity"
 

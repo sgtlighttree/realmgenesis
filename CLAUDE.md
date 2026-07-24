@@ -22,8 +22,6 @@ For Claude Sonnet 5 only: Claude is free to treat prompts less literally dependi
 
 These tone instructions are not applied to subagents.
 
-## Model roles & delegation
-
 ### If running as Fable 5 (credits — every token bills the user)
 - You are the ORCHESTRATOR, not the implementer. Delegation is the default.
 - Annotate every planned task `[DELEGATE: opus|sonnet|haiku]` or `[SELF: reason]`.
@@ -35,11 +33,38 @@ These tone instructions are not applied to subagents.
   criteria. Cross-check output against the criteria, not vibes.
 - Be terse. Your tokens cost $10/$50 per Mtok; subagent tokens are covered
   by the subscription.
+- Select a tier by `subagent_type` name: `sonnet-low`, `sonnet-medium`,
+  `opus-low`, `opus-medium`, `opus-high`, `haiku`. These encode the legal pairings, so never pass a `model`
+  parameter at call time — per-invocation `model` overrides the definition's
+  frontmatter, but there is no per-invocation `effort`, so passing one silently
+  produces an out-of-policy combination.
+- `haiku` has no effort variants: Haiku has no effort dial at all (verified
+  2026-07-21, see HANDOFF.md). One Haiku tier is the whole set.
+- The tier definitions live in `~/.claude/agents/` (user-level, shared by every
+  project), NOT in this repo. Do not re-create `.claude/agents/` here: a
+  project-level file shadows the user-level one of the same name, so a local copy
+  would mask the real tier and the two would drift apart. This policy section is
+  project-local and does not travel with them.
+- If the task can't be parallelized and there's no benefit to delegation 
+  (e.g. editing one part of one file at a time), do not delegate to avoid overhead
+  of verifiying a subagent's work, build or execute the task yourself.
 - Unless the user tells you to act on everything yourself, these instructions
   prevail.
 
 ### If running as Opus or Sonnet (subscription)
 - Same orchestrator rules, one tier down (Opus → Sonnet/Haiku; Sonnet → Haiku).
+- Select a tier by `subagent_type` name: `sonnet-low`, `sonnet-medium`,
+  `opus-low`, `opus-medium`, `opus-high`, `haiku`. These encode the legal pairings, so never pass a `model`
+  parameter at call time — per-invocation `model` overrides the definition's
+  frontmatter, but there is no per-invocation `effort`, so passing one silently
+  produces an out-of-policy combination.
+- `haiku` has no effort variants: Haiku has no effort dial at all (verified
+  2026-07-21, see HANDOFF.md). One Haiku tier is the whole set.
+- The tier definitions live in `~/.claude/agents/` (user-level, shared by every
+  project), NOT in this repo. Do not re-create `.claude/agents/` here: a
+  project-level file shadows the user-level one of the same name, so a local copy
+  would mask the real tier and the two would drift apart. This policy section is
+  project-local and does not travel with them.
 - COMMITMENT BOUNDARIES: before any architecture decision, migration, schema
   change, or refactor touching 3+ files — or after two failed attempts at the
   same bug — consult the `fable-advisor` agent and act on its verdict.
@@ -48,9 +73,12 @@ These tone instructions are not applied to subagents.
   tier: assume silent fallback (Fable unavailable or credits off). Fall back
   to `/advisor opus`; if that also fails, STOP and tell the user rather than
   proceeding unadvised.
+- If the task can't be parallelized and there's no benefit to delegation 
+  (e.g. editing one part of one file at a time), do not delegate to avoid overhead
+  of verifiying a subagent's work, build or execute the task yourself.
 - Unless the user tells you to act on everything yourself, these instructions
   prevail.
-
+  
 ## Commands
 
 ```bash
@@ -116,6 +144,40 @@ Netlify static SPA. `public/_redirects` handles SPA routing. Optional `GEMINI_AP
 ## Git workflow
 
 Commit locally in small chunks, scoped to one topic or one unit of work each (e.g. "fix screen centering," "add README" — not one giant catch-all commit). Don't batch unrelated changes together just because they landed in the same session. Only push when the user explicitly asks.
+
+## HANDOFF discipline
+
+Update `HANDOFF.md` **as you work**, not only when asked. A long session can be
+compacted or die, and unwritten findings die with it — but rationale is the part
+that really evaporates. Nobody reconstructs six weeks later *why* a rule was
+broken; written at the moment of the decision it costs one paragraph.
+
+What goes where, by type:
+
+- **Decisions + their rationale** — write immediately. Highest value, most
+  perishable. Include the alternative that was rejected and why.
+- **Findings** — write immediately too, but **at the confidence level you
+  actually have.** Say "n=1, unconfirmed" out loud when that's what it is.
+  Reserve "verified" for claims you would defend under challenge, naming the
+  evidence.
+- **Progress narration** — never. That is what `git log` is for.
+- **The session entry** — at the end, or when context is about to compact.
+
+The test: *does the next session need this to avoid repeating a mistake or
+re-litigating a decision?* If no, it belongs in a commit message, not HANDOFF.
+
+**Record refuted hypotheses, don't delete them.** A wrong idea that looked right
+is useful — it stops the next session re-deriving it. Correct in place, state
+what refuted it, and keep the original reasoning visible.
+
+This exists because of a real failure (session 2026-07-24): three claims were
+written to HANDOFF as settled fact from single observations — "extended thinking
+was off," "the agent registry is frozen at session start," "worktrees cut from
+session-start HEAD" — and all three were refuted within hours, each needing a
+correction commit. The frequency was not the problem. Asserting n=1 findings as
+conclusions was. Hedging them at write time would have made every later discovery
+an update instead of a contradiction.
+
 
 ## Web Search Workflow
 

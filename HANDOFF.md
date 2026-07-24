@@ -10,7 +10,7 @@ workflow/style rules.
 
 - [ ] Make a true vector 2D mode instead of raster, but keep it optimized
 - [ ] V3 of terrain generation algorithm. Goal is to make plate boundaries far more realistic, make part of Milestone D,
-- [ ] Major UI/frontend redesign and overhaul (Milestone F), use skill `/impeccable` for visual UI review
+- [ ] Major UI/frontend/rendering overhaul (Milestone F), use skill `/impeccable` for visual UI review
 
 ---
 
@@ -86,6 +86,96 @@ Suite: 52 → 119 tests across the tier. Every feature: typecheck 0, lint
   UI additions were kept minimal (buttons/selects) to limit rework.
 - Pre-D6 batch order was: A5 → E1/E2 → C4 → C5 → C1 → C2 → C3 (all shipped
   except C2 in-flight, C3 next).
+
+---
+
+## Session 5 (2026-07-24) — F1 UI redesign: shell prototype BUILT (not merged)
+
+Brainstormed the F-tier + D6, then built a working layout prototype. **On branch
+`c3-roads-trade-routes` still (F1 work is NOT yet on its own branch — separate
+before committing).** Gates green: typecheck 0, lint 0/30, build OK. Browser-
+verified against a fresh `vite preview` build (see gotcha below).
+
+**Decisions + rationale (the perishable part):**
+
+- **Relief hinge resolved (was the crux tying D6/F2/F3 together).** Terrain relief
+  can live in *geometry* (displaced mesh, today) or in *texture* (smooth sphere +
+  hillshade). Matt's call: **smooth sphere is the DEFAULT across all view layers**
+  (better legibility of roads/rivers/borders); displaced-geometry is a *separate
+  toggle* for later, where line overlays hug the mesh. **D6 is decoupled** — pure
+  gen-algorithm work (realistic plate boundaries, kill seams), NOT a presentation
+  decision. F3 = Google-Maps-style vector 2D. This un-blocks treating them
+  separately instead of one mega-decision.
+- **Sequence: F1 first** (Matt wants the dopamine of a new frontend; it's also the
+  most separable — presentation-layer, doesn't care how relief is carried).
+- **F1 scope = layout rearchitecture + consistency cleanup** (unify panel chrome,
+  one slider-accent color, themed scrollbars). NOT a new visual identity — that's
+  **F1b**, a later dedicated `/impeccable` pass on the clean skeleton. Rationale:
+  structural work and taste work are different kinds of hard; you can't judge
+  type/color until the skeleton is settled and populated.
+- **Architecture — content/shell decoupling (advisor-confirmed, preserves the
+  no-Context invariant).** I initially feared two shells would force prop-drilling
+  through two layout trees or a Context. The advisor corrected the framing: **App
+  composes each panel WITH its props into a finished element** (`panels = { make:
+  <MakeContent {...}/>, … }`) and hands the map to whichever shell is active as
+  named slots; **the shell only POSITIONS pre-built elements, never sees their
+  props.** Props still trace one hop to the owner. No Context, no store. Corollary:
+  ephemeral presentation state (mobile "which tab is open") lives in the shell's
+  own `useState`, NOT App — hoisting it would be the real invariant violation.
+- **Layout: A-shell wide, C-shell narrow, same content.** Matt judged A·Tidy best
+  on desktop, C·Studio best on mobile. Because content is decoupled from shell,
+  "A wide + C narrow" costs ~the same as "C both" (C already needs two shells:
+  desktop docks vs mobile tab-bar diverge *behaviorally*, not just by CSS). So no
+  compromise needed. Mobile finding: all three wireframe directions converge on
+  "globe-hero + sheets" on a phone, so the phone layout is really its own design
+  and the desktop pick barely constrains it.
+- **Edit mode = single "Edit" toggle, default OFF, summons the contextual Do bar;
+  Esc exits.** Inverts today's always-visible EditToolbar (whose first pill is
+  "Off"). Keeps Read (click-to-inspect, always on) and Do (paint, modal) from
+  stepping on each other. On narrow-C, "Do" is one of the four bottom tabs — same
+  metaphor, no special case.
+- **F1 STUBS the render modes; it does NOT build F2/F3** (advisor guardrail). The
+  placeholder globe + smooth/relief View toggle are stubs so the spec doesn't
+  quietly absorb the rendering rework.
+
+**What was built (throwaway-safe prototype, reachable via `?shell=1`):**
+
+- `index.tsx` branches on `?shell` → mounts `DesignShell` instead of `App`.
+- `components/shell/shellKit.tsx` — placement-agnostic stub panels (MakePanel,
+  ViewPanel, DoPanel, READ_CARDS, PlaceholderGlobe), the `ShellProps` slot
+  contract, and the single `PANEL` chrome constant (the "one chrome" the
+  consistency cleanup buys — change radius/border/fill in one place).
+- `components/shell/WideShell.tsx` (A·Tidy) and `NarrowShell.tsx` (C·Studio).
+- `components/shell/DesignShell.tsx` — harness: Auto/Wide/Narrow override toggle
+  (preview the fold without resizing), editing state + Esc, composes stubs once.
+- **NOT wired to real state.** Panels are dumb stubs; globe is a CSS circle. The
+  real F1 = making the actual Inspector/Legend/MiniMap/EditToolbar/Controls
+  placement-agnostic (they currently self-position with `absolute …`) and mounting
+  them through these shells. That refactor is the next step, not done here.
+
+**Impeccable refinement pass applied (same session, product register).** Removed
+three self-inflicted AI tells: per-panel uppercase-mono eyebrow tags, the 4-hue
+"rainbow" bucket dots (→ single blue accent, state/selection only), and default
+glassmorphism (→ solid `bg-gray-900` panels). Added: state-motion `rg-rise`
+(`index.css`, ease-out-quart, `prefers-reduced-motion` fallback) on the Do bar +
+mobile sheet; an exported `FOCUS` ring on every interactive control; muted-text
+contrast bump. Narrow sheet capped to `max-h-[52%]` (bottom sheet, globe stays
+visible). These are chrome/token decisions that carry straight into the real F1.
+Skill v3.9.1 installed; v4.0.2 update was offered to Matt (not yet taken). The
+full VISUAL identity (type pairing, palette) is still deferred to F1b.
+
+**Gotcha (verified, n=1 but cleanly reproduced):** a LONG-RUNNING `vite` dev
+server's Tailwind JIT does **not** pick up brand-new files' unique classes —
+`top-3`/`right-3`/`right-[17rem]` were absent from generated CSS (only classes
+already used elsewhere rendered), collapsing the layout. `npm run build` +
+`vite preview` (or restarting dev) fixes it. **Verify new-file UI against a fresh
+build, not the standing dev server.** Also: Tailwind arbitrary `calc()` needs
+underscores for spaces — `max-w-[calc(100%_-_18rem)]`, not `-18rem)]`.
+
+**Next step:** refine the prototype with Matt, THEN write the formal F1 spec
+(`docs/superpowers/specs/`) reflecting the settled shell design, THEN the real
+component-extraction plan. Advisor consult for this commitment boundary is DONE
+(one per boundary).
 
 ---
 
