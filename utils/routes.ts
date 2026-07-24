@@ -3,6 +3,10 @@ import type { Cell, Point, RouteData, WorldData, WorldParams } from '../types';
 
 const MAX_ROAD_EXPANSIONS = 20000; // per-edge A* cap
 const MAX_ROAD_ANGLE = 1.2;        // skip MST edges longer than this (radians)
+const MAX_SEA_EXPANSIONS = 40000;
+const PORT_TOP_FRACTION = 0.4;     // "major" ports = top 40% by population
+const SEA_NEIGHBORS = 3;           // each major port links to nearest ~3 ports
+const SEA_STEP = 1;                // uniform water step cost
 
 function angle(a: Point, b: Point): number {
   const d = a.x * b.x + a.y * b.y + a.z * b.z;
@@ -116,6 +120,45 @@ export function computeRoutes(world: WorldData, params: WorldParams): RouteData[
       const path = aStar(cells, A.cellId, B.cellId, landStep, landHeuristic(cells, B.cellId, stepsPerRadian), MAX_ROAD_EXPANSIONS);
       if (path && path.length >= 2) {
         routes.push({ path: path.map(id => cells[id].center), kind: 'road', fromCellId: A.cellId, toCellId: B.cellId });
+      }
+    }
+  }
+
+  // --- Sea routes: dense web over major ports (coastal towns). ---
+  const coastal = new Set<number>();
+  for (const c of cells) {
+    if (isWaterCell(c, params.seaLevel)) continue;
+    for (const nId of c.neighbors) {
+      if (isWaterCell(cells[nId], params.seaLevel)) { coastal.add(c.id); break; }
+    }
+  }
+  const ports = towns.filter(t => coastal.has(t.cellId));
+  if (ports.length >= 2) {
+    const sorted = [...ports].sort((a, b) => b.population - a.population || a.cellId - b.cellId);
+    const majorCount = Math.max(2, Math.ceil(sorted.length * PORT_TOP_FRACTION));
+    const major = sorted.slice(0, majorCount);
+    const seen = new Set<string>();
+
+    for (const p of major) {
+      const nearest = [...major]
+        .filter(q => q.cellId !== p.cellId)
+        .sort((a, b) =>
+          angle(cells[p.cellId].center, cells[a.cellId].center) - angle(cells[p.cellId].center, cells[b.cellId].center) ||
+          a.cellId - b.cellId)
+        .slice(0, SEA_NEIGHBORS);
+      for (const q of nearest) {
+        const key = `${Math.min(p.cellId, q.cellId)}-${Math.max(p.cellId, q.cellId)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const goalId = q.cellId;
+        // Water is cheap; land is impassable except the destination port — so
+        // routes stay on water and never cut across an intermediate port.
+        const seaStep = (fromId: number, toId: number): number =>
+          isWaterCell(cells[toId], params.seaLevel) ? SEA_STEP : (toId === goalId ? SEA_STEP : Infinity);
+        const path = aStar(cells, p.cellId, goalId, seaStep, landHeuristic(cells, goalId, stepsPerRadian), MAX_SEA_EXPANSIONS);
+        if (path && path.length >= 2) {
+          routes.push({ path: path.map(id => cells[id].center), kind: 'searoute', fromCellId: p.cellId, toCellId: goalId });
+        }
       }
     }
   }

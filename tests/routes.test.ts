@@ -102,3 +102,26 @@ describe('computeRoutes — roads', () => {
     }
   });
 });
+
+describe('computeRoutes — sea', () => {
+  it('produces sea routes between distinct coastal towns, structurally valid', async () => {
+    const w = await build('sea-test');
+    const sea = (w.routes ?? []).filter(r => r.kind === 'searoute');
+    expect(sea.length).toBeGreaterThan(0);
+    for (const r of sea) {
+      expect(r.path.length).toBeGreaterThanOrEqual(2);
+      expect(r.fromCellId).not.toEqual(r.toCellId);
+    }
+  });
+
+  it('sea-route endpoints are coastal cells (a water neighbor exists)', async () => {
+    const w = await build('sea-test');
+    const seaLevel = w.params.seaLevel;
+    const isCoastal = (cellId: number) =>
+      w.cells[cellId].neighbors.some(n => isWaterCell(w.cells[n], seaLevel));
+    for (const r of (w.routes ?? []).filter(r => r.kind === 'searoute')) {
+      expect(isCoastal(r.fromCellId), `from ${r.fromCellId} should be coastal`).toBe(true);
+      expect(isCoastal(r.toCellId), `to ${r.toCellId} should be coastal`).toBe(true);
+    }
+  });
+});
