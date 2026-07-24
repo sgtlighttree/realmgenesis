@@ -332,7 +332,8 @@ const Controls: React.FC<ControlsProps> = ({
           expProj === 'dymaxion' ? { layout: dymaxionSettings.layout, lon: dymaxionSettings.lon, lat: dymaxionSettings.lat, roll: dymaxionSettings.roll } : undefined,
           labelVisibility,
           showHillshade,
-          showContours
+          showContours,
+          showRoutes
         );
     } catch(e) {
         console.error(e);
