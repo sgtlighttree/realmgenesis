@@ -183,8 +183,37 @@ so TypeScript + the frozen render carry most of the fidelity proof — manual re
 is scoped to effect deps + ref timing. Classic layout is transitional (retired at
 shell parity). Second advisor consult DONE for the wiring architecture.
 
-**Next step:** Matt reviews the spec; then `writing-plans` for the step-by-step
-implementation plan; then execute Phase 1.
+**Phase 1 plan:** `docs/superpowers/plans/2026-07-24-f1-phase1-useworldengine.md`.
+
+### F1 execution log (FULL AUTO, Matt AFK; rate reset ~02:39 2026-07-25)
+
+Matt authorized full-auto execution of F1 Phases 1–4: commit per chunk, update
+HANDOFF as I go, delegate only genuinely-parallel well-scoped chunks (most of this
+is serial through App/Controls, so mostly self; Phase 3 Controls split is the one
+real delegation window). Verify against a FRESH build on `:4180` (dev-server
+Tailwind won't hot-scan new files). Matt's `:3000` dev server is his — do not kill.
+
+- **Phase 1 — DONE** (commit `0c373f4`). `useWorldEngine()` extracted verbatim via
+  sed (94 exports; return type = `ReturnType<typeof useWorldEngine>`; 4 refs stay
+  internal). App = thin consumer, return block byte-identical (diff-verified).
+  Gates: typecheck 0, lint 0/30, 138 tests, build OK. Classic app browser-verified
+  (generate → full world, labels/colors, zero console errors). Paint/undo drag NOT
+  synthetically driven (flaky on 3D) — code moved verbatim; will validate when
+  Phase 2 wires EditToolbar into the shell.
+- **Phases 1b + 2 RESEQUENCED (full-auto judgment call — decision + rationale):**
+  While wiring Phase 2 I found the floaters' fixed viewport anchors (Inspector
+  `top-6 left-1/2`, MiniMap `bottom-4 right-4`, etc.) COLLIDE with the shell's View
+  strip / Read rail if dropped into the bucket slots. Docking them cleanly needs
+  component surgery (each carries its own chrome + centering + `pointer-events`),
+  which is aesthetically sensitive — bad to finalize blind while Matt's asleep.
+  **So: ship a safe playable increment first** — `ShellApp` = real data in a clean
+  reframe with the floaters kept as-is (no collision) + the `?globe=0` toggle.
+  **Deferred to a Matt-present pass:** the docked bucket model (bare Read cards,
+  View strip, contextual Do via edit toggle) reusing WideShell/NarrowShell, which
+  is where the component-docking aesthetics need his eye. `?shell=stub` still
+  serves the DesignShell prototype for that layout reference.
+- **Phase 2 (v1 reframe) — IN PROGRESS.**
+- Phases 3–4 pending (see spec §4).
 
 ---
 
