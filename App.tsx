@@ -7,6 +7,7 @@ import Inspector from './components/Inspector';
 import { BiomeLegend } from './components/Legend';
 import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode, InspectMode, DymaxionSettings, EditMode, PaintStyle, UndoSnapshot, BiomeType, POLITICAL_ERASER_ID, LabelVisibility, DEFAULT_LABEL_VISIBILITY, Point, MarkerData } from './types';
 import { generateWorld, recalculateCivs, recalculateProvinces } from './utils/worldGen';
+import { computeRoutes } from './utils/routes';
 import { mergeFactions, renameProvince, renameTown, relocateCapital } from './utils/civEdit';
 import { getCellsInRadius, applyTerrainStroke, applyFlattenStroke, applySmoothStroke, applyPoliticalStroke, applyBiomeStroke, refreshBiomes } from './utils/paintUtils';
 import { generateWorldLore, setRuntimeApiKey } from './services/gemini';
@@ -331,6 +332,29 @@ const App: React.FC = () => {
     setInspectedCellId(null);
     setRulerCells(null);
   }, [world?.params.seed, displayMode]);
+
+  // C3: routes are computed LAZILY here — only when the Roads & Routes toggle
+  // is on and the current world has none cached. computeRoutes is O(towns · A*)
+  // and runs several seconds near the 200k-cell cap, so gating it keeps a
+  // routes-off generation (the default) free. A fresh generate / civ-update
+  // clears world.routes (see recalculateProvinces), so this recomputes against
+  // the new town graph. Mutating + shallow-copying matches the paint pattern.
+  useEffect(() => {
+    if (!showRoutes || !world || !world.civData || world.routes) return;
+    let cancelled = false;
+    setIsGenerating(true);
+    addLog('Computing roads & trade routes...');
+    const id = setTimeout(() => {
+      if (cancelled) return;
+      const routes = computeRoutes(world, world.params);
+      if (cancelled) return;
+      world.routes = routes;
+      setWorld({ ...world });
+      addLog(`Routes: ${routes.filter(r => r.kind === 'road').length} roads, ${routes.filter(r => r.kind === 'searoute').length} sea.`);
+      setIsGenerating(false);
+    }, 30);
+    return () => { cancelled = true; clearTimeout(id); setIsGenerating(false); };
+  }, [showRoutes, world, addLog]);
 
   const toggleInspectEnabled = useCallback(() => {
     setInspectMode(prev => (prev === 'off' ? 'click' : 'off'));

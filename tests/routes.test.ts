@@ -5,8 +5,12 @@ import { isWaterCell } from '../utils/pathfinding';
 import { makeParams } from './helpers';
 import type { WorldData } from '../types';
 
+// Routes are computed lazily in the app (App.tsx), not by generateWorld, so
+// tests compute them explicitly here — exactly what the lazy effect does.
 async function build(seed = 'route-test') {
-  return generateWorld(makeParams({ seed, civSeed: seed }));
+  const world = await generateWorld(makeParams({ seed, civSeed: seed }));
+  world.routes = computeRoutes(world, world.params);
+  return world;
 }
 
 // Reconstruct land-connected components the same way computeRoutes does, so the
