@@ -110,8 +110,23 @@ build OK. Browser-verified on 3D globe + 2D Mercator + 2D Dymaxion, plus PNG
 - **New `utils/pathfinding.ts`** to avoid a circular import: `MinHeap` (moved
   out of worldGen), `isWaterCell`, extracted `landTerrainStepCost`, and `aStar`.
   Clean DAG: `types ← pathfinding ← {worldGen, routes}`; `worldGen → routes`.
-  The civ Dijkstra now consumes `landTerrainStepCost` — **byte-identical**
-  (the determinism suite is the gate; it stayed green through the refactor).
+  The civ Dijkstra now consumes `landTerrainStepCost` — **identical by
+  construction** (same ops, order, operands; verified by inspection). The
+  determinism suite stayed green, but note that only proves self-determinism
+  of the new code, NOT equivalence to pre-refactor output — don't trust a green
+  suite alone to catch a value-changing refactor.
+- **Routes are computed LAZILY (App effect), not at generation.** This is the
+  fix for a real regression the advisor caught: `computeRoutes` is O(towns·A*)
+  and measured **90ms@20k, 1.8s@60k, 3.6s@120k** cells — and it originally ran
+  unconditionally at the tail of `recalculateProvinces`, freezing the main
+  thread on *every* generate (even routes-off, the default) AND after the
+  progress bar already hit 100%. Now `recalculateProvinces` clears
+  `world.routes`; an App `useEffect` computes them only when the toggle is on
+  and none are cached (30ms yield + `setIsGenerating` spinner, mutate +
+  shallow-copy like paint). Routes-off generations pay zero. Interactive safety
+  checked: only the explicit "Update Civs/Provinces" buttons (which already show
+  a spinner) reach `recalculateProvinces`; political paint strokes do NOT, so
+  no per-stroke route recompute. Tests compute routes explicitly to match.
 - **Sea routes use a per-pair goal-scoped `seaStep`** (water cheap, land
   impassable except the destination port) — keeps routes on water and blocks
   cutting across intermediate ports on land. This also sidestepped a `majorSet`
@@ -132,6 +147,11 @@ build OK. Browser-verified on 3D globe + 2D Mercator + 2D Dymaxion, plus PNG
 old HANDOFF note about "rivers in export" was stale. Routes are therefore the
 first hydrology-adjacent overlay in PNG (gated on `showRoutes`). SVG export
 already had rivers as first-class layers; routes join them there too.
+
+**GLB export omits routes (follow-up, not oversight).** `exportGLB.ts` exports
+rivers as line geometry but was scoped out of C3 (PNG/SVG/GeoJSON only), so GLB
+is now the one surface where rivers appear and routes don't. Add route line
+geometry to the GLB exporter when convenient — small, mirrors the river path.
 
 **Deferred, on purpose:** route connectivity → town importance/population
 (ROADMAP wants it; it makes C3 non-additive by feeding civ generation).
