@@ -1,5 +1,5 @@
-import React from 'react';
-import { Menu, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Menu, X, Pencil } from 'lucide-react';
 import Controls from '../Controls';
 import WorldViewer from '../WorldViewer';
 import Map2D from '../Map2D';
@@ -42,6 +42,17 @@ const ShellApp: React.FC = () => {
   } = useWorldEngine();
 
   const noGlobe = globeDisabled();
+
+  // Contextual "Do" bucket: the EditToolbar is summoned by an explicit Edit
+  // toggle (default off) and dismissed with Esc — presentation state, local to
+  // the shell. Leaving edit mode also clears any active paint mode.
+  const [editOpen, setEditOpen] = useState(false);
+  const closeEdit = React.useCallback(() => { setEditOpen(false); setEditMode('off'); }, [setEditMode]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeEdit(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [closeEdit]);
 
   return (
     <div className="flex flex-col md:flex-row w-full h-full bg-black overflow-hidden font-sans text-gray-200">
@@ -185,7 +196,21 @@ const ShellApp: React.FC = () => {
             </div>
           </div>
         )}
+        {/* Edit toggle — summons the contextual Do bar (EditToolbar). */}
         {!noGlobe && world && (
+          <button
+            onClick={() => { editOpen ? closeEdit() : setEditOpen(true); }}
+            aria-pressed={editOpen}
+            title={editOpen ? 'Exit edit mode (Esc)' : 'Edit terrain, biomes & borders'}
+            className={`absolute top-4 right-16 z-20 inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium border shadow-lg transition-colors
+              ${editOpen
+                ? 'bg-amber-500 text-black border-amber-400'
+                : 'bg-gray-900/90 text-gray-200 border-gray-700 hover:bg-gray-800'}`}
+          >
+            <Pencil size={13} /> {editOpen ? 'Editing' : 'Edit'}
+          </button>
+        )}
+        {!noGlobe && world && editOpen && (
           <EditToolbar
             editMode={editMode} setEditMode={setEditMode}
             paintStyle={paintStyle} setPaintStyle={setPaintStyle}
