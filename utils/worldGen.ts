@@ -5,7 +5,6 @@ import { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS, darkenForFolk } from '
 import { createNameGenerator, NameGenerator, NameStyle, NAME_STYLES } from './namegen';
 import { detectFeatures } from './features';
 import { MinHeap, landTerrainStepCost } from './pathfinding';
-import { computeRoutes } from './routes';
 
 // --- DATA STRUCTURES ---
 
@@ -1543,8 +1542,12 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
     // and hook-point comment on recalculateReligions itself.
     recalculateReligions(world, params);
 
-    // C3: roads & sea trade routes, derived from the finished town graph.
-    world.routes = computeRoutes(world, params);
+    // C3: routes are derived but computed LAZILY at the App level, gated on the
+    // Roads & Routes toggle — computeRoutes is O(towns · A*) and runs several
+    // seconds near the 200k-cell cap, so a routes-off generation must pay zero.
+    // Clearing here invalidates any stale routes after a civ/province recalc so
+    // the lazy pass recomputes against the new town graph.
+    world.routes = undefined;
 
     return world;
 }

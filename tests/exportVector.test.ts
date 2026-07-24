@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { generateWorld } from '../utils/worldGen';
 import { exportSVG, exportGeoJSON } from '../utils/exportVector';
+import { computeRoutes } from '../utils/routes';
 import { WorldData } from '../types';
 import { makeParams } from './helpers';
 
@@ -134,6 +135,8 @@ describe('route export (C3)', () => {
   let routeWorld: Awaited<ReturnType<typeof generateWorld>>;
   beforeAll(async () => {
     routeWorld = await generateWorld(makeParams({ seed: 'route-test', civSeed: 'route-test' }));
+    // Routes are computed lazily by the app, not generateWorld — do it here.
+    routeWorld.routes = computeRoutes(routeWorld, routeWorld.params);
   });
 
   it('SVG emits an id="routes" group with the road stroke color', () => {
