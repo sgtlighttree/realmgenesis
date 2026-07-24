@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode, DymaxionSettings, DymaxionControlMode, LabelVisibility, MarkerData } from '../types';
-import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Box, Copy, Check, Users, Landmark, Sun, LineChart, FileCode, FileJson, Palette, Church } from 'lucide-react';
+import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Box, Copy, Check, Users, Landmark, Sun, LineChart, FileCode, FileJson, Palette, Church, Route } from 'lucide-react';
 import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
 import { downloadSVG, downloadGeoJSON } from '../utils/exportVector';
 import { NAME_STYLES, NameStyle } from '../utils/namegen';
@@ -31,6 +31,8 @@ interface ControlsProps {
   setShowGrid: (b: boolean) => void;
   showRivers: boolean;
   setShowRivers: (b: boolean) => void;
+  showRoutes: boolean;
+  setShowRoutes: (b: boolean) => void;
   showHillshade: boolean;
   setShowHillshade: (b: boolean) => void;
   showContours: boolean;
@@ -95,6 +97,8 @@ const Controls: React.FC<ControlsProps> = ({
   setShowGrid,
   showRivers,
   setShowRivers,
+  showRoutes,
+  setShowRoutes,
   showHillshade,
   setShowHillshade,
   showContours,
@@ -528,6 +532,19 @@ const Controls: React.FC<ControlsProps> = ({
                     type="checkbox"
                     checked={showRivers}
                     onChange={(e) => { setShowRivers(e.target.checked); }}
+                    className="bg-gray-700"
+                 />
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-gray-400 pt-2">
+                 <div className="flex items-center gap-2">
+                    <Route size={12} className={showRoutes ? "text-amber-400" : "text-gray-600"}/>
+                    <label>Roads &amp; Routes</label>
+                 </div>
+                 <input
+                    type="checkbox"
+                    checked={showRoutes}
+                    onChange={(e) => { setShowRoutes(e.target.checked); }}
                     className="bg-gray-700"
                  />
             </div>

@@ -213,6 +213,7 @@ const Map2D: React.FC<{
   dymaxionSettings?: DymaxionSettings;
   showGrid?: boolean;
   showRivers?: boolean;
+  showRoutes?: boolean;
   showHillshade?: boolean;
   showContours?: boolean;
   labelVisibility?: LabelVisibility;
