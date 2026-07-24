@@ -120,6 +120,7 @@ const App: React.FC = () => {
   const [isLoreLoading, setIsLoreLoading] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
   const [showRivers, setShowRivers] = useState(true);
+  const [showRoutes, setShowRoutes] = useState(false);
   const [showHillshade, setShowHillshade] = useState(false);
   const [showContours, setShowContours] = useState(false);
   const [labelVisibility, setLabelVisibility] = useState<LabelVisibility>(DEFAULT_LABEL_VISIBILITY);
@@ -646,6 +647,7 @@ const App: React.FC = () => {
           worldData={world} 
           showGrid={showGrid} setShowGrid={setShowGrid}
           showRivers={showRivers} setShowRivers={setShowRivers}
+          showRoutes={showRoutes} setShowRoutes={setShowRoutes}
           showHillshade={showHillshade} setShowHillshade={setShowHillshade}
           showContours={showContours} setShowContours={setShowContours}
           labelVisibility={labelVisibility} setLabelVisibility={setLabelVisibility}
@@ -683,6 +685,7 @@ const App: React.FC = () => {
             viewMode={viewMode}
             showGrid={showGrid}
             showRivers={showRivers}
+            showRoutes={showRoutes}
             showHillshade={showHillshade}
             showContours={showContours}
             labelVisibility={labelVisibility}
@@ -710,6 +713,7 @@ const App: React.FC = () => {
             dymaxionSettings={dymaxionSettings}
             showGrid={showGrid}
             showRivers={showRivers}
+            showRoutes={showRoutes}
             showHillshade={showHillshade}
             showContours={showContours}
             labelVisibility={labelVisibility}
