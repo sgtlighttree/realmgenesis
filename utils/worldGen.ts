@@ -5,6 +5,7 @@ import { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS, darkenForFolk } from '
 import { createNameGenerator, NameGenerator, NameStyle, NAME_STYLES } from './namegen';
 import { detectFeatures } from './features';
 import { MinHeap, landTerrainStepCost } from './pathfinding';
+import { computeRoutes } from './routes';
 
 // --- DATA STRUCTURES ---
 
@@ -1541,6 +1542,9 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
     // this function just finished computing above — see the determinism
     // and hook-point comment on recalculateReligions itself.
     recalculateReligions(world, params);
+
+    // C3: roads & sea trade routes, derived from the finished town graph.
+    world.routes = computeRoutes(world, params);
 
     return world;
 }
