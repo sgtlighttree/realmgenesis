@@ -224,7 +224,7 @@ const Map2D: React.FC<{
   religionColors?: Map<number, string>;
   brushSize?: number;
   rulerArc?: Point[] | null;
-}> = ({ world, viewMode, inspectMode, onInspect, highlightCellId = null, projectionType = 'mercator', dymaxionSettings, showGrid = false, showRivers = true, showHillshade = false, showContours = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, editMode = 'off', onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null }) => {
+}> = ({ world, viewMode, inspectMode, onInspect, highlightCellId = null, projectionType = 'mercator', dymaxionSettings, showGrid = false, showRivers = true, showRoutes = false, showHillshade = false, showContours = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, editMode = 'off', onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
@@ -432,6 +432,34 @@ const Map2D: React.FC<{
         srcCtx.globalAlpha = 1.0;
       }
 
+      // Draw Routes on source equirectangular canvas (C3)
+      if (showRoutes && world.routes) {
+        srcCtx.globalAlpha = 0.9;
+        const rw = Math.max(0.5, 1.4 / renderDpr);
+        world.routes.forEach(route => {
+          if (route.path.length < 2) return;
+          srcCtx.strokeStyle = route.kind === 'road' ? '#c8a25a' : '#5eb8c8';
+          srcCtx.lineWidth = rw;
+          srcCtx.setLineDash(route.kind === 'searoute' ? [rw * 4, rw * 3] : []);
+          srcCtx.beginPath();
+          let lastLon: number | null = null;
+          route.path.forEach((p, i) => {
+            const lon = Math.atan2(p.z, p.x) * (180 / Math.PI);
+            const lat = Math.asin(Math.max(-1, Math.min(1, p.y))) * (180 / Math.PI);
+            const isJump = lastLon !== null && Math.abs(lon - lastLon) > 180;
+            const pt = projection([lon, lat]);
+            if (pt) {
+              if (i === 0 || isJump) srcCtx.moveTo(pt[0], pt[1]);
+              else srcCtx.lineTo(pt[0], pt[1]);
+            }
+            lastLon = lon;
+          });
+          srcCtx.stroke();
+        });
+        srcCtx.setLineDash([]);
+        srcCtx.globalAlpha = 1.0;
+      }
+
       drawFactionBorders(
         srcCtx,
         pathGenerator,
@@ -620,6 +648,33 @@ const Map2D: React.FC<{
       ctx.globalAlpha = 1.0;
     }
 
+    // Draw Routes (C3) — same antimeridian-jump pattern as rivers above.
+    if (showRoutes && world.routes) {
+      ctx.globalAlpha = 0.9;
+      world.routes.forEach(route => {
+        if (route.path.length < 2) return;
+        ctx.strokeStyle = route.kind === 'road' ? '#c8a25a' : '#5eb8c8';
+        ctx.lineWidth = (route.kind === 'road' ? 1.4 : 1.2) / qualityDpr;
+        ctx.setLineDash(route.kind === 'searoute' ? [5 / qualityDpr, 4 / qualityDpr] : []);
+        ctx.beginPath();
+        let lastLon: number | null = null;
+        route.path.forEach((p, i) => {
+          const lon = Math.atan2(p.z, p.x) * (180 / Math.PI);
+          const lat = Math.asin(Math.max(-1, Math.min(1, p.y))) * (180 / Math.PI);
+          const isJump = lastLon !== null && Math.abs(lon - lastLon) > 180;
+          const pt = projection([lon, lat]);
+          if (pt) {
+            if (i === 0 || isJump) ctx.moveTo(pt[0], pt[1]);
+            else ctx.lineTo(pt[0], pt[1]);
+          }
+          lastLon = lon;
+        });
+        ctx.stroke();
+      });
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1.0;
+    }
+
     // Ruler arc — same antimeridian-jump projection pattern as rivers above.
     if (rulerArc && rulerArc.length > 1) {
       ctx.strokeStyle = '#fbbf24';
@@ -724,6 +779,7 @@ const Map2D: React.FC<{
     dymaxionRoll,
     showGrid,
     showRivers,
+    showRoutes,
     factionBorders,
     mapLabels,
     labelVisibility,
