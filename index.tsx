@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import ShellApp from './components/shell/ShellApp';
 import DesignShell from './components/shell/DesignShell';
 import './index.css';
 
@@ -9,12 +10,20 @@ if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
-// ?shell=1 mounts the F1 layout prototype instead of the live app.
-const useShell = new URLSearchParams(window.location.search).has('shell');
+// Entry routing:
+//   ?shell=stub → DesignShell (F1 layout prototype, stub panels)
+//   ?shell=1    → ShellApp (F1 redesign, real data + ?globe=0)
+//   otherwise   → classic App
+const shellParam = new URLSearchParams(window.location.search).get('shell');
+
+const Root =
+  shellParam === 'stub' ? <DesignShell />
+  : shellParam !== null ? <ShellApp />
+  : <App />;
 
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    {useShell ? <DesignShell /> : <App />}
+    {Root}
   </React.StrictMode>
 );
