@@ -19,7 +19,9 @@ const WideShell: React.FC<ShellProps> = ({
         <Globe size={18} className="text-blue-400" />
         <span className="font-semibold text-sm tracking-tight">RealmGenesis 3D</span>
       </div>
-      <Panel className="flex-1 min-h-0">{make}</Panel>
+      {/* Controls brings its own scroll region and padding, so the Panel body
+          supplies only the box — no nested padding, no nested scrollbar. */}
+      <Panel className="flex-1 min-h-0" bodyClassName="p-0 overflow-hidden">{make}</Panel>
     </aside>
 
     {/* Canvas + floating panels */}
