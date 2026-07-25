@@ -485,17 +485,20 @@ const Controls: React.FC<ControlsProps> = ({
                         setTimeout(() => setSeedCopied(false), 1500);
                       }}
                       title="Copy seed to clipboard"
+                      aria-label={seedCopied ? 'Seed copied to clipboard' : 'Copy seed to clipboard'}
                       className="text-ink-muted hover:text-ink-strong transition-colors"
                    >
                       {seedCopied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
                    </button>
                    <button
                       onClick={() => { setSeedLocked(!seedLocked); }}
+                      aria-label={seedLocked ? 'Unlock seed' : 'Lock seed'}
+                      aria-pressed={seedLocked}
                       className={`${seedLocked ? 'text-brand' : 'text-ink-muted'} hover:text-ink-strong transition-colors`}
                    >
                       {seedLocked ? <Lock size={14}/> : <Unlock size={14}/>}
                    </button>
-                   <button onClick={handleRandomizeSeed} disabled={seedLocked} className="text-ink-muted hover:text-ink-strong disabled:opacity-50">
+                   <button onClick={handleRandomizeSeed} disabled={seedLocked} aria-label="Randomize seed" className="text-ink-muted hover:text-ink-strong disabled:opacity-50">
                       <Shuffle size={14} />
                    </button>
                 </div>
@@ -895,12 +898,14 @@ const Controls: React.FC<ControlsProps> = ({
                       className="bg-black border border-edge px-2 py-1 text-ink-strong text-xs flex-1 min-w-0 disabled:opacity-50"
                    />
                    <button 
-                      onClick={() => { setCivSeedLocked(!civSeedLocked); }} 
+                      onClick={() => { setCivSeedLocked(!civSeedLocked); }}
+                      aria-label={civSeedLocked ? 'Unlock civilization seed' : 'Lock civilization seed'}
+                      aria-pressed={civSeedLocked}
                       className={`${civSeedLocked ? 'text-brand' : 'text-ink-muted'} hover:text-ink-strong transition-colors`}
                    >
                       {civSeedLocked ? <Lock size={14}/> : <Unlock size={14}/>}
                    </button>
-                   <button onClick={handleRandomizeCivSeed} disabled={civSeedLocked} className="text-ink-muted hover:text-ink-strong disabled:opacity-50">
+                   <button onClick={handleRandomizeCivSeed} disabled={civSeedLocked} aria-label="Randomize civilization seed" className="text-ink-muted hover:text-ink-strong disabled:opacity-50">
                       <Shuffle size={14} />
                    </button>
                 </div>
@@ -1416,6 +1421,7 @@ const Controls: React.FC<ControlsProps> = ({
                         <button 
                             onClick={handleSaveBrowser}
                             disabled={!saveName}
+                            aria-label="Save map to browser storage"
                             className="bg-brand-strong hover:bg-brand text-ink-strong px-3"
                         >
                             <Save size={14}/>
@@ -1431,8 +1437,11 @@ const Controls: React.FC<ControlsProps> = ({
                                     <span className="text-[10px] text-ink-muted">{new Date(entry.date).toLocaleDateString()}</span>
                                 </div>
                                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => { handleLoadBrowser(entry.params, entry.civData, entry.markers); }} className="text-brand-soft hover:text-ink-strong p-1"><FolderOpen size={12}/></button>
-                                    <button onClick={() => { handleDeleteBrowser(entry.name); }} className="text-danger-soft hover:text-ink-strong p-1"><Trash2 size={12}/></button>
+                                    {/* Named per ENTRY, not just "Load": the list repeats these
+                                        two icons per row, so a bare "load button" leaves a reader
+                                        no way to tell which saved map it is on. */}
+                                    <button onClick={() => { handleLoadBrowser(entry.params, entry.civData, entry.markers); }} aria-label={`Load saved map ${entry.name}`} className="text-brand-soft hover:text-ink-strong p-1"><FolderOpen size={12}/></button>
+                                    <button onClick={() => { handleDeleteBrowser(entry.name); }} aria-label={`Delete saved map ${entry.name}`} className="text-danger-soft hover:text-ink-strong p-1"><Trash2 size={12}/></button>
                                 </div>
                             </div>
                         ))}
@@ -1445,16 +1454,21 @@ const Controls: React.FC<ControlsProps> = ({
       <div className="p-4 border-t border-edge-subtle space-y-2">
          {/* Console Output area */}
          <div className="mb-2">
-             <div 
-               className="flex items-center justify-between text-xs text-ink-muted mb-1 cursor-pointer hover:text-ink-soft"
+             {/* A real <button>, not a clickable <div>: as a div this was not
+                 focusable, had no role, and could not be operated from the
+                 keyboard at all. The text content supplies the accessible name. */}
+             <button
+               type="button"
+               className="w-full flex items-center justify-between text-xs text-ink-muted mb-1 cursor-pointer hover:text-ink-soft"
                onClick={() => { setConsoleOpen(!consoleOpen); }}
+               aria-expanded={consoleOpen}
              >
-                 <div className="flex items-center gap-1">
+                 <span className="flex items-center gap-1">
                     <Terminal size={10} />
                     <span>System Console</span>
-                 </div>
+                 </span>
                  {consoleOpen ? <ChevronDown size={10}/> : <ChevronUp size={10}/>}
-             </div>
+             </button>
              <ConsoleOutput logs={logs} isOpen={consoleOpen} />
          </div>
 

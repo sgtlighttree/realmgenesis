@@ -49,6 +49,7 @@ const App: React.FC = () => {
         />
         <button
           onClick={() => { setSidebarOpen(false); }}
+          aria-label="Close settings panel"
           className="md:hidden absolute -top-12 right-4 bg-surface text-ink-strong p-2 border border-edge shadow-lg"
         >
           <X size={20} />
@@ -59,6 +60,8 @@ const App: React.FC = () => {
       {!sidebarOpen && (
         <button 
           onClick={() => { setSidebarOpen(true); }}
+          aria-label="Open settings panel"
+          aria-expanded={sidebarOpen}
           className="fixed top-4 left-4 z-modal bg-brand-strong text-ink-strong p-3 shadow-2xl hover:bg-brand md:hidden border border-white/10"
         >
           <Menu size={24} />
