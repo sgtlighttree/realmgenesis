@@ -11,6 +11,8 @@ workflow/style rules.
 - [ ] Make a true vector 2D mode instead of raster, but keep it optimized
 - [ ] V3 of terrain generation algorithm. Goal is to make plate boundaries far more realistic, make part of Milestone D.
 - [ ] Major UI/frontend/rendering overhaul (Milestone F), use skill `/impeccable` for visual UI review
+- - [ ] F1b: Further refine things for brand identity
+- - [ ] Mobile: Minimize the padding and card-inside-card design but that's for later.
 - [ ] Major feature, for much, MUCH later: World Formats: Planet, Flat Earth (Disc, Rectangle, etc.)
 - [ ] Add a favicon just to clear the constant 404'ing
 
