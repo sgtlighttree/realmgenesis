@@ -25,7 +25,7 @@ interface InspectorProps {
   inspectMode: InspectMode;
   collapsed: boolean;
   onToggleEnabled: () => void;
-  onToggleCollapsed: () => void;
+  onToggleCollapsed?: () => void;
   editMode?: EditMode;
   onEditWorldData?: (cellId: number, updates: WorldDataUpdates) => void;
   onRenameProvince?: (factionId: number, provinceId: number, name: string) => void;
@@ -39,6 +39,14 @@ interface InspectorProps {
   onSelectMarker?: (id: number) => void;
   onUpdateMarker?: (id: number, updates: MarkerUpdates) => void;
   onDeleteMarker?: (id: number) => void;
+  /**
+   * Outer wrapper classes. Defaults to the classic float-over-the-globe
+   * anchoring; the shell passes layout-neutral classes to dock it in a rail.
+   * Position and chrome sit on DIFFERENT elements here, hence two knobs.
+   */
+  className?: string;
+  /** Inner card classes (chrome + width switching). See `className`. */
+  cardClassName?: string;
 }
 
 const Inspector: React.FC<InspectorProps> = ({
@@ -61,6 +69,8 @@ const Inspector: React.FC<InspectorProps> = ({
   onSelectMarker,
   onUpdateMarker,
   onDeleteMarker,
+  className = 'absolute top-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none z-10',
+  cardClassName,
 }) => {
   const [markersListOpen, setMarkersListOpen] = useState(false);
   // Local drafts for the province/town name inputs below — committed (and
@@ -138,8 +148,8 @@ const Inspector: React.FC<InspectorProps> = ({
   const inputCls = "bg-gray-900 border border-gray-700 text-white text-xs px-1.5 py-1 w-full focus:outline-none focus:border-blue-500";
 
   return (
-    <div className="absolute top-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none z-10">
-      <div className={`bg-black/80 backdrop-blur text-white shadow-xl border border-white/20 transition-all duration-300 pointer-events-auto ${collapsed ? 'w-28' : selectedMarker || isEditing ? 'w-64' : 'min-w-[220px]'}`}>
+    <div className={className}>
+      <div className={cardClassName ?? `bg-black/80 backdrop-blur text-white shadow-xl border border-white/20 transition-all duration-300 pointer-events-auto ${collapsed ? 'w-28' : selectedMarker || isEditing ? 'w-64' : 'min-w-[220px]'}`}>
         <div className="flex items-center justify-between p-2 border-b border-white/10">
           {!collapsed && (
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">
@@ -174,9 +184,11 @@ const Inspector: React.FC<InspectorProps> = ({
                 {enabled ? <Eye size={12} /> : <EyeOff size={12} />}
               </button>
             )}
-            <button onClick={onToggleCollapsed} className="p-1 text-gray-400 hover:bg-gray-800">
-              {collapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
-            </button>
+            {onToggleCollapsed && (
+              <button onClick={onToggleCollapsed} className="p-1 text-gray-400 hover:bg-gray-800">
+                {collapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+              </button>
+            )}
           </div>
         </div>
 

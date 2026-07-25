@@ -50,6 +50,13 @@ interface ControlsProps {
   onInspect: (id: number | null) => void;
   onEditFaction?: (factionId: number, updates: { name?: string; color?: string; description?: string }) => void;
   onMergeFactions?: (srcId: number, dstId: number) => void;
+  /**
+   * Root classes. Defaults to the classic left-rail chrome; the shell passes
+   * layout-neutral classes because its Panel already draws the box.
+   */
+  className?: string;
+  /** The shell draws its own brand header; classic keeps this one. */
+  showHeader?: boolean;
 }
 
 type Tab = 'geo' | 'climate' | 'political' | 'system' | 'export';
@@ -116,6 +123,8 @@ const Controls: React.FC<ControlsProps> = ({
   onInspect,
   onEditFaction,
   onMergeFactions,
+  showHeader = true,
+  className = 'w-full md:w-80 bg-gray-950 border-r border-gray-800 flex flex-col h-full overflow-hidden text-sm relative z-20',
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('system');
   const [seedLocked, setSeedLocked] = useState(false);
@@ -400,13 +409,15 @@ const Controls: React.FC<ControlsProps> = ({
   const layerToggles = buildLayerToggles(viewProps);
 
   return (
-    <div className="w-full md:w-80 bg-gray-950 border-r border-gray-800 flex flex-col h-full overflow-hidden text-sm relative z-20">
-      <div className="p-4 border-b border-gray-800">
-        <h1 className="text-xl font-bold text-white flex items-center gap-2">
-          <Globe className="text-blue-500" />
-          RealmGenesis 3D
-        </h1>
-      </div>
+    <div className={className}>
+      {showHeader && (
+        <div className="p-4 border-b border-gray-800">
+          <h1 className="text-xl font-bold text-white flex items-center gap-2">
+            <Globe className="text-blue-500" />
+            RealmGenesis 3D
+          </h1>
+        </div>
+      )}
 
       <div className="flex border-b border-gray-800">
          <button onClick={() => { setActiveTab('system'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'system' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>Sys</button>

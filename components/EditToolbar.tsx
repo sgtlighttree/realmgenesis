@@ -22,6 +22,16 @@ interface EditToolbarProps {
   undoCount: number;
   onUndo: () => void;
   world: WorldData;
+  /**
+   * Outer wrapper classes. Defaults to the classic float-above-the-globe
+   * anchoring; the shell passes layout-neutral classes to dock it in the Do bar.
+   */
+  className?: string;
+  /**
+   * Chrome for the two inner rows (sub-controls + mode buttons). The shell's
+   * Panel already draws a box, so it passes '' to avoid a box inside a box.
+   */
+  rowChrome?: string;
 }
 
 // Lakes are hydrology-derived (surfaced from depressions), not hand-painted.
@@ -92,6 +102,8 @@ const EditToolbar: React.FC<EditToolbarProps> = ({
   sampleHeight,
   undoCount, onUndo,
   world,
+  className = 'absolute bottom-20 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1 pointer-events-auto select-none',
+  rowChrome = 'bg-black/85 backdrop-blur border border-white/10 shadow-xl',
 }) => {
   const isTerrainMode = editMode === 'terrain-raise' || editMode === 'terrain-lower'
     || editMode === 'terrain-flatten' || editMode === 'terrain-smooth';
@@ -104,11 +116,11 @@ const EditToolbar: React.FC<EditToolbarProps> = ({
   }, [factions, paintFaction, setPaintFaction]);
 
   return (
-    <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1 pointer-events-auto select-none">
+    <div className={className}>
 
       {/* Sub-controls */}
       {editMode !== 'off' && (
-        <div className="flex items-center gap-2 bg-black/85 backdrop-blur border border-white/10 px-3 py-1.5 shadow-xl flex-wrap justify-center max-w-[560px]">
+        <div className={`flex items-center gap-2 px-3 py-1.5 flex-wrap justify-center max-w-[560px] ${rowChrome}`}>
 
           {/* Terrain sub-controls */}
           {isTerrainMode && (
@@ -216,7 +228,7 @@ const EditToolbar: React.FC<EditToolbarProps> = ({
       )}
 
       {/* Mode button row — grouped by category */}
-      <div className="flex items-center gap-0.5 bg-black/85 backdrop-blur border border-white/10 px-2 py-1.5 shadow-xl">
+      <div className={`flex items-center gap-0.5 px-2 py-1.5 flex-wrap justify-center ${rowChrome}`}>
         {/* Off + Undo */}
         <ModeBtn active={editMode === 'off'} onClick={() => setEditMode('off')} icon={<Globe size={11} />} label="Off" title="Disable editing" />
         <Sep />
