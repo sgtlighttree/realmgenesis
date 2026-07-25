@@ -83,28 +83,45 @@ These tone instructions are not applied to subagents.
 
 Do not ask "can this be parallelized?" — that question is too easy to answer
 "no". Ask **what is actually expensive here: the decisions, or the typing?**
-That gives three modes, not two.
+That gives four modes, not two.
 
 1. **SCRIPT IT** — when the change is one pattern applied many times, and a
    regex/codemod can express it exactly. Neither delegate nor hand-edit: at
    volume, any model drifts, and a script is both deterministic and
-   mechanically checkable. *Signal: you can write the rule as a table.*
-   Session 6e: 572 palette→token substitutions via `perl -pi`, verified by
-   diffing computed styles on 334 elements (0 differed).
+   mechanically checkable. **Required gate: the script's mapping must be
+   verified by an instrument that does not share the script's assumptions.**
+   ("I can write the rule as a table" is NOT sufficient — a table that is
+   wrong is still a table.) Session 6e: 572 palette→token substitutions via
+   `perl -pi`, checked against computed styles on 334 elements (0 differed)
+   and against the built CSS, neither derived from the perl rules.
 2. **DELEGATE IT** — when each site needs a judgment a regex cannot make, but
    those judgments are already made and writable into a brief. *Signal: you
    are about to make the same KIND of small edit 10+ times across files that
-   do not import each other.* Session 6f's ARIA pass (19 sites, 4 disjoint
-   files, one label string each) was this and was wrongly done inline.
-3. **SELF** — when making the decisions IS the work, when the task is a serial
-   chain through one file, or when verifying would cost more than doing.
+   do not import each other* — and that last clause is checkable with one
+   grep, so check it rather than assuming. Session 6f's ARIA pass (19 sites,
+   4 disjoint files, one label string each) was this and was wrongly done
+   inline.
+3. **DECOMPOSE IT** — when the work spans files that DO depend on each other
+   (the case modes 1 and 2 both refuse). Do not fall through to SELF and edit
+   12 interdependent files serially; that is how context is lost mid-task.
+   Split into steps that each preserve behaviour verbatim, with a gate per
+   step. Session 6's `useWorldEngine` extraction is the worked example: moved
+   by sed, App's return block byte-identical, so the compiler and a frozen
+   render carried the fidelity proof.
+4. **SELF** — when making the decisions IS the work, or when the task is a
+   serial chain through one file.
 
 **Audit yourself, delegate the application, verify yourself.** The audit is
-not delegable: in 6f it was the audit that found a `<div onClick>` no button
-scan would catch, ~13 false positives from a naive source regex, and a
-Playwright snapshot quirk. A subagent would have reported "done" and left all
-three. Writing the brief IS the audit — that is not a reason to skip
-delegating, it is the reason the brief is short.
+the judgment, not the typing: in 6f it found a `<div onClick>` no button scan
+catches, ~13 false positives from a naive source regex, and a Playwright
+snapshot artifact — each of which required *disbelieving a tool's output* and
+cross-checking with a second instrument. A subagent reports what its scan
+found; it does not report that its scan's premise was wrong.
+
+**But delegate discovery BREADTH, even though judgment stays here.** "Find
+every `<button>` in these files and dump the surrounding lines" is fan-out and
+should not burn orchestrator context. "Decide which of those are actually
+unnamed" is not delegable. Split the audit on that line.
 
 **"One agent at a time" is about SHARED STATE, not file count.** It exists
 because features funnel through `App.tsx`/`Controls.tsx` and parallel agents
