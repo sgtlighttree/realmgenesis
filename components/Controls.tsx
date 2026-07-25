@@ -62,17 +62,21 @@ interface ControlsProps {
 type Tab = 'geo' | 'climate' | 'political' | 'system' | 'export';
 
 const ConsoleOutput: React.FC<{ logs: string[]; isOpen: boolean }> = ({ logs, isOpen }) => {
-    const endRef = useRef<HTMLDivElement>(null);
+    const boxRef = useRef<HTMLDivElement>(null);
+    // Scroll THIS box, not the end marker. `scrollIntoView` walks up and scrolls
+    // every scrollable ancestor, so inside the mobile sheet it dragged the whole
+    // Make panel down to the console — the panel would open on the log output
+    // instead of Render Mode. Setting scrollTop keeps the effect local.
     useEffect(() => {
-        if (isOpen) {
-            endRef.current?.scrollIntoView({ behavior: "smooth" });
-        }
+        if (!isOpen) return;
+        const el = boxRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
     }, [logs, isOpen]);
 
     if (!isOpen) return null;
 
     return (
-        <div className="bg-black border border-gray-800 p-2 h-32 overflow-y-auto font-mono text-[10px] space-y-1 shadow-inner relative transition-all">
+        <div ref={boxRef} className="bg-black border border-gray-800 p-2 h-32 overflow-y-auto font-mono text-[10px] space-y-1 shadow-inner relative transition-all">
             {logs.length === 0 && <div className="text-gray-600 italic text-center mt-10">System Ready</div>}
             {logs.map((log, i) => (
                 <div key={i} className="text-green-400 break-words border-b border-gray-900/50 pb-0.5 last:border-0">
@@ -80,7 +84,6 @@ const ConsoleOutput: React.FC<{ logs: string[]; isOpen: boolean }> = ({ logs, is
                     {log}
                 </div>
             ))}
-            <div ref={endRef} />
         </div>
     );
 };

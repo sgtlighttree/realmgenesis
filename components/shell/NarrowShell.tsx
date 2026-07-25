@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Sliders, Eye, Pencil, PanelRight } from 'lucide-react';
 import { Panel, PANEL, FOCUS, BUCKET, Bucket, ShellProps } from './shellKit';
 
@@ -21,6 +21,22 @@ const NarrowShell: React.FC<ShellProps> = ({
   make, view, read, doTools, canvas, onSetEditing,
 }) => {
   const [openTab, setOpenTab] = useState<Tab>(null);
+  const sheetBodyRef = useRef<HTMLDivElement>(null);
+
+  // The sheet body is the SAME DOM node for every tab — only its children swap
+  // — so scrollTop persists across tab switches and Make would open scrolled to
+  // wherever the last tab was left, hiding Render Mode / Seed / Resolution.
+  //
+  // Reset twice: once before paint, and once on the next frame. The single
+  // pre-paint reset alone left ~50px of drift, because the panel's content is
+  // still settling (scroll anchoring re-applies an offset after layout).
+  useLayoutEffect(() => {
+    const el = sheetBodyRef.current;
+    if (!el) return;
+    el.scrollTop = 0;
+    const raf = requestAnimationFrame(() => { el.scrollTop = 0; });
+    return () => { cancelAnimationFrame(raf); };
+  }, [openTab]);
 
   // The Do sheet is the edit context; opening it enters edit mode.
   useEffect(() => { onSetEditing(openTab === 'do'); }, [openTab, onSetEditing]);
@@ -54,7 +70,7 @@ const NarrowShell: React.FC<ShellProps> = ({
               <button onClick={() => setOpenTab(null)} aria-label="Close panel"
                 className={`ml-auto -mr-1 grid place-items-center w-6 h-6 rounded text-gray-500 hover:text-white hover:bg-gray-800 text-lg leading-none ${FOCUS}`}>×</button>
             </div>
-            <div className="min-h-0 overflow-auto p-3">{sheetBody[openTab]}</div>
+            <div ref={sheetBodyRef} className="min-h-0 overflow-auto p-3">{sheetBody[openTab]}</div>
           </div>
         )}
       </div>
