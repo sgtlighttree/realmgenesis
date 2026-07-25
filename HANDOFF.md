@@ -18,6 +18,81 @@ workflow/style rules.
 
 ---
 
+## ⚡ NEW-THREAD PICKUP (2026-07-26, end of Session 6g)
+
+Branch `redesign`, **now pushed to `origin/redesign`** (Matt's explicit request;
+still NOT merged to main). Gates: typecheck 0, lint 0 errors / **29** warnings
+(ratchet is 30 — 29 is correct), 138 tests, build OK.
+
+**F1 desktop foundational work is DONE** — see the milestone section below for
+what remains and what is load-bearing.
+
+**The next big rock is D6 (terrain V3), and it is BRAINSTORMED BUT NOT PLANNED.**
+Read these three, in order, before touching `utils/worldGen.ts`:
+
+1. `docs/superpowers/specs/2026-07-26-d6-terrain-v3-design.md` — the design
+2. `docs/research/2026-07-25-realistic-terrain-generation.md` — prior-art survey
+3. `docs/research/2026-07-25-tectonics-adversarial-pass.md` — the red-team that
+   **invalidated part of the first design**
+
+The next step is the `writing-plans` skill against that spec. It was deliberately
+not run: Matt asked for brainstorm output only, for a future session.
+
+**The one thing most likely to be re-derived wrongly:** §5.1 of the spec records
+a REFUTED hypothesis. "Accumulate uplift over 20–40 timesteps" was our headline
+seam fix and is **wrong** — with small per-step rotation the same cell-graph edge
+is re-selected as the boundary every step, so uplift piles onto one edge and
+produces a taller, thinner wall exactly on the Voronoi cut. Read the refutation
+before proposing it again.
+
+---
+
+## Session 6g (2026-07-26) — D6 brainstorm, two research passes, delegation policy
+
+No production code changed. Commits `49a1521`..`937df82`.
+
+**The defect Matt actually reported, and its exact cause.** "Continents just look
+like big islands defined by the plates underneath." Cause verified in code, not
+guessed: each plate is flipped wholesale to land or ocean (`plateHeights[i] =
+isLand ? … : …`) and that offset reaches the cell smoothed over a **one-ring**
+neighbour average, so the coastline is a level set of a piecewise-constant
+per-plate field. At `plateInfluence = 1.0` continents and plates are identical.
+Everything in the D6 design follows from decoupling those two fields.
+
+**Two research passes were commissioned, and the second contradicted the first.**
+The agy/Gemini pass self-marked its crust-advection answer as *inference* — and
+that one line is what the whole simulation loop stands on. A `sonnet-medium`
+adversarial pass (explicitly briefed to disagree) then found that our headline
+seam fix was wrong, that crust must never be advected by resampling, and that
+nobody runs multi-step CPU simulation at 200k cells. **The lesson worth keeping:
+commissioning a second, adversarial pass against the first one's weakest
+self-declared point paid for itself immediately.**
+
+**Research hygiene — both passes produced bad citations.** agy cited a paper that
+does not exist ("Erleben, K. et al., *Lattice-aligned artifact mitigation via
+Lloyd's Relaxation…*"); the second pass independently confirmed it as fabricated.
+agy's Red Blob Games URL was also wrong. **Neither research doc is committed
+un-annotated** — each carries a verification header naming what did not check
+out. Do the same for any future commissioned research.
+
+**agy traps that cost a retry cycle, neither visible from the exit code:**
+- `--tier pro` with a long prompt returned **empty output with exit code 0**. A
+  `--tier flash` smoke test then worked, so it was not auth. Always verify agy
+  produced something; never trust exit status.
+- **Without `--dir`, agy writes files into its own scratch workspace**
+  (`~/.gemini/antigravity-cli/scratch/<name>/`), not your repo — while reporting
+  success. The report had to be retrieved from there by hand.
+
+**`CLAUDE.md` delegation policy was rewritten** (`49a1521`, hardened in
+`8859e7e`) after Matt observed the ARIA pass should have been delegated. The old
+test ("can't be parallelized and no benefit") was too easy to rationalize into.
+It is now a four-mode triage — SCRIPT / DELEGATE / DECOMPOSE / SELF — keyed on
+"what is expensive, the decisions or the typing?" Cross-reviewed by the advisor
+and by agy, **which disagreed with each other**; the reconciliation, including
+which advice was rejected and why, is in `8859e7e`'s commit body.
+
+---
+
 ## Session 6e (2026-07-25) — color/z token layer + slider accent collapse
 
 Commits `4b893dd`..`fc89b1f`. Gates: typecheck 0, lint 0/29, 138 tests, build OK.
