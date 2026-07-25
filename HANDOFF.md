@@ -120,6 +120,50 @@ evidence was worthless in both directions.
 
 ---
 
+## Session 6f (2026-07-25) — pause control regression + ARIA names
+
+Commits `0683952`..`5b92847`. Gates: typecheck 0, lint 0/29, 138 tests, build OK.
+Pickup items 1 (done in 6e) and 2 are now both closed. See the WideShell
+canvas-clipping trap recorded at the end of the 6e entry — that is the reusable
+finding from the pause bug and the thing most likely to bite again.
+
+**ARIA pass — what was actually wrong.** 44 buttons relied on `title`. `title` is
+a mouse tooltip: not an accessible name, and absent on touch entirely. Worst
+case confirmed as recorded: the 17 biome swatches are buttons whose whole content
+is a background colour, so a reader announced the palette as "button, button,
+button". All icon-only controls now carry `aria-label`; toggles carry the state
+their styling implies (`aria-pressed` on biome/faction swatches, eraser, seed
+locks, Inspector marker/ruler/eye; `aria-expanded` on collapse chevrons).
+
+- **Save-slot Load/Delete are named per ENTRY** (`Load saved map <name>`), because
+  the list repeats the same two icons per row — a generic "Load" gives a reader
+  no way to tell which map it is on.
+- **The System Console header was a `<div onClick>`** — not focusable, no role,
+  keyboard-inoperable. Now a real `<button>`. A brace-aware sweep found no other
+  clickable non-interactive elements. **`Select`'s `role="option"` rows are
+  CORRECT as-is** and should not be "fixed": options in a composite listbox are
+  deliberately not individually focusable — the listbox owns arrows/type-ahead/
+  Home/End. A naive a11y scanner flags these; don't act on it.
+
+**Verified in the browser, not from source** — 44 buttons on classic, 48 in the
+wide shell with edit mode open, **zero unnamed, zero title-only**. Two tooling
+traps met on the way, both worth knowing:
+
+- A regex source scan is not enough. It missed the `<div onClick>` entirely
+  (only `<button` was scanned) and it flagged ~13 false positives where a
+  `{expr}` body renders perfectly good text.
+- **Playwright's YAML aria-snapshot elides the name of a button whose text sits
+  in a nested `<div>`** — it rendered "Generate World" as a nameless `button`.
+  That is a snapshot-formatting artifact, NOT a real defect: Chrome names it
+  fine, proven because `getByRole('button', {name:'Generate World'})` resolves
+  to it. Confirm against the DOM before chasing one of these.
+
+**Still open from the original list:** 44px touch targets (the new strip pause
+button is 34×26, consistent with its siblings and inheriting the same problem),
+retiring classic, and whether `shellKit`'s stub panels ship.
+
+---
+
 ## ⚡ NEW-THREAD PICKUP (updated 2026-07-25, end of Session 6d)
 
 F1 shell is on branch `redesign`, NOT pushed, NOT merged. `?shell=1` is the
@@ -138,9 +182,8 @@ be re-wrapped in a `Panel`; the canvas is shifted left, not inset.
    that entry above, including why the "18 hard-coded hex" framing below was
    wrong. Remaining colour work is genuinely F1b's: the unswept alpha/tint
    values, and `Inspector.tsx:249`'s `color:'#aaa'` (the one real chrome hex).
-2. **ARIA names** (Matt deferred, not cancelled): 58 buttons, 5 with semantic
-   ARIA; 44 rely on `title`, which is a tooltip, not an accessible name. The
-   biome/faction swatches are the worst — unlabeled buttons to a screen reader.
+2. ~~**ARIA names**~~ **DONE in Session 6f** — zero unnamed buttons on both
+   routes, browser-verified. See that entry for the two tooling traps.
 3. **44px touch targets** on the strip chips and EditToolbar modes (~22px now).
 4. **Retire classic** once ShellApp reaches parity — they are a fork sharing one
    hook, and every component-wiring change must currently be mirrored in both.
