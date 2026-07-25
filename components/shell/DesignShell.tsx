@@ -51,7 +51,7 @@ const DesignShell: React.FC = () => {
       {/* Dev bar — not part of the design, just the harness controls. */}
       <div className="shrink-0 h-9 flex items-center gap-3 px-3 border-b border-gray-800 bg-gray-950 text-[11px]">
         <span className="font-mono text-gray-400 uppercase tracking-wider">F1 design debug</span>
-        <div className="flex rounded-md overflow-hidden border border-gray-700">
+        <div className="flex overflow-hidden border border-gray-700">
           {(['auto', 'wide', 'narrow'] as Override[]).map(o => (
             <button key={o} onClick={() => setOverride(o)}
               className={`px-2.5 py-1 capitalize transition-colors ${override === o ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>

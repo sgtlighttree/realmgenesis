@@ -50,7 +50,7 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     <dialog
       ref={ref}
       aria-labelledby="confirm-title"
-      className="rg-dialog max-w-sm rounded-md border border-gray-700 bg-gray-900 p-0 text-gray-200 shadow-2xl"
+      className="rg-dialog max-w-sm border border-gray-700 bg-gray-900 p-0 text-gray-200 shadow-2xl"
       onClick={(e) => { if (e.target === ref.current) onCancel(); }}
     >
       <div className="p-4">
@@ -59,14 +59,14 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         <div className="mt-4 flex justify-end gap-2">
           <button
             onClick={onCancel}
-            className="rounded border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
+            className="border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
           >
             {cancelLabel}
           </button>
           <button
             onClick={onConfirm}
             autoFocus
-            className={`rounded border px-3 py-1.5 text-xs font-medium text-white transition-colors focus-visible:outline-none focus-visible:ring-2 ${
+            className={`border px-3 py-1.5 text-xs font-medium text-white transition-colors focus-visible:outline-none focus-visible:ring-2 ${
               destructive
                 ? 'border-red-500 bg-red-600 hover:bg-red-500 focus-visible:ring-red-400/70'
                 : 'border-blue-500 bg-blue-600 hover:bg-blue-500 focus-visible:ring-blue-400/70'
