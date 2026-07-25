@@ -9,8 +9,9 @@ workflow/style rules.
 > Matt's scratchpad and notes for things observed outside an active coding session. If an item is addressed, click the checkbox, and/or add a ~~strikethrough~~ for emphasis.
 
 - [ ] Make a true vector 2D mode instead of raster, but keep it optimized
-- [ ] V3 of terrain generation algorithm. Goal is to make plate boundaries far more realistic, make part of Milestone D,
+- [ ] V3 of terrain generation algorithm. Goal is to make plate boundaries far more realistic, make part of Milestone D.
 - [ ] Major UI/frontend/rendering overhaul (Milestone F), use skill `/impeccable` for visual UI review
+- [ ] Major feature, for much, MUCH later: World Formats: Planet, Flat Earth (Disc, Rectangle, etc.)
 
 ---
 
