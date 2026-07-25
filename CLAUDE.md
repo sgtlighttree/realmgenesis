@@ -45,9 +45,9 @@ These tone instructions are not applied to subagents.
   project-level file shadows the user-level one of the same name, so a local copy
   would mask the real tier and the two would drift apart. This policy section is
   project-local and does not travel with them.
-- If the task can't be parallelized and there's no benefit to delegation 
-  (e.g. editing one part of one file at a time), do not delegate to avoid overhead
-  of verifiying a subagent's work, build or execute the task yourself.
+- Before choosing self vs. delegate, apply the triage in "Choosing the
+  execution mode" below. Do not skip it: "no benefit to delegating" is the
+  easiest thing in this file to rationalize.
 - Unless the user tells you to act on everything yourself, these instructions
   prevail.
 
@@ -73,12 +73,44 @@ These tone instructions are not applied to subagents.
   tier: assume silent fallback (Fable unavailable or credits off). Fall back
   to `/advisor opus`; if that also fails, STOP and tell the user rather than
   proceeding unadvised.
-- If the task can't be parallelized and there's no benefit to delegation 
-  (e.g. editing one part of one file at a time), do not delegate to avoid overhead
-  of verifiying a subagent's work, build or execute the task yourself.
+- Before choosing self vs. delegate, apply the triage in "Choosing the
+  execution mode" below. Do not skip it: "no benefit to delegating" is the
+  easiest thing in this file to rationalize.
 - Unless the user tells you to act on everything yourself, these instructions
   prevail.
-  
+
+### Choosing the execution mode
+
+Do not ask "can this be parallelized?" — that question is too easy to answer
+"no". Ask **what is actually expensive here: the decisions, or the typing?**
+That gives three modes, not two.
+
+1. **SCRIPT IT** — when the change is one pattern applied many times, and a
+   regex/codemod can express it exactly. Neither delegate nor hand-edit: at
+   volume, any model drifts, and a script is both deterministic and
+   mechanically checkable. *Signal: you can write the rule as a table.*
+   Session 6e: 572 palette→token substitutions via `perl -pi`, verified by
+   diffing computed styles on 334 elements (0 differed).
+2. **DELEGATE IT** — when each site needs a judgment a regex cannot make, but
+   those judgments are already made and writable into a brief. *Signal: you
+   are about to make the same KIND of small edit 10+ times across files that
+   do not import each other.* Session 6f's ARIA pass (19 sites, 4 disjoint
+   files, one label string each) was this and was wrongly done inline.
+3. **SELF** — when making the decisions IS the work, when the task is a serial
+   chain through one file, or when verifying would cost more than doing.
+
+**Audit yourself, delegate the application, verify yourself.** The audit is
+not delegable: in 6f it was the audit that found a `<div onClick>` no button
+scan would catch, ~13 false positives from a naive source regex, and a
+Playwright snapshot quirk. A subagent would have reported "done" and left all
+three. Writing the brief IS the audit — that is not a reason to skip
+delegating, it is the reason the brief is short.
+
+**"One agent at a time" is about SHARED STATE, not file count.** It exists
+because features funnel through `App.tsx`/`Controls.tsx` and parallel agents
+collide there. Leaf edits in files that do not import each other are exactly
+the case it does not cover — those can go parallel.
+
 ## Commands
 
 ```bash
