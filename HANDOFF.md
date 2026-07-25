@@ -81,6 +81,43 @@ server started before a token rename keeps serving the old scale, so `bg-brand`
 silently renders as nothing. Verified on a fresh `:4180` preview throughout,
 never on Matt's `:3000`.
 
+### TRAP: any LEFT-anchored overlay in the canvas slot is invisible in WideShell
+
+Matt reported the pause-rotation button had vanished. It never broke — it left
+the viewport, and it took the seed caption with it. **WideShell shifts the whole
+canvas `left-[-16.5rem]` inside an `overflow-hidden` column** (Session 6d, commit
+`a6c8b9e`, so the globe centres on the visible gap). Everything ShellApp puts in
+the `canvas` slot rides along. Measured: the clipping column starts at x=288; the
+pause control painted at x=36–74 and the caption at x=88–249. Both fully clipped.
+
+**So: `left-*` anchors inside the canvas slot are broken in the wide fold.**
+Centred anchors (`left-1/2 -translate-x-1/2`, used by the ruler readout and the
+globe=0 banner) are FINE — they centre on the visible gap, which is the whole
+point of the shift. Right anchors land under the Read rail. Before adding any
+canvas overlay, decide which of those three it is.
+
+Fixed narrowly: pause moved into the wide top strip (it is a view control), the
+caption gets the shift added back in wide only. **The structural fix, if a third
+element hits this, is to give the shell a separate unshifted overlay layer**
+rather than counter-shifting each element — deliberately not done here because
+the centred overlays *want* the shift, so one container cannot serve both.
+
+**`WorldViewer.paused` is now controlled-OPTIONAL** (`paused` + `onPausedChange`,
+plus `showPauseControl`) — the native-input contract, not a `bare`-style
+personality flag: the host chooses where the state lives. Classic passes neither
+and keeps internal state. Narrow keeps the canvas overlay (unshifted canvas,
+and its View sheet is behind a tab so a strip entry would be less reachable).
+
+**Method note — a hash is the wrong instrument for "did it stop moving".**
+Comparing screenshot md5s said rotation continued while paused. It had not: a
+static WebGL scene still jitters a few antialiased pixels per frame, and any
+single differing bit breaks a hash. Magnitude is the right measure — rotating
+scored meanAbsDiff **19.5** over 38.7% of pixels, paused **0.011** over 0.03%
+(440px). **Always run the control case**: an earlier `canvas.toDataURL()` probe
+"proved" the pause worked, but it reported no change while rotating either —
+WebGL without `preserveDrawingBuffer` hands back a blank buffer, so that
+evidence was worthless in both directions.
+
 ---
 
 ## ⚡ NEW-THREAD PICKUP (updated 2026-07-25, end of Session 6d)
