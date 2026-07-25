@@ -89,6 +89,7 @@ const ShellApp: React.FC = () => {
     <Controls
       className="w-full flex flex-col h-full overflow-hidden text-sm"
       showHeader={false}
+      showViewControls={false}
       params={params} setParams={setParams}
       onGenerate={requestGenerate}
       onLoadWorld={handleLoadWorld}
@@ -190,7 +191,7 @@ const ShellApp: React.FC = () => {
       world={world}
     />
   ) : (
-    <p className="text-[11px] text-gray-500 italic">Generate a world to start editing.</p>
+    <p className="text-[11px] text-gray-400 italic">Generate a world to start editing.</p>
   );
 
   const canvas = (
@@ -270,7 +271,7 @@ const ShellApp: React.FC = () => {
       )}
 
       {noGlobe && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 text-[11px] font-mono text-gray-500 bg-gray-950/80 border border-gray-800 rounded px-3 py-1.5 pointer-events-none">
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 text-[11px] font-mono text-gray-400 bg-gray-950/80 border border-gray-800 rounded px-3 py-1.5 pointer-events-none">
           globe=0 · placeholder mode (real globe disabled for UI iteration)
         </div>
       )}

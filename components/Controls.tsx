@@ -58,6 +58,13 @@ interface ControlsProps {
   className?: string;
   /** The shell draws its own brand header; classic keeps this one. */
   showHeader?: boolean;
+  /**
+   * Render mode, layer toggles, and the view-layer grid. The shell renders
+   * these in its View strip, so it turns them off here rather than showing
+   * every one of them twice. Classic has no View bucket and keeps them.
+   * Map Overlays is NOT included: it has no equivalent in the strip.
+   */
+  showViewControls?: boolean;
 }
 
 type Tab = 'geo' | 'climate' | 'political' | 'system' | 'export';
@@ -78,10 +85,10 @@ const ConsoleOutput: React.FC<{ logs: string[]; isOpen: boolean }> = ({ logs, is
 
     return (
         <div ref={boxRef} className="bg-black border border-gray-800 p-2 h-32 overflow-y-auto font-mono text-[10px] space-y-1 shadow-inner relative transition-all">
-            {logs.length === 0 && <div className="text-gray-600 italic text-center mt-10">System Ready</div>}
+            {logs.length === 0 && <div className="text-gray-500 italic text-center mt-10">System Ready</div>}
             {logs.map((log, i) => (
                 <div key={i} className="text-green-400 break-words border-b border-gray-900/50 pb-0.5 last:border-0">
-                    <span className="text-gray-600 mr-2">[{i+1}]</span>
+                    <span className="text-gray-500 mr-2">[{i+1}]</span>
                     {log}
                 </div>
             ))}
@@ -128,6 +135,7 @@ const Controls: React.FC<ControlsProps> = ({
   onEditFaction,
   onMergeFactions,
   showHeader = true,
+  showViewControls = true,
   className = 'w-full md:w-80 bg-gray-950 border-r border-gray-800 flex flex-col h-full overflow-hidden text-sm relative z-20',
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('system');
@@ -424,26 +432,28 @@ const Controls: React.FC<ControlsProps> = ({
       )}
 
       <div className="flex border-b border-gray-800">
-         <button onClick={() => { setActiveTab('system'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'system' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>Sys</button>
-         <button onClick={() => { setActiveTab('geo'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'geo' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>Geo</button>
-         <button onClick={() => { setActiveTab('climate'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'climate' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>Clim</button>
-         <button onClick={() => { setActiveTab('political'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'political' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>Civ</button>
-         <button onClick={() => { setActiveTab('export'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'export' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>Exp</button>
+         <button onClick={() => { setActiveTab('system'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'system' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-300'}`}>Sys</button>
+         <button onClick={() => { setActiveTab('geo'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'geo' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-300'}`}>Geo</button>
+         <button onClick={() => { setActiveTab('climate'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'climate' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-300'}`}>Clim</button>
+         <button onClick={() => { setActiveTab('political'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'political' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-300'}`}>Civ</button>
+         <button onClick={() => { setActiveTab('export'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'export' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-300'}`}>Exp</button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+      <div className="flex-1 overflow-y-auto p-3 space-y-4">
         
         {activeTab === 'system' && (
           <div className="space-y-4">
-             <div className="space-y-1">
-               <label className="text-xs text-gray-400 block">Render Mode</label>
-               <div className="flex gap-2">
-                 {DISPLAY_MODES.map(m => (
-                   <DisplayButton key={m.mode} mode={m.mode} label={m.label}
-                     displayMode={displayMode} setDisplayMode={setDisplayMode} />
-                 ))}
+             {showViewControls && (
+               <div className="space-y-1">
+                 <label className="text-xs text-gray-400 block">Render Mode</label>
+                 <div className="flex gap-2">
+                   {DISPLAY_MODES.map(m => (
+                     <DisplayButton key={m.mode} mode={m.mode} label={m.label}
+                       displayMode={displayMode} setDisplayMode={setDisplayMode} />
+                   ))}
+                 </div>
                </div>
-             </div>
+             )}
 
              {/* Map Name Input */}
              <div className="space-y-1">
@@ -515,7 +525,7 @@ const Controls: React.FC<ControlsProps> = ({
               />
             </div>
              
-             {layerToggles.map((t, i) => (
+             {showViewControls && layerToggles.map((t, i) => (
                <LayerToggleRow key={t.key} toggle={t}
                  className={i === 0 ? 'pt-2 border-t border-gray-800' : 'pt-2'} />
              ))}
@@ -527,7 +537,7 @@ const Controls: React.FC<ControlsProps> = ({
 
             <div className="flex items-center justify-between text-xs text-gray-400 pt-2">
                  <div className="flex items-center gap-2">
-                    <Zap size={12} className={autoUpdate ? "text-yellow-400" : "text-gray-600"}/>
+                    <Zap size={12} className={autoUpdate ? "text-yellow-400" : "text-gray-500"}/>
                     <label>Auto-Update (Low Res)</label>
                  </div>
                  <input 
@@ -539,13 +549,15 @@ const Controls: React.FC<ControlsProps> = ({
                  />
             </div>
             
-            <div className="pt-4 border-t border-gray-800">
-              <h3 className="text-xs font-semibold text-gray-500 mb-2">View Layer</h3>
-              <ViewLayerGrid viewMode={viewMode} setViewMode={setViewMode} />
-            </div>
+            {showViewControls && (
+              <div className="pt-3 border-t border-gray-800">
+                <h3 className="text-xs font-semibold text-gray-400 mb-2">View Layer</h3>
+                <ViewLayerGrid viewMode={viewMode} setViewMode={setViewMode} />
+              </div>
+            )}
 
             <div className="pt-4 border-t border-gray-800 space-y-3">
-              <h3 className="text-xs font-semibold text-gray-500 mb-2">AI Settings (BYOK)</h3>
+              <h3 className="text-xs font-semibold text-gray-400 mb-2">AI Settings (BYOK)</h3>
               <div className="bg-gray-900 p-3 border border-gray-800 space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs text-gray-400">Gemini API Key</label>
@@ -565,7 +577,7 @@ const Controls: React.FC<ControlsProps> = ({
                   placeholder="Paste your API key here..."
                   className="w-full bg-black border border-gray-700 px-2 py-1.5 text-white text-xs"
                 />
-                <p className="text-[9px] text-gray-500 italic">
+                <p className="text-[10px] text-gray-400 italic">
                   Key is stored ephemerally in memory and will be lost on refresh.
                 </p>
               </div>
@@ -578,7 +590,7 @@ const Controls: React.FC<ControlsProps> = ({
                   className="flex items-center justify-between w-full text-xs text-gray-400 hover:text-gray-200"
                   onClick={() => setShowStats(v => !v)}
                 >
-                  <span className="font-semibold text-gray-500">World Stats</span>
+                  <span className="font-semibold text-gray-400">World Stats</span>
                   {showStats ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}
                 </button>
                 {showStats && (() => {
@@ -851,7 +863,7 @@ const Controls: React.FC<ControlsProps> = ({
                   onChange={(e) => { handleChange('moistureTransport', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-blue-300"
                 />
-                <p className="text-[9px] text-gray-500">Affects rain shadows & moisture spread</p>
+                <p className="text-[10px] text-gray-400">Affects rain shadows & moisture spread</p>
               </div>
               <div className="space-y-1" title="Adds simplex noise to temperature — creates local hot/cold anomalies beyond the baseline latitude gradient.">
                 <div className="flex justify-between text-xs text-gray-400">
@@ -898,7 +910,7 @@ const Controls: React.FC<ControlsProps> = ({
               <div>
                 <button
                   onClick={() => setShowCivParams(v => !v)}
-                  className="flex items-center justify-between w-full text-[10px] font-semibold text-gray-500 uppercase tracking-wide hover:text-gray-300 transition-colors"
+                  className="flex items-center justify-between w-full text-[10px] font-semibold text-gray-400 uppercase tracking-wide hover:text-gray-300 transition-colors"
                 >
                   <span>Generation Parameters</span>
                   {showCivParams ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}
@@ -1014,7 +1026,7 @@ const Controls: React.FC<ControlsProps> = ({
               {/* Factions editor */}
               {worldData?.civData && (
                 <div className="space-y-2 pt-2 border-t border-gray-800">
-                  <h3 className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide pt-1">Factions</h3>
+                  <h3 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide pt-1">Factions</h3>
                   {worldData.civData.factions.map(f => {
                     const otherFactions = worldData.civData!.factions.filter(o => o.id !== f.id);
                     const mergeTarget = mergeTargets[f.id] ?? '';
@@ -1083,7 +1095,7 @@ const Controls: React.FC<ControlsProps> = ({
                      className="w-full"
                      triggerClassName="w-full justify-between bg-gray-800 border-gray-700 px-2 py-2 text-xs"
                   />
-                  <p className="text-[9px] text-gray-500">Applies on Reroll Borders or regeneration.</p>
+                  <p className="text-[10px] text-gray-400">Applies on Reroll Borders or regeneration.</p>
               </div>
 
               {/* Lore Level */}
@@ -1112,14 +1124,14 @@ const Controls: React.FC<ControlsProps> = ({
                     className={`text-[10px] px-2 py-1 transition-colors ${
  apiKey 
  ? 'bg-blue-900/50 text-blue-300 hover:bg-blue-900 border border-blue-800' 
- : 'bg-gray-800 text-gray-500 cursor-not-allowed border border-gray-700'
+ : 'bg-gray-800 text-gray-400 cursor-not-allowed border border-gray-700'
  }`}
                   >
                     {generatingLore ? 'Thinking...' : 'Generate'}
                   </button>
                 </div>
                 {!apiKey && (
-                  <p className="text-[9px] text-yellow-500/80 bg-yellow-500/10 p-1.5 border border-yellow-500/20 mb-2">
+                  <p className="text-[10px] text-yellow-500/80 bg-yellow-500/10 p-1.5 border border-yellow-500/20 mb-2">
                     Enter a Gemini API Key in the "Sys" tab to enable AI lore.
                   </p>
                 )}
@@ -1134,7 +1146,7 @@ const Controls: React.FC<ControlsProps> = ({
                             {worldData.civData.factions.map(f => (
                                 <div key={f.id} className="text-[10px] bg-gray-900 p-1 border border-gray-700">
                                     <div style={{color: f.color}} className="font-bold">{f.name}</div>
-                                    <div className="text-gray-500 pl-1">Cap: {f.provinces.flatMap(p => p.towns).find(t => t.cellId === f.capitalId)?.name || 'Unknown'}</div>
+                                    <div className="text-gray-400 pl-1">Cap: {f.provinces.flatMap(p => p.towns).find(t => t.cellId === f.capitalId)?.name || 'Unknown'}</div>
                                     {f.description && <div className="text-gray-400 italic pl-1 mt-1 border-t border-gray-800 pt-1">{f.description}</div>}
                                 </div>
                             ))}
@@ -1142,7 +1154,7 @@ const Controls: React.FC<ControlsProps> = ({
                     )}
                   </div>
                 ) : (
-                  <p className="text-[10px] text-gray-600 italic">Generate a world first.</p>
+                  <p className="text-[10px] text-gray-500 italic">Generate a world first.</p>
                 )}
               </div>
            </div>
@@ -1222,7 +1234,7 @@ const Controls: React.FC<ControlsProps> = ({
                                         Rotate Overlay
                                     </button>
                                 </div>
-                                <div className="text-[10px] text-gray-500">
+                                <div className="text-[10px] text-gray-400">
                                     Drag the globe to rotate. Hold Shift while dragging to roll the overlay.
                                 </div>
                             </div>
@@ -1277,13 +1289,13 @@ const Controls: React.FC<ControlsProps> = ({
                             </label>
 
                             <div className="space-y-1">
-                                <label className="text-[10px] text-gray-500">Orientation Presets</label>
+                                <label className="text-[10px] text-gray-400">Orientation Presets</label>
                                 <div className="grid grid-cols-4 gap-1">
                                     {([['N.Pole', 0, -90, 0], ['Pacific', -150, 0, 0], ['Atlantic', 0, 0, 0], ['Asia', 90, 0, 0]] as const).map(([label, lon, lat, roll]) => (
                                         <button
                                             key={label}
                                             onClick={() => { updateDymaxion({ lon, lat, roll }); }}
-                                            className="text-[9px] bg-gray-800 hover:bg-gray-700 text-gray-300 py-1.5 border border-gray-700"
+                                            className="text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-300 py-1.5 border border-gray-700"
                                         >
                                             {label}
                                         </button>
@@ -1337,7 +1349,7 @@ const Controls: React.FC<ControlsProps> = ({
 
                 <div className="border-t border-gray-800 pt-4 space-y-2">
                     <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Vector Export</h3>
-                    <p className="text-[10px] text-gray-500">Editable coastlines, borders, rivers, and labels for Inkscape/Illustrator, or geodesic GeoJSON for QGIS/web-GIS.</p>
+                    <p className="text-[10px] text-gray-400">Editable coastlines, borders, rivers, and labels for Inkscape/Illustrator, or geodesic GeoJSON for QGIS/web-GIS.</p>
                     <button
                         onClick={() => { if (worldData && expProj !== 'dymaxion') downloadSVG(worldData, viewMode, expProj); }}
                         disabled={!worldData || expProj === 'dymaxion'}
@@ -1357,7 +1369,7 @@ const Controls: React.FC<ControlsProps> = ({
 
                 <div className="border-t border-gray-800 pt-4 space-y-2">
                     <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">3D Export</h3>
-                    <p className="text-[10px] text-gray-500">Exports the current view as a GLB file. World mesh uses per-vertex colors. Rivers exported as line geometry. City markers included when civilization data is present.</p>
+                    <p className="text-[10px] text-gray-400">Exports the current view as a GLB file. World mesh uses per-vertex colors. Rivers exported as line geometry. City markers included when civilization data is present.</p>
                     <button
                         onClick={() => { if (worldData) exportGLB(worldData, viewMode); }}
                         disabled={!worldData}
@@ -1411,12 +1423,12 @@ const Controls: React.FC<ControlsProps> = ({
                     </div>
 
                     <div className="space-y-1 max-h-40 overflow-y-auto">
-                        {savedMaps.length === 0 && <p className="text-xs text-gray-600 italic">No saved maps.</p>}
+                        {savedMaps.length === 0 && <p className="text-xs text-gray-500 italic">No saved maps.</p>}
                         {savedMaps.map(entry => (
                             <div key={entry.name} className="flex items-center justify-between bg-gray-900 p-2 border border-gray-800 group">
                                 <div className="flex flex-col">
                                     <span className="text-xs font-bold text-gray-300">{entry.name}</span>
-                                    <span className="text-[10px] text-gray-500">{new Date(entry.date).toLocaleDateString()}</span>
+                                    <span className="text-[10px] text-gray-400">{new Date(entry.date).toLocaleDateString()}</span>
                                 </div>
                                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <button onClick={() => { handleLoadBrowser(entry.params, entry.civData, entry.markers); }} className="text-blue-400 hover:text-white p-1"><FolderOpen size={12}/></button>
@@ -1434,7 +1446,7 @@ const Controls: React.FC<ControlsProps> = ({
          {/* Console Output area */}
          <div className="mb-2">
              <div 
-               className="flex items-center justify-between text-xs text-gray-500 mb-1 cursor-pointer hover:text-gray-300"
+               className="flex items-center justify-between text-xs text-gray-400 mb-1 cursor-pointer hover:text-gray-300"
                onClick={() => { setConsoleOpen(!consoleOpen); }}
              >
                  <div className="flex items-center gap-1">
