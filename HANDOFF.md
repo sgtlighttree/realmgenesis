@@ -16,6 +16,73 @@ workflow/style rules.
 
 ---
 
+## Session 6e (2026-07-25) — color/z token layer + slider accent collapse
+
+Commits `4b893dd`..`fc89b1f`. Gates: typecheck 0, lint 0/29, 138 tests, build OK.
+Executes pickup item 1 (token layer before F1b). Matt chose the FULL sweep over
+shell-only when asked.
+
+**REFUTED PREMISE — "18 hard-coded hex" was not a chrome problem.** Sessions 6b/6d
+listed 18 hard-coded hex as the headline reason to build a token layer. A
+prefix-aware grep says otherwise: almost all of them are in `utils/colors.ts`,
+`labels.ts`, `export.ts`, `exportVector.ts`, `Map2D`/`WorldViewer` — canvas and
+WebGL paint values that **cannot** become Tailwind classes. Chrome hex total 9,
+and only ONE is a real offender (`Inspector.tsx:249` `color:'#aaa'`, still there).
+The rest are stub-only (`shellKit` BIOMES + PlaceholderGlobe, fate undecided),
+a canvas `fillStyle` (`MiniMap:31`), or luminance-computed contrast text
+(`EditToolbar:86-91`, which SHOULD stay hex — it is logic, not a token).
+**The real problem was the raw Tailwind class vocabulary**, ~620 uses of which
+62% were four values (`text-gray-400` 134, `text-white` 78, `gray-700` 97 across
+bg+border, `gray-800` 71). Cartographic hex → a map palette module is a
+different job, belongs to A3, and was deliberately NOT done here.
+
+**Decisions + rationale:**
+
+- **Tokens are semantic ROLES, not renamed palette steps.** `bg-surface`,
+  `border-edge`, `text-ink-muted`, `bg-brand`, `warn`, `danger`, plus a named
+  z-scale (`z-overlay/chrome/sheet/modal`). The point is that `gray-800` was
+  BOTH a panel fill and a hairline; `surface-raised` vs `edge-subtle` carry the
+  same value today but let F1b move borders without touching fills.
+- **The namespace is `brand`, not `accent`, because Tailwind owns `accent-*`**
+  for accent-color. `accent-accent-soft` is what the obvious name produces on
+  every slider thumb. Found while writing the mapping, not by taste.
+- **The ink ramp keeps all SIX steps on purpose.** It is a census of what the app
+  uses, not a proposal. Collapsing it is taste work = F1b's job; doing it here
+  would smuggle a design change into a rename.
+- **Applied by script (`perl -pi`), not by hand or by subagent.** 572
+  substitutions is exactly where a hand pass or an LLM drifts, and a scripted
+  value-identical mapping is mechanically checkable instead of reviewable.
+- **NOT swept, deliberately** (each is an F1b taste call, not a rename): alpha
+  compositing on white/black (`border-white/10` ×12, `bg-black/80`), tinted state
+  fills (`blue-900/40`, `amber-900/40`, `red-900/50`), and the strays slate /
+  neutral / sky / emerald / green.
+
+**Verification method worth reusing — computed styles beat screenshots.**
+Walked all 334 elements of the wide fold in edit mode capturing color,
+background, four border colors, z-index, outline, accent-color, fill, stroke;
+**0 of 334 differed** before vs after. Screenshots would only have proven "looks
+about the same". Because the DOM capture cannot cover folds it never rendered,
+a second fold-independent check asserted every token class emitted into the
+built CSS resolves to the exact hex of the palette step it replaced (23/23; the
+one "mismatch" was my checker not normalising `#fff` vs `#ffffff`).
+
+**Second commit DOES change pixels — the slider rainbow.** The range inputs
+carried **26 distinct hues** (indigo, rose, slate, emerald, lime, teal, stone,
+cyan, pink, orange, purple, three yellows…), encoding nothing: Planet Radius
+indigo, Tectonic Plates rose, and one group split adjacent sliders across
+yellow-500/yellow-300/amber-600. Session 5 already settled "single blue accent,
+state and selection only" and applied it to the shellKit stub — whose comment
+claims it "kills the 5-thumb-color tell" — but classic `Controls` never got it,
+so the tell survived in the panel users actually operate. Now all 37 are
+`accent-brand-soft`. Separate commit precisely because it is not zero-diff.
+
+**Gotcha confirmed again:** `tailwind.config.js` does not hot reload. A dev
+server started before a token rename keeps serving the old scale, so `bg-brand`
+silently renders as nothing. Verified on a fresh `:4180` preview throughout,
+never on Matt's `:3000`.
+
+---
+
 ## ⚡ NEW-THREAD PICKUP (updated 2026-07-25, end of Session 6d)
 
 F1 shell is on branch `redesign`, NOT pushed, NOT merged. `?shell=1` is the
@@ -30,9 +97,10 @@ be re-wrapped in a `Panel`; the canvas is shifted left, not inset.
 
 **Next pass, in the order I'd take it:**
 
-1. **Color token layer — do this BEFORE F1b.** 18 hard-coded hex, bg opacity
-   spread across /10–/85, informal `z-10`/`z-20`. Without it the brand pass is a
-   find-and-replace across dozens of files instead of editing one block.
+1. ~~**Color token layer — do this BEFORE F1b.**~~ **DONE in Session 6e** — see
+   that entry above, including why the "18 hard-coded hex" framing below was
+   wrong. Remaining colour work is genuinely F1b's: the unswept alpha/tint
+   values, and `Inspector.tsx:249`'s `color:'#aaa'` (the one real chrome hex).
 2. **ARIA names** (Matt deferred, not cancelled): 58 buttons, 5 with semantic
    ARIA; 44 rely on `title`, which is a tooltip, not an accessible name. The
    biome/faction swatches are the worst — unlabeled buttons to a screen reader.
