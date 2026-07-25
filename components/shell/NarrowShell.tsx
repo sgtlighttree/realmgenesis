@@ -53,22 +53,22 @@ const NarrowShell: React.FC<ShellProps> = ({
   };
 
   return (
-    <div className="absolute inset-0 flex flex-col bg-black text-gray-200 font-sans">
+    <div className="absolute inset-0 flex flex-col bg-black text-ink font-sans">
       {/* Canvas hero */}
       <div className="relative flex-1 min-h-0">
         <div className="absolute inset-0">{canvas}</div>
 
-        <div className="absolute top-2 left-2 z-10 text-xs font-semibold tracking-tight text-white/80">
+        <div className="absolute top-2 left-2 z-overlay text-xs font-semibold tracking-tight text-ink-strong/80">
           RealmGenesis 3D
         </div>
 
         {/* Sheet — one panel at a time, over the globe */}
         {openTab && (
-          <div className={`absolute inset-x-2 bottom-2 z-20 max-h-[52%] flex flex-col ${PANEL} shadow-2xl rg-rise`}>
-            <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-800/80">
-              <span className="text-xs font-semibold text-gray-100 tracking-tight">{BUCKET[openTab].label}</span>
+          <div className={`absolute inset-x-2 bottom-2 z-chrome max-h-[52%] flex flex-col ${PANEL} shadow-2xl rg-rise`}>
+            <div className="flex items-center gap-2 px-3 py-2.5 border-b border-edge-subtle/80">
+              <span className="text-xs font-semibold text-ink-bright tracking-tight">{BUCKET[openTab].label}</span>
               <button onClick={() => setOpenTab(null)} aria-label="Close panel"
-                className={`ml-auto -mr-1 grid place-items-center w-6 h-6 text-gray-400 hover:text-white hover:bg-gray-800 text-lg leading-none ${FOCUS}`}>×</button>
+                className={`ml-auto -mr-1 grid place-items-center w-6 h-6 text-ink-muted hover:text-ink-strong hover:bg-surface-raised text-lg leading-none ${FOCUS}`}>×</button>
             </div>
             <div ref={sheetBodyRef} className="min-h-0 overflow-auto p-3">{sheetBody[openTab]}</div>
           </div>
@@ -76,7 +76,7 @@ const NarrowShell: React.FC<ShellProps> = ({
       </div>
 
       {/* Bottom tab bar — the four docks folded */}
-      <nav className="shrink-0 flex border-t border-gray-800 bg-gray-950">
+      <nav className="shrink-0 flex border-t border-edge-subtle bg-surface-sunken">
         {TABS.map(t => {
           const active = openTab === t.key;
           return (
@@ -85,8 +85,8 @@ const NarrowShell: React.FC<ShellProps> = ({
               aria-pressed={active}
               className={`flex-1 flex flex-col items-center gap-1 py-2.5 border-t-2 transition-colors ${FOCUS}
                 ${active
-                  ? 'text-blue-400 border-blue-500 bg-gray-900/60'
-                  : 'text-gray-400 border-transparent hover:text-gray-300'}`}
+                  ? 'text-brand-soft border-brand bg-surface/60'
+                  : 'text-ink-muted border-transparent hover:text-ink-soft'}`}
             >
               {t.icon}
               <span className="text-[10px] font-mono uppercase tracking-wide">{BUCKET[t.key].label}</span>

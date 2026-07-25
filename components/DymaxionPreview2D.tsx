@@ -186,14 +186,14 @@ const DymaxionPreview2D: React.FC<Props> = ({ world, viewMode, settings, onChang
   };
 
   return (
-    <div className="border border-gray-800 bg-black/60 p-2">
-      <div className="text-[10px] text-gray-400 mb-2">2D Mercator Preview (drag to rotate, Shift+drag to roll)</div>
+    <div className="border border-edge-subtle bg-black/60 p-2">
+      <div className="text-[10px] text-ink-muted mb-2">2D Mercator Preview (drag to rotate, Shift+drag to roll)</div>
       <canvas
         ref={canvasRef}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        className="block w-full border border-gray-800"
+        className="block w-full border border-edge-subtle"
       />
     </div>
   );

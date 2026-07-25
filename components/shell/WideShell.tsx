@@ -20,13 +20,13 @@ import { Panel, PANEL, FOCUS, ShellProps } from './shellKit';
 const WideShell: React.FC<ShellProps> = ({
   make, view, read, doTools, canvas, editing, onSetEditing,
 }) => (
-  <div className="absolute inset-0 flex bg-black text-gray-200 font-sans">
+  <div className="absolute inset-0 flex bg-black text-ink font-sans">
 
     {/* Make — flush left rail. No outer padding and no Panel wrapper: Controls
         supplies its own chrome and scroll region, so anything here is nesting. */}
-    <aside className="w-72 shrink-0 h-full flex flex-col border-r border-gray-800 bg-gray-950">
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-800">
-        <Globe size={16} className="text-blue-400" />
+    <aside className="w-72 shrink-0 h-full flex flex-col border-r border-edge-subtle bg-surface-sunken">
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-edge-subtle">
+        <Globe size={16} className="text-brand-soft" />
         <span className="font-semibold text-[13px] tracking-tight">RealmGenesis 3D</span>
       </div>
       <div className="flex-1 min-h-0">{make}</div>
@@ -43,7 +43,7 @@ const WideShell: React.FC<ShellProps> = ({
       <div className="absolute inset-y-0 left-[-16.5rem] right-0">{canvas}</div>
 
       {/* View — top strip. Right edge clears the Read rail (16rem + 2×8px). */}
-      <div className="absolute top-2 left-2 right-[17rem] z-20">
+      <div className="absolute top-2 left-2 right-[17rem] z-chrome">
         <div className={`${PANEL} flex items-center gap-2 px-2 py-1.5`}>
           {view}
           <button
@@ -51,8 +51,8 @@ const WideShell: React.FC<ShellProps> = ({
             aria-pressed={editing}
             className={`ml-auto shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium border transition-colors ${FOCUS}
               ${editing
-                ? 'bg-amber-500 text-black border-amber-400'
-                : 'bg-gray-800 text-gray-300 border-gray-700 hover:bg-gray-700 hover:text-white'}`}
+                ? 'bg-warn text-black border-warn-soft'
+                : 'bg-surface-raised text-ink-soft border-edge hover:bg-surface-hover hover:text-ink-strong'}`}
           >
             <Pencil size={12} /> Edit
           </button>
@@ -60,7 +60,7 @@ const WideShell: React.FC<ShellProps> = ({
       </div>
 
       {/* Read — docked stack, right edge */}
-      <div className="absolute top-2 right-2 bottom-2 w-64 flex flex-col gap-2 overflow-y-auto z-20">
+      <div className="absolute top-2 right-2 bottom-2 w-64 flex flex-col gap-2 overflow-y-auto z-chrome">
         {read.map(card => (
           <Panel key={card.key} title={card.title} collapsible={card.collapsible} className="shrink-0">
             {card.node}
@@ -71,7 +71,7 @@ const WideShell: React.FC<ShellProps> = ({
       {/* Do — contextual bottom bar. It lives inside the inset canvas column,
           so it centres with the globe and needs no rail allowance of its own. */}
       {editing && (
-        <div className="absolute bottom-3 left-0 right-[16.5rem] z-20 flex justify-center px-4">
+        <div className="absolute bottom-3 left-0 right-[16.5rem] z-chrome flex justify-center px-4">
           <div className={`${PANEL} px-2 py-1.5 shadow-xl rg-rise`}>{doTools}</div>
         </div>
       )}

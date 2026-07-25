@@ -91,11 +91,11 @@ export interface LayerToggle {
 
 /** The five overlay layers, bound to live state. Order matches the Sys tab. */
 export const buildLayerToggles = (p: ViewControlsProps): LayerToggle[] => [
-  { key: 'grid', label: 'Lat/Long Grid', icon: Grid, checked: p.showGrid, onChange: p.setShowGrid, accent: 'text-blue-400' },
-  { key: 'rivers', label: 'River Network', icon: Waves, checked: p.showRivers, onChange: p.setShowRivers, accent: 'text-blue-400' },
-  { key: 'routes', label: 'Roads & Routes', icon: Route, checked: p.showRoutes, onChange: p.setShowRoutes, accent: 'text-amber-400' },
-  { key: 'hillshade', label: 'Hillshading', icon: Sun, checked: p.showHillshade, onChange: p.setShowHillshade, accent: 'text-blue-400' },
-  { key: 'contours', label: 'Contour Lines', icon: LineChart, checked: p.showContours, onChange: p.setShowContours, accent: 'text-blue-400' },
+  { key: 'grid', label: 'Lat/Long Grid', icon: Grid, checked: p.showGrid, onChange: p.setShowGrid, accent: 'text-brand-soft' },
+  { key: 'rivers', label: 'River Network', icon: Waves, checked: p.showRivers, onChange: p.setShowRivers, accent: 'text-brand-soft' },
+  { key: 'routes', label: 'Roads & Routes', icon: Route, checked: p.showRoutes, onChange: p.setShowRoutes, accent: 'text-warn-soft' },
+  { key: 'hillshade', label: 'Hillshading', icon: Sun, checked: p.showHillshade, onChange: p.setShowHillshade, accent: 'text-brand-soft' },
+  { key: 'contours', label: 'Contour Lines', icon: LineChart, checked: p.showContours, onChange: p.setShowContours, accent: 'text-brand-soft' },
 ];
 
 /* ------------------------------------------------------------------ *
@@ -113,8 +113,8 @@ export const DisplayButton: React.FC<{
     onClick={() => { setDisplayMode(mode); }}
     className={`px-2 py-1.5 text-xs transition-all flex-1 border ${
  displayMode === mode
- ? 'bg-blue-600 text-white border-blue-500 border-b-2'
- : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700 hover:text-white'
+ ? 'bg-brand-strong text-ink-strong border-brand border-b-2'
+ : 'bg-surface-raised text-ink-muted border-edge hover:bg-surface-hover hover:text-ink-strong'
  }`}
   >
     {label}
@@ -132,8 +132,8 @@ export const ViewButton: React.FC<{
     onClick={() => { setViewMode(mode); }}
     className={`flex items-center gap-2 px-2 py-1.5 text-xs transition-all flex-1 justify-center border ${
  viewMode === mode
- ? 'bg-blue-600 text-white border-blue-500 border-b-2'
- : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700 hover:text-white'
+ ? 'bg-brand-strong text-ink-strong border-brand border-b-2'
+ : 'bg-surface-raised text-ink-muted border-edge hover:bg-surface-hover hover:text-ink-strong'
  }`}
   >
     <Icon size={14} />
@@ -147,16 +147,16 @@ export const LayerToggleRow: React.FC<{ toggle: LayerToggle; className?: string 
 }) => {
   const Icon = toggle.icon;
   return (
-    <div className={`flex items-center justify-between text-xs text-gray-400 ${className}`}>
+    <div className={`flex items-center justify-between text-xs text-ink-muted ${className}`}>
       <div className="flex items-center gap-2">
-        <Icon size={12} className={toggle.checked ? toggle.accent : 'text-gray-500'} />
+        <Icon size={12} className={toggle.checked ? toggle.accent : 'text-ink-faint'} />
         <label>{toggle.label}</label>
       </div>
       <input
         type="checkbox"
         checked={toggle.checked}
         onChange={(e) => { toggle.onChange(e.target.checked); }}
-        className="bg-gray-700"
+        className="bg-surface-hover"
       />
     </div>
   );
@@ -167,19 +167,19 @@ export const OverlayToggles: React.FC<Pick<ViewControlsProps, 'labelVisibility' 
   labelVisibility, setLabelVisibility,
 }) => (
   <div className="pt-2">
-    <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
-      <Flag size={12} className={(labelVisibility.borders || labelVisibility.factions) ? 'text-blue-400' : 'text-gray-500'} />
+    <div className="flex items-center gap-2 text-xs text-ink-muted mb-1">
+      <Flag size={12} className={(labelVisibility.borders || labelVisibility.factions) ? 'text-brand-soft' : 'text-ink-faint'} />
       <label className="font-medium">Map Overlays</label>
     </div>
     <div className="ml-5 space-y-1">
       {OVERLAY_KEYS.map(([key, label]) => (
-        <div key={key} className="flex items-center justify-between text-xs text-gray-400">
+        <div key={key} className="flex items-center justify-between text-xs text-ink-muted">
           <label>{label}</label>
           <input
             type="checkbox"
             checked={labelVisibility[key]}
             onChange={(e) => { setLabelVisibility(prev => ({ ...prev, [key]: e.target.checked })); }}
-            className="bg-gray-700"
+            className="bg-surface-hover"
           />
         </div>
       ))}
@@ -203,7 +203,7 @@ export const ViewLayerGrid: React.FC<Pick<ViewControlsProps, 'viewMode' | 'setVi
  *  Compositions
  * ------------------------------------------------------------------ */
 
-const CHIP_BASE = 'inline-flex items-center gap-1 text-[10px] px-2 py-1 border whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70';
+const CHIP_BASE = 'inline-flex items-center gap-1 text-[10px] px-2 py-1 border whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70';
 
 /** Compact chip form of a layer toggle — the strip shape. */
 const LayerChip: React.FC<{ toggle: LayerToggle }> = ({ toggle }) => {
@@ -214,8 +214,8 @@ const LayerChip: React.FC<{ toggle: LayerToggle }> = ({ toggle }) => {
       aria-pressed={toggle.checked}
       title={toggle.label}
       className={`${CHIP_BASE} ${toggle.checked
-        ? 'border-blue-500 bg-blue-600 text-white'
-        : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600 hover:text-white'}`}
+        ? 'border-brand bg-brand-strong text-ink-strong'
+        : 'border-edge bg-surface-raised text-ink-muted hover:border-edge-strong hover:text-ink-strong'}`}
     >
       <Icon size={11} /> {toggle.label}
     </button>
@@ -229,15 +229,15 @@ const LayerChip: React.FC<{ toggle: LayerToggle }> = ({ toggle }) => {
  */
 export const ViewStrip: React.FC<ViewControlsProps> = (p) => (
   <div className="flex flex-wrap items-center gap-2 min-w-0">
-    <div className="inline-flex overflow-hidden border border-gray-700 shrink-0">
+    <div className="inline-flex overflow-hidden border border-edge shrink-0">
       {DISPLAY_MODES.map(m => (
         <button
           key={m.mode}
           onClick={() => { p.setDisplayMode(m.mode); }}
           aria-pressed={p.displayMode === m.mode}
           className={`px-2.5 py-1.5 text-[11px] transition-colors ${p.displayMode === m.mode
-            ? 'bg-blue-600 text-white'
-            : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'}`}
+            ? 'bg-brand-strong text-ink-strong'
+            : 'bg-surface-raised text-ink-muted hover:bg-surface-hover hover:text-ink-strong'}`}
         >
           {m.short}
         </button>

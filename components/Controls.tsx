@@ -84,11 +84,11 @@ const ConsoleOutput: React.FC<{ logs: string[]; isOpen: boolean }> = ({ logs, is
     if (!isOpen) return null;
 
     return (
-        <div ref={boxRef} className="bg-black border border-gray-800 p-2 h-32 overflow-y-auto font-mono text-[10px] space-y-1 shadow-inner relative transition-all">
-            {logs.length === 0 && <div className="text-gray-500 italic text-center mt-10">System Ready</div>}
+        <div ref={boxRef} className="bg-black border border-edge-subtle p-2 h-32 overflow-y-auto font-mono text-[10px] space-y-1 shadow-inner relative transition-all">
+            {logs.length === 0 && <div className="text-ink-faint italic text-center mt-10">System Ready</div>}
             {logs.map((log, i) => (
-                <div key={i} className="text-green-400 break-words border-b border-gray-900/50 pb-0.5 last:border-0">
-                    <span className="text-gray-500 mr-2">[{i+1}]</span>
+                <div key={i} className="text-green-400 break-words border-b border-surface/50 pb-0.5 last:border-0">
+                    <span className="text-ink-faint mr-2">[{i+1}]</span>
                     {log}
                 </div>
             ))}
@@ -136,7 +136,7 @@ const Controls: React.FC<ControlsProps> = ({
   onMergeFactions,
   showHeader = true,
   showViewControls = true,
-  className = 'w-full md:w-80 bg-gray-950 border-r border-gray-800 flex flex-col h-full overflow-hidden text-sm relative z-20',
+  className = 'w-full md:w-80 bg-surface-sunken border-r border-edge-subtle flex flex-col h-full overflow-hidden text-sm relative z-chrome',
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('system');
   const [seedLocked, setSeedLocked] = useState(false);
@@ -423,20 +423,20 @@ const Controls: React.FC<ControlsProps> = ({
   return (
     <div className={className}>
       {showHeader && (
-        <div className="p-4 border-b border-gray-800">
-          <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <Globe className="text-blue-500" />
+        <div className="p-4 border-b border-edge-subtle">
+          <h1 className="text-xl font-bold text-ink-strong flex items-center gap-2">
+            <Globe className="text-brand" />
             RealmGenesis 3D
           </h1>
         </div>
       )}
 
-      <div className="flex border-b border-gray-800">
-         <button onClick={() => { setActiveTab('system'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'system' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-300'}`}>Sys</button>
-         <button onClick={() => { setActiveTab('geo'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'geo' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-300'}`}>Geo</button>
-         <button onClick={() => { setActiveTab('climate'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'climate' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-300'}`}>Clim</button>
-         <button onClick={() => { setActiveTab('political'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'political' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-300'}`}>Civ</button>
-         <button onClick={() => { setActiveTab('export'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'export' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-300'}`}>Exp</button>
+      <div className="flex border-b border-edge-subtle">
+         <button onClick={() => { setActiveTab('system'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'system' ? 'text-brand-soft border-b-2 border-brand' : 'text-ink-muted hover:text-ink-soft'}`}>Sys</button>
+         <button onClick={() => { setActiveTab('geo'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'geo' ? 'text-brand-soft border-b-2 border-brand' : 'text-ink-muted hover:text-ink-soft'}`}>Geo</button>
+         <button onClick={() => { setActiveTab('climate'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'climate' ? 'text-brand-soft border-b-2 border-brand' : 'text-ink-muted hover:text-ink-soft'}`}>Clim</button>
+         <button onClick={() => { setActiveTab('political'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'political' ? 'text-brand-soft border-b-2 border-brand' : 'text-ink-muted hover:text-ink-soft'}`}>Civ</button>
+         <button onClick={() => { setActiveTab('export'); }} className={`flex-1 py-3 text-[10px] font-semibold uppercase tracking-wide ${activeTab === 'export' ? 'text-brand-soft border-b-2 border-brand' : 'text-ink-muted hover:text-ink-soft'}`}>Exp</button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-4">
@@ -445,7 +445,7 @@ const Controls: React.FC<ControlsProps> = ({
           <div className="space-y-4">
              {showViewControls && (
                <div className="space-y-1">
-                 <label className="text-xs text-gray-400 block">Render Mode</label>
+                 <label className="text-xs text-ink-muted block">Render Mode</label>
                  <div className="flex gap-2">
                    {DISPLAY_MODES.map(m => (
                      <DisplayButton key={m.mode} mode={m.mode} label={m.label}
@@ -457,26 +457,26 @@ const Controls: React.FC<ControlsProps> = ({
 
              {/* Map Name Input */}
              <div className="space-y-1">
-                 <label className="text-xs text-gray-400 block">Map Name</label>
+                 <label className="text-xs text-ink-muted block">Map Name</label>
                  <input 
                     type="text" 
                     value={params.mapName} 
                     onChange={(e) => { handleChange('mapName', e.target.value); }}
-                    className="w-full bg-gray-900 border border-gray-700 px-2 py-1.5 text-white text-xs"
+                    className="w-full bg-surface border border-edge px-2 py-1.5 text-ink-strong text-xs"
                     placeholder="My World"
                  />
              </div>
 
              {/* Seed Input */}
-             <div className="bg-gray-900 p-3 border border-gray-800">
-                <label className="text-xs text-gray-400 mb-1 block">Seed</label>
+             <div className="bg-surface p-3 border border-edge-subtle">
+                <label className="text-xs text-ink-muted mb-1 block">Seed</label>
                 <div className="flex gap-2">
                    <input 
                       type="text" 
                       value={params.seed} 
                       onChange={(e) => { handleChange('seed', e.target.value); }}
                       disabled={seedLocked}
-                      className="bg-black border border-gray-700 px-2 py-1 text-white text-xs flex-1 min-w-0 disabled:opacity-50"
+                      className="bg-black border border-edge px-2 py-1 text-ink-strong text-xs flex-1 min-w-0 disabled:opacity-50"
                    />
                    <button
                       onClick={() => {
@@ -485,24 +485,24 @@ const Controls: React.FC<ControlsProps> = ({
                         setTimeout(() => setSeedCopied(false), 1500);
                       }}
                       title="Copy seed to clipboard"
-                      className="text-gray-400 hover:text-white transition-colors"
+                      className="text-ink-muted hover:text-ink-strong transition-colors"
                    >
                       {seedCopied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
                    </button>
                    <button
                       onClick={() => { setSeedLocked(!seedLocked); }}
-                      className={`${seedLocked ? 'text-blue-500' : 'text-gray-400'} hover:text-white transition-colors`}
+                      className={`${seedLocked ? 'text-brand' : 'text-ink-muted'} hover:text-ink-strong transition-colors`}
                    >
                       {seedLocked ? <Lock size={14}/> : <Unlock size={14}/>}
                    </button>
-                   <button onClick={handleRandomizeSeed} disabled={seedLocked} className="text-gray-400 hover:text-white disabled:opacity-50">
+                   <button onClick={handleRandomizeSeed} disabled={seedLocked} className="text-ink-muted hover:text-ink-strong disabled:opacity-50">
                       <Shuffle size={14} />
                    </button>
                 </div>
              </div>
              
              <div className="space-y-1">
-              <div className="flex justify-between items-center text-xs text-gray-400">
+              <div className="flex justify-between items-center text-xs text-ink-muted">
                 <label>Resolution</label>
                 <input
                     type="number"
@@ -511,7 +511,7 @@ const Controls: React.FC<ControlsProps> = ({
                     step="1000"
                     value={params.points}
                     onChange={(e) => { handleNumberChange('points', e.target.value, 2000, 200000); }}
-                    className="w-24 bg-gray-900 border border-gray-700 px-1 py-0.5 text-right text-white text-xs"
+                    className="w-24 bg-surface border border-edge px-1 py-0.5 text-right text-ink-strong text-xs"
                 />
               </div>
               <input
@@ -521,13 +521,13 @@ const Controls: React.FC<ControlsProps> = ({
                 step="1000"
                 value={Math.min(200000, params.points)}
                 onChange={(e) => { handleChange('points', parseInt(e.target.value) as 1 | 2 | 3); }}
-                className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-blue-500"
+                className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-blue-500"
               />
             </div>
              
              {showViewControls && layerToggles.map((t, i) => (
                <LayerToggleRow key={t.key} toggle={t}
-                 className={i === 0 ? 'pt-2 border-t border-gray-800' : 'pt-2'} />
+                 className={i === 0 ? 'pt-2 border-t border-edge-subtle' : 'pt-2'} />
              ))}
 
              <OverlayToggles
@@ -535,9 +535,9 @@ const Controls: React.FC<ControlsProps> = ({
                setLabelVisibility={setLabelVisibility}
              />
 
-            <div className="flex items-center justify-between text-xs text-gray-400 pt-2">
+            <div className="flex items-center justify-between text-xs text-ink-muted pt-2">
                  <div className="flex items-center gap-2">
-                    <Zap size={12} className={autoUpdate ? "text-yellow-400" : "text-gray-500"}/>
+                    <Zap size={12} className={autoUpdate ? "text-yellow-400" : "text-ink-faint"}/>
                     <label>Auto-Update (Low Res)</label>
                  </div>
                  <input 
@@ -545,27 +545,27 @@ const Controls: React.FC<ControlsProps> = ({
                     checked={autoUpdate}
                     onChange={(e) => { setAutoUpdate(e.target.checked); }}
                     disabled={params.points > 20000}
-                    className="bg-gray-700"
+                    className="bg-surface-hover"
                  />
             </div>
             
             {showViewControls && (
-              <div className="pt-3 border-t border-gray-800">
-                <h3 className="text-xs font-semibold text-gray-400 mb-2">View Layer</h3>
+              <div className="pt-3 border-t border-edge-subtle">
+                <h3 className="text-xs font-semibold text-ink-muted mb-2">View Layer</h3>
                 <ViewLayerGrid viewMode={viewMode} setViewMode={setViewMode} />
               </div>
             )}
 
-            <div className="pt-4 border-t border-gray-800 space-y-3">
-              <h3 className="text-xs font-semibold text-gray-400 mb-2">AI Settings (BYOK)</h3>
-              <div className="bg-gray-900 p-3 border border-gray-800 space-y-2">
+            <div className="pt-4 border-t border-edge-subtle space-y-3">
+              <h3 className="text-xs font-semibold text-ink-muted mb-2">AI Settings (BYOK)</h3>
+              <div className="bg-surface p-3 border border-edge-subtle space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs text-gray-400">Gemini API Key</label>
+                  <label className="text-xs text-ink-muted">Gemini API Key</label>
                   <a 
                     href="https://aistudio.google.com/app/apikey" 
                     target="_blank" 
                     rel="noopener noreferrer"
-                    className="text-[10px] text-blue-400 hover:underline flex items-center gap-1"
+                    className="text-[10px] text-brand-soft hover:underline flex items-center gap-1"
                   >
                     Get Key <Layers size={8} />
                   </a>
@@ -575,9 +575,9 @@ const Controls: React.FC<ControlsProps> = ({
                   value={apiKey}
                   onChange={(e) => { onApiKeyChange(e.target.value); }}
                   placeholder="Paste your API key here..."
-                  className="w-full bg-black border border-gray-700 px-2 py-1.5 text-white text-xs"
+                  className="w-full bg-black border border-edge px-2 py-1.5 text-ink-strong text-xs"
                 />
-                <p className="text-[10px] text-gray-400 italic">
+                <p className="text-[10px] text-ink-muted italic">
                   Key is stored ephemerally in memory and will be lost on refresh.
                 </p>
               </div>
@@ -585,12 +585,12 @@ const Controls: React.FC<ControlsProps> = ({
 
             {/* World Stats */}
             {worldData && (
-              <div className="pt-4 border-t border-gray-800">
+              <div className="pt-4 border-t border-edge-subtle">
                 <button
-                  className="flex items-center justify-between w-full text-xs text-gray-400 hover:text-gray-200"
+                  className="flex items-center justify-between w-full text-xs text-ink-muted hover:text-ink"
                   onClick={() => setShowStats(v => !v)}
                 >
-                  <span className="font-semibold text-gray-400">World Stats</span>
+                  <span className="font-semibold text-ink-muted">World Stats</span>
                   {showStats ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}
                 </button>
                 {showStats && (() => {
@@ -604,17 +604,17 @@ const Controls: React.FC<ControlsProps> = ({
                   const totalPop = cells.reduce((s, c) => s + (c.population ?? 0), 0);
                   const popStr = totalPop >= 1e6 ? `${(totalPop/1e6).toFixed(1)}M` : totalPop >= 1e3 ? `${(totalPop/1e3).toFixed(0)}K` : String(totalPop);
                   return (
-                    <div className="mt-2 space-y-1 text-[10px] text-gray-400">
-                      <div className="flex justify-between"><span>Land coverage</span><span className="text-gray-200">{landPct}%</span></div>
-                      <div className="flex justify-between"><span>Total cells</span><span className="text-gray-200">{cells.length.toLocaleString()}</span></div>
-                      {totalPop > 0 && <div className="flex justify-between"><span>Population</span><span className="text-gray-200">{popStr}</span></div>}
-                      {worldData.civData && <div className="flex justify-between"><span>Factions</span><span className="text-gray-200">{worldData.civData.factions.length}</span></div>}
-                      {worldData.rivers && <div className="flex justify-between"><span>Rivers</span><span className="text-gray-200">{worldData.rivers.length}</span></div>}
-                      <div className="mt-1 pt-1 border-t border-gray-800">
+                    <div className="mt-2 space-y-1 text-[10px] text-ink-muted">
+                      <div className="flex justify-between"><span>Land coverage</span><span className="text-ink">{landPct}%</span></div>
+                      <div className="flex justify-between"><span>Total cells</span><span className="text-ink">{cells.length.toLocaleString()}</span></div>
+                      {totalPop > 0 && <div className="flex justify-between"><span>Population</span><span className="text-ink">{popStr}</span></div>}
+                      {worldData.civData && <div className="flex justify-between"><span>Factions</span><span className="text-ink">{worldData.civData.factions.length}</span></div>}
+                      {worldData.rivers && <div className="flex justify-between"><span>Rivers</span><span className="text-ink">{worldData.rivers.length}</span></div>}
+                      <div className="mt-1 pt-1 border-t border-edge-subtle">
                         {topBiomes.map(([biome, count]) => (
                           <div key={biome} className="flex justify-between">
                             <span className="truncate">{biome}</span>
-                            <span className="text-gray-200 ml-2">{((count/cells.length)*100).toFixed(1)}%</span>
+                            <span className="text-ink ml-2">{((count/cells.length)*100).toFixed(1)}%</span>
                           </div>
                         ))}
                       </div>
@@ -631,18 +631,18 @@ const Controls: React.FC<ControlsProps> = ({
         {activeTab === 'geo' && (
            <div className="space-y-5">
               <div className="space-y-1">
-                 <label className="text-xs text-gray-400 block mb-1">Terrain Preset</label>
+                 <label className="text-xs text-ink-muted block mb-1">Terrain Preset</label>
                  <Select
                     value={params.landStyle}
                     options={[{ value: 'Continents', label: 'Continents' }, { value: 'Pangea', label: 'Pangea' }, { value: 'Archipelago', label: 'Archipelago' }, { value: 'Islands', label: 'Islands' }, { value: 'Custom', label: 'Custom' }] as SelectOption<LandStyle>[]}
                     onChange={(v) => { handlePresetChange(v); }}
                     label="Terrain preset"
                     className="w-full"
-                    triggerClassName="w-full justify-between bg-gray-800 border-gray-700 px-2 py-2 text-xs"
+                    triggerClassName="w-full justify-between bg-surface-raised border-edge px-2 py-2 text-xs"
                  />
               </div>
               <div className="space-y-1">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Sea Level</label>
                   <span>{(params.seaLevel * 100).toFixed(0)}%</span>
                 </div>
@@ -650,11 +650,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0.1" max="0.9" step="0.05"
                   value={params.seaLevel}
                   onChange={(e) => { handleChange('seaLevel', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-blue-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-blue-500"
                 />
               </div>
                <div className="space-y-1">
-                  <div className="flex justify-between text-xs text-gray-400">
+                  <div className="flex justify-between text-xs text-ink-muted">
                     <label>Planet Radius</label>
                     <span>{params.planetRadius} km</span>
                   </div>
@@ -662,11 +662,11 @@ const Controls: React.FC<ControlsProps> = ({
                     type="range" min="1000" max="20000" step="100"
                     value={params.planetRadius || 6371}
                     onChange={(e) => { handleChange('planetRadius', parseInt(e.target.value) as 1 | 2 | 3); }}
-                    className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-indigo-500"
+                    className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-indigo-500"
                   />
               </div>
               <div className="space-y-1">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Tectonic Plates</label>
                   <span>{params.plates}</span>
                 </div>
@@ -674,11 +674,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="2" max="50" step="1"
                   value={params.plates}
                   onChange={(e) => { handleAdvancedChange('plates', parseInt(e.target.value) as 1 | 2 | 3); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-rose-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-rose-500"
                 />
               </div>
               <div className="space-y-1">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Terrain Roughness</label>
                   <span>{(params.roughness * 100).toFixed(0)}%</span>
                 </div>
@@ -686,11 +686,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="1" step="0.1"
                   value={params.roughness}
                   onChange={(e) => { handleAdvancedChange('roughness', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-slate-400"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-slate-400"
                 />
               </div>
               <div className="space-y-1" title="FBM octave count for structural terrain noise. More octaves = finer nested detail; fewer = smoother, broader forms.">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Detail Octaves</label>
                   <span>{params.detailLevel}</span>
                 </div>
@@ -698,11 +698,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="1" max="6" step="1"
                   value={params.detailLevel}
                   onChange={(e) => { handleAdvancedChange('detailLevel', parseInt(e.target.value, 10)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-emerald-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-emerald-500"
                 />
               </div>
               <div className="space-y-1" title="Randomizes the cell grid. 0 = regular Fibonacci lattice; 1 = fully jittered organic cells.">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Cell Jitter</label>
                   <span>{(params.cellJitter * 100).toFixed(0)}%</span>
                 </div>
@@ -710,11 +710,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="1" step="0.05"
                   value={params.cellJitter}
                   onChange={(e) => { handleAdvancedChange('cellJitter', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-lime-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-lime-500"
                 />
               </div>
               <div className="space-y-1" title="Controls terrain feature size. Lower = broader continents; higher = more fragmented detail.">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Feature Frequency</label>
                   <span>{params.noiseScale.toFixed(1)}</span>
                 </div>
@@ -722,11 +722,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0.1" max="5.0" step="0.1"
                   value={params.noiseScale}
                   onChange={(e) => { handleAdvancedChange('noiseScale', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-green-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-green-500"
                 />
               </div>
               <div className="space-y-1" title="0 = smooth hills (FBM). 1 = sharp jagged mountain ridges (ridged noise).">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Ridge Intensity</label>
                   <span>{(params.ridgeBlend * 100).toFixed(0)}%</span>
                 </div>
@@ -734,11 +734,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="1" step="0.1"
                   value={params.ridgeBlend}
                   onChange={(e) => { handleAdvancedChange('ridgeBlend', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-yellow-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-yellow-500"
                 />
               </div>
               <div className="space-y-1" title="Amplifies terrain above sea level using a power curve. >1.0 = taller peaks; <1.0 = flatter land.">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Mountain Heights</label>
                   <span>{params.mountainHeight.toFixed(2)}</span>
                 </div>
@@ -746,11 +746,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0.5" max="2.0" step="0.05"
                   value={params.mountainHeight}
                   onChange={(e) => { handleAdvancedChange('mountainHeight', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-yellow-300"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-yellow-300"
                 />
               </div>
               <div className="space-y-1" title="Amplifies ocean depth below sea level using a power curve. >1.0 = deeper trenches; <1.0 = shallower ocean floor.">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Sea / Trench Depth</label>
                   <span>{params.oceanDepth.toFixed(2)}</span>
                 </div>
@@ -758,11 +758,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0.5" max="2.0" step="0.05"
                   value={params.oceanDepth}
                   onChange={(e) => { handleAdvancedChange('oceanDepth', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-amber-600"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-amber-600"
                 />
               </div>
               <div className="space-y-1" title="Domain warping — twists terrain shapes for more organic, swirled coastlines and mountain ranges.">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Swirl / Warp</label>
                   <span>{params.warpStrength.toFixed(1)}</span>
                 </div>
@@ -770,11 +770,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="2.0" step="0.1"
                   value={params.warpStrength}
                   onChange={(e) => { handleAdvancedChange('warpStrength', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-purple-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-purple-500"
                 />
               </div>
                <div className="space-y-1" title="How strongly tectonic plate boundaries shape mountain ranges and rifts. Capped at 1.0 internally.">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Tectonic Strength</label>
                   <span>{params.plateInfluence.toFixed(2)}</span>
                 </div>
@@ -782,11 +782,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0.1" max="1.0" step="0.05"
                   value={params.plateInfluence}
                   onChange={(e) => { handleAdvancedChange('plateInfluence', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-red-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-red-500"
                 />
               </div>
               <div className="space-y-1">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Hydraulic Erosion</label>
                   <span>{params.erosionIterations} Steps</span>
                 </div>
@@ -794,7 +794,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="50" step="1"
                   value={params.erosionIterations}
                   onChange={(e) => { handleAdvancedChange('erosionIterations', parseInt(e.target.value) as 1 | 2 | 3); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-stone-400"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-stone-400"
                 />
               </div>
            </div>
@@ -804,7 +804,7 @@ const Controls: React.FC<ControlsProps> = ({
         {activeTab === 'climate' && (
            <div className="space-y-5">
               <div className="space-y-1">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Axial Tilt (Visual & Climatic)</label>
                   <span>{params.axialTilt || 0}°</span>
                 </div>
@@ -812,12 +812,12 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="-90" max="90" step="1"
                   value={params.axialTilt || 0}
                   onChange={(e) => { handleChange('axialTilt', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-indigo-400"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-indigo-400"
                 />
              </div>
              {/* ... (rest of climate sliders) ... */}
               <div className="space-y-1">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Equator Temp (°C)</label>
                   <span>{params.baseTemperature}°C</span>
                 </div>
@@ -825,11 +825,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="-10" max="50" step="1"
                   value={params.baseTemperature}
                   onChange={(e) => { handleChange('baseTemperature', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-orange-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-orange-500"
                 />
               </div>
               <div className="space-y-1">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Pole Temp (°C)</label>
                   <span>{params.poleTemperature}°C</span>
                 </div>
@@ -837,11 +837,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="-50" max="20" step="1"
                   value={params.poleTemperature}
                   onChange={(e) => { handleChange('poleTemperature', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-sky-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-sky-500"
                 />
               </div>
               <div className="space-y-1">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Global Rainfall</label>
                   <span>{params.rainfallMultiplier.toFixed(1)}x</span>
                 </div>
@@ -849,11 +849,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="3" step="0.1"
                   value={params.rainfallMultiplier}
                   onChange={(e) => { handleChange('rainfallMultiplier', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-cyan-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-cyan-500"
                 />
               </div>
               <div className="space-y-1" title="How far wind carries moisture inland before it dissipates. Higher = wetter interiors; lower = stronger rain shadows.">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Wind Strength / Moisture Transport</label>
                   <span>{(params.moistureTransport * 100).toFixed(0)}%</span>
                 </div>
@@ -861,12 +861,12 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="1" step="0.1"
                   value={params.moistureTransport}
                   onChange={(e) => { handleChange('moistureTransport', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-blue-300"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-blue-300"
                 />
-                <p className="text-[10px] text-gray-400">Affects rain shadows & moisture spread</p>
+                <p className="text-[10px] text-ink-muted">Affects rain shadows & moisture spread</p>
               </div>
               <div className="space-y-1" title="Adds simplex noise to temperature — creates local hot/cold anomalies beyond the baseline latitude gradient.">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Random Temp</label>
                   <span>{params.temperatureVariance}</span>
                 </div>
@@ -874,7 +874,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="20" step="1"
                   value={params.temperatureVariance}
                   onChange={(e) => { handleChange('temperatureVariance', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-red-400"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-red-400"
                 />
               </div>
            </div>
@@ -884,23 +884,23 @@ const Controls: React.FC<ControlsProps> = ({
         {activeTab === 'political' && (
            <div className="space-y-5">
               {/* Civ Seed Input */}
-             <div className="bg-gray-900 p-3 border border-gray-800">
-                <label className="text-xs text-gray-400 mb-1 block">Civ Seed</label>
+             <div className="bg-surface p-3 border border-edge-subtle">
+                <label className="text-xs text-ink-muted mb-1 block">Civ Seed</label>
                 <div className="flex gap-2">
                    <input 
                       type="text" 
                       value={params.civSeed} 
                       onChange={(e) => { handleChange('civSeed', e.target.value); }}
                       disabled={civSeedLocked}
-                      className="bg-black border border-gray-700 px-2 py-1 text-white text-xs flex-1 min-w-0 disabled:opacity-50"
+                      className="bg-black border border-edge px-2 py-1 text-ink-strong text-xs flex-1 min-w-0 disabled:opacity-50"
                    />
                    <button 
                       onClick={() => { setCivSeedLocked(!civSeedLocked); }} 
-                      className={`${civSeedLocked ? 'text-blue-500' : 'text-gray-400'} hover:text-white transition-colors`}
+                      className={`${civSeedLocked ? 'text-brand' : 'text-ink-muted'} hover:text-ink-strong transition-colors`}
                    >
                       {civSeedLocked ? <Lock size={14}/> : <Unlock size={14}/>}
                    </button>
-                   <button onClick={handleRandomizeCivSeed} disabled={civSeedLocked} className="text-gray-400 hover:text-white disabled:opacity-50">
+                   <button onClick={handleRandomizeCivSeed} disabled={civSeedLocked} className="text-ink-muted hover:text-ink-strong disabled:opacity-50">
                       <Shuffle size={14} />
                    </button>
                 </div>
@@ -910,7 +910,7 @@ const Controls: React.FC<ControlsProps> = ({
               <div>
                 <button
                   onClick={() => setShowCivParams(v => !v)}
-                  className="flex items-center justify-between w-full text-[10px] font-semibold text-gray-400 uppercase tracking-wide hover:text-gray-300 transition-colors"
+                  className="flex items-center justify-between w-full text-[10px] font-semibold text-ink-muted uppercase tracking-wide hover:text-ink-soft transition-colors"
                 >
                   <span>Generation Parameters</span>
                   {showCivParams ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}
@@ -935,7 +935,7 @@ const Controls: React.FC<ControlsProps> = ({
                     </div>
 
               <div className="space-y-1" title="Number of culture regions (C1). Factions inherit their naming style from the culture their capital falls in.">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Cultures</label>
                   <span>{params.numCultures}</span>
                 </div>
@@ -943,11 +943,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="2" max="8"
                   value={params.numCultures}
                   onChange={(e) => { handleChange('numCultures', parseInt(e.target.value) as 1 | 2 | 3); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-pink-400"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-pink-400"
                 />
               </div>
               <div className="space-y-1">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Factions</label>
                   <span>{params.numFactions}</span>
                 </div>
@@ -955,11 +955,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="2" max="20"
                   value={params.numFactions}
                   onChange={(e) => { handleChange('numFactions', parseInt(e.target.value) as 1 | 2 | 3); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-purple-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-purple-500"
                 />
               </div>
               <div className="space-y-1" title="Minimum angular separation between faction capitals. Higher = capitals spawn further apart, producing more evenly distributed territories.">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Capital Spacing</label>
                   <span>{(params.capitalSpacing * 100).toFixed(0)}%</span>
                 </div>
@@ -967,11 +967,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="1" step="0.1"
                   value={params.capitalSpacing}
                   onChange={(e) => { handleChange('capitalSpacing', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-purple-400"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-purple-400"
                 />
               </div>
               <div className="space-y-1">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Province Size (Admin Density)</label>
                   <span>{(params.provinceSize || 0.5).toFixed(2)}</span>
                 </div>
@@ -979,11 +979,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0.1" max="1.0" step="0.1"
                   value={params.provinceSize || 0.5}
                   onChange={(e) => { handleChange('provinceSize', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-teal-400"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-teal-400"
                 />
               </div>
               <div className="space-y-1" title="How unequal faction sizes can be. 0 = all factions roughly equal; 1 = some factions much larger than others.">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Country Size Variance</label>
                   <span>{(params.civSizeVariance * 100).toFixed(0)}%</span>
                 </div>
@@ -991,11 +991,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="1" step="0.1"
                   value={params.civSizeVariance}
                   onChange={(e) => { handleChange('civSizeVariance', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-orange-400"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-orange-400"
                 />
               </div>
               <div className="space-y-1" title="How easily factions cross water. Higher = more seafaring civilisations that readily claim distant islands.">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Seafaring (Water Crossing Cost)</label>
                   <span>{(1.0 - params.waterCrossingCost).toFixed(1)}</span>
                 </div>
@@ -1003,11 +1003,11 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0.1" max="1.0" step="0.1"
                   value={params.waterCrossingCost}
                   onChange={(e) => { handleChange('waterCrossingCost', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-blue-400"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-blue-400"
                 />
               </div>
               <div className="space-y-1" title="How far from coastline a faction claims ocean cells as territorial waters.">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-ink-muted">
                   <label>Territorial Waters (Range)</label>
                   <span>{params.territorialWaters?.toFixed(2)}</span>
                 </div>
@@ -1015,7 +1015,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0.01" max="1.0" step="0.01"
                   value={params.territorialWaters ?? 0.2}
                   onChange={(e) => { handleChange('territorialWaters', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-cyan-600"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-cyan-600"
                 />
               </div>
 
@@ -1025,26 +1025,26 @@ const Controls: React.FC<ControlsProps> = ({
 
               {/* Factions editor */}
               {worldData?.civData && (
-                <div className="space-y-2 pt-2 border-t border-gray-800">
-                  <h3 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide pt-1">Factions</h3>
+                <div className="space-y-2 pt-2 border-t border-edge-subtle">
+                  <h3 className="text-[10px] font-semibold text-ink-muted uppercase tracking-wide pt-1">Factions</h3>
                   {worldData.civData.factions.map(f => {
                     const otherFactions = worldData.civData!.factions.filter(o => o.id !== f.id);
                     const mergeTarget = mergeTargets[f.id] ?? '';
                     return (
-                    <div key={f.id} className="flex flex-col gap-1.5 bg-gray-900 p-2 border border-gray-800">
+                    <div key={f.id} className="flex flex-col gap-1.5 bg-surface p-2 border border-edge-subtle">
                       <div className="flex items-center gap-2">
                         <input
                           type="color"
                           value={f.color}
                           onChange={e => onEditFaction?.(f.id, { color: e.target.value })}
-                          className="w-7 h-6 border border-gray-700 bg-transparent cursor-pointer flex-shrink-0"
+                          className="w-7 h-6 border border-edge bg-transparent cursor-pointer flex-shrink-0"
                           title="Faction color"
                         />
                         <input
                           type="text"
                           value={f.name}
                           onChange={e => onEditFaction?.(f.id, { name: e.target.value })}
-                          className="flex-1 bg-black border border-gray-700 px-2 py-1 text-white text-xs focus:outline-none focus:border-blue-500"
+                          className="flex-1 bg-black border border-edge px-2 py-1 text-ink-strong text-xs focus:outline-none focus:border-brand"
                           placeholder="Faction name"
                         />
                       </div>
@@ -1062,7 +1062,7 @@ const Controls: React.FC<ControlsProps> = ({
                             }}
                             label={`Merge ${f.name} into another faction`}
                             className="flex-1 min-w-0"
-                            triggerClassName="w-full justify-between bg-black border-gray-700 px-1.5 py-1 text-[10px] text-gray-300"
+                            triggerClassName="w-full justify-between bg-black border-edge px-1.5 py-1 text-[10px] text-ink-soft"
                           />
                           <button
                             onClick={() => {
@@ -1085,22 +1085,22 @@ const Controls: React.FC<ControlsProps> = ({
               )}
 
               {/* Name Style */}
-              <div className="space-y-1 border-t border-gray-800 pt-3">
-                  <label className="text-xs text-gray-400 block mb-1">Name Style</label>
+              <div className="space-y-1 border-t border-edge-subtle pt-3">
+                  <label className="text-xs text-ink-muted block mb-1">Name Style</label>
                   <Select
                      value={params.nameStyle || 'fantasy'}
                      options={NAME_STYLES.map(style => ({ value: style, label: style.charAt(0).toUpperCase() + style.slice(1) }))}
                      onChange={(v) => { handleChange('nameStyle', v); }}
                      label="Name style"
                      className="w-full"
-                     triggerClassName="w-full justify-between bg-gray-800 border-gray-700 px-2 py-2 text-xs"
+                     triggerClassName="w-full justify-between bg-surface-raised border-edge px-2 py-2 text-xs"
                   />
-                  <p className="text-[10px] text-gray-400">Applies on Reroll Borders or regeneration.</p>
+                  <p className="text-[10px] text-ink-muted">Applies on Reroll Borders or regeneration.</p>
               </div>
 
               {/* Lore Level */}
-              <div className="space-y-1 border-t border-gray-800 pt-3">
-                  <label className="text-xs text-gray-400 block mb-1">Lore Generation Detail</label>
+              <div className="space-y-1 border-t border-edge-subtle pt-3">
+                  <label className="text-xs text-ink-muted block mb-1">Lore Generation Detail</label>
                   <Select
                      value={String(params.loreLevel || 1)}
                      options={[
@@ -1111,20 +1111,20 @@ const Controls: React.FC<ControlsProps> = ({
                      onChange={(v) => { handleChange('loreLevel', parseInt(v, 10) as 1 | 2 | 3); }}
                      label="Lore generation detail"
                      className="w-full"
-                     triggerClassName="w-full justify-between bg-gray-800 border-gray-700 px-2 py-2 text-xs"
+                     triggerClassName="w-full justify-between bg-surface-raised border-edge px-2 py-2 text-xs"
                   />
               </div>
 
-              <div className="bg-gray-800/50 p-3 border border-gray-700 mt-4">
+              <div className="bg-surface-raised/50 p-3 border border-edge mt-4">
                 <div className="flex justify-between items-center mb-2">
-                  <h2 className="text-xs font-semibold text-gray-300">AI Lore</h2>
+                  <h2 className="text-xs font-semibold text-ink-soft">AI Lore</h2>
                    <button 
                     onClick={onGenerateLore}
                     disabled={generatingLore || !apiKey}
                     className={`text-[10px] px-2 py-1 transition-colors ${
  apiKey 
  ? 'bg-blue-900/50 text-blue-300 hover:bg-blue-900 border border-blue-800' 
- : 'bg-gray-800 text-gray-400 cursor-not-allowed border border-gray-700'
+ : 'bg-surface-raised text-ink-muted cursor-not-allowed border border-edge'
  }`}
                   >
                     {generatingLore ? 'Thinking...' : 'Generate'}
@@ -1137,24 +1137,24 @@ const Controls: React.FC<ControlsProps> = ({
                 )}
                 {lore ? (
                   <div className="space-y-2">
-                    <h3 className="font-bold text-white text-xs">{lore.name}</h3>
-                    <p className="text-[10px] text-gray-400 max-h-32 overflow-y-auto">
+                    <h3 className="font-bold text-ink-strong text-xs">{lore.name}</h3>
+                    <p className="text-[10px] text-ink-muted max-h-32 overflow-y-auto">
                       {lore.description}
                     </p>
                     {worldData?.civData && (
                         <div className="space-y-1 mt-2">
                             {worldData.civData.factions.map(f => (
-                                <div key={f.id} className="text-[10px] bg-gray-900 p-1 border border-gray-700">
+                                <div key={f.id} className="text-[10px] bg-surface p-1 border border-edge">
                                     <div style={{color: f.color}} className="font-bold">{f.name}</div>
-                                    <div className="text-gray-400 pl-1">Cap: {f.provinces.flatMap(p => p.towns).find(t => t.cellId === f.capitalId)?.name || 'Unknown'}</div>
-                                    {f.description && <div className="text-gray-400 italic pl-1 mt-1 border-t border-gray-800 pt-1">{f.description}</div>}
+                                    <div className="text-ink-muted pl-1">Cap: {f.provinces.flatMap(p => p.towns).find(t => t.cellId === f.capitalId)?.name || 'Unknown'}</div>
+                                    {f.description && <div className="text-ink-muted italic pl-1 mt-1 border-t border-edge-subtle pt-1">{f.description}</div>}
                                 </div>
                             ))}
                         </div>
                     )}
                   </div>
                 ) : (
-                  <p className="text-[10px] text-gray-500 italic">Generate a world first.</p>
+                  <p className="text-[10px] text-ink-faint italic">Generate a world first.</p>
                 )}
               </div>
            </div>
@@ -1165,10 +1165,10 @@ const Controls: React.FC<ControlsProps> = ({
             <div className="space-y-6">
                  {/* ... (export tab same as before) ... */}
                  <div className="space-y-2">
-                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Image Export</h3>
+                    <h3 className="text-xs font-bold text-ink-muted uppercase tracking-wider mb-2">Image Export</h3>
                     
                     <div className="space-y-1">
-                        <label className="text-xs text-gray-400">Resolution</label>
+                        <label className="text-xs text-ink-muted">Resolution</label>
                         <Select
                             value={String(expRes)}
                             options={[
@@ -1179,12 +1179,12 @@ const Controls: React.FC<ControlsProps> = ({
                             onChange={(v) => { setExpRes(parseInt(v, 10) as ExportResolution); }}
                             label="Export resolution"
                             className="w-full"
-                            triggerClassName="w-full justify-between bg-gray-800 border-gray-700 px-2 py-2 text-xs"
+                            triggerClassName="w-full justify-between bg-surface-raised border-edge px-2 py-2 text-xs"
                         />
                     </div>
 
                     <div className="space-y-1">
-                        <label className="text-xs text-gray-400">Projection</label>
+                        <label className="text-xs text-ink-muted">Projection</label>
                         <Select
                             value={expProj}
                             options={[
@@ -1199,15 +1199,15 @@ const Controls: React.FC<ControlsProps> = ({
                             onChange={setExpProj}
                             label="Export projection"
                             className="w-full"
-                            triggerClassName="w-full justify-between bg-gray-800 border-gray-700 px-2 py-2 text-xs"
+                            triggerClassName="w-full justify-between bg-surface-raised border-edge px-2 py-2 text-xs"
                         />
                     </div>
 
                     {expProj === 'dymaxion' && (
-                        <div className="border border-gray-800 p-3 space-y-3 bg-gray-900/40">
+                        <div className="border border-edge-subtle p-3 space-y-3 bg-surface/40">
                             <div className="flex items-center justify-between">
-                                <div className="text-xs font-semibold text-gray-300">Dymaxion Controls</div>
-                                <label className="flex items-center gap-2 text-[10px] text-gray-400">
+                                <div className="text-xs font-semibold text-ink-soft">Dymaxion Controls</div>
+                                <label className="flex items-center gap-2 text-[10px] text-ink-muted">
                                     <input
                                         type="checkbox"
                                         checked={dymaxionSettings.showOverlay}
@@ -1219,28 +1219,28 @@ const Controls: React.FC<ControlsProps> = ({
                             </div>
 
                             <div className="space-y-1">
-                                <label className="text-xs text-gray-400">Manipulation Mode</label>
+                                <label className="text-xs text-ink-muted">Manipulation Mode</label>
                                 <div className="grid grid-cols-2 gap-2">
                                     <button
                                         onClick={() => { updateDymaxion({ mode: 'planet' as DymaxionControlMode }); }}
-                                        className={`text-[10px] py-2 border ${dymaxionSettings.mode === 'planet' ? 'bg-blue-700/70 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300'}`}
+                                        className={`text-[10px] py-2 border ${dymaxionSettings.mode === 'planet' ? 'bg-brand-deep/70 border-brand text-ink-strong' : 'bg-surface-raised border-edge text-ink-soft'}`}
                                     >
                                         Rotate Planet
                                     </button>
                                     <button
                                         onClick={() => { updateDymaxion({ mode: 'overlay' as DymaxionControlMode }); }}
-                                        className={`text-[10px] py-2 border ${dymaxionSettings.mode === 'overlay' ? 'bg-blue-700/70 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300'}`}
+                                        className={`text-[10px] py-2 border ${dymaxionSettings.mode === 'overlay' ? 'bg-brand-deep/70 border-brand text-ink-strong' : 'bg-surface-raised border-edge text-ink-soft'}`}
                                     >
                                         Rotate Overlay
                                     </button>
                                 </div>
-                                <div className="text-[10px] text-gray-400">
+                                <div className="text-[10px] text-ink-muted">
                                     Drag the globe to rotate. Hold Shift while dragging to roll the overlay.
                                 </div>
                             </div>
 
                             <div className="space-y-2">
-                                <div className="flex justify-between text-xs text-gray-400">
+                                <div className="flex justify-between text-xs text-ink-muted">
                                     <label>Longitude</label>
                                     <span>{dymaxionSettings.lon}°</span>
                                 </div>
@@ -1248,12 +1248,12 @@ const Controls: React.FC<ControlsProps> = ({
                                     type="range" min="-180" max="180" step="1"
                                     value={dymaxionSettings.lon}
                                     onChange={function(e) { updateDymaxion({ lon: parseInt(e.target.value) }); }}
-                                    className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-blue-400"
+                                    className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-blue-400"
                                 />
                             </div>
 
                             <div className="space-y-2">
-                                <div className="flex justify-between text-xs text-gray-400">
+                                <div className="flex justify-between text-xs text-ink-muted">
                                     <label>Latitude</label>
                                     <span>{dymaxionSettings.lat}°</span>
                                 </div>
@@ -1261,12 +1261,12 @@ const Controls: React.FC<ControlsProps> = ({
                                     type="range" min="-90" max="90" step="1"
                                     value={dymaxionSettings.lat}
                                     onChange={function(e) { updateDymaxion({ lat: parseInt(e.target.value) }); }}
-                                    className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-blue-400"
+                                    className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-blue-400"
                                 />
                             </div>
 
                             <div className="space-y-2">
-                                <div className="flex justify-between text-xs text-gray-400">
+                                <div className="flex justify-between text-xs text-ink-muted">
                                     <label>Roll</label>
                                     <span>{dymaxionSettings.roll}°</span>
                                 </div>
@@ -1274,11 +1274,11 @@ const Controls: React.FC<ControlsProps> = ({
                                     type="range" min="-180" max="180" step="1"
                                     value={dymaxionSettings.roll}
                                     onChange={function(e) { updateDymaxion({ roll: parseInt(e.target.value) }); }}
-                                    className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-blue-400"
+                                    className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-blue-400"
                                 />
                             </div>
 
-                            <label className="flex items-center gap-2 text-[10px] text-gray-400">
+                            <label className="flex items-center gap-2 text-[10px] text-ink-muted">
                                 <input
                                     type="checkbox"
                                     checked={dymaxionSettings.layout === 'blender'}
@@ -1289,13 +1289,13 @@ const Controls: React.FC<ControlsProps> = ({
                             </label>
 
                             <div className="space-y-1">
-                                <label className="text-[10px] text-gray-400">Orientation Presets</label>
+                                <label className="text-[10px] text-ink-muted">Orientation Presets</label>
                                 <div className="grid grid-cols-4 gap-1">
                                     {([['N.Pole', 0, -90, 0], ['Pacific', -150, 0, 0], ['Atlantic', 0, 0, 0], ['Asia', 90, 0, 0]] as const).map(([label, lon, lat, roll]) => (
                                         <button
                                             key={label}
                                             onClick={() => { updateDymaxion({ lon, lat, roll }); }}
-                                            className="text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-300 py-1.5 border border-gray-700"
+                                            className="text-[10px] bg-surface-raised hover:bg-surface-hover text-ink-soft py-1.5 border border-edge"
                                         >
                                             {label}
                                         </button>
@@ -1305,12 +1305,12 @@ const Controls: React.FC<ControlsProps> = ({
 
                             <button
                                 onClick={() => { updateDymaxion({ lon: 0, lat: 0, roll: 0 }); }}
-                                className="w-full text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-200 py-2 border border-gray-700"
+                                className="w-full text-[10px] bg-surface-raised hover:bg-surface-hover text-ink py-2 border border-edge"
                             >
                                 Reset Orientation
                             </button>
 
-                            <label className="flex items-center gap-2 text-[10px] text-gray-400">
+                            <label className="flex items-center gap-2 text-[10px] text-ink-muted">
                                 <input
                                     type="checkbox"
                                     checked={showDymaxion2D}
@@ -1334,57 +1334,57 @@ const Controls: React.FC<ControlsProps> = ({
                     <button
                         onClick={() => { void handleExport(); }}
                         disabled={!worldData}
-                        className="w-full flex items-center justify-center gap-2 bg-green-700 hover:bg-green-600 text-white py-2 text-xs mt-2 disabled:opacity-50 border border-green-600"
+                        className="w-full flex items-center justify-center gap-2 bg-green-700 hover:bg-green-600 text-ink-strong py-2 text-xs mt-2 disabled:opacity-50 border border-green-600"
                     >
                         <Image size={14}/> Download PNG
                     </button>
                     <button
                         onClick={() => { if (worldData) void exportMap(worldData, 'height_bw', expRes, 'equirectangular'); }}
                         disabled={!worldData}
-                        className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white py-2 text-xs disabled:opacity-50 border border-gray-600"
+                        className="w-full flex items-center justify-center gap-2 bg-surface-hover hover:bg-gray-600 text-ink-strong py-2 text-xs disabled:opacity-50 border border-edge-strong"
                     >
                         <Mountain size={14}/> Export Heightmap (BW)
                     </button>
                 </div>
 
-                <div className="border-t border-gray-800 pt-4 space-y-2">
-                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Vector Export</h3>
-                    <p className="text-[10px] text-gray-400">Editable coastlines, borders, rivers, and labels for Inkscape/Illustrator, or geodesic GeoJSON for QGIS/web-GIS.</p>
+                <div className="border-t border-edge-subtle pt-4 space-y-2">
+                    <h3 className="text-xs font-bold text-ink-muted uppercase tracking-wider mb-2">Vector Export</h3>
+                    <p className="text-[10px] text-ink-muted">Editable coastlines, borders, rivers, and labels for Inkscape/Illustrator, or geodesic GeoJSON for QGIS/web-GIS.</p>
                     <button
                         onClick={() => { if (worldData && expProj !== 'dymaxion') downloadSVG(worldData, viewMode, expProj); }}
                         disabled={!worldData || expProj === 'dymaxion'}
                         title={expProj === 'dymaxion' ? 'SVG export is raster-only for Dymaxion — choose another projection' : undefined}
-                        className="w-full flex items-center justify-center gap-2 bg-teal-700 hover:bg-teal-600 text-white py-2 text-xs disabled:opacity-50 border border-teal-600"
+                        className="w-full flex items-center justify-center gap-2 bg-teal-700 hover:bg-teal-600 text-ink-strong py-2 text-xs disabled:opacity-50 border border-teal-600"
                     >
                         <FileCode size={14}/> Download SVG
                     </button>
                     <button
                         onClick={() => { if (worldData) downloadGeoJSON(worldData); }}
                         disabled={!worldData}
-                        className="w-full flex items-center justify-center gap-2 bg-teal-700 hover:bg-teal-600 text-white py-2 text-xs disabled:opacity-50 border border-teal-600"
+                        className="w-full flex items-center justify-center gap-2 bg-teal-700 hover:bg-teal-600 text-ink-strong py-2 text-xs disabled:opacity-50 border border-teal-600"
                     >
                         <FileJson size={14}/> Download GeoJSON
                     </button>
                 </div>
 
-                <div className="border-t border-gray-800 pt-4 space-y-2">
-                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">3D Export</h3>
-                    <p className="text-[10px] text-gray-400">Exports the current view as a GLB file. World mesh uses per-vertex colors. Rivers exported as line geometry. City markers included when civilization data is present.</p>
+                <div className="border-t border-edge-subtle pt-4 space-y-2">
+                    <h3 className="text-xs font-bold text-ink-muted uppercase tracking-wider mb-2">3D Export</h3>
+                    <p className="text-[10px] text-ink-muted">Exports the current view as a GLB file. World mesh uses per-vertex colors. Rivers exported as line geometry. City markers included when civilization data is present.</p>
                     <button
                         onClick={() => { if (worldData) exportGLB(worldData, viewMode); }}
                         disabled={!worldData}
-                        className="w-full flex items-center justify-center gap-2 bg-indigo-700 hover:bg-indigo-600 text-white py-2 text-xs disabled:opacity-50 border border-indigo-600"
+                        className="w-full flex items-center justify-center gap-2 bg-indigo-700 hover:bg-indigo-600 text-ink-strong py-2 text-xs disabled:opacity-50 border border-indigo-600"
                     >
                         <Box size={14}/> Export GLB
                     </button>
                 </div>
 
-                <div className="border-t border-gray-800 pt-4 space-y-3">
-                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">File Management</h3>
+                <div className="border-t border-edge-subtle pt-4 space-y-3">
+                    <h3 className="text-xs font-bold text-ink-muted uppercase tracking-wider">File Management</h3>
                     
                     <button
                         onClick={() => { if (params) { void saveMapConfig(params, worldData || undefined); } }}
-                        className="w-full flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-white py-2 text-xs border border-gray-700"
+                        className="w-full flex items-center justify-center gap-2 bg-surface-raised hover:bg-surface-hover text-ink-strong py-2 text-xs border border-edge"
                     >
                         <Save size={14} /> Save Config (JSON)
                     </button>
@@ -1396,14 +1396,14 @@ const Controls: React.FC<ControlsProps> = ({
                             onChange={(e) => { void handleFileUpload(e); }}
                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                         />
-                        <button className="w-full flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-white py-2 text-xs pointer-events-none border border-gray-700">
+                        <button className="w-full flex items-center justify-center gap-2 bg-surface-raised hover:bg-surface-hover text-ink-strong py-2 text-xs pointer-events-none border border-edge">
                             <FolderOpen size={14} /> Load Config (JSON)
                         </button>
                     </div>
                 </div>
 
-                <div className="border-t border-gray-800 pt-4 space-y-3">
-                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Browser Storage</h3>
+                <div className="border-t border-edge-subtle pt-4 space-y-3">
+                    <h3 className="text-xs font-bold text-ink-muted uppercase tracking-wider">Browser Storage</h3>
                     
                     <div className="flex gap-2">
                         <input 
@@ -1411,28 +1411,28 @@ const Controls: React.FC<ControlsProps> = ({
                             placeholder="Save Name..." 
                             value={saveName}
                             onChange={(e) => { setSaveName(e.target.value); }}
-                            className="flex-1 bg-gray-900 border border-gray-700 px-2 text-xs text-white"
+                            className="flex-1 bg-surface border border-edge px-2 text-xs text-ink-strong"
                         />
                         <button 
                             onClick={handleSaveBrowser}
                             disabled={!saveName}
-                            className="bg-blue-600 hover:bg-blue-500 text-white px-3"
+                            className="bg-brand-strong hover:bg-brand text-ink-strong px-3"
                         >
                             <Save size={14}/>
                         </button>
                     </div>
 
                     <div className="space-y-1 max-h-40 overflow-y-auto">
-                        {savedMaps.length === 0 && <p className="text-xs text-gray-500 italic">No saved maps.</p>}
+                        {savedMaps.length === 0 && <p className="text-xs text-ink-faint italic">No saved maps.</p>}
                         {savedMaps.map(entry => (
-                            <div key={entry.name} className="flex items-center justify-between bg-gray-900 p-2 border border-gray-800 group">
+                            <div key={entry.name} className="flex items-center justify-between bg-surface p-2 border border-edge-subtle group">
                                 <div className="flex flex-col">
-                                    <span className="text-xs font-bold text-gray-300">{entry.name}</span>
-                                    <span className="text-[10px] text-gray-400">{new Date(entry.date).toLocaleDateString()}</span>
+                                    <span className="text-xs font-bold text-ink-soft">{entry.name}</span>
+                                    <span className="text-[10px] text-ink-muted">{new Date(entry.date).toLocaleDateString()}</span>
                                 </div>
                                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => { handleLoadBrowser(entry.params, entry.civData, entry.markers); }} className="text-blue-400 hover:text-white p-1"><FolderOpen size={12}/></button>
-                                    <button onClick={() => { handleDeleteBrowser(entry.name); }} className="text-red-400 hover:text-white p-1"><Trash2 size={12}/></button>
+                                    <button onClick={() => { handleLoadBrowser(entry.params, entry.civData, entry.markers); }} className="text-brand-soft hover:text-ink-strong p-1"><FolderOpen size={12}/></button>
+                                    <button onClick={() => { handleDeleteBrowser(entry.name); }} className="text-danger-soft hover:text-ink-strong p-1"><Trash2 size={12}/></button>
                                 </div>
                             </div>
                         ))}
@@ -1442,11 +1442,11 @@ const Controls: React.FC<ControlsProps> = ({
         )}
       </div>
 
-      <div className="p-4 border-t border-gray-800 space-y-2">
+      <div className="p-4 border-t border-edge-subtle space-y-2">
          {/* Console Output area */}
          <div className="mb-2">
              <div 
-               className="flex items-center justify-between text-xs text-gray-400 mb-1 cursor-pointer hover:text-gray-300"
+               className="flex items-center justify-between text-xs text-ink-muted mb-1 cursor-pointer hover:text-ink-soft"
                onClick={() => { setConsoleOpen(!consoleOpen); }}
              >
                  <div className="flex items-center gap-1">
@@ -1460,9 +1460,9 @@ const Controls: React.FC<ControlsProps> = ({
 
          {/* Generation progress bar */}
          {loading && (
-           <div className="w-full h-1 bg-gray-800 overflow-hidden">
+           <div className="w-full h-1 bg-surface-raised overflow-hidden">
              <div
-               className="h-full bg-blue-500 transition-all duration-300"
+               className="h-full bg-brand transition-all duration-300"
                style={{ width: `${genProgress * 100}%` }}
              />
            </div>
@@ -1471,9 +1471,9 @@ const Controls: React.FC<ControlsProps> = ({
          {!loading ? (
              <button
               onClick={handleGenerateClick}
-              className={`w-full py-3 font-semibold flex items-center justify-center gap-2 transition-all relative overflow-hidden bg-blue-600 hover:bg-blue-500 text-white border border-blue-500`}
+              className={`w-full py-3 font-semibold flex items-center justify-center gap-2 transition-all relative overflow-hidden bg-brand-strong hover:bg-brand text-ink-strong border border-brand`}
             >
-              <div className="relative flex items-center gap-2 z-10">
+              <div className="relative flex items-center gap-2 z-overlay">
                   <RefreshCw size={16} />
                   Generate World
               </div>
@@ -1481,9 +1481,9 @@ const Controls: React.FC<ControlsProps> = ({
          ) : (
             <button
               onClick={onCancel}
-              className={`w-full py-3 font-semibold flex items-center justify-center gap-2 transition-all relative overflow-hidden bg-red-600 hover:bg-red-500 text-white border border-red-500`}
+              className={`w-full py-3 font-semibold flex items-center justify-center gap-2 transition-all relative overflow-hidden bg-red-600 hover:bg-danger text-ink-strong border border-danger`}
             >
-              <div className="relative flex items-center gap-2 z-10">
+              <div className="relative flex items-center gap-2 z-overlay">
                   <XCircle size={16} />
                   Cancel Generation
               </div>
