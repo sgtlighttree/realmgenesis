@@ -33,11 +33,14 @@ const WideShell: React.FC<ShellProps> = ({
     </aside>
 
     {/* Canvas + docked panels */}
-    <div className="relative flex-1 min-w-0">
-      {/* Canvas is inset by the Read rail's footprint (16rem + 2x8px gutter) so
-          the globe centres in the VISIBLE gap between the rails rather than in
-          the element box, where a full-bleed canvas pushes it right. */}
-      <div className="absolute inset-y-0 left-0 right-[16.5rem]">{canvas}</div>
+    <div className="relative flex-1 min-w-0 overflow-hidden">
+      {/* The globe must centre on the VISIBLE gap between the rails, not on the
+          element box. Insetting the canvas from the right did that but left a
+          dead black gutter under the Read rail. Instead the canvas keeps full
+          coverage and is shifted LEFT by the rail's footprint: it still paints
+          to the right edge, the overspill on the left is clipped by the parent,
+          and the centre lands on the visible centre. */}
+      <div className="absolute inset-y-0 left-[-16.5rem] right-0">{canvas}</div>
 
       {/* View — top strip. Right edge clears the Read rail (16rem + 2×8px). */}
       <div className="absolute top-2 left-2 right-[17rem] z-20">
