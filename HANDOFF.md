@@ -12,6 +12,7 @@ workflow/style rules.
 - [ ] V3 of terrain generation algorithm. Goal is to make plate boundaries far more realistic, make part of Milestone D.
 - [ ] Major UI/frontend/rendering overhaul (Milestone F), use skill `/impeccable` for visual UI review
 - [ ] Major feature, for much, MUCH later: World Formats: Planet, Flat Earth (Disc, Rectangle, etc.)
+- [ ] Add a favicon just to clear the constant 404'ing
 
 ---
 
@@ -87,6 +88,93 @@ Suite: 52 → 119 tests across the tier. Every feature: typecheck 0, lint
   UI additions were kept minimal (buttons/selects) to limit rework.
 - Pre-D6 batch order was: A5 → E1/E2 → C4 → C5 → C1 → C2 → C3 (all shipped
   except C2 in-flight, C3 next).
+
+---
+
+## Session 6 (2026-07-25) — F1 docked bucket model SHIPPED
+
+Branch `redesign`, commits `4d804fb`..`5b80764`. Gates: typecheck 0, lint 0
+errors / **29** warnings (ratchet was 30 — see below), 138 tests, build OK.
+Browser-verified on a fresh `:4180` preview in BOTH folds. Plan doc:
+`docs/superpowers/plans/2026-07-25-f1-docked-bucket-model.md`.
+
+**⚠️ DATA-LOSS INCIDENT (read this first).** This session opened with
+`HANDOFF.md` clobbered in the working tree: a stale editor buffer had
+overwritten it with a pre-Session-5 version, deleting **204 lines** — the whole
+F1 record, the full-auto log, the next-pass notes, and the advisor resume notes.
+It was uncommitted, so `git checkout` recovered it; Matt's two scratchpad edits
+that rode along in the same save were re-applied on top (commit `4d804fb`).
+**Lesson: if you have HANDOFF.md open in an editor across a session where an
+agent also writes to it, reload the buffer before typing.** The recovery was
+committed IMMEDIATELY rather than left in the working tree, because a warning
+is not durable and the same buffer was still open.
+
+**The fork, decided (Matt, this session).** The advisor's Session-5 resume note
+framed the next step as an explicit fork. Matt chose:
+
+- **(a) migrate ShellApp onto WideShell/NarrowShell**, not (b) grow the bespoke
+  frame. Rationale: both branches needed the same two hard pieces (positioning
+  surgery + a real `view` slot), so the cost gap was small, and (b) would have
+  tangled layout with wiring in one ~450-line file while the approved shells
+  rotted unused.
+- **Strip each floater's chrome and wrap in the shell `Panel`**, not "render
+  bare with its own chrome". This is the "one chrome" consistency win F1 exists
+  for.
+
+**Decisions + rationale (the perishable part):**
+
+- **`ViewControls` exports PRIMITIVES, not an orientation-flag component.** The
+  Sys tab interleaves render-mode / toggles / view-layer *vertically between
+  Make content* (Render Mode at the top, then Seed and points, then toggles,
+  then View Layer) while the strip lays them out inline. Layout is the part that
+  genuinely differs per host, so each host composes it; only the buttons, toggle
+  definitions, and layer list are shared. An `orientation` prop would have been
+  the same two-personality smell the advisor flagged for `bare` booleans.
+- **`className`-defaulting-to-current-string, NOT a `bare` boolean**, for every
+  parameterized component. Classic App keeps working with zero changes.
+- **No per-card collapse in the docked shells (explicit assumption, verified).**
+  Collapse existed on Legend/MiniMap because they *occlude the globe*; in
+  WideShell the Read slot already scrolls and in NarrowShell it is a dismissable
+  sheet, so the pressure is gone. Adding collapse to `Panel` would have been
+  adding a feature under cover of removing one. If the rail ever reads too tall,
+  it goes in `Panel`'s existing `right` slot, implemented once.
+- **`MiniMap.isCollapsed` was a PERFORMANCE gate, not presentation** — it
+  early-returned the d3 redraw and sat in the effect dep array. The docked card
+  therefore conditionally **unmounts** `MiniMapCanvas`; CSS-hiding it would
+  redraw 5k paths on every paint stroke. Same reason the Read array is built
+  conditionally (MiniMapCanvas returns null without a world → empty titled box).
+- **Lint ratchet moved 30 → 29 legitimately.** The extracted `ViewButton` no
+  longer needs the `icon: any` the inline version carried. Do not "restore" 30.
+  (Mid-flight it spiked to 43: moving the icons out of Controls left 14 dead
+  lucide imports. Fixed, not suppressed.)
+- **`showHeader` on Controls**: the brand header is *shell* chrome. The shell
+  rail draws its own, so docked Controls rendered "RealmGenesis 3D" twice.
+
+**Verification bar was raised deliberately.** This pass restructured
+`EditToolbar`, which drives `handlePaint`/`handleUndo` — the paths with zero
+test and zero browser coverage. So the interactive smoke was the gate for THIS
+pass, not a later one before deleting classic. Verified with **trusted** pointer
+events (`page.mouse`, not synthetic dispatch, which R3F raycasting ignores):
+paint stroke in the docked Do bar took undo 0 → 1, undo took it 1 → 0, Esc
+exited edit mode and cleared paint mode, cell inspection populated the docked
+Inspector with live data, and its header tool buttons still respond (the
+`pointer-events-none` wrapper risk did not materialize). Narrow fold: Make/View/
+Do/Read tab bar, Do sheet is edit mode. Classic re-verified unchanged.
+
+**Known nits, deliberately not fixed (need Matt's eye / out of scope):**
+
+- **`WorldViewer`'s own pause control (`absolute top-4 right-4`) now sits under
+  the Read rail.** Pre-existing element, newly colliding. Fixing it means
+  touching 3D presentation chrome — that's F2 territory.
+- **Ruler readout (`bottom-6 left-1/2`) overlaps the NarrowShell Do sheet** when
+  the ruler is active and the sheet is open. Transient-tool overlap only.
+- `?shell=stub` still serves the DesignShell prototype; `?globe=0` still works
+  and still only skips WebGL, not generation.
+
+**Next:** classic App and ShellApp are still a fork sharing one hook — mirror
+component-wiring changes in both, and retire classic once ShellApp reaches
+parity (`index.tsx` routing is the switch). Then F1b, the `/impeccable` visual
+identity pass on the settled skeleton.
 
 ---
 
