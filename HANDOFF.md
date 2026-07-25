@@ -16,7 +16,38 @@ workflow/style rules.
 
 ---
 
-## ⚡ NEW-THREAD PICKUP (updated 2026-07-24, end of Session 4)
+## ⚡ NEW-THREAD PICKUP (updated 2026-07-25, end of Session 6d)
+
+F1 shell is on branch `redesign`, NOT pushed, NOT merged. `?shell=1` is the
+redesign, `?shell=stub` the layout prototype, `/` still classic. Gates at
+handoff: typecheck 0, lint 0 errors / **29** warnings (ratchet is 30 — 29 is
+correct, do not "restore" it), 138 tests, build OK.
+
+**Read Sessions 6b–6d below before touching the shell.** The load-bearing bits:
+`tailwind.config.js` zeroes the radius scale (sharp corners are a token);
+`rounded-*` is gone from source on purpose; the Make rail is flush and must not
+be re-wrapped in a `Panel`; the canvas is shifted left, not inset.
+
+**Next pass, in the order I'd take it:**
+
+1. **Color token layer — do this BEFORE F1b.** 18 hard-coded hex, bg opacity
+   spread across /10–/85, informal `z-10`/`z-20`. Without it the brand pass is a
+   find-and-replace across dozens of files instead of editing one block.
+2. **ARIA names** (Matt deferred, not cancelled): 58 buttons, 5 with semantic
+   ARIA; 44 rely on `title`, which is a tooltip, not an accessible name. The
+   biome/faction swatches are the worst — unlabeled buttons to a screen reader.
+3. **44px touch targets** on the strip chips and EditToolbar modes (~22px now).
+4. **Retire classic** once ShellApp reaches parity — they are a fork sharing one
+   hook, and every component-wiring change must currently be mirrored in both.
+   Gate it on the interactive smoke (paint, undo, save/load, abort-mid-generate).
+5. Decide whether `shellKit`'s stub panels ship (only `?shell=stub` uses them).
+
+**Known cosmetic nit:** long biome names ("Temperate Rainforest") clip at the
+right edge of the two-column legend. Needs a truncate or a narrower type step.
+
+---
+
+## Previous pickup (2026-07-24, end of Session 4)
 
 **C3 (roads & trade routes) SHIPPED this session** — the last pre-D6
 additive feature. The whole C-tier and pre-D6 batch are now done. A fresh
@@ -106,14 +137,17 @@ payoff of the shared chrome, and the reason the original deferral was cheap.
 **Collapsing UNMOUNTS the body**, never CSS-hides it: `MiniMapCanvas` redraws on
 every world change, so hiding would keep that work alive.
 
-**Visual centring: the canvas is inset, not full-bleed.** A full-bleed canvas
-centres the globe on the *element box*, which put it ~130px right of the gap
-between the rails. `WideShell`'s canvas now ends at the Read rail's left edge
-(`right-[16.5rem]`), so the globe centre lands on the visible centre (732 on a
-1440 viewport, was 864). **The Do bar had to move inside that column too** —
-it was still `left-1/2` of the full container and drifted right of the globe.
-Rail width is deliberately fixed regardless of collapse state so the inset
-stays constant; do not make it dynamic without re-checking both.
+**Visual centring: canvas is SHIFTED, not inset.** A full-bleed canvas centres
+the globe on the *element box*, ~130px right of the gap between the rails. First
+attempt inset the canvas (`right-[16.5rem]`) — correct centre, but it left a
+dead opaque black gutter under the Read rail, which reads as a bug. **Corrected
+(`a6c8b9e`): the canvas keeps full coverage and is shifted LEFT instead**
+(`left-[-16.5rem] right-0`, parent `overflow-hidden`). It still paints to the
+right edge so the rail floats over live canvas; the left overspill is clipped;
+centre lands at 732 on a 1440 viewport (was 864). **The Do bar had to move into
+that column too** — it was still `left-1/2` of the full container. Rail width is
+deliberately fixed regardless of collapse state so the shift stays constant; do
+not make it dynamic without re-checking both.
 
 **`rounded-*` classes are now GONE from source, not just no-ops.** 6c zeroed the
 Tailwind scale and left the classes in place; that made the code claim a radius
