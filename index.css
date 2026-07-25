@@ -41,7 +41,8 @@ html,
 
 ::-webkit-scrollbar-thumb {
   background-color: #3f4654;
-  border-radius: 9999px;
+  /* Square, matching the zeroed radius scale in tailwind.config.js. */
+  border-radius: 0;
   /* Transparent border + padding-box clip insets the thumb without needing a
      wrapper, so it floats in the gutter instead of touching both edges. */
   border: 2px solid transparent;
@@ -64,7 +65,7 @@ input[type='checkbox'] {
   width: 0.875rem;
   height: 0.875rem;
   border: 1px solid #4b5563;
-  border-radius: 0.1875rem;
+  border-radius: 0;
   background-color: #0b0f17;
   cursor: pointer;
   transition: background-color 0.15s ease-out, border-color 0.15s ease-out;
