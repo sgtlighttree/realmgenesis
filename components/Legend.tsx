@@ -8,12 +8,12 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
  * shell's Read rail supplies both via `Panel`. `BiomeLegend` below composes it
  * with the floating-over-the-globe chrome the classic layout needs.
  */
-export const BiomeLegendList: React.FC = () => (
-  <div className="space-y-1">
+export const BiomeLegendList: React.FC<{ columns?: 1 | 2 }> = ({ columns = 1 }) => (
+  <div className={columns === 2 ? 'grid grid-cols-2 gap-x-3 gap-y-1' : 'space-y-1'}>
     {(Object.keys(BIOME_COLORS) as BiomeType[]).map((biome) => (
       <div key={biome} className="flex items-center gap-2">
         <div
-          className="w-3 h-3 border border-white/10"
+          className="w-3 h-3 shrink-0 border border-white/10"
           style={{ backgroundColor: BIOME_COLORS[biome] }}
         />
         <span className="text-[10px] text-gray-300 whitespace-nowrap">{biome}</span>

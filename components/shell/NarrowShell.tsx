@@ -46,7 +46,7 @@ const NarrowShell: React.FC<ShellProps> = ({
     read: (
       <div className="flex flex-col gap-3">
         {read.map(card => (
-          <Panel key={card.key} title={card.title} className="shrink-0">{card.node}</Panel>
+          <Panel key={card.key} title={card.title} collapsible={card.collapsible} className="shrink-0">{card.node}</Panel>
         ))}
       </div>
     ),
