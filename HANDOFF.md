@@ -91,6 +91,80 @@ Suite: 52 → 119 tests across the tier. Every feature: typecheck 0, lint
 
 ---
 
+## Session 6b (2026-07-25) — impeccable audit + critique, then fixes
+
+Same session, after the docked bucket model landed. Commits `3d5a500`..`c4baa75`.
+Gates throughout: typecheck 0, lint 0 errors / 29 warnings, 138 tests, build OK.
+Critique snapshot: `.impeccable/critique/2026-07-25T03-53-02Z__components-shell.md`.
+
+**Scores: Design Health 22/40, Audit Health 10/20.** Slop verdict: not slop at a
+glance, borderline under 30s of clicking — the tells are interaction-level
+(three control vocabularies for peer decisions), not visual.
+
+**The detector's 9 findings were ALL false positives.** Every one is a ternary
+`active ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400'`; the
+`gray-on-color` rule scans the whole template literal and pairs the inactive
+branch's gray text with the active branch's saturated bg — a pairing that never
+renders. Don't "fix" these; the rule is wrong, not the code.
+
+**Decisions + rationale:**
+
+- **Themed form controls are NOT a violation of the product register's "don't
+  reinvent standard affordances (custom scrollbars, weird form controls)" ban.**
+  That ban protects standard *behaviour*. A native `<select>` on a near-black app
+  renders a light OS menu — that is a theming defect, not an affordance being
+  honoured. So: appearance is ours, behaviour is the native contract. `Select`
+  keeps type-ahead, Home/End, arrows, Enter/Space, Esc-cancels-without-commit,
+  focus-returns-to-trigger, and full ARIA listbox semantics (all browser-verified).
+- **`Select` portals to `document.body` and positions `fixed`.** An absolutely
+  positioned menu is clipped by the View strip's overflow and the mobile sheet's
+  `overflow-auto`. Do not "simplify" this back to absolute.
+- **`ConfirmDialog` is built on the native `<dialog>` + `showModal()`** for focus
+  trapping, page inertness, and Esc — not a hand-rolled portal+trap. `window.confirm`
+  was rejected for the same reason as the native select: OS chrome in a dark app.
+- **The generate gate lives in `useWorldEngine`, not the button**, so every entry
+  point inherits it. Fires only when `undoStack.length > 0`. **Auto-update stays
+  ungated on purpose** — it fires on every slider change; prompting would be
+  unusable.
+
+**Two REAL bugs found by looking at rendered pixels, not code:**
+
+1. **`rg-rise` was clobbering Tailwind transforms** (fixed `f95def3`). The keyframes
+   animated `transform`, and `both` fill mode left `transform: translateY(0)` on the
+   element permanently, silently overwriting `-translate-x-1/2`. The Do bar sat half
+   its own width right of centre, overlapping the Read rail, ever since the docked
+   layout landed. Fix: animate the independent **`translate`** property, which
+   composes with `transform` instead of replacing it. **If you add a rise/slide
+   animation to anything Tailwind also transforms, use `translate`, not `transform`.**
+2. **The mobile Make sheet opened on the console** (fixed `e38f22a`). Two causes, and
+   the obvious one was the minor one. `ConsoleOutput` called
+   `scrollIntoView({behavior:'smooth'})`, which **walks up and scrolls every
+   scrollable ancestor**, dragging the sheet down to the log box — and because it is
+   smooth, it lands *after* any scroll reset. Resetting `scrollTop` alone still left
+   ~150px of drift; that was a **refuted first diagnosis** (I initially blamed only
+   the sheet body being one reused DOM node across tabs, which is real but secondary).
+   Fix: `ConsoleOutput` sets `scrollTop` on its own box; `NarrowShell` also resets on
+   tab change. Verified `scrollTop: 0` with Render Mode in view on first open and
+   re-open.
+
+**Still open (Matt scoped these out of this pass):**
+
+- **a11y is the lowest score (1/4) and the biggest available gain.** 58 buttons, only
+  5 with semantic ARIA; 44 rely on `title`, which is a tooltip, not an accessible
+  name, and never appears on touch. The 15+ biome swatches and faction chips read as
+  "button, button, button" to a screen reader.
+- **Touch targets ~22px vs the 44px minimum** on the strip chips and EditToolbar
+  modes — these are primary controls on the narrow fold.
+- **Compounded contrast:** `text-[9px] text-gray-600` on `bg-black/85` is the worst
+  case; 30 uses of `text-gray-500`, 14 of `text-gray-600` overall.
+- **No token layer** — 18 hard-coded hex, bg opacity spread across /10–/85, informal
+  `z-10`/`z-20`. Worth fixing *before* F1b, or the brand pass is a find-and-replace
+  across dozens of files instead of one token block.
+- **`shellKit`'s stub panels** (`MakePanel`/`ViewPanel`/`DoPanel`/`READ_CARDS`) are
+  now used only by `?shell=stub`. Decide whether they ship.
+
+---
+
 ## Session 6 (2026-07-25) — F1 docked bucket model SHIPPED
 
 Branch `redesign`, commits `4d804fb`..`5b80764`. Gates: typecheck 0, lint 0
