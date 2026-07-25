@@ -154,12 +154,28 @@ framed the next step as an explicit fork. Matt chose:
 `EditToolbar`, which drives `handlePaint`/`handleUndo` — the paths with zero
 test and zero browser coverage. So the interactive smoke was the gate for THIS
 pass, not a later one before deleting classic. Verified with **trusted** pointer
-events (`page.mouse`, not synthetic dispatch, which R3F raycasting ignores):
-paint stroke in the docked Do bar took undo 0 → 1, undo took it 1 → 0, Esc
-exited edit mode and cleared paint mode, cell inspection populated the docked
-Inspector with live data, and its header tool buttons still respond (the
-`pointer-events-none` wrapper risk did not materialize). Narrow fold: Make/View/
-Do/Read tab bar, Do sheet is edit mode. Classic re-verified unchanged.
+events (`page.mouse`, not synthetic dispatch, which R3F raycasting ignores).
+
+Exactly what was covered, so the next session doesn't over-trust this:
+
+- **Wide fold, 3D:** paint stroke in the docked Do bar took undo 0 → 1, undo
+  took it 1 → 0, Esc exited edit mode and cleared paint mode. Cell inspection
+  populated the docked Inspector with live data and its header tool buttons
+  still respond — the `pointer-events-none` wrapper risk did NOT materialize.
+- **Wide fold, 2D:** Mercator and Dymaxion both render through the shell's
+  `canvas` slot; the Map2D canvas measures 992×720 with CSS size == attribute
+  size, so the Dymaxion pick-buffer-mirrors-raster invariant still holds. A
+  `ViewStrip` layer chip flips, and the Sys-tab checkbox mirrors it (shared
+  state confirmed across both hosts of the extracted primitives).
+- **Narrow fold:** Make/View/Do/Read tab bar; Do sheet is edit mode; the Make
+  sheet scrolls (340px viewport over 1534px content) with Generate World
+  reachable above the tab bar. The `h-full`-inside-a-percentage-capped-sheet
+  collapse this was expected to hit did not occur.
+- **Classic** re-verified: single brand header, all four collapse chevrons, all
+  toggles, no tab bar. **`?shell=stub`** re-verified after the `WideShell`
+  `bodyClassName="p-0"` change — still renders A·Tidy correctly.
+- **NOT covered:** save/load, lore/`apiKey`, abort-mid-generate, and painting in
+  2D projections. Those remain the pre-existing coverage gap.
 
 **Known nits, deliberately not fixed (need Matt's eye / out of scope):**
 
