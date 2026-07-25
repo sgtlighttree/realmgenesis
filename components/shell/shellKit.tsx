@@ -36,8 +36,8 @@ export const BUCKET: Record<Bucket, { label: string }> = {
 // One chrome definition — the single source the "consistency cleanup" buys us.
 // Change radius/border/fill here and every panel moves together. Solid, not
 // glass: docked panels don't need to see through, and default blur is a tell.
-export const PANEL = 'border border-gray-800 bg-gray-900 rounded-md';
-const HEADER = 'flex items-center gap-2 px-3 py-2.5 border-b border-gray-800/80';
+export const PANEL = 'border border-gray-800 bg-gray-900';
+const HEADER = 'flex items-center gap-2 px-3 py-2 border-b border-gray-800';
 export const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900';
 const CHIP = `text-[10px] px-2 py-1 rounded border border-gray-700 bg-gray-800 text-gray-300 whitespace-nowrap transition-colors hover:border-gray-600 hover:text-white ${FOCUS}`;
 const CHIP_ON = `text-[10px] px-2 py-1 rounded border border-blue-500 bg-blue-600 text-white whitespace-nowrap ${FOCUS}`;
@@ -199,7 +199,7 @@ export const PlaceholderGlobe: React.FC = () => (
       }}>
       <div className="absolute inset-[8%] rounded-full border border-white/10" />
       <div className="absolute inset-[8%_30%] rounded-full border border-white/10" />
-      <span className="absolute inset-0 grid place-items-center text-[11px] font-mono text-white/25">
+      <span className="absolute inset-0 grid place-items-center text-[11px] font-mono text-white/40">
         placeholder globe
       </span>
     </div>

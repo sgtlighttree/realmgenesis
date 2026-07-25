@@ -58,17 +58,17 @@ const NarrowShell: React.FC<ShellProps> = ({
       <div className="relative flex-1 min-h-0">
         <div className="absolute inset-0">{canvas}</div>
 
-        <div className="absolute top-3 left-3 text-xs font-semibold tracking-tight text-white/80">
+        <div className="absolute top-2 left-2 z-10 text-xs font-semibold tracking-tight text-white/80">
           RealmGenesis 3D
         </div>
 
         {/* Sheet — one panel at a time, over the globe */}
         {openTab && (
-          <div className={`absolute inset-x-2 bottom-2 max-h-[52%] flex flex-col ${PANEL} shadow-2xl rg-rise`}>
+          <div className={`absolute inset-x-2 bottom-2 z-20 max-h-[52%] flex flex-col ${PANEL} shadow-2xl rg-rise`}>
             <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-800/80">
               <span className="text-xs font-semibold text-gray-100 tracking-tight">{BUCKET[openTab].label}</span>
               <button onClick={() => setOpenTab(null)} aria-label="Close panel"
-                className={`ml-auto -mr-1 grid place-items-center w-6 h-6 rounded text-gray-500 hover:text-white hover:bg-gray-800 text-lg leading-none ${FOCUS}`}>×</button>
+                className={`ml-auto -mr-1 grid place-items-center w-6 h-6 rounded text-gray-400 hover:text-white hover:bg-gray-800 text-lg leading-none ${FOCUS}`}>×</button>
             </div>
             <div ref={sheetBodyRef} className="min-h-0 overflow-auto p-3">{sheetBody[openTab]}</div>
           </div>
@@ -86,10 +86,10 @@ const NarrowShell: React.FC<ShellProps> = ({
               className={`flex-1 flex flex-col items-center gap-1 py-2.5 border-t-2 transition-colors ${FOCUS}
                 ${active
                   ? 'text-blue-400 border-blue-500 bg-gray-900/60'
-                  : 'text-gray-500 border-transparent hover:text-gray-300'}`}
+                  : 'text-gray-400 border-transparent hover:text-gray-300'}`}
             >
               {t.icon}
-              <span className="text-[9px] font-mono uppercase tracking-wide">{BUCKET[t.key].label}</span>
+              <span className="text-[10px] font-mono uppercase tracking-wide">{BUCKET[t.key].label}</span>
             </button>
           );
         })}
