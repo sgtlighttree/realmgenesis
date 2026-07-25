@@ -217,6 +217,10 @@ const ShellApp: React.FC = () => {
           religionColors={religionColors}
           brushSize={brushSize}
           rulerArc={rulerArc}
+          // Default is top-right, which the docked Read rail now occupies.
+          // Bottom-left is the one canvas corner the shell leaves free, and it
+          // pairs the pause control with the seed caption beside it.
+          overlayClassName="absolute bottom-3 left-3 z-10 flex gap-2"
         />
       ) : (
         <Map2D
@@ -243,9 +247,12 @@ const ShellApp: React.FC = () => {
         />
       )}
 
-      {/* Seed caption — bottom-left, clear of the View strip. */}
+      {/* Seed caption — sits beside the viewer's own control cluster, offset by
+          its width so the two read as one bottom-left group. */}
       {world && (
-        <div className="absolute bottom-3 left-3 pointer-events-none text-[10px] font-mono text-white/40">
+        <div className={`absolute bottom-3 pointer-events-none text-[10px] font-mono text-gray-400 ${
+          !noGlobe && displayMode === 'globe' ? 'left-16' : 'left-3'
+        }`}>
           {params.seed} · {world.cells.length.toLocaleString()} cells
         </div>
       )}

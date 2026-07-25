@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 
 import { ViewMode, DisplayMode, LabelVisibility } from '../types';
+import Select, { SelectOption } from './Select';
 
 /** Lucide icons take size/className; React.ElementType is too loose to accept them. */
 type IconType = React.ComponentType<{ size?: number; className?: string }>;
@@ -63,6 +64,10 @@ export const VIEW_LAYERS: { mode: ViewMode; icon: IconType; label: string }[] = 
   { mode: 'religion', icon: Church, label: 'Religions' },
   { mode: 'population', icon: Users, label: 'Population' },
 ];
+
+/** Same list as VIEW_LAYERS, shaped for the themed Select. */
+export const VIEW_LAYER_OPTIONS: SelectOption<ViewMode>[] =
+  VIEW_LAYERS.map(l => ({ value: l.mode, label: l.label }));
 
 export const OVERLAY_KEYS: [keyof LabelVisibility, string][] = [
   ['borders', 'Faction Borders'],
@@ -239,16 +244,14 @@ export const ViewStrip: React.FC<ViewControlsProps> = (p) => (
       ))}
     </div>
 
-    <select
+    <Select
       value={p.viewMode}
-      onChange={(e) => { p.setViewMode(e.target.value as ViewMode); }}
-      title="View layer"
-      className="shrink-0 bg-gray-800 border border-gray-700 rounded text-[11px] text-gray-200 px-2 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
-    >
-      {VIEW_LAYERS.map(l => (
-        <option key={l.mode} value={l.mode}>{l.label}</option>
-      ))}
-    </select>
+      options={VIEW_LAYER_OPTIONS}
+      onChange={p.setViewMode}
+      label="View layer"
+      className="shrink-0"
+      triggerClassName="min-w-[7.5rem] justify-between"
+    />
 
     <div className="flex flex-wrap items-center gap-1 min-w-0">
       {buildLayerToggles(p).map(t => <LayerChip key={t.key} toggle={t} />)}
