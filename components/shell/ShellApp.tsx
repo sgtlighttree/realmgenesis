@@ -11,6 +11,7 @@ import { ViewStrip } from '../ViewControls';
 import WideShell from './WideShell';
 import NarrowShell from './NarrowShell';
 import { PlaceholderGlobe, ReadCard } from './shellKit';
+import ConfirmDialog from '../ConfirmDialog';
 import { useWorldEngine } from '../../hooks/useWorldEngine';
 
 /**
@@ -52,7 +53,8 @@ const ShellApp: React.FC = () => {
     apiKey, setApiKey, editMode, setEditMode, paintStyle, setPaintStyle,
     brushSize, setBrushSize, paintStrength, setPaintStrength, paintFaction,
     setPaintFaction, paintBiome, setPaintBiome, sampleHeight, adaptiveBiomes,
-    setAdaptiveBiomes, undoStack, handleGenerate, handleLoadWorld, handleCancel,
+    setAdaptiveBiomes, undoStack, requestGenerate, pendingGenerate, confirmGenerate,
+    cancelGenerate, handleLoadWorld, handleCancel,
     handleUpdateCivs, handleUpdateProvinces, toggleInspectEnabled, toggleRuler,
     toggleMarkerMode, handleInspect, updateMarker, deleteMarker, rulerArc,
     rulerDistanceKm, handleGenerateLore, factionColors, cultureColors,
@@ -88,7 +90,7 @@ const ShellApp: React.FC = () => {
       className="w-full flex flex-col h-full overflow-hidden text-sm"
       showHeader={false}
       params={params} setParams={setParams}
-      onGenerate={handleGenerate}
+      onGenerate={requestGenerate}
       onLoadWorld={handleLoadWorld}
       onCancel={handleCancel}
       onUpdateCivs={handleUpdateCivs} onUpdateProvinces={handleUpdateProvinces}
@@ -278,6 +280,7 @@ const ShellApp: React.FC = () => {
   const Shell = isNarrow ? NarrowShell : WideShell;
 
   return (
+    <>
     <Shell
       make={make}
       view={view}
@@ -287,6 +290,16 @@ const ShellApp: React.FC = () => {
       editing={editing}
       onSetEditing={onSetEditing}
     />
+    <ConfirmDialog
+      open={pendingGenerate !== null}
+      title="Discard your edits?"
+      body={`Generating replaces the world. ${undoStack.length} painted ${undoStack.length === 1 ? 'change' : 'changes'} will be lost, and this cannot be undone.`}
+      confirmLabel="Discard & Generate"
+      destructive
+      onConfirm={confirmGenerate}
+      onCancel={cancelGenerate}
+    />
+    </>
   );
 };
 

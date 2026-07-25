@@ -7,11 +7,12 @@ import Inspector from './components/Inspector';
 import { BiomeLegend } from './components/Legend';
 import EditToolbar from './components/EditToolbar';
 import { Menu, X } from 'lucide-react';
+import ConfirmDialog from './components/ConfirmDialog';
 import { useWorldEngine } from './hooks/useWorldEngine';
 
 const App: React.FC = () => {
   const {
-    params, setParams, world, viewMode, setViewMode, displayMode, setDisplayMode, inspectMode, inspectorCollapsed, setInspectorCollapsed, inspectedCellId, rulerActive, markerMode, selectedMarkerId, setSelectedMarkerId, isGenerating, genProgress, logs, lore, isLoreLoading, showGrid, setShowGrid, showRivers, setShowRivers, showRoutes, setShowRoutes, showHillshade, setShowHillshade, showContours, setShowContours, labelVisibility, setLabelVisibility, sidebarOpen, setSidebarOpen, dymaxionSettings, setDymaxionSettings, apiKey, setApiKey, editMode, setEditMode, paintStyle, setPaintStyle, brushSize, setBrushSize, paintStrength, setPaintStrength, paintFaction, setPaintFaction, paintBiome, setPaintBiome, sampleHeight, adaptiveBiomes, setAdaptiveBiomes, undoStack, handleGenerate, handleLoadWorld, handleCancel, handleUpdateCivs, handleUpdateProvinces, toggleInspectEnabled, toggleRuler, toggleMarkerMode, handleInspect, updateMarker, deleteMarker, rulerArc, rulerDistanceKm, handleGenerateLore, factionColors, cultureColors, religionColors, handlePaint, handleUndo, handleEditWorldData, handleEditFaction, handleMergeFactions, handleRenameProvince, handleRenameTown, handleRelocateCapital,
+    params, setParams, world, viewMode, setViewMode, displayMode, setDisplayMode, inspectMode, inspectorCollapsed, setInspectorCollapsed, inspectedCellId, rulerActive, markerMode, selectedMarkerId, setSelectedMarkerId, isGenerating, genProgress, logs, lore, isLoreLoading, showGrid, setShowGrid, showRivers, setShowRivers, showRoutes, setShowRoutes, showHillshade, setShowHillshade, showContours, setShowContours, labelVisibility, setLabelVisibility, sidebarOpen, setSidebarOpen, dymaxionSettings, setDymaxionSettings, apiKey, setApiKey, editMode, setEditMode, paintStyle, setPaintStyle, brushSize, setBrushSize, paintStrength, setPaintStrength, paintFaction, setPaintFaction, paintBiome, setPaintBiome, sampleHeight, adaptiveBiomes, setAdaptiveBiomes, undoStack, requestGenerate, pendingGenerate, confirmGenerate, cancelGenerate, handleLoadWorld, handleCancel, handleUpdateCivs, handleUpdateProvinces, toggleInspectEnabled, toggleRuler, toggleMarkerMode, handleInspect, updateMarker, deleteMarker, rulerArc, rulerDistanceKm, handleGenerateLore, factionColors, cultureColors, religionColors, handlePaint, handleUndo, handleEditWorldData, handleEditFaction, handleMergeFactions, handleRenameProvince, handleRenameTown, handleRelocateCapital,
   } = useWorldEngine();
 
   return (
@@ -23,7 +24,7 @@ const App: React.FC = () => {
  max-h-[85vh] md:max-h-full flex flex-col shadow-2xl`}>
         <Controls 
           params={params} setParams={setParams}
-          onGenerate={handleGenerate} 
+          onGenerate={requestGenerate} 
           onLoadWorld={handleLoadWorld}
           onCancel={handleCancel}
           onUpdateCivs={handleUpdateCivs} onUpdateProvinces={handleUpdateProvinces}
@@ -169,6 +170,15 @@ const App: React.FC = () => {
           />
         )}
       </main>
+      <ConfirmDialog
+        open={pendingGenerate !== null}
+        title="Discard your edits?"
+        body={`Generating replaces the world. ${undoStack.length} painted ${undoStack.length === 1 ? 'change' : 'changes'} will be lost, and this cannot be undone.`}
+        confirmLabel="Discard & Generate"
+        destructive
+        onConfirm={confirmGenerate}
+        onCancel={cancelGenerate}
+      />
     </div>
   );
 };
