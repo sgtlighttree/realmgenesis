@@ -3,10 +3,11 @@ import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode, Dymax
 import { RefreshCw, Globe, Mountain, Lock, Unlock, Shuffle, Layers, Zap, Save, Trash2, Image, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Box, Copy, Check, FileCode, FileJson } from 'lucide-react';
 import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
 import { downloadSVG, downloadGeoJSON } from '../utils/exportVector';
-import { NAME_STYLES, NameStyle } from '../utils/namegen';
+import { NAME_STYLES } from '../utils/namegen';
 import { exportGLB } from '../utils/exportGLB';
 import { WorldData } from '../types';
 import DymaxionPreview2D from './DymaxionPreview2D';
+import Select, { SelectOption } from './Select';
 import {
   ViewControlsProps, DISPLAY_MODES, DisplayButton, ViewLayerGrid,
   LayerToggleRow, OverlayToggles, buildLayerToggles,
@@ -465,7 +466,7 @@ const Controls: React.FC<ControlsProps> = ({
                       value={params.seed} 
                       onChange={(e) => { handleChange('seed', e.target.value); }}
                       disabled={seedLocked}
-                      className="bg-black border border-gray-700 px-2 py-1 text-white text-xs flex-1 disabled:opacity-50"
+                      className="bg-black border border-gray-700 px-2 py-1 text-white text-xs flex-1 min-w-0 disabled:opacity-50"
                    />
                    <button
                       onClick={() => {
@@ -619,17 +620,14 @@ const Controls: React.FC<ControlsProps> = ({
            <div className="space-y-5">
               <div className="space-y-1">
                  <label className="text-xs text-gray-400 block mb-1">Terrain Preset</label>
-                 <select 
+                 <Select
                     value={params.landStyle}
-                    onChange={(e) => { handlePresetChange(e.target.value as LandStyle); }}
-                    className="w-full bg-gray-800 text-white text-xs border border-gray-700 p-2"
-                 >
-                    <option value="Continents">Continents</option>
-                    <option value="Pangea">Pangea</option>
-                    <option value="Archipelago">Archipelago</option>
-                    <option value="Islands">Islands</option>
-                    <option value="Custom">Custom</option>
-                 </select>
+                    options={[{ value: 'Continents', label: 'Continents' }, { value: 'Pangea', label: 'Pangea' }, { value: 'Archipelago', label: 'Archipelago' }, { value: 'Islands', label: 'Islands' }, { value: 'Custom', label: 'Custom' }] as SelectOption<LandStyle>[]}
+                    onChange={(v) => { handlePresetChange(v); }}
+                    label="Terrain preset"
+                    className="w-full"
+                    triggerClassName="w-full justify-between bg-gray-800 border-gray-700 px-2 py-2 text-xs"
+                 />
               </div>
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-gray-400">
@@ -882,7 +880,7 @@ const Controls: React.FC<ControlsProps> = ({
                       value={params.civSeed} 
                       onChange={(e) => { handleChange('civSeed', e.target.value); }}
                       disabled={civSeedLocked}
-                      className="bg-black border border-gray-700 px-2 py-1 text-white text-xs flex-1 disabled:opacity-50"
+                      className="bg-black border border-gray-700 px-2 py-1 text-white text-xs flex-1 min-w-0 disabled:opacity-50"
                    />
                    <button 
                       onClick={() => { setCivSeedLocked(!civSeedLocked); }} 
@@ -1040,19 +1038,20 @@ const Controls: React.FC<ControlsProps> = ({
                       </div>
                       {onMergeFactions && otherFactions.length > 0 && (
                         <div className="flex items-center gap-1.5 pl-1">
-                          <select
-                            value={mergeTarget}
-                            onChange={e => {
-                              const val = e.target.value === '' ? '' : parseInt(e.target.value, 10);
+                          <Select
+                            value={mergeTarget === '' ? '' : String(mergeTarget)}
+                            options={[
+                              { value: '', label: 'Merge into\u2026' },
+                              ...otherFactions.map(o => ({ value: String(o.id), label: o.name })),
+                            ]}
+                            onChange={(v) => {
+                              const val = v === '' ? '' : parseInt(v, 10);
                               setMergeTargets(prev => ({ ...prev, [f.id]: val }));
                             }}
-                            className="flex-1 bg-black border border-gray-700 px-1.5 py-1 text-gray-300 text-[10px] focus:outline-none focus:border-blue-500"
-                          >
-                            <option value="">Merge into…</option>
-                            {otherFactions.map(o => (
-                              <option key={o.id} value={o.id}>{o.name}</option>
-                            ))}
-                          </select>
+                            label={`Merge ${f.name} into another faction`}
+                            className="flex-1 min-w-0"
+                            triggerClassName="w-full justify-between bg-black border-gray-700 px-1.5 py-1 text-[10px] text-gray-300"
+                          />
                           <button
                             onClick={() => {
                               if (mergeTarget === '') return;
@@ -1076,30 +1075,32 @@ const Controls: React.FC<ControlsProps> = ({
               {/* Name Style */}
               <div className="space-y-1 border-t border-gray-800 pt-3">
                   <label className="text-xs text-gray-400 block mb-1">Name Style</label>
-                  <select
+                  <Select
                      value={params.nameStyle || 'fantasy'}
-                     onChange={(e) => { handleChange('nameStyle', e.target.value as NameStyle); }}
-                     className="w-full bg-gray-800 text-white text-xs border border-gray-700 p-2"
-                  >
-                     {NAME_STYLES.map(style => (
-                       <option key={style} value={style}>{style.charAt(0).toUpperCase() + style.slice(1)}</option>
-                     ))}
-                  </select>
+                     options={NAME_STYLES.map(style => ({ value: style, label: style.charAt(0).toUpperCase() + style.slice(1) }))}
+                     onChange={(v) => { handleChange('nameStyle', v); }}
+                     label="Name style"
+                     className="w-full"
+                     triggerClassName="w-full justify-between bg-gray-800 border-gray-700 px-2 py-2 text-xs"
+                  />
                   <p className="text-[9px] text-gray-500">Applies on Reroll Borders or regeneration.</p>
               </div>
 
               {/* Lore Level */}
               <div className="space-y-1 border-t border-gray-800 pt-3">
                   <label className="text-xs text-gray-400 block mb-1">Lore Generation Detail</label>
-                  <select 
-                     value={params.loreLevel || 1}
-                     onChange={(e) => { handleChange('loreLevel', parseInt(e.target.value) as 1 | 2 | 3); }}
-                     className="w-full bg-gray-800 text-white text-xs border border-gray-700 p-2"
-                  >
-                     <option value={1}>Level 1: Factions & Capitals</option>
-                     <option value={2}>Level 2: Provinces & Towns</option>
-                     <option value={3}>Level 3: Backstories (Slow)</option>
-                  </select>
+                  <Select
+                     value={String(params.loreLevel || 1)}
+                     options={[
+                       { value: '1', label: 'Level 1: Factions & Capitals' },
+                       { value: '2', label: 'Level 2: Provinces & Towns' },
+                       { value: '3', label: 'Level 3: Backstories (Slow)' },
+                     ]}
+                     onChange={(v) => { handleChange('loreLevel', parseInt(v, 10) as 1 | 2 | 3); }}
+                     label="Lore generation detail"
+                     className="w-full"
+                     triggerClassName="w-full justify-between bg-gray-800 border-gray-700 px-2 py-2 text-xs"
+                  />
               </div>
 
               <div className="bg-gray-800/50 p-3 border border-gray-700 mt-4">
@@ -1156,32 +1157,38 @@ const Controls: React.FC<ControlsProps> = ({
                     
                     <div className="space-y-1">
                         <label className="text-xs text-gray-400">Resolution</label>
-                        <select 
-                            value={expRes} 
-                            onChange={(e) => { setExpRes(parseInt(e.target.value) as 1 | 2 | 3 as ExportResolution); }}
-                            className="w-full bg-gray-800 text-white text-xs border border-gray-700 p-2"
-                        >
-                            <option value="2048">2K (2048px)</option>
-                            <option value="4096">4K (4096px)</option>
-                            <option value="8192">8K (8192px)</option>
-                        </select>
+                        <Select
+                            value={String(expRes)}
+                            options={[
+                              { value: '2048', label: '2K (2048px)' },
+                              { value: '4096', label: '4K (4096px)' },
+                              { value: '8192', label: '8K (8192px)' },
+                            ]}
+                            onChange={(v) => { setExpRes(parseInt(v, 10) as ExportResolution); }}
+                            label="Export resolution"
+                            className="w-full"
+                            triggerClassName="w-full justify-between bg-gray-800 border-gray-700 px-2 py-2 text-xs"
+                        />
                     </div>
 
                     <div className="space-y-1">
                         <label className="text-xs text-gray-400">Projection</label>
-                        <select 
-                            value={expProj} 
-                            onChange={(e) => { setExpProj(e.target.value as ProjectionType); }}
-                            className="w-full bg-gray-800 text-white text-xs border border-gray-700 p-2"
-                        >
-                            <option value="equirectangular">Equirectangular</option>
-                            <option value="mercator">Mercator</option>
-                            <option value="winkeltripel">Winkel Tripel</option>
-                            <option value="robinson">Robinson</option>
-                            <option value="mollweide">Mollweide</option>
-                            <option value="orthographic">Orthographic</option>
-                            <option value="dymaxion">Dymaxion (Icosahedron) (Experimental)</option>
-                        </select>
+                        <Select
+                            value={expProj}
+                            options={[
+                              { value: 'equirectangular', label: 'Equirectangular' },
+                              { value: 'mercator', label: 'Mercator' },
+                              { value: 'winkeltripel', label: 'Winkel Tripel' },
+                              { value: 'robinson', label: 'Robinson' },
+                              { value: 'mollweide', label: 'Mollweide' },
+                              { value: 'orthographic', label: 'Orthographic' },
+                              { value: 'dymaxion', label: 'Dymaxion (Icosahedron) (Experimental)' },
+                            ] as SelectOption<ProjectionType>[]}
+                            onChange={setExpProj}
+                            label="Export projection"
+                            className="w-full"
+                            triggerClassName="w-full justify-between bg-gray-800 border-gray-700 px-2 py-2 text-xs"
+                        />
                     </div>
 
                     {expProj === 'dymaxion' && (

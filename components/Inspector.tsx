@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Eye, EyeOff, ChevronDown, ChevronUp, Ruler, MapPin, Trash2, Star } from 'lucide-react';
 import { WorldData, InspectMode, EditMode, TownData, MarkerKind } from '../types';
+import Select from './Select';
 
 interface WorldDataUpdates {
   townName?: string;
@@ -207,13 +208,14 @@ const Inspector: React.FC<InspectorProps> = ({
                 </button>
               )}
             </div>
-            <select
+            <Select
               value={selectedMarker.kind}
-              onChange={e => onUpdateMarker?.(selectedMarker.id, { kind: e.target.value as MarkerKind })}
-              className={inputCls}
-            >
-              {MARKER_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
-            </select>
+              options={MARKER_KINDS.map(k => ({ value: k, label: k }))}
+              onChange={(v) => { onUpdateMarker?.(selectedMarker.id, { kind: v }); }}
+              label="Marker kind"
+              className="w-full"
+              triggerClassName="w-full justify-between bg-gray-900 border-gray-700 px-1.5 py-1 capitalize"
+            />
             <input
               type="text"
               value={selectedMarker.name}
