@@ -91,6 +91,46 @@ Suite: 52 → 119 tests across the tier. Every feature: typecheck 0, lint
 
 ---
 
+## Session 6d (2026-07-25) — collapse, visual centring, legend density
+
+Commits `e6b6aa3`..`c7eb89a`. Gates: typecheck 0, lint 0/29, 138 tests, build OK.
+
+**REFUTED ASSUMPTION — the no-collapse call from 6b was wrong.** That pass
+argued per-card collapse was unnecessary once panels docked, because the
+pressure justifying it (occluding the globe) was gone in a scrolling rail. The
+original reasoning is preserved above; what refuted it is that the Read rail
+holds three tall cards and users want to fold the reference ones away to see
+more globe. Matt asked for it directly. Collapse now lives in `Panel`
+(`collapsible` opt-in per `ReadCard`), implemented **once** — which is the
+payoff of the shared chrome, and the reason the original deferral was cheap.
+**Collapsing UNMOUNTS the body**, never CSS-hides it: `MiniMapCanvas` redraws on
+every world change, so hiding would keep that work alive.
+
+**Visual centring: the canvas is inset, not full-bleed.** A full-bleed canvas
+centres the globe on the *element box*, which put it ~130px right of the gap
+between the rails. `WideShell`'s canvas now ends at the Read rail's left edge
+(`right-[16.5rem]`), so the globe centre lands on the visible centre (732 on a
+1440 viewport, was 864). **The Do bar had to move inside that column too** —
+it was still `left-1/2` of the full container and drifted right of the globe.
+Rail width is deliberately fixed regardless of collapse state so the inset
+stays constant; do not make it dynamic without re-checking both.
+
+**`rounded-*` classes are now GONE from source, not just no-ops.** 6c zeroed the
+Tailwind scale and left the classes in place; that made the code claim a radius
+it did not have, and read as a bug. `rounded-full` is kept — it means "circle"
+(placeholder globe), not "corner". The token in `tailwind.config.js` remains the
+switch.
+
+**Gotcha, cost Matt a round trip:** `tailwind.config.js` changes do **not** hot
+reload — Vite does not watch it. A running dev server keeps serving the old
+radius scale. Restart `:3000` after any config edit.
+
+**Finding (n=1, but clean):** flex children shrink by default, so the biome
+swatches collapsed to slivers once the legend went two-column with `nowrap`
+labels. `shrink-0` on any fixed-size element inside a flex row.
+
+---
+
 ## Session 6c (2026-07-25) — density, spacing contract, sharp corners
 
 Commits `97f5732`..`b599f43`. Gates: typecheck 0, lint 0/29, 138 tests, build OK.
