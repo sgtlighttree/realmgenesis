@@ -166,6 +166,36 @@ retiring classic, and whether `shellKit`'s stub panels ship.
 
 ---
 
+## ⚡ F1 (DESKTOP) FOUNDATIONAL WORK — DECLARED DONE 2026-07-25 (Matt)
+
+Branch `redesign`, NOT pushed, NOT merged. `?shell=1` is the redesign,
+`?shell=stub` the layout prototype, `/` still classic. Gates at declaration:
+typecheck 0, lint 0 errors / **29** warnings (ratchet is 30 — 29 is correct, do
+not "restore" it), 138 tests, build OK.
+
+Matt's call: the docked bucket model, the token layer, ARIA names and the
+legend overflow close out the *foundational* desktop work. What remains is
+explicitly NOT foundational and does not block the roadmap:
+
+- **F1b** — brand identity pass on the settled skeleton (`/impeccable`). The
+  token block in `tailwind.config.js` is the one place it edits.
+- **Touch targets** — 44px minimum; strip chips, EditToolbar modes and the new
+  strip pause button are ~22–34px. Background legibility work.
+- **Retire classic** — classic App and ShellApp are a fork sharing one hook;
+  every component-wiring change must be mirrored in both. Gate the deletion on
+  an interactive smoke (paint, undo, save/load, abort-mid-generate).
+- **`shellKit` stub panels** — only `?shell=stub` uses them; decide if they ship.
+- **Mobile** — Matt's scratchpad: minimize padding and the card-inside-card
+  nesting. Narrow fold was never the focus of this pass.
+
+**Load-bearing things a new thread must not undo:** `tailwind.config.js` zeroes
+the radius scale AND holds the semantic color/z tokens (sharp corners are a
+token; `rounded-*` is gone from source on purpose, `rounded-full` means
+"circle"). The Make rail is flush and must not be re-wrapped in a `Panel`. The
+canvas is SHIFTED left, not inset — see the clipping trap in Session 6e.
+
+---
+
 ## ⚡ NEW-THREAD PICKUP (updated 2026-07-25, end of Session 6d)
 
 F1 shell is on branch `redesign`, NOT pushed, NOT merged. `?shell=1` is the
