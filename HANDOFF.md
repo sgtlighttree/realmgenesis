@@ -91,6 +91,54 @@ Suite: 52 → 119 tests across the tier. Every feature: typecheck 0, lint
 
 ---
 
+## Session 6c (2026-07-25) — density, spacing contract, sharp corners
+
+Commits `97f5732`..`b599f43`. Gates: typecheck 0, lint 0/29, 138 tests, build OK.
+Driven by Matt's side-by-side of classic vs shell — he called the padding, the
+redundant controls, and the radii.
+
+**Decisions + rationale:**
+
+- **SHARP CORNERS ARE A TOKEN, NOT A CLASS SWEEP.** `tailwind.config.js` zeroes
+  the whole `borderRadius` scale. **Consequence to know: `rounded-md`, `rounded`,
+  etc. are now NO-OPS.** Do not "fix" a component by adding a rounded class, and
+  do not strip them either — the scale is the single switch, revisited at F1b.
+  `full` is deliberately preserved: "this is a circle" (placeholder globe) is a
+  different idea from corner rounding.
+- **Spacing contract (4pt): 8px between floating siblings and as canvas inset,
+  12px panel interiors, one owning padding per container.** Written into
+  `WideShell`'s header comment so it survives.
+- **The Make rail is FLUSH, with no Panel wrapper.** It previously nested three
+  paddings (shell `p-3` + `Panel` + Controls' `p-4`) — ~58px of a 288px column
+  against classic's single padding. That is the root cause of both the cramped
+  column AND the horizontal scrollbar (a flex-1 input can't shrink below
+  min-content; `overflow-y-auto` then computes `overflow-x` to auto). Do not
+  re-wrap the rail in a Panel.
+- **`showViewControls` on Controls** — render mode, layer toggles, and the
+  view-layer grid were rendering in BOTH the Sys tab and the View strip. The
+  shell turns them off since it owns a View bucket; classic keeps them.
+  **Map Overlays is intentionally excluded** from that flag: it has no strip
+  equivalent, so hiding it would lose access rather than de-duplicate.
+- **Explicit two-tier z-stack in the shells**: canvas-owned overlays z-10, shell
+  chrome z-20. The shell surfaces previously had no z at all, so `WorldViewer`'s
+  z-10 pause control painted *on top of* the mobile sheet.
+- **Contrast: one step up the ramp, applied simultaneously** (`gray-600`→`500`,
+  `gray-500`→`400`) so nothing double-jumped. On `gray-900` that is ~2.9:1 (fails
+  AA) → ~4.6:1 for the dimmest, ~7.3:1 for labels. 46 occurrences; 9px type → 10px.
+  **ARIA labelling is still deferred** — this was the visual half only.
+
+**Method note:** the layout playbook wants two isolated sub-agents. Ran
+single-context deliberately because Matt supplied the assessment with specifics;
+the mechanical pre-scan (`detect.mjs --scope layout`) came back **clean with zero
+findings**, which is the reference's own point — nested padding and monotone
+density pass every automated rule. Eyes caught what the scanner structurally
+cannot.
+
+**Still open:** ARIA names (58 buttons, 5 with semantic ARIA), 44px touch
+targets, the token layer for color, and whether `shellKit`'s stub panels ship.
+
+---
+
 ## Session 6b (2026-07-25) — impeccable audit + critique, then fixes
 
 Same session, after the docked bucket model landed. Commits `3d5a500`..`c4baa75`.
