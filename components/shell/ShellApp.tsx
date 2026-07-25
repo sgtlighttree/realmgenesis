@@ -163,7 +163,7 @@ const ShellApp: React.FC = () => {
         />
       ),
     },
-    { key: 'biomes', title: 'Biomes', node: <BiomeLegendList /> },
+    { key: 'biomes', title: 'Biomes', collapsible: true, node: <BiomeLegendList columns={2} /> },
   ];
   // MiniMapCanvas renders null without a world, which would leave an empty
   // titled box; and it must be UNMOUNTED (not hidden) to stop its redraw.
@@ -171,6 +171,7 @@ const ShellApp: React.FC = () => {
     read.push({
       key: 'minimap',
       title: '2D Projection',
+      collapsible: true,
       node: <MiniMapCanvas world={world} viewMode={viewMode} />,
     });
   }

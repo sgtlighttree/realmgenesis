@@ -34,10 +34,13 @@ const WideShell: React.FC<ShellProps> = ({
 
     {/* Canvas + docked panels */}
     <div className="relative flex-1 min-w-0">
-      <div className="absolute inset-0">{canvas}</div>
+      {/* Canvas is inset by the Read rail's footprint (16rem + 2x8px gutter) so
+          the globe centres in the VISIBLE gap between the rails rather than in
+          the element box, where a full-bleed canvas pushes it right. */}
+      <div className="absolute inset-y-0 left-0 right-[16.5rem]">{canvas}</div>
 
       {/* View — top strip. Right edge clears the Read rail (16rem + 2×8px). */}
-      <div className="absolute top-2 left-2 right-[16.5rem] z-20">
+      <div className="absolute top-2 left-2 right-[17rem] z-20">
         <div className={`${PANEL} flex items-center gap-2 px-2 py-1.5`}>
           {view}
           <button
@@ -56,16 +59,17 @@ const WideShell: React.FC<ShellProps> = ({
       {/* Read — docked stack, right edge */}
       <div className="absolute top-2 right-2 bottom-2 w-64 flex flex-col gap-2 overflow-y-auto z-20">
         {read.map(card => (
-          <Panel key={card.key} title={card.title} className="shrink-0">
+          <Panel key={card.key} title={card.title} collapsible={card.collapsible} className="shrink-0">
             {card.node}
           </Panel>
         ))}
       </div>
 
-      {/* Do — contextual bottom bar. Max width clears the Read rail. */}
+      {/* Do — contextual bottom bar. It lives inside the inset canvas column,
+          so it centres with the globe and needs no rail allowance of its own. */}
       {editing && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 max-w-[calc(100%_-_17.5rem)] z-20 rg-rise">
-          <div className={`${PANEL} px-2 py-1.5 shadow-xl`}>{doTools}</div>
+        <div className="absolute bottom-3 left-0 right-[16.5rem] z-20 flex justify-center px-4">
+          <div className={`${PANEL} px-2 py-1.5 shadow-xl rg-rise`}>{doTools}</div>
         </div>
       )}
     </div>
