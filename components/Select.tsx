@@ -184,7 +184,7 @@ function Select<T extends string>({
         aria-label={label}
         onClick={() => { open ? close(false) : openMenu(); }}
         onKeyDown={onKeyDown}
-        className={`inline-flex items-center gap-1.5 rounded border border-gray-700 bg-gray-800 px-2 py-1.5 text-[11px] text-gray-200 transition-colors hover:border-gray-600 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 ${triggerClassName}`}
+        className={`inline-flex items-center gap-1.5 border border-gray-700 bg-gray-800 px-2 py-1.5 text-[11px] text-gray-200 transition-colors hover:border-gray-600 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 ${triggerClassName}`}
       >
         <span className="truncate">{selected?.label ?? ''}</span>
         <ChevronDown
@@ -201,7 +201,7 @@ function Select<T extends string>({
           aria-label={label}
           tabIndex={-1}
           style={{ ...menuStyle, zIndex: 60 }}
-          className="overflow-y-auto rounded-md border border-gray-700 bg-gray-900 py-1 shadow-2xl rg-rise"
+          className="overflow-y-auto border border-gray-700 bg-gray-900 py-1 shadow-2xl rg-rise"
         >
           {options.map((opt, i) => {
             const isSelected = opt.value === value;

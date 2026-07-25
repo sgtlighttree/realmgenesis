@@ -725,7 +725,7 @@ const Controls: React.FC<ControlsProps> = ({
                   className="w-full h-1 bg-gray-700 appearance-none cursor-pointer accent-green-500"
                 />
               </div>
-              <div className="space-y-1" title="0 = smooth rounded hills (FBM). 1 = sharp jagged mountain ridges (ridged noise).">
+              <div className="space-y-1" title="0 = smooth hills (FBM). 1 = sharp jagged mountain ridges (ridged noise).">
                 <div className="flex justify-between text-xs text-gray-400">
                   <label>Ridge Intensity</label>
                   <span>{(params.ridgeBlend * 100).toFixed(0)}%</span>
@@ -1460,7 +1460,7 @@ const Controls: React.FC<ControlsProps> = ({
 
          {/* Generation progress bar */}
          {loading && (
-           <div className="w-full h-1 bg-gray-800 rounded overflow-hidden">
+           <div className="w-full h-1 bg-gray-800 overflow-hidden">
              <div
                className="h-full bg-blue-500 transition-all duration-300"
                style={{ width: `${genProgress * 100}%` }}

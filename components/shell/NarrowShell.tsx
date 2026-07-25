@@ -68,7 +68,7 @@ const NarrowShell: React.FC<ShellProps> = ({
             <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-800/80">
               <span className="text-xs font-semibold text-gray-100 tracking-tight">{BUCKET[openTab].label}</span>
               <button onClick={() => setOpenTab(null)} aria-label="Close panel"
-                className={`ml-auto -mr-1 grid place-items-center w-6 h-6 rounded text-gray-400 hover:text-white hover:bg-gray-800 text-lg leading-none ${FOCUS}`}>×</button>
+                className={`ml-auto -mr-1 grid place-items-center w-6 h-6 text-gray-400 hover:text-white hover:bg-gray-800 text-lg leading-none ${FOCUS}`}>×</button>
             </div>
             <div ref={sheetBodyRef} className="min-h-0 overflow-auto p-3">{sheetBody[openTab]}</div>
           </div>

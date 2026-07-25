@@ -271,7 +271,7 @@ const ShellApp: React.FC = () => {
       )}
 
       {noGlobe && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 text-[11px] font-mono text-gray-400 bg-gray-950/80 border border-gray-800 rounded px-3 py-1.5 pointer-events-none">
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 text-[11px] font-mono text-gray-400 bg-gray-950/80 border border-gray-800 px-3 py-1.5 pointer-events-none">
           globe=0 · placeholder mode (real globe disabled for UI iteration)
         </div>
       )}

@@ -39,8 +39,8 @@ export const BUCKET: Record<Bucket, { label: string }> = {
 export const PANEL = 'border border-gray-800 bg-gray-900';
 const HEADER = 'flex items-center gap-2 px-3 py-2 border-b border-gray-800';
 export const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900';
-const CHIP = `text-[10px] px-2 py-1 rounded border border-gray-700 bg-gray-800 text-gray-300 whitespace-nowrap transition-colors hover:border-gray-600 hover:text-white ${FOCUS}`;
-const CHIP_ON = `text-[10px] px-2 py-1 rounded border border-blue-500 bg-blue-600 text-white whitespace-nowrap ${FOCUS}`;
+const CHIP = `text-[10px] px-2 py-1 border border-gray-700 bg-gray-800 text-gray-300 whitespace-nowrap transition-colors hover:border-gray-600 hover:text-white ${FOCUS}`;
+const CHIP_ON = `text-[10px] px-2 py-1 border border-blue-500 bg-blue-600 text-white whitespace-nowrap ${FOCUS}`;
 
 /** A panel wrapper with a consistent, quiet header — the title carries it; no
  *  eyebrow tag (bucket identity is conveyed by position, not a repeated label). */
@@ -96,7 +96,7 @@ export const MakePanel: React.FC = () => (
       <FauxSlider label="Terrain Roughness" value="50%" />
       <FauxSlider label="Detail Octaves" value="3" />
     </div>
-    <button className={`mt-3 flex items-center justify-center gap-2 w-full py-2.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-colors ${FOCUS}`}>
+    <button className={`mt-3 flex items-center justify-center gap-2 w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-colors ${FOCUS}`}>
       <RefreshCw size={14} /> Generate World
     </button>
   </div>
@@ -119,7 +119,7 @@ const LAYER_TOGGLES = [
  *  whether it's a top strip (wide) or a sheet (narrow). */
 export const ViewPanel: React.FC = () => (
   <div className="flex flex-wrap items-center gap-2">
-    <div className="inline-flex rounded-md overflow-hidden border border-gray-700">
+    <div className="inline-flex overflow-hidden border border-gray-700">
       {RENDER_MODES.map((m, i) => (
         <span key={m.label}
           className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] ${i === 0 ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400'}`}>
@@ -176,7 +176,7 @@ export const READ_CARDS: ReadCard[] = [
       <ul className="space-y-1.5">
         {BIOMES.map(([c, name]) => (
           <li key={name} className="flex items-center gap-2 text-[11px] text-gray-300">
-            <span className="w-3 h-3 rounded-sm" style={{ background: c }} />{name}
+            <span className="w-3 h-3 " style={{ background: c }} />{name}
           </li>
         ))}
       </ul>
@@ -184,7 +184,7 @@ export const READ_CARDS: ReadCard[] = [
   },
   {
     key: 'minimap', title: '2D Projection',
-    node: <div className="aspect-[2/1] rounded bg-gradient-to-b from-blue-950 to-slate-800 border border-gray-800" />,
+    node: <div className="aspect-[2/1] bg-gradient-to-b from-blue-950 to-slate-800 border border-gray-800" />,
   },
 ];
 

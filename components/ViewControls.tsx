@@ -203,7 +203,7 @@ export const ViewLayerGrid: React.FC<Pick<ViewControlsProps, 'viewMode' | 'setVi
  *  Compositions
  * ------------------------------------------------------------------ */
 
-const CHIP_BASE = 'inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded border whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70';
+const CHIP_BASE = 'inline-flex items-center gap-1 text-[10px] px-2 py-1 border whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70';
 
 /** Compact chip form of a layer toggle — the strip shape. */
 const LayerChip: React.FC<{ toggle: LayerToggle }> = ({ toggle }) => {
@@ -229,7 +229,7 @@ const LayerChip: React.FC<{ toggle: LayerToggle }> = ({ toggle }) => {
  */
 export const ViewStrip: React.FC<ViewControlsProps> = (p) => (
   <div className="flex flex-wrap items-center gap-2 min-w-0">
-    <div className="inline-flex rounded-md overflow-hidden border border-gray-700 shrink-0">
+    <div className="inline-flex overflow-hidden border border-gray-700 shrink-0">
       {DISPLAY_MODES.map(m => (
         <button
           key={m.mode}
