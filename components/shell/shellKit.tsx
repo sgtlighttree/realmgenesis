@@ -107,7 +107,7 @@ const FauxSlider: React.FC<{ label: string; value: string }> = ({ label, value }
       <span className="text-ink-soft tabular-nums">{value}</span>
     </div>
     <input type="range" defaultValue={50} readOnly
-      className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-blue-400" />
+      className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft" />
   </label>
 );
 

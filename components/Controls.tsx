@@ -521,7 +521,7 @@ const Controls: React.FC<ControlsProps> = ({
                 step="1000"
                 value={Math.min(200000, params.points)}
                 onChange={(e) => { handleChange('points', parseInt(e.target.value) as 1 | 2 | 3); }}
-                className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-blue-500"
+                className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
               />
             </div>
              
@@ -650,7 +650,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0.1" max="0.9" step="0.05"
                   value={params.seaLevel}
                   onChange={(e) => { handleChange('seaLevel', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-blue-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
                <div className="space-y-1">
@@ -662,7 +662,7 @@ const Controls: React.FC<ControlsProps> = ({
                     type="range" min="1000" max="20000" step="100"
                     value={params.planetRadius || 6371}
                     onChange={(e) => { handleChange('planetRadius', parseInt(e.target.value) as 1 | 2 | 3); }}
-                    className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-indigo-500"
+                    className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                   />
               </div>
               <div className="space-y-1">
@@ -674,7 +674,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="2" max="50" step="1"
                   value={params.plates}
                   onChange={(e) => { handleAdvancedChange('plates', parseInt(e.target.value) as 1 | 2 | 3); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-rose-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
               <div className="space-y-1">
@@ -686,7 +686,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="1" step="0.1"
                   value={params.roughness}
                   onChange={(e) => { handleAdvancedChange('roughness', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-slate-400"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
               <div className="space-y-1" title="FBM octave count for structural terrain noise. More octaves = finer nested detail; fewer = smoother, broader forms.">
@@ -698,7 +698,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="1" max="6" step="1"
                   value={params.detailLevel}
                   onChange={(e) => { handleAdvancedChange('detailLevel', parseInt(e.target.value, 10)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-emerald-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
               <div className="space-y-1" title="Randomizes the cell grid. 0 = regular Fibonacci lattice; 1 = fully jittered organic cells.">
@@ -710,7 +710,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="1" step="0.05"
                   value={params.cellJitter}
                   onChange={(e) => { handleAdvancedChange('cellJitter', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-lime-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
               <div className="space-y-1" title="Controls terrain feature size. Lower = broader continents; higher = more fragmented detail.">
@@ -722,7 +722,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0.1" max="5.0" step="0.1"
                   value={params.noiseScale}
                   onChange={(e) => { handleAdvancedChange('noiseScale', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-green-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
               <div className="space-y-1" title="0 = smooth hills (FBM). 1 = sharp jagged mountain ridges (ridged noise).">
@@ -734,7 +734,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="1" step="0.1"
                   value={params.ridgeBlend}
                   onChange={(e) => { handleAdvancedChange('ridgeBlend', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-yellow-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
               <div className="space-y-1" title="Amplifies terrain above sea level using a power curve. >1.0 = taller peaks; <1.0 = flatter land.">
@@ -746,7 +746,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0.5" max="2.0" step="0.05"
                   value={params.mountainHeight}
                   onChange={(e) => { handleAdvancedChange('mountainHeight', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-yellow-300"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
               <div className="space-y-1" title="Amplifies ocean depth below sea level using a power curve. >1.0 = deeper trenches; <1.0 = shallower ocean floor.">
@@ -758,7 +758,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0.5" max="2.0" step="0.05"
                   value={params.oceanDepth}
                   onChange={(e) => { handleAdvancedChange('oceanDepth', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-amber-600"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
               <div className="space-y-1" title="Domain warping — twists terrain shapes for more organic, swirled coastlines and mountain ranges.">
@@ -770,7 +770,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="2.0" step="0.1"
                   value={params.warpStrength}
                   onChange={(e) => { handleAdvancedChange('warpStrength', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-purple-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
                <div className="space-y-1" title="How strongly tectonic plate boundaries shape mountain ranges and rifts. Capped at 1.0 internally.">
@@ -782,7 +782,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0.1" max="1.0" step="0.05"
                   value={params.plateInfluence}
                   onChange={(e) => { handleAdvancedChange('plateInfluence', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-red-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
               <div className="space-y-1">
@@ -794,7 +794,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="50" step="1"
                   value={params.erosionIterations}
                   onChange={(e) => { handleAdvancedChange('erosionIterations', parseInt(e.target.value) as 1 | 2 | 3); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-stone-400"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
            </div>
@@ -812,7 +812,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="-90" max="90" step="1"
                   value={params.axialTilt || 0}
                   onChange={(e) => { handleChange('axialTilt', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-indigo-400"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
              </div>
              {/* ... (rest of climate sliders) ... */}
@@ -825,7 +825,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="-10" max="50" step="1"
                   value={params.baseTemperature}
                   onChange={(e) => { handleChange('baseTemperature', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-orange-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
               <div className="space-y-1">
@@ -837,7 +837,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="-50" max="20" step="1"
                   value={params.poleTemperature}
                   onChange={(e) => { handleChange('poleTemperature', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-sky-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
               <div className="space-y-1">
@@ -849,7 +849,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="3" step="0.1"
                   value={params.rainfallMultiplier}
                   onChange={(e) => { handleChange('rainfallMultiplier', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-cyan-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
               <div className="space-y-1" title="How far wind carries moisture inland before it dissipates. Higher = wetter interiors; lower = stronger rain shadows.">
@@ -861,7 +861,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="1" step="0.1"
                   value={params.moistureTransport}
                   onChange={(e) => { handleChange('moistureTransport', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-blue-300"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
                 <p className="text-[10px] text-ink-muted">Affects rain shadows & moisture spread</p>
               </div>
@@ -874,7 +874,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="20" step="1"
                   value={params.temperatureVariance}
                   onChange={(e) => { handleChange('temperatureVariance', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-red-400"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
            </div>
@@ -943,7 +943,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="2" max="8"
                   value={params.numCultures}
                   onChange={(e) => { handleChange('numCultures', parseInt(e.target.value) as 1 | 2 | 3); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-pink-400"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
               <div className="space-y-1">
@@ -955,7 +955,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="2" max="20"
                   value={params.numFactions}
                   onChange={(e) => { handleChange('numFactions', parseInt(e.target.value) as 1 | 2 | 3); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-purple-500"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
               <div className="space-y-1" title="Minimum angular separation between faction capitals. Higher = capitals spawn further apart, producing more evenly distributed territories.">
@@ -967,7 +967,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="1" step="0.1"
                   value={params.capitalSpacing}
                   onChange={(e) => { handleChange('capitalSpacing', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-purple-400"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
               <div className="space-y-1">
@@ -979,7 +979,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0.1" max="1.0" step="0.1"
                   value={params.provinceSize || 0.5}
                   onChange={(e) => { handleChange('provinceSize', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-teal-400"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
               <div className="space-y-1" title="How unequal faction sizes can be. 0 = all factions roughly equal; 1 = some factions much larger than others.">
@@ -991,7 +991,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0" max="1" step="0.1"
                   value={params.civSizeVariance}
                   onChange={(e) => { handleChange('civSizeVariance', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-orange-400"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
               <div className="space-y-1" title="How easily factions cross water. Higher = more seafaring civilisations that readily claim distant islands.">
@@ -1003,7 +1003,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0.1" max="1.0" step="0.1"
                   value={params.waterCrossingCost}
                   onChange={(e) => { handleChange('waterCrossingCost', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-blue-400"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
               <div className="space-y-1" title="How far from coastline a faction claims ocean cells as territorial waters.">
@@ -1015,7 +1015,7 @@ const Controls: React.FC<ControlsProps> = ({
                   type="range" min="0.01" max="1.0" step="0.01"
                   value={params.territorialWaters ?? 0.2}
                   onChange={(e) => { handleChange('territorialWaters', parseFloat(e.target.value)); }}
-                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-cyan-600"
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
 
@@ -1212,7 +1212,7 @@ const Controls: React.FC<ControlsProps> = ({
                                         type="checkbox"
                                         checked={dymaxionSettings.showOverlay}
                                         onChange={(e) => { updateDymaxion({ showOverlay: e.target.checked }); }}
-                                        className="accent-blue-500"
+                                        className="accent-brand-soft"
                                     />
                                     Show Overlay
                                 </label>
@@ -1248,7 +1248,7 @@ const Controls: React.FC<ControlsProps> = ({
                                     type="range" min="-180" max="180" step="1"
                                     value={dymaxionSettings.lon}
                                     onChange={function(e) { updateDymaxion({ lon: parseInt(e.target.value) }); }}
-                                    className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-blue-400"
+                                    className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                                 />
                             </div>
 
@@ -1261,7 +1261,7 @@ const Controls: React.FC<ControlsProps> = ({
                                     type="range" min="-90" max="90" step="1"
                                     value={dymaxionSettings.lat}
                                     onChange={function(e) { updateDymaxion({ lat: parseInt(e.target.value) }); }}
-                                    className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-blue-400"
+                                    className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                                 />
                             </div>
 
@@ -1274,7 +1274,7 @@ const Controls: React.FC<ControlsProps> = ({
                                     type="range" min="-180" max="180" step="1"
                                     value={dymaxionSettings.roll}
                                     onChange={function(e) { updateDymaxion({ roll: parseInt(e.target.value) }); }}
-                                    className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-blue-400"
+                                    className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                                 />
                             </div>
 
@@ -1283,7 +1283,7 @@ const Controls: React.FC<ControlsProps> = ({
                                     type="checkbox"
                                     checked={dymaxionSettings.layout === 'blender'}
                                     onChange={(e) => { updateDymaxion({ layout: e.target.checked ? 'blender' : 'classic' }); }}
-                                    className="accent-blue-500"
+                                    className="accent-brand-soft"
                                 />
                                 Blender UV Net (export only)
                             </label>
@@ -1315,7 +1315,7 @@ const Controls: React.FC<ControlsProps> = ({
                                     type="checkbox"
                                     checked={showDymaxion2D}
                                     onChange={(e) => { setShowDymaxion2D(e.target.checked); }}
-                                    className="accent-blue-500"
+                                    className="accent-brand-soft"
                                 />
                                 Show 2D Preview
                             </label>

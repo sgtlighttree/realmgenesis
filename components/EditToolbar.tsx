@@ -65,7 +65,7 @@ const BrushSlider: React.FC<{ brushSize: number; setBrushSize: (n: number) => vo
     <span className="text-[10px] text-ink-muted">Brush</span>
     <input type="range" min="0" max="5" step="1"
       value={brushSize} onChange={e => setBrushSize(parseInt(e.target.value))}
-      className="w-16 h-1 bg-surface-hover appearance-none cursor-pointer accent-blue-400" />
+      className="w-16 h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft" />
     <span className="text-[10px] text-ink-soft w-3 text-center">{brushSize}</span>
   </div>
 );
@@ -75,7 +75,7 @@ const StrengthSlider: React.FC<{ paintStrength: number; setPaintStrength: (n: nu
     <span className="text-[10px] text-ink-muted">Strength</span>
     <input type="range" min="0.1" max="1.0" step="0.05"
       value={paintStrength} onChange={e => setPaintStrength(parseFloat(e.target.value))}
-      className="w-16 h-1 bg-surface-hover appearance-none cursor-pointer accent-blue-400" />
+      className="w-16 h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft" />
   </div>
 );
 
@@ -149,7 +149,7 @@ const EditToolbar: React.FC<EditToolbarProps> = ({
               <Sep />
               <label className="flex items-center gap-1 text-[10px] text-ink-muted cursor-pointer">
                 <input type="checkbox" checked={adaptiveBiomes} onChange={e => setAdaptiveBiomes(e.target.checked)}
-                  className="w-3 h-3 accent-teal-500" />
+                  className="w-3 h-3 accent-brand-soft" />
                 Adaptive Biomes
               </label>
             </>
