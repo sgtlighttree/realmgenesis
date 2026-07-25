@@ -2,6 +2,7 @@ import React from 'react';
 import {
   Globe, Satellite, Mountain, Eye, Thermometer, Droplets, Layers, Flag,
   Landmark, Palette, Church, Users, Grid, Waves, Route, Sun, LineChart,
+  Pause, Play,
 } from 'lucide-react';
 
 import { ViewMode, DisplayMode, LabelVisibility } from '../types';
@@ -223,11 +224,23 @@ const LayerChip: React.FC<{ toggle: LayerToggle }> = ({ toggle }) => {
 };
 
 /**
+ * Rotation control for the strip. Scoped to `ViewStrip` rather than added to
+ * `ViewControlsProps` because the Sys tab has no use for it — the globe's own
+ * canvas overlay serves the folds that still carry one.
+ */
+export interface RotationControl {
+  paused: boolean;
+  onToggle: () => void;
+  /** The Dymaxion overlay editor force-pauses rotation and owns it while open. */
+  disabled?: boolean;
+}
+
+/**
  * ViewStrip — the horizontal composition for the wide shell's top strip.
  * Render mode as a segmented control, the 12 view layers as a select (a
  * 12-button grid does not fit a strip), and the layer toggles as chips.
  */
-export const ViewStrip: React.FC<ViewControlsProps> = (p) => (
+export const ViewStrip: React.FC<ViewControlsProps & { rotation?: RotationControl }> = ({ rotation, ...p }) => (
   <div className="flex flex-wrap items-center gap-2 min-w-0">
     <div className="inline-flex overflow-hidden border border-edge shrink-0">
       {DISPLAY_MODES.map(m => (
@@ -243,6 +256,32 @@ export const ViewStrip: React.FC<ViewControlsProps> = (p) => (
         </button>
       ))}
     </div>
+
+    {/* Rotation sits immediately after render mode because it modifies that
+        choice — it is a property of how the globe is PRESENTED, not something
+        you do to the world, so it does not belong with Edit. Leading the strip
+        with it would put a secondary control ahead of the primary one.
+        It previously lived as a canvas overlay anchored to the viewer's own
+        corner, which the wide shell's left-shifted canvas clipped out of view
+        entirely — the reason it appeared to vanish. */}
+    {rotation && (
+      <button
+        onClick={rotation.onToggle}
+        disabled={rotation.disabled}
+        aria-pressed={rotation.paused}
+        aria-label={rotation.paused ? 'Resume globe rotation' : 'Pause globe rotation'}
+        title={rotation.paused ? 'Resume rotation' : 'Pause rotation'}
+        className={`shrink-0 inline-flex items-center justify-center px-2.5 py-1.5 border transition-colors ${
+          rotation.disabled
+            ? 'bg-surface-raised text-ink-faint border-edge opacity-40 cursor-not-allowed'
+            : rotation.paused
+              ? 'bg-surface-raised text-ink-strong border-edge-strong hover:bg-surface-hover'
+              : 'bg-surface-raised text-ink-muted border-edge hover:bg-surface-hover hover:text-ink-strong'
+        }`}
+      >
+        {rotation.paused ? <Play size={12} /> : <Pause size={12} />}
+      </button>
+    )}
 
     <Select
       value={p.viewMode}

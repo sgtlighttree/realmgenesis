@@ -83,6 +83,12 @@ const ShellApp: React.FC = () => {
     return () => { window.removeEventListener('keydown', onKey); };
   }, [onSetEditing]);
 
+  // Globe rotation is lifted out of WorldViewer so the wide fold can render the
+  // control in the top strip. It is ephemeral presentation state, so it lives
+  // here in the shell rather than in the engine hook — same rule as `editing`.
+  const [paused, setPaused] = useState(false);
+  const togglePause = useCallback(() => { setPaused(v => !v); }, []);
+
   /* ---------------- Slot composition ---------------- */
 
   const make = (
@@ -126,6 +132,14 @@ const ShellApp: React.FC = () => {
       showHillshade={showHillshade} setShowHillshade={setShowHillshade}
       showContours={showContours} setShowContours={setShowContours}
       labelVisibility={labelVisibility} setLabelVisibility={setLabelVisibility}
+      // Only the wide strip adopts the rotation control; the narrow fold's View
+      // sheet is behind a tab, and its canvas is unshifted, so the viewer's own
+      // overlay is both reachable and correctly placed there.
+      rotation={!isNarrow && !noGlobe && displayMode === 'globe' ? {
+        paused,
+        onToggle: togglePause,
+        disabled: dymaxionSettings.mode === 'overlay',
+      } : undefined}
     />
   );
 
@@ -221,9 +235,14 @@ const ShellApp: React.FC = () => {
           religionColors={religionColors}
           brushSize={brushSize}
           rulerArc={rulerArc}
-          // Default is top-right, which the docked Read rail now occupies.
-          // Bottom-left is the one canvas corner the shell leaves free, and it
-          // pairs the pause control with the seed caption beside it.
+          paused={paused}
+          onPausedChange={setPaused}
+          // Wide renders this in the top strip instead. The canvas overlay was
+          // anchored bottom-LEFT of the viewer, and WideShell shifts the canvas
+          // left by the Read rail's width inside an overflow-hidden column — so
+          // the control was painting at x≈36 in a column that clips below 288
+          // and had been invisible since that shift landed.
+          showPauseControl={isNarrow}
           overlayClassName="absolute bottom-3 left-3 z-overlay flex gap-2"
         />
       ) : (
@@ -251,11 +270,18 @@ const ShellApp: React.FC = () => {
         />
       )}
 
-      {/* Seed caption — sits beside the viewer's own control cluster, offset by
-          its width so the two read as one bottom-left group. */}
+      {/* Seed caption. Second casualty of the same clipping as the pause
+          control: everything here is anchored to the CANVAS, which WideShell
+          shifts left by 16.5rem, so a left-anchored overlay lands outside the
+          visible column. Narrow's canvas is unshifted and keeps plain `left-3`
+          (offset to `left-16` only when the viewer's own pause overlay is
+          beside it). Wide adds the shift back so the caption sits 12px inside
+          the visible edge; the 16.5rem must track WideShell's canvas offset. */}
       {world && (
         <div className={`absolute bottom-3 pointer-events-none text-[10px] font-mono text-ink-muted ${
-          !noGlobe && displayMode === 'globe' ? 'left-16' : 'left-3'
+          isNarrow
+            ? (!noGlobe && displayMode === 'globe' ? 'left-16' : 'left-3')
+            : 'left-[17.25rem]'
         }`}>
           {params.seed} · {world.cells.length.toLocaleString()} cells
         </div>
