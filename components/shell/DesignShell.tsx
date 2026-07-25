@@ -47,26 +47,26 @@ const DesignShell: React.FC = () => {
   };
 
   return (
-    <div className="w-full h-full flex flex-col bg-neutral-900 text-gray-200 font-sans">
+    <div className="w-full h-full flex flex-col bg-neutral-900 text-ink font-sans">
       {/* Dev bar — not part of the design, just the harness controls. */}
-      <div className="shrink-0 h-9 flex items-center gap-3 px-3 border-b border-gray-800 bg-gray-950 text-[11px]">
-        <span className="font-mono text-gray-400 uppercase tracking-wider">F1 design debug</span>
-        <div className="flex overflow-hidden border border-gray-700">
+      <div className="shrink-0 h-9 flex items-center gap-3 px-3 border-b border-edge-subtle bg-surface-sunken text-[11px]">
+        <span className="font-mono text-ink-muted uppercase tracking-wider">F1 design debug</span>
+        <div className="flex overflow-hidden border border-edge">
           {(['auto', 'wide', 'narrow'] as Override[]).map(o => (
             <button key={o} onClick={() => setOverride(o)}
-              className={`px-2.5 py-1 capitalize transition-colors ${override === o ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>
+              className={`px-2.5 py-1 capitalize transition-colors ${override === o ? 'bg-brand-strong text-ink-strong' : 'bg-surface-raised text-ink-muted hover:text-ink-strong'}`}>
               {o}
             </button>
           ))}
         </div>
-        <span className="text-gray-500">→ {effective === 'wide' ? 'A · Tidy' : 'C · Studio'}</span>
-        {editing && <span className="ml-auto text-amber-400">editing — Esc to exit</span>}
+        <span className="text-ink-faint">→ {effective === 'wide' ? 'A · Tidy' : 'C · Studio'}</span>
+        {editing && <span className="ml-auto text-warn-soft">editing — Esc to exit</span>}
       </div>
 
       {/* Stage */}
       <div className="relative flex-1 min-h-0 flex justify-center">
         <div className={effective === 'narrow'
-          ? 'relative w-full max-w-[420px] border-x border-gray-800'
+          ? 'relative w-full max-w-[420px] border-x border-edge-subtle'
           : 'relative flex-1 min-w-0'}>
           {effective === 'wide'
             ? <WideShell {...shellProps} />

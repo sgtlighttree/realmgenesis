@@ -141,7 +141,7 @@ const ShellApp: React.FC = () => {
       node: (
         <Inspector
           className="w-full"
-          cardClassName="text-white w-full"
+          cardClassName="text-ink-strong w-full"
           world={world}
           cellId={inspectedCellId}
           inspectMode={inspectMode}
@@ -192,7 +192,7 @@ const ShellApp: React.FC = () => {
       world={world}
     />
   ) : (
-    <p className="text-[11px] text-gray-400 italic">Generate a world to start editing.</p>
+    <p className="text-[11px] text-ink-muted italic">Generate a world to start editing.</p>
   );
 
   const canvas = (
@@ -224,7 +224,7 @@ const ShellApp: React.FC = () => {
           // Default is top-right, which the docked Read rail now occupies.
           // Bottom-left is the one canvas corner the shell leaves free, and it
           // pairs the pause control with the seed caption beside it.
-          overlayClassName="absolute bottom-3 left-3 z-10 flex gap-2"
+          overlayClassName="absolute bottom-3 left-3 z-overlay flex gap-2"
         />
       ) : (
         <Map2D
@@ -254,7 +254,7 @@ const ShellApp: React.FC = () => {
       {/* Seed caption — sits beside the viewer's own control cluster, offset by
           its width so the two read as one bottom-left group. */}
       {world && (
-        <div className={`absolute bottom-3 pointer-events-none text-[10px] font-mono text-gray-400 ${
+        <div className={`absolute bottom-3 pointer-events-none text-[10px] font-mono text-ink-muted ${
           !noGlobe && displayMode === 'globe' ? 'left-16' : 'left-3'
         }`}>
           {params.seed} · {world.cells.length.toLocaleString()} cells
@@ -262,8 +262,8 @@ const ShellApp: React.FC = () => {
       )}
 
       {rulerActive && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none z-10">
-          <div className="bg-black/80 backdrop-blur text-white text-xs font-bold px-3 py-1.5 border border-white/20 shadow-xl">
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none z-overlay">
+          <div className="bg-black/80 backdrop-blur text-ink-strong text-xs font-bold px-3 py-1.5 border border-white/20 shadow-xl">
             {rulerDistanceKm !== null
               ? `${Math.round(rulerDistanceKm).toLocaleString()} km`
               : 'Click two points'}
@@ -272,7 +272,7 @@ const ShellApp: React.FC = () => {
       )}
 
       {noGlobe && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 text-[11px] font-mono text-gray-400 bg-gray-950/80 border border-gray-800 px-3 py-1.5 pointer-events-none">
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-overlay text-[11px] font-mono text-ink-muted bg-surface-sunken/80 border border-edge-subtle px-3 py-1.5 pointer-events-none">
           globe=0 · placeholder mode (real globe disabled for UI iteration)
         </div>
       )}

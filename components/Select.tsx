@@ -184,12 +184,12 @@ function Select<T extends string>({
         aria-label={label}
         onClick={() => { open ? close(false) : openMenu(); }}
         onKeyDown={onKeyDown}
-        className={`inline-flex items-center gap-1.5 border border-gray-700 bg-gray-800 px-2 py-1.5 text-[11px] text-gray-200 transition-colors hover:border-gray-600 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 ${triggerClassName}`}
+        className={`inline-flex items-center gap-1.5 border border-edge bg-surface-raised px-2 py-1.5 text-[11px] text-ink transition-colors hover:border-edge-strong hover:text-ink-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 ${triggerClassName}`}
       >
         <span className="truncate">{selected?.label ?? ''}</span>
         <ChevronDown
           size={12}
-          className={`shrink-0 text-gray-400 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+          className={`shrink-0 text-ink-muted transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
         />
       </button>
 
@@ -201,7 +201,7 @@ function Select<T extends string>({
           aria-label={label}
           tabIndex={-1}
           style={{ ...menuStyle, zIndex: 60 }}
-          className="overflow-y-auto border border-gray-700 bg-gray-900 py-1 shadow-2xl rg-rise"
+          className="overflow-y-auto border border-edge bg-surface py-1 shadow-2xl rg-rise"
         >
           {options.map((opt, i) => {
             const isSelected = opt.value === value;
@@ -214,7 +214,7 @@ function Select<T extends string>({
                 onPointerEnter={() => { setActiveIndex(i); }}
                 onClick={() => { commit(i); }}
                 className={`flex cursor-pointer items-center gap-2 px-2.5 py-1.5 text-[11px] whitespace-nowrap transition-colors ${
-                  i === activeIndex ? 'bg-blue-600 text-white' : 'text-gray-300'
+                  i === activeIndex ? 'bg-brand-strong text-ink-strong' : 'text-ink-soft'
                 }`}
               >
                 <Check

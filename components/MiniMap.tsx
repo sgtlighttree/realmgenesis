@@ -67,10 +67,10 @@ const MiniMap: React.FC<MiniMapProps> = ({ world, viewMode }) => {
   if (!world) return null;
 
   return (
-    <div className="absolute bottom-4 right-4 bg-black/80 border border-gray-700 shadow-2xl overflow-hidden z-10 transition-all duration-300">
+    <div className="absolute bottom-4 right-4 bg-black/80 border border-edge shadow-2xl overflow-hidden z-overlay transition-all duration-300">
       <button
         onClick={() => { setIsCollapsed(!isCollapsed); }}
-        className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] text-gray-400 font-bold uppercase hover:text-white transition-colors"
+        className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] text-ink-muted font-bold uppercase hover:text-ink-strong transition-colors"
       >
         <span>2D Projection</span>
         {isCollapsed ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}

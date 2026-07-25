@@ -50,26 +50,26 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     <dialog
       ref={ref}
       aria-labelledby="confirm-title"
-      className="rg-dialog max-w-sm border border-gray-700 bg-gray-900 p-0 text-gray-200 shadow-2xl"
+      className="rg-dialog max-w-sm border border-edge bg-surface p-0 text-ink shadow-2xl"
       onClick={(e) => { if (e.target === ref.current) onCancel(); }}
     >
       <div className="p-4">
-        <h2 id="confirm-title" className="text-sm font-semibold text-white">{title}</h2>
-        <p className="mt-2 text-xs leading-relaxed text-gray-400">{body}</p>
+        <h2 id="confirm-title" className="text-sm font-semibold text-ink-strong">{title}</h2>
+        <p className="mt-2 text-xs leading-relaxed text-ink-muted">{body}</p>
         <div className="mt-4 flex justify-end gap-2">
           <button
             onClick={onCancel}
-            className="border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
+            className="border border-edge bg-surface-raised px-3 py-1.5 text-xs text-ink-soft transition-colors hover:bg-surface-hover hover:text-ink-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70"
           >
             {cancelLabel}
           </button>
           <button
             onClick={onConfirm}
             autoFocus
-            className={`border px-3 py-1.5 text-xs font-medium text-white transition-colors focus-visible:outline-none focus-visible:ring-2 ${
+            className={`border px-3 py-1.5 text-xs font-medium text-ink-strong transition-colors focus-visible:outline-none focus-visible:ring-2 ${
               destructive
-                ? 'border-red-500 bg-red-600 hover:bg-red-500 focus-visible:ring-red-400/70'
-                : 'border-blue-500 bg-blue-600 hover:bg-blue-500 focus-visible:ring-blue-400/70'
+                ? 'border-danger bg-red-600 hover:bg-danger focus-visible:ring-danger-soft/70'
+                : 'border-brand bg-brand-strong hover:bg-brand focus-visible:ring-brand-soft/70'
             }`}
           >
             {confirmLabel}

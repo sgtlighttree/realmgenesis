@@ -16,7 +16,7 @@ export const BiomeLegendList: React.FC<{ columns?: 1 | 2 }> = ({ columns = 1 }) 
           className="w-3 h-3 shrink-0 border border-white/10"
           style={{ backgroundColor: BIOME_COLORS[biome] }}
         />
-        <span className="text-[10px] text-gray-300 whitespace-nowrap">{biome}</span>
+        <span className="text-[10px] text-ink-soft whitespace-nowrap">{biome}</span>
       </div>
     ))}
   </div>
@@ -25,10 +25,10 @@ export const BiomeLegendList: React.FC<{ columns?: 1 | 2 }> = ({ columns = 1 }) 
 export const BiomeLegend: React.FC = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   return (
-    <div className="absolute bottom-4 left-4 bg-gray-900/80 backdrop-blur border border-gray-700 shadow-xl z-10 transition-all duration-300">
+    <div className="absolute bottom-4 left-4 bg-surface/80 backdrop-blur border border-edge shadow-xl z-overlay transition-all duration-300">
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
-        className="w-full flex items-center justify-between px-3 py-2 text-xs font-bold text-gray-400 uppercase hover:text-white transition-colors"
+        className="w-full flex items-center justify-between px-3 py-2 text-xs font-bold text-ink-muted uppercase hover:text-ink-strong transition-colors"
       >
         <span>Biomes</span>
         {isCollapsed ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}

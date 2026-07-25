@@ -1124,12 +1124,12 @@ const Map2D: React.FC<{
         );
       })()}
       {!world && (
-        <div className="absolute inset-0 flex items-center justify-center text-white/50">
+        <div className="absolute inset-0 flex items-center justify-center text-ink-strong/50">
           Forging World...
         </div>
       )}
       {world && (
-        <div className="absolute bottom-4 right-4 text-[10px] bg-black/60 border border-white/10 px-2 py-1 text-gray-300">
+        <div className="absolute bottom-4 right-4 text-[10px] bg-black/60 border border-white/10 px-2 py-1 text-ink-soft">
           {projectionType === 'dymaxion' ? '2D Dymaxion' : '2D Mercator'} • Scroll to zoom, drag to pan
         </div>
       )}
