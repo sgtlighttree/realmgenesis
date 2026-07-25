@@ -11,12 +11,19 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 export const BiomeLegendList: React.FC<{ columns?: 1 | 2 }> = ({ columns = 1 }) => (
   <div className={columns === 2 ? 'grid grid-cols-2 gap-x-3 gap-y-1' : 'space-y-1'}>
     {(Object.keys(BIOME_COLORS) as BiomeType[]).map((biome) => (
-      <div key={biome} className="flex items-center gap-2">
+      // `min-w-0` is load-bearing: a flex item defaults to `min-width: auto`,
+      // so the label could not shrink below its own content and pushed the grid
+      // track wider than the 256px Read rail — which is what produced the
+      // horizontal scrollbar on "Temperate Rainforest".
+      <div key={biome} className="flex items-center gap-2 min-w-0">
         <div
           className="w-3 h-3 shrink-0 border border-white/10"
           style={{ backgroundColor: BIOME_COLORS[biome] }}
         />
-        <span className="text-[10px] text-ink-soft whitespace-nowrap">{biome}</span>
+        {/* Wraps rather than truncates. A legend exists to NAME things, so
+            "Temperate Rainfo…" defeats the point; two lines cost a few pixels
+            of height in a rail that already scrolls. */}
+        <span className="text-[10px] text-ink-soft leading-tight">{biome}</span>
       </div>
     ))}
   </div>
