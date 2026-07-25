@@ -2,6 +2,7 @@ import React from 'react';
 import {
   Globe, Map as MapIcon, Hexagon, Waves, Route as RouteIcon, Sun,
   Flag, Pencil, ArrowUp, ArrowDown, Minus, Leaf, RefreshCw, Grid3x3,
+  ChevronDown,
 } from 'lucide-react';
 
 /**
@@ -43,24 +44,60 @@ const CHIP = `text-[10px] px-2 py-1 border border-gray-700 bg-gray-800 text-gray
 const CHIP_ON = `text-[10px] px-2 py-1 border border-blue-500 bg-blue-600 text-white whitespace-nowrap ${FOCUS}`;
 
 /** A panel wrapper with a consistent, quiet header — the title carries it; no
- *  eyebrow tag (bucket identity is conveyed by position, not a repeated label). */
+ *  eyebrow tag (bucket identity is conveyed by position, not a repeated label).
+ *
+ *  `collapsible` restores the affordance the classic Legend and MiniMap had.
+ *  An earlier pass argued docking made it unnecessary (the rail scrolls), which
+ *  was wrong: the Read rail holds three tall cards, and users want to fold the
+ *  reference ones away to see the globe. Implemented ONCE here rather than
+ *  per-component, which is the whole point of the shared chrome.
+ *
+ *  Collapsing UNMOUNTS the body rather than hiding it — `MiniMapCanvas` runs a
+ *  d3 redraw on every world change, and CSS-hiding would keep that work alive. */
 export const Panel: React.FC<{
   title?: string;
   right?: React.ReactNode;
   className?: string;
   bodyClassName?: string;
+  collapsible?: boolean;
+  defaultCollapsed?: boolean;
   children?: React.ReactNode;
-}> = ({ title, right, className = '', bodyClassName = '', children }) => (
-  <section className={`flex flex-col min-h-0 ${PANEL} ${className}`}>
-    {(title || right) && (
-      <header className={HEADER}>
-        {title && <h2 className="text-xs font-semibold text-gray-100 tracking-tight">{title}</h2>}
-        {right && <div className="ml-auto flex items-center gap-1">{right}</div>}
-      </header>
-    )}
-    <div className={`min-h-0 overflow-auto p-3 ${bodyClassName}`}>{children}</div>
-  </section>
-);
+}> = ({
+  title, right, className = '', bodyClassName = '',
+  collapsible = false, defaultCollapsed = false, children,
+}) => {
+  const [collapsed, setCollapsed] = React.useState(defaultCollapsed);
+  const canCollapse = collapsible && !!title;
+  return (
+    <section className={`flex flex-col min-h-0 ${PANEL} ${className}`}>
+      {(title || right) && (
+        <header className={HEADER}>
+          {title && (
+            canCollapse ? (
+              <button
+                onClick={() => { setCollapsed(v => !v); }}
+                aria-expanded={!collapsed}
+                className={`flex flex-1 items-center gap-1.5 text-left text-xs font-semibold text-gray-100 tracking-tight hover:text-white ${FOCUS}`}
+              >
+                <ChevronDown
+                  size={12}
+                  className={`shrink-0 text-gray-400 transition-transform duration-150 ${collapsed ? '-rotate-90' : ''}`}
+                />
+                {title}
+              </button>
+            ) : (
+              <h2 className="text-xs font-semibold text-gray-100 tracking-tight">{title}</h2>
+            )
+          )}
+          {right && <div className="ml-auto flex items-center gap-1">{right}</div>}
+        </header>
+      )}
+      {!collapsed && (
+        <div className={`min-h-0 overflow-auto p-3 ${bodyClassName}`}>{children}</div>
+      )}
+    </section>
+  );
+};
 
 /** Consistent slider — single accent color (kills the 5-thumb-color tell). */
 const FauxSlider: React.FC<{ label: string; value: string }> = ({ label, value }) => (
@@ -157,7 +194,13 @@ export const DoPanel: React.FC = () => (
 );
 
 /** Read cards — each self-contained, shell decides stacking vs tabbing. */
-export interface ReadCard { key: string; title: string; node: React.ReactNode; }
+export interface ReadCard {
+  key: string;
+  title: string;
+  node: React.ReactNode;
+  /** Reference cards (Biomes, 2D Projection) fold away; the Inspector does not. */
+  collapsible?: boolean;
+}
 
 const BIOMES = [
   ['#3a4a9e', 'Deep Ocean'], ['#2f7fc4', 'Ocean'], ['#e8e8ee', 'Ice Cap'],
