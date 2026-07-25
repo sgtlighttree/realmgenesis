@@ -189,7 +189,7 @@ function Select<T extends string>({
         <span className="truncate">{selected?.label ?? ''}</span>
         <ChevronDown
           size={12}
-          className={`shrink-0 text-gray-500 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+          className={`shrink-0 text-gray-400 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
         />
       </button>
 
