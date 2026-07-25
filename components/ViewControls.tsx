@@ -149,7 +149,7 @@ export const LayerToggleRow: React.FC<{ toggle: LayerToggle; className?: string 
   return (
     <div className={`flex items-center justify-between text-xs text-gray-400 ${className}`}>
       <div className="flex items-center gap-2">
-        <Icon size={12} className={toggle.checked ? toggle.accent : 'text-gray-600'} />
+        <Icon size={12} className={toggle.checked ? toggle.accent : 'text-gray-500'} />
         <label>{toggle.label}</label>
       </div>
       <input
@@ -168,7 +168,7 @@ export const OverlayToggles: React.FC<Pick<ViewControlsProps, 'labelVisibility' 
 }) => (
   <div className="pt-2">
     <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
-      <Flag size={12} className={(labelVisibility.borders || labelVisibility.factions) ? 'text-blue-400' : 'text-gray-600'} />
+      <Flag size={12} className={(labelVisibility.borders || labelVisibility.factions) ? 'text-blue-400' : 'text-gray-500'} />
       <label className="font-medium">Map Overlays</label>
     </div>
     <div className="ml-5 space-y-1">

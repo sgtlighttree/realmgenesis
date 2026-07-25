@@ -151,9 +151,13 @@ const Inspector: React.FC<InspectorProps> = ({
   return (
     <div className={className}>
       <div className={cardClassName ?? `bg-black/80 backdrop-blur text-white shadow-xl border border-white/20 transition-all duration-300 pointer-events-auto ${collapsed ? 'w-28' : selectedMarker || isEditing ? 'w-64' : 'min-w-[220px]'}`}>
-        <div className="flex items-center justify-between p-2 border-b border-white/10">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-gray-800">
           {!collapsed && (
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">
+            /* Matches the shell Panel header (shellKit `HEADER`) so the docked
+               Inspector reads as a sibling of Biomes / 2D Projection rather
+               than a different species. The old tiny-uppercase eyebrow was
+               also the one type treatment that dated the panel. */
+            <span className="text-xs font-semibold text-gray-100 tracking-tight">
               {editMode === 'world-edit' ? 'World Edit' : 'Inspector'}
             </span>
           )}
@@ -161,7 +165,7 @@ const Inspector: React.FC<InspectorProps> = ({
             {onToggleMarkerMode && (
               <button
                 onClick={onToggleMarkerMode}
-                className={`p-1 transition-colors ${markerMode ? 'text-amber-400 hover:bg-amber-900/40' : 'text-gray-600 hover:bg-gray-800'}`}
+                className={`p-1 transition-colors ${markerMode ? 'text-amber-400 hover:bg-amber-900/40' : 'text-gray-500 hover:bg-gray-800'}`}
                 title={markerMode ? 'Disable Marker Placement' : 'Place Marker'}
               >
                 <MapPin size={12} />
@@ -170,7 +174,7 @@ const Inspector: React.FC<InspectorProps> = ({
             {onToggleRuler && (
               <button
                 onClick={onToggleRuler}
-                className={`p-1 transition-colors ${rulerActive ? 'text-amber-400 hover:bg-amber-900/40' : 'text-gray-600 hover:bg-gray-800'}`}
+                className={`p-1 transition-colors ${rulerActive ? 'text-amber-400 hover:bg-amber-900/40' : 'text-gray-500 hover:bg-gray-800'}`}
                 title={rulerActive ? 'Disable Ruler' : 'Measure Distance'}
               >
                 <Ruler size={12} />
@@ -179,7 +183,7 @@ const Inspector: React.FC<InspectorProps> = ({
             {editMode !== 'world-edit' && (
               <button
                 onClick={onToggleEnabled}
-                className={`p-1 transition-colors ${enabled ? 'text-blue-400 hover:bg-blue-900/40' : 'text-gray-600 hover:bg-gray-800'}`}
+                className={`p-1 transition-colors ${enabled ? 'text-blue-400 hover:bg-blue-900/40' : 'text-gray-500 hover:bg-gray-800'}`}
                 title={enabled ? "Disable Inspector" : "Enable Inspector"}
               >
                 {enabled ? <Eye size={12} /> : <EyeOff size={12} />}
@@ -273,7 +277,7 @@ const Inspector: React.FC<InspectorProps> = ({
             {/* Faction fields */}
             {faction && (
               <div className="space-y-1.5">
-                <p className="text-[10px] text-gray-500 uppercase tracking-wide">Faction</p>
+                <p className="text-[10px] text-gray-400 uppercase tracking-wide">Faction</p>
                 <div className="flex gap-1.5 items-center">
                   <input
                     type="color"
@@ -305,7 +309,7 @@ const Inspector: React.FC<InspectorProps> = ({
             {/* Province fields */}
             {province && faction && (
               <div className="space-y-1.5">
-                <p className="text-[10px] text-gray-500 uppercase tracking-wide">Province</p>
+                <p className="text-[10px] text-gray-400 uppercase tracking-wide">Province</p>
                 <input
                   type="text"
                   value={provinceDraft ?? province.name}
@@ -324,11 +328,11 @@ const Inspector: React.FC<InspectorProps> = ({
             {town && faction && province && (
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-wide">{town.isCapital ? 'Capital' : 'Town'}</p>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wide">{town.isCapital ? 'Capital' : 'Town'}</p>
                   {!town.isCapital && onRelocateCapital && (
                     <button
                       onClick={() => onRelocateCapital(faction.id, town.cellId)}
-                      className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-amber-900/40 text-amber-300 border border-amber-700 hover:bg-amber-900/70"
+                      className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-amber-900/40 text-amber-300 border border-amber-700 hover:bg-amber-900/70"
                       title="Promote this town to faction capital"
                     >
                       <Star size={9} /> Make Capital
@@ -358,18 +362,18 @@ const Inspector: React.FC<InspectorProps> = ({
             )}
 
             {!faction && (
-              <p className="text-gray-500 italic text-center py-1">Unclaimed — no faction data</p>
+              <p className="text-gray-400 italic text-center py-1">Unclaimed — no faction data</p>
             )}
           </div>
         )}
 
         {!collapsed && !selectedMarker && !enabled && (
-          <div className="p-4 text-[10px] text-gray-500 text-center italic">
+          <div className="p-4 text-[10px] text-gray-400 text-center italic">
             Inspector Disabled
           </div>
         )}
         {!collapsed && !selectedMarker && enabled && !cell && (
-          <div className="p-4 text-[10px] text-gray-500 text-center italic">
+          <div className="p-4 text-[10px] text-gray-400 text-center italic">
             {markerMode ? 'Click the map to place a marker...' : editMode === 'world-edit' ? 'Click a cell to edit...' : 'Click a cell...'}
           </div>
         )}
@@ -393,7 +397,7 @@ const Inspector: React.FC<InspectorProps> = ({
                     className={`w-full flex items-center justify-between gap-2 px-2 py-1 text-[10px] text-left ${m.id === selectedMarkerId ? 'bg-blue-900/40 text-blue-200' : 'text-gray-300 hover:bg-gray-800'}`}
                   >
                     <span className="truncate">{m.name}</span>
-                    <span className="text-gray-500 uppercase shrink-0">{m.kind}</span>
+                    <span className="text-gray-400 uppercase shrink-0">{m.kind}</span>
                   </button>
                 ))}
               </div>

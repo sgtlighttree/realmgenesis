@@ -222,7 +222,7 @@ const EditToolbar: React.FC<EditToolbarProps> = ({
 
       {/* Space hint */}
       {editMode !== 'off' && (
-        <div className="text-[9px] text-gray-600 text-center">
+        <div className="text-[10px] text-gray-500 text-center">
           Hold <kbd className="bg-gray-800 border border-gray-700 px-1 py-0.5 text-gray-400">Space</kbd> + drag to orbit / pan
         </div>
       )}
@@ -233,7 +233,7 @@ const EditToolbar: React.FC<EditToolbarProps> = ({
         <ModeBtn active={editMode === 'off'} onClick={() => setEditMode('off')} icon={<Globe size={11} />} label="Off" title="Disable editing" />
         <Sep />
         {/* Terrain group */}
-        <span className="text-[9px] text-gray-600 px-1 uppercase tracking-wide hidden sm:block">Terrain</span>
+        <span className="text-[10px] text-gray-500 px-1 uppercase tracking-wide hidden sm:block">Terrain</span>
         <ModeBtn active={editMode === 'terrain-raise'} onClick={() => setEditMode('terrain-raise')} icon={<ArrowUp size={11} />} label="Raise" title="Raise terrain" />
         <ModeBtn active={editMode === 'terrain-lower'} onClick={() => setEditMode('terrain-lower')} icon={<ArrowDown size={11} />} label="Lower" title="Lower terrain" />
         <ModeBtn active={editMode === 'terrain-flatten'} onClick={() => setEditMode('terrain-flatten')} icon={<Minus size={11} />} label="Flatten" title="Right-click to sample height, drag to flatten" />
