@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode, DymaxionSettings, DymaxionControlMode, LabelVisibility, MarkerData } from '../types';
-import { RefreshCw, Globe, Thermometer, Droplets, Flag, Mountain, Lock, Unlock, Shuffle, Eye, Layers, Zap, Grid, Save, Trash2, Image, Satellite, Waves, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Box, Copy, Check, Users, Landmark, Sun, LineChart, FileCode, FileJson, Palette, Church, Route } from 'lucide-react';
+import { RefreshCw, Globe, Mountain, Lock, Unlock, Shuffle, Layers, Zap, Save, Trash2, Image, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Box, Copy, Check, FileCode, FileJson } from 'lucide-react';
 import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
 import { downloadSVG, downloadGeoJSON } from '../utils/exportVector';
 import { NAME_STYLES, NameStyle } from '../utils/namegen';
 import { exportGLB } from '../utils/exportGLB';
 import { WorldData } from '../types';
 import DymaxionPreview2D from './DymaxionPreview2D';
+import {
+  ViewControlsProps, DISPLAY_MODES, DisplayButton, ViewLayerGrid,
+  LayerToggleRow, OverlayToggles, buildLayerToggles,
+} from './ViewControls';
 
 interface ControlsProps {
   params: WorldParams;
@@ -384,32 +388,16 @@ const Controls: React.FC<ControlsProps> = ({
       }
   };
 
-  const ViewButton = ({ mode, icon: Icon, label }: { mode: ViewMode, icon: any, label: string }) => (
-    <button
-      onClick={() => { setViewMode(mode); }}
-      className={`flex items-center gap-2 px-2 py-1.5 text-xs transition-all flex-1 justify-center border ${
- viewMode === mode 
- ? 'bg-blue-600 text-white border-blue-500 border-b-2' 
- : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700 hover:text-white'
- }`}
-    >
-      <Icon size={14} />
-      {label}
-    </button>
-  );
-
-  const DisplayButton = ({ mode, label }: { mode: DisplayMode; label: string }) => (
-    <button
-      onClick={() => { setDisplayMode(mode); }}
-      className={`px-2 py-1.5 text-xs transition-all flex-1 border ${
- displayMode === mode
- ? 'bg-blue-600 text-white border-blue-500 border-b-2'
- : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700 hover:text-white'
- }`}
-    >
-      {label}
-    </button>
-  );
+  // Render-mode / view-layer / overlay-toggle primitives are shared with the
+  // shell's View strip (components/ViewControls.tsx) — one definition, each
+  // host composing its own layout.
+  const viewProps: ViewControlsProps = {
+    viewMode, setViewMode, displayMode, setDisplayMode,
+    showGrid, setShowGrid, showRivers, setShowRivers, showRoutes, setShowRoutes,
+    showHillshade, setShowHillshade, showContours, setShowContours,
+    labelVisibility, setLabelVisibility,
+  };
+  const layerToggles = buildLayerToggles(viewProps);
 
   return (
     <div className="w-full md:w-80 bg-gray-950 border-r border-gray-800 flex flex-col h-full overflow-hidden text-sm relative z-20">
@@ -435,9 +423,10 @@ const Controls: React.FC<ControlsProps> = ({
              <div className="space-y-1">
                <label className="text-xs text-gray-400 block">Render Mode</label>
                <div className="flex gap-2">
-                 <DisplayButton mode="globe" label="3D Globe" />
-                 <DisplayButton mode="mercator" label="2D Mercator" />
-                 <DisplayButton mode="dymaxion" label="2D Dymaxion" />
+                 {DISPLAY_MODES.map(m => (
+                   <DisplayButton key={m.mode} mode={m.mode} label={m.label}
+                     displayMode={displayMode} setDisplayMode={setDisplayMode} />
+                 ))}
                </div>
              </div>
 
@@ -511,98 +500,15 @@ const Controls: React.FC<ControlsProps> = ({
               />
             </div>
              
-             <div className="flex items-center justify-between text-xs text-gray-400 pt-2 border-t border-gray-800">
-                 <div className="flex items-center gap-2">
-                    <Grid size={12} className={showGrid ? "text-blue-400" : "text-gray-600"}/>
-                    <label>Lat/Long Grid</label>
-                 </div>
-                 <input 
-                    type="checkbox"
-                    checked={showGrid}
-                    onChange={(e) => { setShowGrid(e.target.checked); }}
-                    className="bg-gray-700"
-                 />
-            </div>
+             {layerToggles.map((t, i) => (
+               <LayerToggleRow key={t.key} toggle={t}
+                 className={i === 0 ? 'pt-2 border-t border-gray-800' : 'pt-2'} />
+             ))}
 
-            <div className="flex items-center justify-between text-xs text-gray-400 pt-2">
-                 <div className="flex items-center gap-2">
-                    <Waves size={12} className={showRivers ? "text-blue-400" : "text-gray-600"}/>
-                    <label>River Network</label>
-                 </div>
-                 <input
-                    type="checkbox"
-                    checked={showRivers}
-                    onChange={(e) => { setShowRivers(e.target.checked); }}
-                    className="bg-gray-700"
-                 />
-            </div>
-
-            <div className="flex items-center justify-between text-xs text-gray-400 pt-2">
-                 <div className="flex items-center gap-2">
-                    <Route size={12} className={showRoutes ? "text-amber-400" : "text-gray-600"}/>
-                    <label>Roads &amp; Routes</label>
-                 </div>
-                 <input
-                    type="checkbox"
-                    checked={showRoutes}
-                    onChange={(e) => { setShowRoutes(e.target.checked); }}
-                    className="bg-gray-700"
-                 />
-            </div>
-
-            <div className="flex items-center justify-between text-xs text-gray-400 pt-2">
-                 <div className="flex items-center gap-2">
-                    <Sun size={12} className={showHillshade ? "text-blue-400" : "text-gray-600"}/>
-                    <label>Hillshading</label>
-                 </div>
-                 <input
-                    type="checkbox"
-                    checked={showHillshade}
-                    onChange={(e) => { setShowHillshade(e.target.checked); }}
-                    className="bg-gray-700"
-                 />
-            </div>
-
-            <div className="flex items-center justify-between text-xs text-gray-400 pt-2">
-                 <div className="flex items-center gap-2">
-                    <LineChart size={12} className={showContours ? "text-blue-400" : "text-gray-600"}/>
-                    <label>Contour Lines</label>
-                 </div>
-                 <input
-                    type="checkbox"
-                    checked={showContours}
-                    onChange={(e) => { setShowContours(e.target.checked); }}
-                    className="bg-gray-700"
-                 />
-            </div>
-
-            <div className="pt-2">
-                 <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
-                    <Flag size={12} className={(labelVisibility.borders || labelVisibility.factions) ? "text-blue-400" : "text-gray-600"}/>
-                    <label className="font-medium">Map Overlays</label>
-                 </div>
-                 <div className="ml-5 space-y-1">
-                   {([
-                     ['borders', 'Faction Borders'],
-                     ['factions', 'Faction Names'],
-                     ['capitals', 'Capital Names'],
-                     ['provinces', 'Province Names'],
-                     ['towns', 'Town Names'],
-                     ['geography', 'Geographic Names'],
-                     ['markers', 'Markers'],
-                   ] as [keyof LabelVisibility, string][]).map(([key, label]) => (
-                     <div key={key} className="flex items-center justify-between text-xs text-gray-400">
-                       <label>{label}</label>
-                       <input
-                         type="checkbox"
-                         checked={labelVisibility[key]}
-                         onChange={(e) => { setLabelVisibility(prev => ({ ...prev, [key]: e.target.checked })); }}
-                         className="bg-gray-700"
-                       />
-                     </div>
-                   ))}
-                 </div>
-            </div>
+             <OverlayToggles
+               labelVisibility={labelVisibility}
+               setLabelVisibility={setLabelVisibility}
+             />
 
             <div className="flex items-center justify-between text-xs text-gray-400 pt-2">
                  <div className="flex items-center gap-2">
@@ -620,20 +526,7 @@ const Controls: React.FC<ControlsProps> = ({
             
             <div className="pt-4 border-t border-gray-800">
               <h3 className="text-xs font-semibold text-gray-500 mb-2">View Layer</h3>
-              <div className="grid grid-cols-2 gap-2">
-                <ViewButton mode="biome" icon={Globe} label="Biomes" />
-                <ViewButton mode="satellite" icon={Satellite} label="Satellite" />
-                <ViewButton mode="height" icon={Mountain} label="Height" />
-                <ViewButton mode="height_bw" icon={Eye} label="Height BW" />
-                <ViewButton mode="temperature" icon={Thermometer} label="Temp" />
-                <ViewButton mode="moisture" icon={Droplets} label="Rain" />
-                <ViewButton mode="plates" icon={Layers} label="Plates" />
-                <ViewButton mode="political" icon={Flag} label="Borders" />
-                <ViewButton mode="province" icon={Landmark} label="Provinces" />
-                <ViewButton mode="culture" icon={Palette} label="Cultures" />
-                <ViewButton mode="religion" icon={Church} label="Religions" />
-                <ViewButton mode="population" icon={Users} label="Population" />
-              </div>
+              <ViewLayerGrid viewMode={viewMode} setViewMode={setViewMode} />
             </div>
 
             <div className="pt-4 border-t border-gray-800 space-y-3">
