@@ -167,6 +167,8 @@ const Inspector: React.FC<InspectorProps> = ({
                 onClick={onToggleMarkerMode}
                 className={`p-1 transition-colors ${markerMode ? 'text-warn-soft hover:bg-amber-900/40' : 'text-ink-faint hover:bg-surface-raised'}`}
                 title={markerMode ? 'Disable Marker Placement' : 'Place Marker'}
+                aria-label={markerMode ? 'Disable marker placement' : 'Place marker'}
+                aria-pressed={markerMode}
               >
                 <MapPin size={12} />
               </button>
@@ -176,6 +178,8 @@ const Inspector: React.FC<InspectorProps> = ({
                 onClick={onToggleRuler}
                 className={`p-1 transition-colors ${rulerActive ? 'text-warn-soft hover:bg-amber-900/40' : 'text-ink-faint hover:bg-surface-raised'}`}
                 title={rulerActive ? 'Disable Ruler' : 'Measure Distance'}
+                aria-label={rulerActive ? 'Disable ruler' : 'Measure distance'}
+                aria-pressed={rulerActive}
               >
                 <Ruler size={12} />
               </button>
@@ -185,12 +189,19 @@ const Inspector: React.FC<InspectorProps> = ({
                 onClick={onToggleEnabled}
                 className={`p-1 transition-colors ${enabled ? 'text-brand-soft hover:bg-blue-900/40' : 'text-ink-faint hover:bg-surface-raised'}`}
                 title={enabled ? "Disable Inspector" : "Enable Inspector"}
+                aria-label={enabled ? 'Disable inspector' : 'Enable inspector'}
+                aria-pressed={enabled}
               >
                 {enabled ? <Eye size={12} /> : <EyeOff size={12} />}
               </button>
             )}
             {onToggleCollapsed && (
-              <button onClick={onToggleCollapsed} className="p-1 text-ink-muted hover:bg-surface-raised">
+              <button
+                onClick={onToggleCollapsed}
+                aria-label={collapsed ? 'Expand inspector' : 'Collapse inspector'}
+                aria-expanded={!collapsed}
+                className="p-1 text-ink-muted hover:bg-surface-raised"
+              >
                 {collapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
               </button>
             )}
@@ -207,6 +218,7 @@ const Inspector: React.FC<InspectorProps> = ({
                   onClick={() => onDeleteMarker(selectedMarker.id)}
                   className="p-0.5 text-danger-soft hover:text-red-300"
                   title="Delete marker"
+                  aria-label={`Delete marker ${selectedMarker.name || ''}`.trim()}
                 >
                   <Trash2 size={12} />
                 </button>

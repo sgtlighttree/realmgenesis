@@ -162,7 +162,15 @@ const EditToolbar: React.FC<EditToolbarProps> = ({
               <Sep />
               <div className="flex gap-1 flex-wrap max-w-[220px]">
                 {BIOME_LIST.map(b => (
+                  // The swatch has no text and its only content is a background
+                  // colour, so without aria-label a screen reader announces the
+                  // whole palette as "button, button, button". `title` does not
+                  // fill that gap: it is a mouse tooltip and never surfaces on
+                  // touch. aria-pressed carries the selection that `scale-125`
+                  // conveys visually.
                   <button key={b} onClick={() => setPaintBiome(b)} title={b}
+                    aria-label={b}
+                    aria-pressed={paintBiome === b}
                     className={`w-5 h-5 border-2 transition-all ${paintBiome === b ? 'scale-125 border-white' : 'border-transparent hover:border-gray-400'}`}
                     style={{ backgroundColor: BIOME_COLORS[b] }} />
                 ))}
@@ -183,6 +191,8 @@ const EditToolbar: React.FC<EditToolbarProps> = ({
                     <button
                       onClick={() => setPaintFaction(POLITICAL_ERASER_ID)}
                       title="Eraser: mark cells as unclaimed"
+                      aria-label="Eraser: mark cells as unclaimed"
+                      aria-pressed={paintFaction === POLITICAL_ERASER_ID}
                       className={`w-6 h-6 border-2 transition-all flex items-center justify-center bg-surface-sunken text-ink ${paintFaction === POLITICAL_ERASER_ID ? 'scale-125 border-white' : 'border-edge hover:border-gray-400'}`}
                     >
                       <Eraser size={13} />
@@ -190,7 +200,11 @@ const EditToolbar: React.FC<EditToolbarProps> = ({
                     {factions.map((f, idx) => {
                       const textColor = getContrastText(f.color);
                       return (
+                        // The visible glyph is only the index, so a reader would
+                        // otherwise announce "1", "2", "3" with no faction name.
                         <button key={f.id} onClick={() => setPaintFaction(f.id)} title={`${idx + 1}. ${f.name}`}
+                          aria-label={`Paint as ${f.name}`}
+                          aria-pressed={paintFaction === f.id}
                           className={`w-6 h-6 border-2 transition-all flex items-center justify-center text-[10px] font-bold leading-none ${paintFaction === f.id ? 'scale-125 border-white' : 'border-transparent hover:border-gray-400'}`}
                           style={{ backgroundColor: f.color, color: textColor }}>
                           <span style={{ textShadow: textColor === '#ffffff' ? '0 1px 2px #000' : '0 1px 2px #fff' }}>
@@ -213,6 +227,7 @@ const EditToolbar: React.FC<EditToolbarProps> = ({
           <Sep />
           <button onClick={onUndo} disabled={undoCount === 0}
             title={`Undo last stroke (${undoCount}) — Ctrl+Z`}
+            aria-label={`Undo last stroke, ${undoCount} available`}
             className="flex items-center gap-1 text-[10px] text-ink-muted hover:text-ink-strong disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
             <Undo2 size={12} />
             {undoCount > 0 && <span>{undoCount}</span>}
