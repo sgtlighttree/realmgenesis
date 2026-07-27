@@ -103,7 +103,7 @@ const checkAbort = (signal?: AbortSignal) => {
     }
 };
 
-async function applyHydraulicErosion(cells: Cell[], iterations: number, seaLevel: number, signal?: AbortSignal): Promise<void> {
+async function applyHydraulicErosion(cells: Cell[], iterations: number, seaLevel: number): Promise<void> {
     cells.forEach(c => c.flux = 0);
     const sorted = [...cells].sort((a, b) => b.height - a.height);
     const erosionRate = 0.02;
@@ -115,8 +115,6 @@ async function applyHydraulicErosion(cells: Cell[], iterations: number, seaLevel
 
     for (let iter = 0; iter < iterations; iter++) {
         if (iter % chunkSize === 0) {
-            await new Promise(r => setTimeout(r, 0));
-            checkAbort(signal);
         }
 
         // Only rain on land
@@ -146,15 +144,13 @@ async function applyHydraulicErosion(cells: Cell[], iterations: number, seaLevel
     }
 }
 
-async function applyThermalErosion(cells: Cell[], iterations: number, signal?: AbortSignal) {
+async function applyThermalErosion(cells: Cell[], iterations: number) {
     const talus = 0.008; // Min slope diff
     const rate = 0.2; 
     const chunkSize = 5;
 
     for(let iter=0; iter<iterations; iter++) {
         if (iter % chunkSize === 0) {
-            await new Promise(r => setTimeout(r, 0));
-            checkAbort(signal);
         }
         cells.forEach(c => {
             let maxDiff = 0;
@@ -183,11 +179,9 @@ export function isLakeCell(cell: Cell): boolean {
 
 // --- RIVER GENERATION ---
 
-async function generateRivers(cells: Cell[], seaLevel: number, params: WorldParams, onProgress?: (msg: string) => void, signal?: AbortSignal): Promise<{ rivers: Point[][]; lakes: LakeData[] }> {
+async function generateRivers(cells: Cell[], seaLevel: number, params: WorldParams, onProgress?: (msg: string) => void): Promise<{ rivers: Point[][]; lakes: LakeData[] }> {
     const numCells = cells.length;
     onProgress?.("Rivers: Initializing drainage map...");
-    await new Promise(r => setTimeout(r, 0));
-    checkAbort(signal);
     
     // 1. Depression Filling (Drainage Enforcement)
     // CRITICAL FIX: Use Float64Array to prevent infinite loops caused by precision mismatch 
@@ -218,8 +212,6 @@ async function generateRivers(cells: Cell[], seaLevel: number, params: WorldPara
     while(heap.size() > 0) {
         // Safety break and log update
         if (++processed % 2000 === 0) {
-            await new Promise(r => setTimeout(r, 0));
-            checkAbort(signal);
             onProgress?.(`Rivers: Drainage processed ${processed} cells...`);
         }
 
@@ -302,8 +294,6 @@ async function generateRivers(cells: Cell[], seaLevel: number, params: WorldPara
     }
 
     onProgress?.("Rivers: Accumulating flux...");
-    await new Promise(r => setTimeout(r, 0));
-    checkAbort(signal);
 
     // 2. Accumulate Flux
     const sortedIndices = Array.from({length: numCells}, (_, i) => i)
@@ -340,8 +330,6 @@ async function generateRivers(cells: Cell[], seaLevel: number, params: WorldPara
     for (const startId of candidates) {
         if (visited.has(startId)) continue;
         if (++processed % 500 === 0) {
-             await new Promise(r => setTimeout(r, 0));
-             checkAbort(signal);
         }
         
         const path: Point[] = [];
@@ -499,6 +487,17 @@ function enforceConnectivity(cells: Cell[], numPlates: number) {
 // --- GEOGRAPHY GENERATION ---
 
 export async function generateWorld(params: WorldParams, onLog?: (msg: string) => void, signal?: AbortSignal, onProgress?: (stage: number, total: number) => void): Promise<WorldData> {
+  // The only abort checkpoint left. The nine setTimeout(0) yields this used to
+  // ride on existed to keep the MAIN thread barely responsive between stages;
+  // generation now runs in a worker (utils/worldGenClient.ts), where they cost
+  // time and buy nothing. Mid-run cancellation is worker.terminate() — a
+  // synchronous generation loop cannot drain the message queue, so a
+  // message-based abort could only ever be seen at a yield, which is precisely
+  // what was removed. This entry check stays because generateWorld is still
+  // directly callable (the test suite, dev/goldenCompare.html) and the
+  // determinism suite asserts an already-aborted signal throws before any work.
+  checkAbort(signal);
+
   // Must equal the number of progress() calls below (the erosion tick fires
   // even when erosion is skipped) so the bar reaches 100%
   const TOTAL_STAGES = 7;
@@ -517,8 +516,6 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   });
   
   onLog?.("Computing Connectivity...");
-  await new Promise(r => setTimeout(r, 10)); 
-  checkAbort(signal);
 
   const voronoi = geoVoronoi(geoPoints);
   const polygons = voronoi.polygons();
@@ -556,8 +553,6 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
 
   onLog?.(`Simulating ${params.plates} Tectonic Plates...`);
   progress();
-  await new Promise(r => setTimeout(r, 0));
-  checkAbort(signal);
 
   const numPlates = params.plates;
   const plateRng = new RNG(params.seed + '_plates_loc'); 
@@ -728,15 +723,13 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   progress();
   if (params.erosionIterations > 0) {
       onLog?.(`Eroding Terrain (${params.erosionIterations} iter)...`);
-      await new Promise(r => setTimeout(r, 0));
-      checkAbort(signal);
 
       const resFactor = Math.sqrt(params.points / 5000);
       const hydraulicSteps = Math.ceil(params.erosionIterations * 2 * resFactor);
       const thermalSteps = Math.ceil(params.erosionIterations * 0.5 * resFactor);
       
-      await applyHydraulicErosion(cells, hydraulicSteps, params.seaLevel, signal); 
-      await applyThermalErosion(cells, thermalSteps, signal);
+      await applyHydraulicErosion(cells, hydraulicSteps, params.seaLevel); 
+      await applyThermalErosion(cells, thermalSteps);
       
       minH = Infinity; maxH = -Infinity;
       cells.forEach(c => { if (c.height < minH) minH = c.height; if (c.height > maxH) maxH = c.height; });
@@ -841,7 +834,7 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   });
 
   progress();
-  const { rivers, lakes } = await generateRivers(cells, params.seaLevel, params, onLog, signal);
+  const { rivers, lakes } = await generateRivers(cells, params.seaLevel, params, onLog);
   const world: WorldData = { cells, params, geoJson: polygons, rivers, lakes };
 
   // Named geographic features are terrain-derived (B3) — detect them before

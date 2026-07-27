@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { WorldData, WorldParams, ViewMode, LoreData, CivData, DisplayMode, InspectMode, DymaxionSettings, EditMode, PaintStyle, UndoSnapshot, BiomeType, POLITICAL_ERASER_ID, LabelVisibility, DEFAULT_LABEL_VISIBILITY, Point, MarkerData } from '../types';
-import { generateWorld, recalculateCivs, recalculateProvinces } from '../utils/worldGen';
+import { recalculateCivs, recalculateProvinces } from '../utils/worldGen';
+import { generateWorldInWorker } from '../utils/worldGenClient';
 import { computeRoutes } from '../utils/routes';
 import { mergeFactions, renameProvince, renameTown, relocateCapital } from '../utils/civEdit';
 import { getCellsInRadius, applyTerrainStroke, applyFlattenStroke, applySmoothStroke, applyPoliticalStroke, applyBiomeStroke, refreshBiomes } from '../utils/paintUtils';
@@ -184,7 +185,7 @@ export function useWorldEngine() {
     await new Promise(r => setTimeout(r, 100));
 
     try {
-        const newWorld = await generateWorld(p, (msg) => { addLog(msg); }, controller.signal, (s, t) => setGenProgress(s / t));
+        const newWorld = await generateWorldInWorker(p, (msg) => { addLog(msg); }, controller.signal, (s, t) => setGenProgress(s / t));
         // Markers are sphere-anchored (not cellId-based), so they stay
         // meaningful across regeneration — carry them over from the world
         // being replaced. Functional updater avoids a stale `world` closure.
@@ -225,7 +226,7 @@ export function useWorldEngine() {
 
      try {
          // 1. Regenerate World Geometry & Civs based on Seed
-         const newWorld = await generateWorld(newParams, (msg) => { addLog(msg); }, controller.signal);
+         const newWorld = await generateWorldInWorker(newParams, (msg) => { addLog(msg); }, controller.signal);
          
          // 2. Restore Saved Metadata (Names, Descriptions, Colors)
          // Wrapped separately: corrupt metadata degrades to "terrain only"
