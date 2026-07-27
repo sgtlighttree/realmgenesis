@@ -54,7 +54,37 @@ proposing it again.
 
 **Do not restore the lint ratchet to 30.** It is 29, `package.json`'s CLI flag
 is the looser `--max-warnings 30`, and the tighter number is the real gate.
-Headroom is zero: any new warning anywhere breaks it.
+**Headroom is zero**, and Stage 2 adds new params, modules and tests — so the
+first warning anywhere breaks the gate, and the obvious move (read package.json,
+conclude 30 is fine) is the wrong one.
+
+**If you need headroom, buy it by fixing an existing warning, not by raising the
+number.** The 29 break down as **25 `no-explicit-any` + 4
+`react-hooks/exhaustive-deps`**, and they cluster:
+`components/WorldViewer.tsx` **16**, `hooks/useWorldEngine.ts` 4,
+`components/Controls.tsx` 2, `utils/export.ts` 2, `utils/worldGen.ts` 2, then one
+each in `DymaxionPreview2D.tsx`, `EditToolbar.tsx`, `Map2D.tsx`. WorldViewer's 16
+are mostly the deliberate R3F string-element pattern (CLAUDE.md invariant) — a
+real cleanup target for F-tier, not something to "fix" casually while doing
+terrain work.
+
+### Two Stage 1 facts Stage 2 needs, that the spec cannot know
+
+1. **The measured numbers bound spec §4.1 ("simulate coarse, project once").**
+   A single full generation costs **~1.0s at 20k cells** and **~17.4s at 200k**
+   on the main thread (worker adds ~20%, of which ~4s at 200k is transfer). §4.1
+   proposes 20–40 timesteps over 5k–20k macro-cells — so budget against the 20k
+   figure, and note that the per-step cost is only the *tectonic* loop, not a
+   full pipeline pass. The 200k number is what makes §4.1 non-optional: 20–40
+   steps at display resolution is plainly out of reach, which is the empirical
+   backing for a decision the spec argues from precedent alone.
+2. **RULE, not a note: never route a partial recalc through `deserializeWorld`.**
+   It mints a **new `cells` array on every call**. `WorldMesh` geometry is keyed
+   on `world.cells` identity (CLAUDE.md invariant), so a civ-only or
+   province-only recalc sent through the worker would silently force a full
+   geometry rebuild and surface as a frame-rate regression with no obvious cause.
+   Full regeneration is the only correct caller today. If Stage 2 wants partial
+   work in the worker, the transfer contract needs an in-place update path first.
 
 ---
 

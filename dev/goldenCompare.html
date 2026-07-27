@@ -11,6 +11,16 @@
   none of which exist under Vitest. Run it by hand before wiring the client into
   <code>useWorldEngine</code>, and again after.
 </p>
+<p class="warn">
+  <strong>Read this before trusting a PASS after D6 Stage 2 begins.</strong>
+  This page proves the two <em>paths</em> agree — that serialize &rarr; transfer &rarr;
+  rehydrate loses nothing. It says nothing about whether the algorithm is
+  <em>right</em>. Stage 2 changes the terrain model, and both paths will run the
+  new code, so identity keeps holding while the question everyone is actually
+  asking goes unanswered. From that point on this is a <strong>transport
+  regression test only</strong>. There is no automated gate for "does this look
+  tectonic" — that is Matt's eye, by design (spec §6, Stage 2).
+</p>
 <p>
   <a href="?points=5000">5k identity</a> &middot;
   <a href="?points=20000">20k identity</a> &middot;
