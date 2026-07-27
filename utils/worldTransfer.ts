@@ -105,7 +105,11 @@ export const serializeWorld = (world: WorldData): { payload: WorldPayload; trans
     const c = cells[i];
     height[i] = c.height; temperature[i] = c.temperature; moisture[i] = c.moisture;
     plateId[i] = c.plateId;
-    biome[i] = BIOME_INDEX.get(c.biome)!;
+    const biomeIdx = BIOME_INDEX.get(c.biome);
+    if (biomeIdx === undefined) {
+      throw new Error(`worldTransfer: unknown biome value ${JSON.stringify(c.biome)} on cell ${i}`);
+    }
+    biome[i] = biomeIdx;
     writePoint(c.center, center, i * 3);
     let p = 0, b = 0;
     if (c.flux !== undefined) { flux[i] = c.flux; p |= P_FLUX; }
@@ -192,6 +196,11 @@ export const deserializeWorld = (p: WorldPayload): WorldData => {
     for (let k = ns; k < ne; k++) neighbors[k - ns] = p.nbrData[k];
 
     const pr = p.presence[i], bo = p.bools[i];
+    const biomeByte = p.biome[i];
+    const biomeValue = BIOME_LIST[biomeByte];
+    if (biomeValue === undefined) {
+      throw new Error(`worldTransfer: out-of-range biome byte ${biomeByte} on cell ${i}`);
+    }
     const c: Cell = {
       id: i,
       center: readPoint(p.center, i * 3),
@@ -201,7 +210,7 @@ export const deserializeWorld = (p: WorldPayload): WorldData => {
       plateId: p.plateId[i],
       temperature: p.temperature[i],
       moisture: p.moisture[i],
-      biome: BIOME_LIST[p.biome[i]],
+      biome: biomeValue,
     };
     if (pr & P_FLUX) c.flux = p.flux[i];
     if (pr & P_REGION) c.regionId = p.regionId[i];
