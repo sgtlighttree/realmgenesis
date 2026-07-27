@@ -18,7 +18,201 @@ workflow/style rules.
 
 ---
 
-## ⚡ NEW-THREAD PICKUP (2026-07-26, end of Session 6g)
+## ⚡ NEW-THREAD PICKUP (2026-07-27, end of Session 7)
+
+Branch **`d6-stage1-worker`**, cut from `redesign` @ `bdd8f22`. NOT pushed, NOT
+merged. Gates: typecheck 0, lint 0 errors / **29** warnings (ratchet — and
+headroom is now ZERO, see below), **159** tests, build OK.
+
+**D6 Stage 1 is DONE: generation runs in a Web Worker, with no algorithm
+change.** Every generated value is bit-identical to before. The next big rock is
+**D6 Stage 2 — the V3 terrain model**, which is designed but **not planned**.
+
+Before writing any Stage 2 code, read:
+
+1. `docs/superpowers/specs/2026-07-26-d6-terrain-v3-design.md` §3–§5 — the model
+2. `docs/research/2026-07-25-tectonics-adversarial-pass.md` — the red-team
+
+Stage 2 starts with `writing-plans` (or `brainstorming` for §9), **not with
+code**. §9 lists four questions Stage 1 does not answer: V3 behind a flag or
+outright, whether erosion moves to edge-length-weighted diffusion, whether
+Lloyd's relaxation is worth it, and the empirical `N`/coarse-resolution values.
+
+**The one thing most likely to be re-derived wrongly, repeated from Session 6g
+so you meet it without opening the spec:** §5.1 records a REFUTED hypothesis.
+"Accumulate uplift over 20–40 timesteps" was our headline seam fix and it is
+**wrong** — with small per-step rotation the same cell-graph edge is re-selected
+as the boundary every step, so uplift piles onto one edge and produces a
+*taller, thinner* wall exactly on the Voronoi cut. Read the refutation before
+proposing it again.
+
+**Do not restore the lint ratchet to 30.** It is 29, `package.json`'s CLI flag
+is the looser `--max-warnings 30`, and the tighter number is the real gate.
+Headroom is zero: any new warning anywhere breaks it.
+
+---
+
+## Session 7 (2026-07-27) — D6 Stage 1: generation moved into a Web Worker
+
+Commits `bca7ca4`..`e70b055` on `d6-stage1-worker`. Plan:
+`docs/superpowers/plans/2026-07-27-d6-stage1-worker-migration.md`. Executed
+subagent-per-task with a review between each; Tasks 5–7 run by the orchestrator
+because they are browser work and judgment.
+
+### The spec was wrong about the gate, and that shaped the whole stage
+
+D6 spec §6 asserts Stage 1 gets a free correctness proof because "the
+determinism suite already tests exactly this." **It does not.**
+`tests/worldGen.test.ts` compares two in-process runs of the *same code*, and
+`terrainSignature` covers four per-cell fields at `toFixed(6)`. That passes a
+`Float64`→`Float32` downcast (relative error ~1e-7 rounds away at 6 decimals), a
+dropped `flux`, an `undefined`→`0` collapse, and any change applied consistently
+to both runs. It would have green-lit a broken migration.
+
+So the stage is built on **three instruments, each with a stated blind spot.**
+Do not collapse them into one:
+
+| Instrument | Catches | Blind to |
+|---|---|---|
+| `tests/worldGen.test.ts` (pre-existing) | run-to-run nondeterminism, in-process | anything applied to both runs; 4 fields at 6 decimals |
+| `tests/helpers/worldDigest.ts` + `scripts/captureBaseline.mjs` | a refactor changing values on this engine, all fields at exact IEEE-754 bits | cross-engine ULP drift; cannot compare main thread to worker |
+| `dev/goldenCompare.html` | serialization loss across the real worker boundary | says nothing about whether the algorithm is *right*, only that both paths agree |
+
+**Why there is NO committed golden fixture — someone will propose adding one.**
+`Math.sin`/`cos`/`pow` are implementation-defined in ECMAScript, so a committed
+bit-exact fixture drifts a last-ULP across V8 versions, becomes a CI flake, gets
+`toBeCloseTo`'d, and at that point no longer catches the downcast it existed
+for. Baselines are captured **same-engine, same-session** into gitignored `tmp/`
+instead. That is the Session 6e method and it has no drift term.
+
+**TRAP in that script, found the hard way:** `captureBaseline.mjs` stamps
+`gitSha` = HEAD, which does **not** capture working-tree state. A `before`
+captured *after* editing looks identical to a correctly-sequenced one, and the
+comparison then proves nothing. **Capture `before` from a pristine
+`git worktree add --detach <pre-change-sha>`** (symlink `node_modules` in). Both
+Task 2's and Task 6's zero-change gates were closed that way.
+
+### Decisions + rationale
+
+- **Abort is `worker.terminate()`, never a message.** A worker running a
+  synchronous generation loop cannot drain its message queue — message events
+  are macrotasks, so an abort message could only ever be seen at a yield, and
+  deleting those yields is the entire point. `SharedArrayBuffer` + `Atomics`
+  would work but needs COOP/COEP headers on Netlify for no benefit. Consequence:
+  **one worker per generation.** Spawn is ~1–5ms against a multi-second run.
+- **The main thread rehydrates SoA back into `Cell[]`.** Every consumer
+  (`colors.ts`, `Map2D`, `WorldViewer`, `paintUtils`, `civEdit`, `export`) reads
+  `cell.height`. Making them read SoA is F4 work, not this stage. **The
+  rehydration is a deliberate temporary shim** and `utils/worldTransfer.ts` is
+  where that migration would start.
+- **Optionals carry presence bits, not sentinels.** Live code tests
+  `=== undefined`, so `undefined` and `-1` must round-trip distinctly.
+  `regionId: 0` is a real faction id and must not read as absent.
+- **`utils/palette.ts` and `utils/vec.ts` exist solely to keep `three` and `d3`
+  out of the worker bundle** (they arrived via `colors.ts` and
+  `features.ts`→`geo.ts`). Do not re-couple them. `darkenForFolk` was
+  **precomputed into a frozen `FOLK_COLORS` table, not ported** — `THREE.Color`
+  applies an sRGB→working-colorspace conversion a hand port would miss;
+  `tests/palette.test.ts` recomputes it via THREE and fails on a `three` upgrade.
+
+### Measured — and the direction is not what people assume
+
+Chrome, this machine, n=1 but clean. **The worker is ~20% SLOWER in wall clock
+at every size.** That is serialize + transfer + rehydrate. This stage buys
+**responsiveness, not throughput** — say so before someone benchmarks it and
+files a regression.
+
+| cells | main thread | worker | bit-identical |
+|---|---|---|---|
+| 5,000 | 341ms | 411ms | ✅ 28/28 fields |
+| 20,000 | 1,008ms | 1,168ms | ✅ 28/28 fields |
+| 200,000 | 17,390ms | 21,357ms | timing only — survived, 200k cells + 200k geoJson features intact |
+
+Responsiveness at 50,000 cells, by rAF frame counting:
+
+| path | fps | worst frame gap |
+|---|---|---|
+| main thread **with** the 9 yields (pre-change) | 13.9 | **825ms** |
+| main thread **without** yields (direct calls only now) | 0 | frozen |
+| **worker** | **60.3** | **18ms** |
+
+**The control is what makes this mean anything, per the 6e lesson.** The
+0-fps main-thread number alone would have been a misleading proof — the yields
+were already deleted, so it says nothing about whether the old staging worked.
+Serving the pre-change commit from a separate worktree on another port is what
+produced the real comparison. **The yields DID help (13.9fps vs 0) — just badly.
+Do not write "the yields never worked."**
+
+**Identity is NOT checked at 200k, on purpose.** Both digest implementations
+build one giant string per field before hashing; at 200k that is a ~70MB string
+that OOMs the tab, and the failure reads as *"the transfer can't handle 200k"*
+when the truth is *"the instrument can't."* Identity caps at 20k; the cap is
+measured for timing and survival only.
+
+### Two real bugs the reviews caught, both in the plan's own code
+
+1. **The client could never settle, and the caller hung forever.**
+   `worldGenClient.ts`'s `done` branch ran `resolve(deserializeWorld(payload))`
+   inside a `worker.onmessage` handler. A throw there — real, since
+   `worldTransfer` now throws on an out-of-range biome byte — escapes the
+   Promise executor's synchronous frame, so neither `resolve` nor `reject` is
+   ever called while `settled` is already pinned true. In the app that is a
+   generation that never completes and never errors, with `isGenerating` stuck
+   true. **If you write Promise-wrapping-an-event-handler code again, the
+   executor does not catch async throws.**
+2. **The transfer-list test was tautological** — it built its expected set with
+   the identical expression the implementation used, over the same object, so it
+   could not fail. Now an independent recursive collector, plus a test proving
+   the collector catches a buffer the shallow walk misses.
+
+### The gap Stage 2 must not assume away
+
+**Every equivalence check in this stage compares `generateWorld` to
+`generateWorld`.** None of them exercises `deserializeWorld` output through the
+*renderer*. `WorldMesh` geometry is keyed on `world.cells` identity (CLAUDE.md
+invariant) and `deserializeWorld` mints a new `cells` array every call — correct
+for full regeneration, the only caller today, but it means the paint/undo path
+is verified **once, by hand**: a stroke took undo 0→1 and undo took it 1→0 on a
+worker-rehydrated world. That is real evidence, and it is n=1.
+
+**Corollary for Stage 2 and beyond:** do not route a *partial* recalc (civ-only,
+province-only) through `deserializeWorld` — it would silently replace `cells` and
+force a full geometry rebuild, surfacing as an untraceable frame-rate
+regression.
+
+### Deferred, recorded rather than fixed
+
+- `geoJson.properties` round-trips exactly `{site, sitecoordinates, neighbours}`;
+  a 4th key would evaporate silently, and `properties: {}` round-trips to three
+  fabricated keys. No live consumer reads it (`exportVector` builds its own,
+  `export.ts` reads only `.geometry`).
+- Roster-scale data (`params`, `civData`, `cultures`, `religions`, `markers`,
+  `routes`) passes by reference and `lakesMeta`/`featuresMeta` are shallow
+  spreads, so `GeoFeature.anchor` is shared. Inert across a real `postMessage`
+  (structured clone breaks it). **Becomes a live bug only if someone adds a
+  synchronous in-process serialize→deserialize fallback.**
+- `properties.neighbours` is d3's own adjacency and is **not** `Cell.neighbors`
+  (built separately from `voronoi.links()`, deduped, differently ordered). Both
+  are transferred. Never alias one to the other.
+
+### Verified vs. not
+
+**Verified:** all four gates; bit-identical worker output at 5k and 20k;
+zero-change baselines across 56 fields for both the palette extraction and the
+yield removal; single-ring Voronoi polygons across 25,300 polygons at three
+scales; abort mid-flight and pre-aborted (rejects `Generation Cancelled`,
+2 spawns / 2 terminates, pre-aborted spawns none); paint+undo; Esc; cell
+inspection; Mercator and Dymaxion rendering with canvas attr == CSS size; a
+save/reload/load round trip through `handleLoadWorld`; a separate 77kB worker
+chunk in the production build.
+
+**Not verified:** identity at 200k cells (instrument limit, above); lore /
+`apiKey`; painting *in* the 2D projections; anything on the narrow/mobile fold;
+the classic (non-`?shell=1`) route under the worker.
+
+---
+
+## ⚡ PREVIOUS PICKUP (2026-07-26, end of Session 6g)
 
 Branch `redesign`, **now pushed to `origin/redesign`** (Matt's explicit request;
 still NOT merged to main). Gates: typecheck 0, lint 0 errors / **29** warnings
