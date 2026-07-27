@@ -4,6 +4,12 @@
 // versions. Same engine, same session, same machine is the only honest use.
 // Usage: node scripts/captureBaseline.mjs before
 //        node scripts/captureBaseline.mjs after && node scripts/captureBaseline.mjs compare
+// The recorded gitSha is stamped from HEAD, which does NOT capture working-tree
+// state — a `before` baseline captured after editing (uncommitted changes) is
+// indistinguishable from one captured correctly, and the comparison then proves
+// nothing. Whenever the result actually matters, capture `before` from a
+// pristine `git worktree add --detach <pre-change-sha>` (symlinking
+// node_modules in), not from the working tree.
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { createServer } from 'vite';

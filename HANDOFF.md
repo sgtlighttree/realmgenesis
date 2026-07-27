@@ -54,7 +54,7 @@ Headroom is zero: any new warning anywhere breaks it.
 
 ## Session 7 (2026-07-27) — D6 Stage 1: generation moved into a Web Worker
 
-Commits `bca7ca4`..`e70b055` on `d6-stage1-worker`. Plan:
+Commits `bdd8f22`..`7d5903b` on `d6-stage1-worker`. Plan:
 `docs/superpowers/plans/2026-07-27-d6-stage1-worker-migration.md`. Executed
 subagent-per-task with a review between each; Tasks 5–7 run by the orchestrator
 because they are browser work and judgment.

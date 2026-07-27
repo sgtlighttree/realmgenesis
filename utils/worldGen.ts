@@ -110,13 +110,10 @@ async function applyHydraulicErosion(cells: Cell[], iterations: number, seaLevel
     const depositionRate = 0.01;
     const rainAmount = 0.1;
 
-    // Yield every few iterations to keep UI responsive
-    const chunkSize = 5;
-
+    // Each iteration rains on land, then routes flux and erodes/deposits
+    // downhill across the whole cell set. Runs inside a worker, so no
+    // per-iteration yielding is needed to keep the UI responsive.
     for (let iter = 0; iter < iterations; iter++) {
-        if (iter % chunkSize === 0) {
-        }
-
         // Only rain on land
         sorted.forEach(c => c.flux = c.height >= seaLevel ? rainAmount : 0);
         
@@ -146,12 +143,9 @@ async function applyHydraulicErosion(cells: Cell[], iterations: number, seaLevel
 
 async function applyThermalErosion(cells: Cell[], iterations: number) {
     const talus = 0.008; // Min slope diff
-    const rate = 0.2; 
-    const chunkSize = 5;
+    const rate = 0.2;
 
     for(let iter=0; iter<iterations; iter++) {
-        if (iter % chunkSize === 0) {
-        }
         cells.forEach(c => {
             let maxDiff = 0;
             let lowestNIndex = -1;
@@ -326,12 +320,9 @@ async function generateRivers(cells: Cell[], seaLevel: number, params: WorldPara
         return { x: c.center.x * r, y: c.center.y * r, z: c.center.z * r };
     };
 
-    processed = 0;
     for (const startId of candidates) {
         if (visited.has(startId)) continue;
-        if (++processed % 500 === 0) {
-        }
-        
+
         const path: Point[] = [];
         let curr = startId;
         let safety = 0;

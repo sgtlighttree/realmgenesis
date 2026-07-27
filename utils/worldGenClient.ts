@@ -77,6 +77,7 @@ export const generateWorldInWorker = (
       // settlement without this.
       worker.onmessage = null;
       worker.onerror = null;
+      worker.onmessageerror = null;
       worker.terminate();
       fn();
     };
@@ -94,6 +95,11 @@ export const generateWorldInWorker = (
       });
     };
     worker.onerror = (e: ErrorEvent) => finish(() => reject(new Error(e.message || 'Worker failed')));
+    // Closes the last unsettled exit path: a message that fails structured-clone
+    // deserialization on the main thread fires onmessageerror, not onmessage or
+    // onerror. Without this handler that message settles nothing, and the
+    // promise (and isGenerating) stays pinned forever.
+    worker.onmessageerror = () => finish(() => reject(new Error('Worker message failed to deserialize')));
 
     worker.postMessage({ type: 'generate', params } satisfies WorkerRequest);
   });

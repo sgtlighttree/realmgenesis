@@ -181,7 +181,12 @@ export function useWorldEngine() {
     setLogs(['--- Starting Generation ---']);
     const p = overrideParams || params;
 
-    // Defer execution to let UI update
+    // The main thread no longer blocks during generation (it runs in a worker),
+    // so this delay is no longer needed to let the UI update. It is kept as an
+    // intentional debounce: a rapid second handleGenerate call inside this 100ms
+    // window aborts the first before any worker is constructed, which suppresses
+    // worker churn during rapid slider drags. Removing it trades that off for
+    // lower latency on a single generate call.
     await new Promise(r => setTimeout(r, 100));
 
     try {
