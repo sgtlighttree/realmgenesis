@@ -1,7 +1,7 @@
 import { geoVoronoi } from 'd3-geo-voronoi';
 import { Cell, LakeData, Point, WorldData, WorldParams, BiomeType, FactionData, CultureData, ReligionData } from '../types';
 import { RNG, SimplexNoise } from './rng';
-import { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS, darkenForFolk } from './colors';
+import { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS, FOLK_COLORS } from './palette';
 import { createNameGenerator, NameGenerator, NameStyle, NAME_STYLES } from './namegen';
 import { detectFeatures } from './features';
 import { MinHeap, landTerrainStepCost } from './pathfinding';
@@ -1132,7 +1132,7 @@ export function recalculateReligions(world: WorldData, params: WorldParams, onLo
             id: culture.id,
             name: template(gen.faction(), culture.name),
             kind: 'folk',
-            color: darkenForFolk(culture.color),
+            color: FOLK_COLORS[culture.id % FOLK_COLORS.length],
             cultureId: culture.id,
             holyCellId: null,
         };

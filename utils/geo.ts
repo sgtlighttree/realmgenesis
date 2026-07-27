@@ -2,9 +2,12 @@ import * as d3 from 'd3';
 
 import { DymaxionSettings } from '../types';
 import { buildDymaxionNet, DymaxionNetFace } from './dymaxion';
+import { normalizeVec, Point3 } from './vec';
+
+export { normalizeVec };
+export type { Point3 };
 
 export type Point2 = [number, number];
-export type Point3 = [number, number, number];
 
 export const insideTri = (p: Point2, a: Point2, b: Point2, c: Point2): boolean => {
   const v0 = [c[0] - a[0], c[1] - a[1]];
@@ -36,11 +39,6 @@ export const barycentric = (p: Point2, a: Point2, b: Point2, c: Point2): [number
   const w = (d00 * d21 - d01 * d20) / denom;
   const u = 1 - v - w;
   return [u, v, w];
-};
-
-export const normalizeVec = (v: Point3): Point3 => {
-  const len = Math.hypot(v[0], v[1], v[2]) || 1;
-  return [v[0] / len, v[1] / len, v[2] / len];
 };
 
 export const toLonLat = (v: Point3): Point2 => {
