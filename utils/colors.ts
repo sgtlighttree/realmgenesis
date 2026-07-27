@@ -1,5 +1,8 @@
 import { BiomeType, Cell, CivData, CultureData, ReligionData, ViewMode } from '../types';
 import * as THREE from 'three';
+import { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS } from './palette';
+
+export { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS };
 
 // Builds the live faction-color map from civData so every render/export path
 // (viewer, minimap, PNG, GLB) reflects user-edited faction colors identically.
@@ -53,54 +56,6 @@ export const PLATE_COLORS = [
   '#ef5350', '#ab47bc', '#7e57c2', '#5c6bc0', '#42a5f5', '#29b6f6',
   '#26c6da', '#26a69a', '#66bb6a', '#9ccc65', '#d4e157', '#ffee58',
   '#ffca28', '#ffa726', '#ff7043', '#8d6e63', '#bdbdbd', '#78909c'
-];
-
-// Perceptually distinct palette for faction coloring — maximum contrast across hue, lightness
-export const FACTION_COLORS = [
-  '#e53935', // vivid red
-  '#43a047', // vivid green
-  '#1e88e5', // vivid blue
-  '#fb8c00', // vivid orange
-  '#8e24aa', // vivid purple
-  '#00acc1', // cyan
-  '#f06292', // pink
-  '#6d4c41', // brown
-  '#c0ca33', // lime
-  '#546e7a', // steel blue
-  '#00897b', // teal
-  '#fdd835', // yellow
-  '#d81b60', // deep pink
-  '#039be5', // light blue
-  '#558b2f', // dark green
-  '#6200ea', // deep purple
-  '#ff6f00', // amber
-  '#78909c', // blue-grey
-];
-
-// Muted, desaturated palette for the culture layer (C1) — deliberately
-// softer than FACTION_COLORS so faction borders (drawn on top, in political
-// mode) stay the visually dominant political layer.
-export const CULTURE_COLORS = [
-  '#a1887f', // muted taupe
-  '#90a4ae', // muted blue-grey
-  '#a5d6a7', // muted sage green
-  '#ce93d8', // muted lavender
-  '#ffcc80', // muted amber
-  '#80cbc4', // muted teal
-  '#ef9a9a', // muted rose
-  '#c5cae9', // muted periwinkle
-];
-
-// Saturated, distinct palette for organized religions (C2) — deliberately
-// more vivid than CULTURE_COLORS so a spreading faith reads clearly against
-// the muted culture-layer shading of the folk faith it displaces.
-export const RELIGION_COLORS = [
-  '#ffd700', // gold
-  '#7b1fa2', // deep violet
-  '#c62828', // crimson
-  '#00838f', // deep teal
-  '#3949ab', // indigo
-  '#ef6c00', // burnt orange
 ];
 
 // Folk-religion color: the parent culture's color, darkened and desaturated
