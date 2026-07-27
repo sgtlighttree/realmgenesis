@@ -15,6 +15,12 @@ workflow/style rules.
 - - [ ] Mobile: Minimize the padding and card-inside-card design but that's for later.
 - [ ] Major feature, for much, MUCH later: World Formats: Planet, Flat Earth (Disc, Rectangle, etc.)
 - [ ] Add a favicon just to clear the constant 404'ing
+- [ ] **BUG found during Session 7 review, pre-existing, not caused by the worker
+  work:** the undo stack is never cleared on generation. Paint a stroke, hit
+  Generate, then undo — it writes the OLD world's pre-paint heights and biomes
+  into the NEW world's cells *by id*. The confirm dialog says the strokes "will
+  be lost, and this cannot be undone", but they survive and are actively
+  harmful. One `setUndoStack([])` in the generate path.
 
 ---
 
@@ -194,6 +200,28 @@ regression.
 - `properties.neighbours` is d3's own adjacency and is **not** `Cell.neighbors`
   (built separately from `voronoi.links()`, deduped, differently ordered). Both
   are transferred. Never alias one to the other.
+- **`generateWorldInWorker` itself has zero CI coverage.** Extracting
+  `handleWorkerMessage` as a testable seam was right, but the tests supply
+  hand-rolled `finish`/`isSettled` callbacks — the *production* `finish`
+  (listener removal, handler nulling, `terminate()`, `settled` pinning) never
+  runs under `npm test`, because `?worker` cannot load in Vitest. Its only
+  evidence is `dev/goldenCompare.html` and one manual smoke. **A future refactor
+  of that promise wiring — the exact code that already shipped one hang — will
+  pass all four gates.** Re-run the harness by hand after touching it.
+- **A slider moved *during* generation is silently dropped.**
+  `components/Controls.tsx:185-214`: the auto-update effect reads `loading` but
+  does not list it as a dependency, so when a param changes mid-generation the
+  effect re-runs, schedules nothing, and never re-arms when generation ends. The
+  world then disagrees with the visible control positions until the user touches
+  another slider. **Not confirmed as a regression from this branch** — the
+  pre-change main thread ran at 13.9fps with 26 frames committed, so React
+  processed input during generation and dropped it the same way; treat "it
+  worked before" as unverified. **The obvious fix is wrong:** adding `loading` to
+  the dep array creates an infinite regeneration loop (loading false → schedule →
+  generate → loading true → … → loading false → schedule) and fires a spurious
+  regeneration after every file load, because `handleLoadWorld` calls
+  `setParams` while loading is true. A correct fix needs a dirty-flag ref set on
+  param change during generation and flushed on the true→false edge.
 
 ### Verified vs. not
 
