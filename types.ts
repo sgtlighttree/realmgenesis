@@ -110,6 +110,7 @@ export interface WorldParams {
   numTimesteps: number; // 10-60, simulation timesteps
   simulationResolution: number; // 5000-20000, macro-cell count for tectonic simulation
   plateJitter: number; // 0-1, how irregularly plate seeds are distributed (0=uniform, 1=chaotic)
+  boundaryRoughness: number; // 0-1, how jagged/fractal plate boundaries are (0=straight arcs, 1=highly irregular)
 
   plates: number;
   seaLevel: number;

@@ -334,17 +334,47 @@ export function simulateTectonics(
 
       let minDist = Infinity;
       let bestPlate = 0;
-      for (let j = 0; j < plates.length; j++) {
-        if (postMergeCounts[j] === 0) continue;
-        const d = chordDistance(wp, rotatedSeeds[j]);
-        if (d < minDist - 0.001) {
-          minDist = d;
-          bestPlate = j;
-        } else if (Math.abs(d - minDist) < 0.002) {
-          const cellIsContinental = crust.crustTypes[i] === 1;
-          const plateIsContinental = plates[j].dominantCrustType === 1;
-          if (cellIsContinental === plateIsContinental) {
+
+      // Boundary roughness: fractal noise offset to distance comparison
+      // At roughness > 0, cells near boundaries can flip to a different plate,
+      // producing jagged, interlocking boundaries instead of straight arcs.
+      const bRoughness = params.boundaryRoughness ?? 0.3;
+      if (bRoughness > 0) {
+        // Pre-compute noise for this cell — multi-octave for fractal detail
+        // across scales (small jags riding on larger meanders)
+        const bNoise = fbm(simplex, p.x * 1.5, p.y * 1.5, p.z * 1.5, 4, 0.5, 2.5);
+        // Scale: 0.15 maps roughness 0-1 to a sensible fraction of typical
+        // inter-seed distance (0.3-0.7 for most plate counts)
+        const noiseOffset = bNoise * bRoughness * 0.15;
+
+        for (let j = 0; j < plates.length; j++) {
+          if (postMergeCounts[j] === 0) continue;
+          const d = chordDistance(wp, rotatedSeeds[j]) - noiseOffset;
+          if (d < minDist - 0.001) {
+            minDist = d;
             bestPlate = j;
+          } else if (Math.abs(d - minDist) < 0.002) {
+            const cellIsContinental = crust.crustTypes[i] === 1;
+            const plateIsContinental = plates[j].dominantCrustType === 1;
+            if (cellIsContinental === plateIsContinental) {
+              bestPlate = j;
+            }
+          }
+        }
+      } else {
+        // No roughness — pure Voronoi with tie-break
+        for (let j = 0; j < plates.length; j++) {
+          if (postMergeCounts[j] === 0) continue;
+          const d = chordDistance(wp, rotatedSeeds[j]);
+          if (d < minDist - 0.001) {
+            minDist = d;
+            bestPlate = j;
+          } else if (Math.abs(d - minDist) < 0.002) {
+            const cellIsContinental = crust.crustTypes[i] === 1;
+            const plateIsContinental = plates[j].dominantCrustType === 1;
+            if (cellIsContinental === plateIsContinental) {
+              bestPlate = j;
+            }
           }
         }
       }
