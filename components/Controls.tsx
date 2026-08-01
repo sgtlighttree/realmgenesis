@@ -836,6 +836,18 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                   className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
+              <div className="space-y-1" title="How irregularly plate seeds are distributed. 0 = uniform Fibonacci, 1 = chaotic boundaries with microplates.">
+                <div className="flex justify-between text-xs text-ink-muted">
+                  <label>Plate Jitter</label>
+                  <span>{params.plateJitter?.toFixed(2) ?? '0.30'}</span>
+                </div>
+                <input
+                  type="range" min="0" max="1" step="0.05"
+                  value={params.plateJitter ?? 0.3}
+                  onChange={(e) => { handleAdvancedChange('plateJitter', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
+                />
+              </div>
            </div>
         )}
 

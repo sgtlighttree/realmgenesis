@@ -24,6 +24,7 @@ export const makeParams = (overrides: Partial<WorldParams> = {}): WorldParams =>
   marginCoupling: 0.3,
   numTimesteps: 20,
   simulationResolution: 10000,
+  plateJitter: 0.3,
   baseTemperature: 30,
   poleTemperature: -30,
   rainfallMultiplier: 1.0,
