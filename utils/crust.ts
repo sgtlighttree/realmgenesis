@@ -25,9 +25,9 @@ export function seedCrustField(
   const freq = 0.3;
 
   let threshold = 0.45;
-  if (params.landStyle === 'Pangea') threshold = 0.6;
-  else if (params.landStyle === 'Archipelago') threshold = 0.25;
-  else if (params.landStyle === 'Islands') threshold = 0.15;
+  if (params.landStyle === 'Pangea') threshold = 0.35;
+  else if (params.landStyle === 'Archipelago') threshold = 0.55;
+  else if (params.landStyle === 'Islands') threshold = 0.65;
 
   const jitterAmp = 0.08;
 
