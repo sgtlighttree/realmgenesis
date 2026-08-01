@@ -340,21 +340,17 @@ export function simulateTectonics(
         if (postMergeCounts[j] === 0) continue;
         let d = chordDistance(wp, rotatedSeeds[j]);
 
-        // Boundary roughness: per-plate noise reach factor
-        // Noise is sampled at cellPos + plateSeed*0.5 so each plate gets
-        // a different perturbation — cells near boundaries flip to whichever
-        // plate's noise makes it reach farthest. At roughness=0, no effect.
+        // Boundary roughness: per-plate noise offset
+        // Noise phase shifted per plate (j * constants) so each plate
+        // gets a different perturbation. Cells near boundaries flip to
+        // whichever plate's noise makes it closer.
         if (bRoughness > 0) {
-          const np = rotatedSeeds[j];
           const bNoise = simplex.noise3D(
-            p.x + np.x * 0.5,
-            p.y + np.y * 0.5,
-            p.z + np.z * 0.5,
+            p.x * 2 + j * 10.7,
+            p.y * 2 + j * 3.1,
+            p.z * 2 + j * 7.3,
           );
-          // reachFactor: 0.7-1.3 at max roughness, shrinking the effective
-          // distance for noise-favored plates and growing it for others
-          const reachFactor = 1.0 + bNoise * bRoughness * 0.3;
-          d /= reachFactor;
+          d += bNoise * bRoughness * 0.6;
         }
 
         if (d < minDist - 0.001) {
