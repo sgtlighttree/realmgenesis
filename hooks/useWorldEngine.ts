@@ -178,6 +178,7 @@ export function useWorldEngine() {
     setIsGenerating(true);
     setGenProgress(0);
     setLore(null);
+    setUndoStack([]);
     setLogs(['--- Starting Generation ---']);
     const p = overrideParams || params;
 
@@ -224,6 +225,7 @@ export function useWorldEngine() {
 
      setIsGenerating(true);
      setLore(null);
+     setUndoStack([]);
      setLogs(['--- Loading Map from File ---']);
      setParams(newParams);
 
