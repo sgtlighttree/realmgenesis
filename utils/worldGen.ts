@@ -58,7 +58,7 @@ function randomVector(rng: RNG): Point {
 
 // --- NOISE ALGORITHMS ---
 
-function fbm(simplex: SimplexNoise, x: number, y: number, z: number, octaves: number, persistence: number, lacunarity: number): number {
+export function fbm(simplex: SimplexNoise, x: number, y: number, z: number, octaves: number, persistence: number, lacunarity: number): number {
     let total = 0;
     let frequency = 1;
     let amplitude = 1;
@@ -72,7 +72,7 @@ function fbm(simplex: SimplexNoise, x: number, y: number, z: number, octaves: nu
     return total / maxValue;
 }
 
-function ridgedNoise(simplex: SimplexNoise, x: number, y: number, z: number, octaves: number, lacunarity: number): number {
+export function ridgedNoise(simplex: SimplexNoise, x: number, y: number, z: number, octaves: number, lacunarity: number): number {
     let total = 0;
     let frequency = 1;
     let amplitude = 1;
