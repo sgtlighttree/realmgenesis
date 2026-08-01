@@ -119,6 +119,7 @@ describe('every tunable param influences the world', () => {
       numTimesteps: { numTimesteps: 10 },
       simulationResolution: { simulationResolution: 5000 },
       plateJitter: { plateJitter: 0.8 },
+      boundaryRoughness: { boundaryRoughness: 0.8 },
     };
 
     for (const [name, perturbation] of Object.entries(v3Perturbations)) {
