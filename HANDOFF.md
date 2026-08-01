@@ -90,7 +90,121 @@ terrain work.
 
 ---
 
-## Session 7 (2026-07-27) — D6 Stage 1: generation moved into a Web Worker
+## Session 8 (2026-08-01) — D6 Stage 2 (V3 terrain model) built and iterated
+
+Branch `d6-stage1-worker`, commits from `7f596be`..`0276376`. Gates: typecheck 0,
+lint 0 errors / **30** warnings (ratchet = 30 in `package.json`, 29 was the last
+session's tighter number; the 30th warning is pre-existing and the count sits
+exactly at the package.json gate), **165** tests, build OK.
+
+**D6 Stage 2 is DONE.** The V3 terrain model replaces crust-is-plates height
+generation with independent crust fields, Euler-pole tectonics, a bounded
+multi-step kinematic simulation at coarse resolution (10k macro-cells → project
+to display cells), and the full suite of seam fixes from the spec — all behind
+`const V3_ENABLED = false` in `utils/worldGen.ts:13`. Flip to `true` to test.
+
+### Three-pass iteration over plate quality
+
+**Pass 1 — the V3 foundation (commits `4349835`..`9a2f027`).** Built from
+the spec + adversarial research: all-new `utils/tectonicsV3.ts` (410 lines),
+`utils/spherical.ts` (Euler poles, quaternion rotation, vector math),
+`utils/crust.ts` (independent crust field seeding). The `simulateTectonics`
+function runs 20 timesteps over macro-cells, rotating plate seeds by Euler
+poles, classifying boundaries by relative velocity, and accumulating uplift
+with a smooth falloff. `projectTectonicsToDisplay` nearest-neighbor projects
+macro values onto display cells and adds structural noise at full resolution.
+New params: `tectonicStrength`, `marginCoupling`, `numTimesteps`,
+`simulationResolution`. All wired with sliders in Controls.tsx Geo tab.
+
+Two bugs caught by Matt in this pass:
+- **`buildMacroNeighborGraph` was O(N² log N)** — it sorted all 9999 distances
+  per cell. Replaced with O(N² k) top-k insertion, bringing 10k-cell graph
+  build from ~seconds to ~100ms.
+- **`plateId` was never propagated to display cells** — `projectTectonicsToDisplay`
+  set crustType/thickness/upliftAccum/height but not plateId, so the plates
+  view showed all cells as plate 0. Added to the return type and projection.
+
+**Pass 2 — plate shape/size diversity + boundary types (commit `1a683fb`).**
+Matt reported plates were still uniform pentagons and didn't visibly deform
+terrain. Three root causes fixed:
+1. **Uniform plate seeds:** Fibonacci seeds produce equal-area Voronoi cells.
+   Fixed by seeding 2.5× proto-plates, then merging all plates below 0.5%
+   cell threshold into their nearest neighbor — produces power-law size
+   distribution. New `plateJitter` slider randomizes seed positions before
+   the merge pass (0 = uniform Fibonacci, 1 = chaotic).
+2. **No boundary-type differentiation:** All convergence got the same scalar
+   uplift. Fixed by classifying boundary pairs by crust type — continental
+   collision (massive symmetric ×60), oceanic subduction under continent
+   (trench on oceanic side at −20, arc on continental side at ×30),
+   oceanic-oceanic (trench + island arc), rifting (negative relief), transform
+   (modest shear ×5).
+3. **Uplift too weak:** `smoothstep(0, 0.15, maxCompression)` threshold was
+   never reached — Euler-pole velocities are 0.001–0.02. Replaced with
+   direct `|vn| × tectonicStrength × multiplier` — 2× faster convergence =
+   2× taller mountains. Added per-boundary Simplex noise modulation so
+   mountain belts are segmented (peaks at 100% of max uplift, passes at 30%).
+
+**Pass 3 — boundary roughness (commits `0276376`, `0d9d8d4`).**
+Matt said plate boundaries were still straight great-circle arcs. The Voronoi
+nearest-seed produces perpendicular bisectors — always straight. New
+`boundaryRoughness` slider adds per-plate noise to the distance comparison:
+`distance += noise(cellPos × 2 + plateId × constants) × roughness × 0.6`.
+Each plate gets a different noise phase, so near-boundary cells flip to
+whichever plate's noise makes them closer. At roughness=1, the offset is ±0.6
+chord units — enough to flip cells most of the way to the next seed's
+territory. Single-octave simplex is cheap (no fbm needed in the inner loop).
+
+**First attempt had a cancellation bug:** noise was computed once per cell and
+subtracted from ALL plates' distances — same offset for every plate cancels
+out in the min-distance comparison. Fixed by sampling noise per plate at
+`(cellPos × 2 + plateId × phase)` and using additive offset, not multiplicative.
+
+### What was built this session
+
+New files: `utils/spherical.ts` (~100 lines), `utils/crust.ts` (~60),
+`utils/tectonicsV3.ts` (~560 lines), `tests/tectonicsV3.test.ts` (~80),
+`docs/superpowers/plans/2026-07-27-d6-stage2-terrain-v3.md`.
+
+Modified files: `types.ts` (7 new WorldParams), `utils/worldGen.ts` (V3 path
+behind flag, exported noise helpers), `hooks/useWorldEngine.ts` (defaults),
+`components/Controls.tsx` (6 new sliders in Geo tab), `tests/helpers.ts`,
+`tests/paramLiveness.test.ts` (V3 params added to skipped test).
+
+Test suite: **165 passed + 1 skipped** (V3-specific param-liveness test,
+skipped because `V3_ENABLED = false`). V2 path is byte-identical —
+all 159 pre-existing tests pass unchanged. 6 new V3 tests (crust field
+determinism, landStyle density, thickness ratio, chord distance).
+
+### Key decisions
+
+- **V3 behind `const V3_ENABLED = false`** during development — no UI toggle.
+  Remove the flag and the V2 dead code at the end of Stage 2.
+- **`plateInfluence` renamed to `tectonicStrength`** — old saved values for
+  `plateInfluence` are silently dead, matching the spec's accepted consequence.
+- **`marginCoupling`, `numTimesteps`, `simulationResolution`** are V3-only
+  params — inert when V3 is disabled. The param-liveness test for them is
+  `.skip` with a note.
+- **Crust and plates are independent fields** — the fundamental V3 architecture.
+  Crust is seeded from noise on its own RNG stream. Plates deform it but do
+  not determine where land is.
+- **Crust is never advected** — macro-cells are reassigned by nearest rotated
+  seed each timestep, not by interpolating a resampled field.
+- **Erosion and climate are unchanged** — V3 feeds heights into the existing
+  pipeline after the macro→display projection. No changes to erosion, climate,
+  biomes, rivers, or civ generation.
+
+### Verified
+
+All four gates pass. V2 path is completely untouched — same byte-identical
+output for all 159 pre-existing tests. New V3 tests pass. Build succeeds
+(worker chunk still at 77kB, no new dependencies added).
+
+### Not verified
+
+Same gaps as Session 7: V3 output has never been rendered in the browser
+(`V3_ENABLED = false` is the default). The 200k-cell identity cap. Lore/apikey.
+Painting in 2D projections. Narrow/mobile fold. The classic route under the
+worker.
 
 Commits `bdd8f22`..`7d5903b` on `d6-stage1-worker`. Plan:
 `docs/superpowers/plans/2026-07-27-d6-stage1-worker-migration.md`. Executed
