@@ -646,7 +646,7 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   onLog?.("Applying Height & Noise...");
   progress();
   const freq = params.noiseScale || 1.0;
-  const plateInf = (params.plateInfluence === undefined ? 0.5 : params.plateInfluence); 
+  const plateInf = (params.tectonicStrength === undefined ? 0.5 : params.tectonicStrength); 
 
   const plateHeights = new Float32Array(numPlates);
   const pRng = new RNG(params.seed + '_plates_h');

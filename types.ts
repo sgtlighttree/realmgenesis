@@ -19,6 +19,11 @@ export interface Cell {
   moisture: number; // 0-1
   biome: BiomeType;
   flux?: number; // Water flux for erosion
+
+  // V3 terrain model fields (independent crust + Euler-pole tectonics)
+  crustType?: number; // V3: 0=oceanic, 1=continental
+  crustThickness?: number; // V3: accumulated crustal thickness, normalized 0-1
+  upliftAccum?: number; // V3: accumulated kinematic uplift from tectonics
   
   // Political/Cultural
   regionId?: number; // Faction ID
@@ -97,8 +102,13 @@ export interface WorldParams {
   oceanDepth: number; // 0.5-2.0 power-curve scale for depths below seaLevel
   maskType: MaskType;
   warpStrength: number; // 0-2
-  plateInfluence: number; // 0-2
+  tectonicStrength: number; // 0-2, how strongly tectonics deform crust (replaces plateInfluence)
   erosionIterations: number; // 0-50
+
+  // V3 terrain model params
+  marginCoupling: number; // 0-1, geometric correlation between mountain belts and continental margins
+  numTimesteps: number; // 10-60, simulation timesteps
+  simulationResolution: number; // 5000-20000, macro-cell count for tectonic simulation
 
   plates: number;
   seaLevel: number;
@@ -260,6 +270,15 @@ export interface RouteData {
   kind: 'road' | 'searoute';
   fromCellId: number;
   toCellId: number;
+}
+
+// V3 tectonic simulation result: per-macro-cell fields projected onto the
+// display cells in one nearest-neighbor pass at the end of the simulation.
+export interface TectonicResult {
+  heights: Float32Array; // per macro-cell, 0-1 normalized
+  crustTypes: Uint8Array; // 0=oceanic, 1=continental per macro-cell
+  crustThickness: Float32Array; // per macro-cell
+  upliftAccum: Float32Array; // per macro-cell, accumulated kinematic uplift
 }
 
 export type DisplayMode = 'globe' | 'mercator' | 'dymaxion';

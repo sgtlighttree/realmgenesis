@@ -197,7 +197,7 @@ const Controls: React.FC<ControlsProps> = ({
       params.seaLevel, 
       params.plates, 
       params.warpStrength, 
-      params.plateInfluence,
+      params.tectonicStrength,
       params.ridgeBlend,
       params.mountainHeight,
       params.oceanDepth,
@@ -251,7 +251,7 @@ const Controls: React.FC<ControlsProps> = ({
               updates.ridgeBlend = 0.5;
               updates.maskType = 'None';
               updates.warpStrength = 0.2;
-              updates.plateInfluence = 0.8;
+              updates.tectonicStrength = 0.8;
               updates.erosionIterations = 2;
               updates.cellJitter = 0.5;
               updates.mountainHeight = 1.0;
@@ -262,7 +262,7 @@ const Controls: React.FC<ControlsProps> = ({
               updates.ridgeBlend = 0.4;
               updates.maskType = 'Pangea';
               updates.warpStrength = 0.5;
-              updates.plateInfluence = 0.6;
+              updates.tectonicStrength = 0.6;
               updates.erosionIterations = 2;
               updates.cellJitter = 0.4;
               updates.mountainHeight = 1.0;
@@ -273,7 +273,7 @@ const Controls: React.FC<ControlsProps> = ({
               updates.ridgeBlend = 0.55;
               updates.maskType = 'None';
               updates.warpStrength = 0.7;
-              updates.plateInfluence = 0.25;
+              updates.tectonicStrength = 0.25;
               updates.erosionIterations = 4;
               updates.cellJitter = 0.8;
               updates.seaLevel = 0.65;
@@ -287,7 +287,7 @@ const Controls: React.FC<ControlsProps> = ({
               updates.ridgeBlend = 0.25;
               updates.maskType = 'None';
               updates.warpStrength = 1.0;
-              updates.plateInfluence = 0.4;
+              updates.tectonicStrength = 0.4;
               updates.erosionIterations = 4;
               updates.cellJitter = 0.65;
               updates.seaLevel = 0.60;
@@ -779,12 +779,12 @@ const Controls: React.FC<ControlsProps> = ({
                <div className="space-y-1" title="How strongly tectonic plate boundaries shape mountain ranges and rifts. Capped at 1.0 internally.">
                 <div className="flex justify-between text-xs text-ink-muted">
                   <label>Tectonic Strength</label>
-                  <span>{params.plateInfluence.toFixed(2)}</span>
+                  <span>{params.tectonicStrength.toFixed(2)}</span>
                 </div>
                 <input
                   type="range" min="0.1" max="1.0" step="0.05"
-                  value={params.plateInfluence}
-                  onChange={(e) => { handleAdvancedChange('plateInfluence', parseFloat(e.target.value)); }}
+                  value={params.tectonicStrength}
+                  onChange={(e) => { handleAdvancedChange('tectonicStrength', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
