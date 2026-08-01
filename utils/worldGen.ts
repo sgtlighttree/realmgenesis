@@ -5,6 +5,12 @@ import { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS, FOLK_COLORS } from './
 import { createNameGenerator, NameGenerator, NameStyle, NAME_STYLES } from './namegen';
 import { detectFeatures } from './features';
 import { MinHeap, landTerrainStepCost } from './pathfinding';
+import { simulateTectonics, projectTectonicsToDisplay } from './tectonicsV3';
+
+// Set to true to enable the V3 terrain model (independent crust + Euler-pole
+// tectonics). The V2 path is kept behind this flag for side-by-side comparison
+// during development. Remove the flag and V2 dead code at the end of Stage 2.
+const V3_ENABLED = false;
 
 // --- DATA STRUCTURES ---
 
@@ -542,6 +548,32 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   });
   cells.forEach(c => c.neighbors = [...new Set(c.neighbors)]);
 
+  let minH = Infinity, maxH = -Infinity, range = 1;
+
+  if (V3_ENABLED) {
+    onLog?.(`Simulating ${params.plates} Tectonic Plates (V3)...`);
+    progress();
+
+    const macroRes = params.simulationResolution ?? 10000;
+    const macroRngV3 = new RNG(params.seed + '_macro_v3');
+    const macroPoints = generateFibonacciSphere(macroRes, macroRngV3, params.cellJitter * 0.8);
+
+    const crustRng = new RNG(params.seed + '_crust');
+    const plateRngV3 = new RNG(params.seed + '_plates_v3');
+
+    const tectonicResult = simulateTectonics(
+      macroPoints, params, crustRng, plateRngV3, simplex, onLog, signal,
+    );
+
+    checkAbort(signal);
+
+    onLog?.("Projecting tectonics to display resolution...");
+    progress();
+    projectTectonicsToDisplay(cells, points, macroPoints, tectonicResult, params, simplex);
+
+    // V3 path is done — skip V2 plate/height/stress stages and jump to erosion
+  } else {
+
   onLog?.(`Simulating ${params.plates} Tectonic Plates...`);
   progress();
 
@@ -705,10 +737,11 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
       c.height = height;
   });
   
-  let minH = Infinity, maxH = -Infinity;
+  minH = Infinity; maxH = -Infinity;
   cells.forEach(c => { if (c.height < minH) minH = c.height; if (c.height > maxH) maxH = c.height; });
-  let range = maxH - minH || 1;
+  range = maxH - minH || 1;
   cells.forEach(c => c.height = (c.height - minH) / range);
+  } // end else (V2 path)
 
   // EROSION
   progress();
