@@ -279,6 +279,7 @@ export interface TectonicResult {
   crustTypes: Uint8Array; // 0=oceanic, 1=continental per macro-cell
   crustThickness: Float32Array; // per macro-cell
   upliftAccum: Float32Array; // per macro-cell, accumulated kinematic uplift
+  plateIds: Int32Array; // per macro-cell, assigned plate ID at end of simulation
 }
 
 export type DisplayMode = 'globe' | 'mercator' | 'dymaxion';

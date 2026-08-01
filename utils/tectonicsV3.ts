@@ -108,16 +108,41 @@ function buildMacroNeighborGraph(points: Point[], k: number): number[][] {
   const n = points.length;
   const neighbors: number[][] = Array.from({ length: n }, () => []);
 
+  // Track the k nearest for each cell without sorting all N.
+  // For each pair (i, j), update both cells' top-k arrays.
+  const bestDists: Float64Array[] = Array.from({ length: n }, () => new Float64Array(k).fill(Infinity));
+  const bestIds: Int32Array[] = Array.from({ length: n }, () => new Int32Array(k).fill(-1));
+
   for (let i = 0; i < n; i++) {
-    const dists: { id: number; d: number }[] = [];
-    for (let j = 0; j < n; j++) {
-      if (i === j) continue;
-      dists.push({ id: j, d: chordDistance(points[i], points[j]) });
+    const pi = points[i];
+    for (let j = i + 1; j < n; j++) {
+      const d = chordDistance(pi, points[j]);
+      // Update i's top-k
+      updateTopK(bestDists[i], bestIds[i], j, d, k);
+      // Update j's top-k (symmetric)
+      updateTopK(bestDists[j], bestIds[j], i, d, k);
     }
-    dists.sort((a, b) => a.d - b.d);
-    neighbors[i] = dists.slice(0, k).map(d => d.id);
+    // Convert to regular array after all candidates processed
+    neighbors[i] = Array.from(bestIds[i]).filter(id => id >= 0);
   }
   return neighbors;
+}
+
+function updateTopK(dists: Float64Array, ids: Int32Array, candId: number, candDist: number, k: number): void {
+  // Find the slot with the largest distance (the "worst" in a top-k)
+  let worstIdx = 0;
+  let worstDist = dists[0];
+  for (let t = 1; t < k; t++) {
+    if (dists[t] > worstDist) {
+      worstDist = dists[t];
+      worstIdx = t;
+    }
+  }
+  // Replace the worst only if the candidate beats it
+  if (worstDist > candDist) {
+    dists[worstIdx] = candDist;
+    ids[worstIdx] = candId;
+  }
 }
 
 function computeRelativeVelocity(
@@ -292,6 +317,13 @@ export function simulateTectonics(
     heights[i] = h;
   }
 
+  // Count how many plates actually have cells assigned for logging
+  const plateCounts = new Map<number, number>();
+  for (let i = 0; i < numMacro; i++) {
+    plateCounts.set(plateIds[i], (plateCounts.get(plateIds[i]) ?? 0) + 1);
+  }
+  onLog?.(`V3: ${plateCounts.size} plates with macro-cells assigned`);
+
   // Normalize heights to 0-1
   let minH = Infinity, maxH = -Infinity;
   for (let i = 0; i < numMacro; i++) {
@@ -303,7 +335,7 @@ export function simulateTectonics(
     heights[i] = (heights[i] - minH) / range;
   }
 
-  return { heights, crustTypes: crust.crustTypes, crustThickness: thickness, upliftAccum };
+  return { heights, crustTypes: crust.crustTypes, crustThickness: thickness, upliftAccum, plateIds };
 }
 
 // --- 4. Coarse→fine projection ---
@@ -336,6 +368,7 @@ export function projectTectonicsToDisplay(
     dc.crustType = macroResult.crustTypes[nearest];
     dc.crustThickness = macroResult.crustThickness[nearest];
     dc.upliftAccum = macroResult.upliftAccum[nearest];
+    dc.plateId = macroResult.plateIds[nearest];
 
     // 3. Base height from macro result
     let height = macroResult.heights[nearest];
