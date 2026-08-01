@@ -33,7 +33,7 @@
 
 1. **Clone & Install**:
    ```bash
-   npm install
+   pnpm install
    ```
 
 2. **Configure (Optional)**:
@@ -41,7 +41,7 @@
 
 3. **Launch**:
    ```bash
-   npm run dev
+   pnpm run dev
    ```
 
 ## 📖 Documentation

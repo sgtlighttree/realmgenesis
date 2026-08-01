@@ -8,6 +8,8 @@ workflow/style rules.
 
 > Matt's scratchpad and notes for things observed outside an active coding session. If an item is addressed, click the checkbox, and/or add a ~~strikethrough~~ for emphasis.
 
+IMPORTANT, DO THIS FIRST: THIS PROJECT HAS BEEN MIGRATED TO PNPM. Check that everything runs smoothly before proceeding with anything else.
+
 - [ ] Make a true vector 2D mode instead of raster, but keep it optimized
 - [ ] V3 of terrain generation algorithm. Goal is to make plate boundaries far more realistic, make part of Milestone D.
 - [ ] Major UI/frontend/rendering overhaul (Milestone F), use skill `/impeccable` for visual UI review
