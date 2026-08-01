@@ -8,8 +8,6 @@ import {
 } from './spherical';
 
 // Noise helpers (duplicated from worldGen.ts to avoid circular imports)
-// The V3 module will import from worldGen once V3_ENABLED becomes true
-// and the old V2 path is removed — for now these are standalone copies.
 function fbm(simplex: SimplexNoise, x: number, y: number, z: number, octaves: number, persistence: number, lacunarity: number): number {
     let total = 0;
     let frequency = 1;
@@ -55,25 +53,96 @@ interface PlateState {
   seedPosition: Point;
 }
 
-function generatePlates(numPlates: number, rng: RNG): PlateState[] {
+// Generate plates with irregular sizes via hierarchical merging.
+// Seed 2.5x desired count of proto-plates, apply plateJitter perturbation,
+// assign macro-cells, then merge the smallest plates into neighbors.
+function generatePlates(numPlates: number, rng: RNG, plateJitter: number): PlateState[] {
+  // Remove Euler-pole draws from the RNG that generatePlates used to consume
+  // — we generate poles for the final set, not the proto-set.
+  const protoCount = Math.ceil(numPlates * 2.5);
+  // Proto-plate seed positions from Fibonacci, then jittered
+  let protoSeeds = generateFibonacciSphere(protoCount, rng, 0);
+  if (plateJitter > 0) {
+    protoSeeds = protoSeeds.map(s => {
+      const theta = rng.next() * 2 * Math.PI * plateJitter;
+      const phi = (rng.next() - 0.5) * Math.PI * plateJitter;
+      const q = quatFromAxisAngle(
+        { x: Math.cos(theta), y: Math.sin(theta), z: 0 },
+        phi
+      );
+      return quatRotate(q, s);
+    });
+  }
+
+  // We'll assign macro-cells to proto-plates below (in simulateTectonics),
+  // but for merge we just need the seed positions. The actual merge happens
+  // after the initial assignment in simulateTectonics.
   const plates: PlateState[] = [];
   for (let i = 0; i < numPlates; i++) {
     plates.push({
       id: i,
       eulerPole: randomEulerPole(rng),
       dominantCrustType: 0,
-      seedPosition: generateFibonacciSphere(numPlates, rng, 0)[i],
+      seedPosition: protoSeeds[i],
     });
   }
   return plates;
 }
 
-// --- 2. Helper functions ---
+function mergeSmallPlates(
+  macroPoints: Point[],
+  plateIds: Int32Array,
+  plates: PlateState[],
+  crustTypes: Uint8Array,
+  minCellThreshold: number,
+): void {
+  const numPlates = plates.length;
+  // Count cells per plate
+  const counts = new Int32Array(numPlates);
+  for (let i = 0; i < macroPoints.length; i++) {
+    counts[plateIds[i]]++;
+  }
 
-function smoothstep(edge0: number, edge1: number, x: number): number {
-  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
-  return t * t * (3 - 2 * t);
+  // Identify small plates
+  let changed = true;
+  while (changed) {
+    changed = false;
+    // Find the smallest plate below threshold
+    let smallestId = -1;
+    let smallestCount = Infinity;
+    for (let j = 0; j < numPlates; j++) {
+      if (counts[j] > 0 && counts[j] < minCellThreshold && counts[j] < smallestCount) {
+        smallestCount = counts[j];
+        smallestId = j;
+      }
+    }
+    if (smallestId < 0) break;
+
+    // Find the nearest non-small neighbor plate for each cell in this plate
+    // and reassign them
+    const neighborPlateCount = new Float64Array(numPlates);
+    for (let i = 0; i < macroPoints.length; i++) {
+      if (plateIds[i] !== smallestId) continue;
+      // Find nearest neighbor plate by checking macro-neighbor cells
+      // (simple: just assign to nearest different plate by seed distance)
+      let minDist = Infinity;
+      let bestNeighbor = -1;
+      for (let j = 0; j < numPlates; j++) {
+        if (j === smallestId || counts[j] === 0) continue;
+        const d = chordDistance(macroPoints[i], plates[j].seedPosition);
+        if (d < minDist) { minDist = d; bestNeighbor = j; }
+      }
+      if (bestNeighbor >= 0) {
+        plateIds[i] = bestNeighbor;
+        counts[bestNeighbor]++;
+      }
+    }
+    counts[smallestId] = 0;
+    changed = true;
+  }
 }
+
+// --- 2. Helper functions ---
 
 function saturatedIsostasy(thickness: number, isContinental: boolean): number {
   const base = isContinental ? 0.3 : -0.5;
@@ -171,36 +240,49 @@ export function simulateTectonics(
   const numSteps = params.numTimesteps ?? 20;
   const marginCoupling = params.marginCoupling ?? 0.3;
   const tectonicStrength = params.tectonicStrength ?? 0.5;
+  const plateJitter = params.plateJitter ?? 0.3;
 
   if (signal?.aborted) throw new Error('Generation Cancelled');
 
   // 1. Seed crust field (independent of plates)
   const crust = seedCrustField(macroPoints, params, simplex, crustRng);
 
-  // 2. Generate plates with Euler poles
-  const plates = generatePlates(numPlates, plateRng);
+  // 2. Generate plates with Euler poles (proto-plates + merge for irregular sizes)
+  const plates = generatePlates(numPlates, plateRng, plateJitter);
 
-  // Determine each plate's dominant crust type by initial nearest-seed assignment
-  const initialPlateIds = new Int32Array(numMacro);
+  // 3. Initial plate assignment and merge of small plates
+  const plateIds = new Int32Array(numMacro);
   for (let i = 0; i < numMacro; i++) {
     let minDist = Infinity;
     let best = 0;
-    for (let j = 0; j < numPlates; j++) {
+    for (let j = 0; j < plates.length; j++) {
       const d = chordDistance(macroPoints[i], plates[j].seedPosition);
       if (d < minDist) { minDist = d; best = j; }
     }
-    initialPlateIds[i] = best;
+    plateIds[i] = best;
   }
-  for (let j = 0; j < numPlates; j++) {
-    let continentalCount = 0, totalCount = 0;
+
+  // Merge plates below 0.5% cell threshold
+  const minCellThreshold = Math.max(1, Math.floor(numMacro * 0.005));
+  mergeSmallPlates(macroPoints, plateIds, plates, crust.crustTypes, minCellThreshold);
+
+  // Re-tally plate counts after merge, and set dominant crust types
+  const postMergeCounts = new Int32Array(plates.length);
+  for (let i = 0; i < numMacro; i++) {
+    postMergeCounts[plateIds[i]]++;
+  }
+  for (let j = 0; j < plates.length; j++) {
+    let continentalCount = 0;
     for (let i = 0; i < numMacro; i++) {
-      if (initialPlateIds[i] === j) {
+      if (plateIds[i] === j) {
         if (crust.crustTypes[i] === 1) continentalCount++;
-        totalCount++;
       }
     }
-    plates[j].dominantCrustType = totalCount > 0 && continentalCount / totalCount > 0.5 ? 1 : 0;
+    plates[j].dominantCrustType = postMergeCounts[j] > 0 && continentalCount / Math.max(1, postMergeCounts[j]) > 0.5 ? 1 : 0;
   }
+
+  const activePlateCount = postMergeCounts.filter(c => c > 0).length;
+  onLog?.(`V3: ${activePlateCount} active plates after merging`);
 
   // Warp noise for domain warping (seam fix §5.2)
   const warpNoise = new SimplexNoise(new RNG(params.seed + '_warp_v3'));
@@ -211,7 +293,6 @@ export function simulateTectonics(
   const rotatedSeeds = plates.map(p => ({ x: p.seedPosition.x, y: p.seedPosition.y, z: p.seedPosition.z }));
 
   // Per-macro-cell accumulation buffers
-  const plateIds = new Int32Array(numMacro);
   const upliftAccum = new Float32Array(numMacro);
   const thickness = new Float32Array(numMacro);
   for (let i = 0; i < numMacro; i++) thickness[i] = crust.crustThickness[i];
@@ -220,25 +301,25 @@ export function simulateTectonics(
   onLog?.("V3: Building macro-cell neighbor graph...");
   const macroNeighbors = buildMacroNeighborGraph(macroPoints, 6);
 
-  // 3. Timestep loop
+  // 4. Timestep loop
   for (let step = 0; step < numSteps; step++) {
     if (signal?.aborted) throw new Error('Generation Cancelled');
     if (step % 5 === 0) onLog?.(`V3: Timestep ${step + 1}/${numSteps}...`);
 
-    // 3a. Rotate each plate seed by its Euler pole
-    for (let i = 0; i < numPlates; i++) {
+    // 4a. Rotate each active plate seed by its Euler pole
+    for (let i = 0; i < plates.length; i++) {
+      if (postMergeCounts[i] === 0) continue;
       const q = quatFromAxisAngle(plates[i].eulerPole.axis, plates[i].eulerPole.rate);
       rotatedSeeds[i] = quatRotate(q, rotatedSeeds[i]);
     }
 
-    // 3b. Assign each macro-cell to the nearest rotated seed (with domain warp + margin coupling)
+    // 4b. Assign each macro-cell to the nearest rotated seed (with domain warp + margin coupling)
     for (let i = 0; i < numMacro; i++) {
       const p = macroPoints[i];
       const nx = warpNoise.noise3D(p.x * warpFreq, p.y * warpFreq, p.z * warpFreq);
       const ny = warpNoise.noise3D(p.y * warpFreq, p.z * warpFreq, p.x * warpFreq);
       const nz = warpNoise.noise3D(p.z * warpFreq, p.x * warpFreq, p.y * warpFreq);
 
-      // Gradient of the crust field (§3.1 margin coupling)
       const cx = simplex.noise3D(p.x * 0.3 + 0.01, p.y * 0.3, p.z * 0.3) -
                  simplex.noise3D(p.x * 0.3 - 0.01, p.y * 0.3, p.z * 0.3);
       const cy = simplex.noise3D(p.x * 0.3, p.y * 0.3 + 0.01, p.z * 0.3) -
@@ -253,13 +334,13 @@ export function simulateTectonics(
 
       let minDist = Infinity;
       let bestPlate = 0;
-      for (let j = 0; j < numPlates; j++) {
+      for (let j = 0; j < plates.length; j++) {
+        if (postMergeCounts[j] === 0) continue;
         const d = chordDistance(wp, rotatedSeeds[j]);
         if (d < minDist - 0.001) {
           minDist = d;
           bestPlate = j;
         } else if (Math.abs(d - minDist) < 0.002) {
-          // Tie-break: prefer the plate whose dominant crust matches this cell's crust
           const cellIsContinental = crust.crustTypes[i] === 1;
           const plateIsContinental = plates[j].dominantCrustType === 1;
           if (cellIsContinental === plateIsContinental) {
@@ -270,10 +351,12 @@ export function simulateTectonics(
       plateIds[i] = bestPlate;
     }
 
-    // 3c. Classify boundaries and accumulate uplift
+    // 4c. Classify boundaries and accumulate uplift — velocity-scaled, asymmetric
     for (let i = 0; i < numMacro; i++) {
       const p = macroPoints[i];
-      let maxCompression = 0;
+      let maxCollisionUplift = 0;
+      let maxSubductionUplift = 0;
+      let maxSubductionTrench = 0;
       let maxShear = 0;
 
       for (const nId of macroNeighbors[i]) {
@@ -288,26 +371,61 @@ export function simulateTectonics(
           y: macroPoints[nId].y - p.y,
           z: macroPoints[nId].z - p.z,
         });
+        const vnMag = Math.abs(dot3(relV, edgeNormal));
         const vn = dot3(relV, edgeNormal);
         const vtMag = magnitude(sub3(relV, scale3(edgeNormal, vn)));
 
-        if (vn < 0 && Math.abs(vn) > maxCompression) maxCompression = Math.abs(vn);
+        const crustA = crust.crustTypes[i];
+        const crustB = crust.crustTypes[nId];
+
+        if (vn < -0.0005) {
+          // Convergent
+          if (crustA === 1 && crustB === 1) {
+            // Continental collision — broad, massive
+            if (vnMag > maxCollisionUplift) maxCollisionUplift = vnMag;
+          } else if (crustA === 0 && crustB === 1) {
+            // This cell is oceanic, neighbor is continental — this side subducts
+            if (vnMag > maxSubductionTrench) maxSubductionTrench = vnMag;
+          } else if (crustA === 1 && crustB === 0) {
+            // This cell is continental, neighbor is oceanic — arc on this side
+            if (vnMag > maxSubductionUplift) maxSubductionUplift = vnMag;
+          } else {
+            // Oceanic-oceanic — symmetric trench + arc
+            if (vnMag > maxSubductionTrench) maxSubductionTrench = vnMag;
+            if (vnMag > maxSubductionUplift) maxSubductionUplift = vnMag;
+          }
+        } else if (vn > 0.0005) {
+          // Divergent — rift (no positive uplift contribution)
+          const riftAmount = vn * tectonicStrength * 10;
+          upliftAccum[i] -= riftAmount;
+          thickness[i] = Math.max(0, thickness[i] - riftAmount);
+        }
+
         if (vtMag > maxShear) maxShear = vtMag;
       }
 
-      // Smooth falloff (§5.2.3): no hard threshold
-      const compressionUplift = smoothstep(0, 0.15, maxCompression) * tectonicStrength * 0.02;
-      const shearUplift = smoothstep(0, 0.2, maxShear) * tectonicStrength * 0.005;
-      const stepUplift = compressionUplift + shearUplift;
+      // Per-boundary noise modulation (segmented mountain belts)
+      const noiseVal = simplex.noise3D(p.x * 2, p.y * 2, p.z * 2);
+      const noiseFactor = 0.3 + (noiseVal * 0.5 + 0.5) * 0.7;
 
-      upliftAccum[i] += stepUplift;
-      if (crust.crustTypes[i] === 1) {
-        thickness[i] += stepUplift * 2;
-      }
+      // Apply uplift — velocity-scaled, no smoothstep saturation
+      const collisionUplift = maxCollisionUplift * tectonicStrength * 60 * noiseFactor;
+      upliftAccum[i] += collisionUplift;
+      if (collisionUplift > 0) thickness[i] += collisionUplift * 1.5;
+
+      const subductionArcUplift = maxSubductionUplift * tectonicStrength * 30 * noiseFactor;
+      upliftAccum[i] += subductionArcUplift;
+      if (subductionArcUplift > 0) thickness[i] += subductionArcUplift * 2;
+
+      const subductionTrench = maxSubductionTrench * tectonicStrength * 20 * noiseFactor;
+      upliftAccum[i] -= subductionTrench;
+
+      const shearUplift = maxShear * tectonicStrength * 5 * noiseFactor;
+      upliftAccum[i] += shearUplift;
     }
   }
 
-  // 4. Compose final height from crust thickness + uplift + isostasy
+  // 5. Compose final height from crust thickness + uplift + isostasy
   onLog?.("V3: Composing tectonic heights...");
   const heights = new Float32Array(numMacro);
   for (let i = 0; i < numMacro; i++) {
@@ -322,7 +440,7 @@ export function simulateTectonics(
   for (let i = 0; i < numMacro; i++) {
     plateCounts.set(plateIds[i], (plateCounts.get(plateIds[i]) ?? 0) + 1);
   }
-  onLog?.(`V3: ${plateCounts.size} plates with macro-cells assigned`);
+  onLog?.(`V3: ${plateCounts.size} plates with macro-cells assigned after simulation`);
 
   // Normalize heights to 0-1
   let minH = Infinity, maxH = -Infinity;

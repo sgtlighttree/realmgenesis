@@ -109,6 +109,7 @@ export interface WorldParams {
   marginCoupling: number; // 0-1, geometric correlation between mountain belts and continental margins
   numTimesteps: number; // 10-60, simulation timesteps
   simulationResolution: number; // 5000-20000, macro-cell count for tectonic simulation
+  plateJitter: number; // 0-1, how irregularly plate seeds are distributed (0=uniform, 1=chaotic)
 
   plates: number;
   seaLevel: number;
