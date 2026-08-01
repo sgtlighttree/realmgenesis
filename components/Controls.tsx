@@ -526,7 +526,7 @@ const Controls: React.FC<ControlsProps> = ({
                 onChange={(e) => { handleChange('points', parseInt(e.target.value) as 1 | 2 | 3); }}
 className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
-</div>
+              </div>
 
               {showViewControls && layerToggles.map((t, i) => (
                <LayerToggleRow key={t.key} toggle={t}
@@ -797,6 +797,42 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                   type="range" min="0" max="50" step="1"
                   value={params.erosionIterations}
                   onChange={(e) => { handleAdvancedChange('erosionIterations', parseInt(e.target.value) as 1 | 2 | 3); }}
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
+                />
+              </div>
+              <div className="space-y-1" title="How strongly mountain belts tend to align with continental margins (V3).">
+                <div className="flex justify-between text-xs text-ink-muted">
+                  <label>Margin Coupling</label>
+                  <span>{params.marginCoupling?.toFixed(2) ?? '0.30'}</span>
+                </div>
+                <input
+                  type="range" min="0" max="1" step="0.05"
+                  value={params.marginCoupling ?? 0.3}
+                  onChange={(e) => { handleAdvancedChange('marginCoupling', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
+                />
+              </div>
+              <div className="space-y-1" title="Number of simulation timesteps for the tectonic model (V3).">
+                <div className="flex justify-between text-xs text-ink-muted">
+                  <label>Timesteps</label>
+                  <span>{params.numTimesteps ?? 20}</span>
+                </div>
+                <input
+                  type="range" min="5" max="60" step="1"
+                  value={params.numTimesteps ?? 20}
+                  onChange={(e) => { handleAdvancedChange('numTimesteps', parseInt(e.target.value)); }}
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
+                />
+              </div>
+              <div className="space-y-1" title="Macro-cell resolution for the tectonic simulation (V3).">
+                <div className="flex justify-between text-xs text-ink-muted">
+                  <label>Macro-Cells</label>
+                  <span>{params.simulationResolution ?? 10000}</span>
+                </div>
+                <input
+                  type="range" min="5000" max="20000" step="1000"
+                  value={params.simulationResolution ?? 10000}
+                  onChange={(e) => { handleAdvancedChange('simulationResolution', parseInt(e.target.value)); }}
                   className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
