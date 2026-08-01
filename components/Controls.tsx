@@ -524,11 +524,11 @@ const Controls: React.FC<ControlsProps> = ({
                 step="1000"
                 value={Math.min(200000, params.points)}
                 onChange={(e) => { handleChange('points', parseInt(e.target.value) as 1 | 2 | 3); }}
-                className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
-              />
-            </div>
-             
-             {showViewControls && layerToggles.map((t, i) => (
+className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
+                />
+</div>
+
+              {showViewControls && layerToggles.map((t, i) => (
                <LayerToggleRow key={t.key} toggle={t}
                  className={i === 0 ? 'pt-2 border-t border-edge-subtle' : 'pt-2'} />
              ))}
