@@ -18,6 +18,100 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 - [ ] Major feature, for much, MUCH later: World Formats: Planet, Flat Earth (Disc, Rectangle, etc.)
 - [x] ~~Add a favicon just to clear the constant 404'ing~~ — **DONE Session 9** (`public/favicon.svg` + `<link rel=icon>`; 404 gone, 0 console errors).
 - [x] ~~**BUG found during Session 7 review:** undo stack never cleared on generation~~ — **FIXED** (commit `bf987db` "Clear undo stack on generation and load", in the merged stack; verified in Session 9 smoke: undo count → 0 / disabled after generate).
+- [ ] Seafloor Detail slider function more like a sea level controller.
+
+---
+
+## Session 10 (2026-08-12) — D7 part 2 (seafloor age→bathymetry + shear microplates)
+
+Commit `8999918` on `main`, **NOT pushed** (sits on top of Session 9's pushed
+`57f0f10` + the unpushed docs commits `eacd5e1`/`57f0f10` — check `git log
+origin/main..main` before pushing). Gates all green: typecheck 0, lint 0 errors /
+**29** warnings, **168 tests** pass, build OK. Dev server was left running on
+:3000 this session (started by me; fine to reuse or kill).
+
+**What this was.** ROADMAP D7 part 2 — "grounded geophysics, less Voronoi-like."
+Brainstormed → Matt picked the **heuristic layer** (NOT the Cortial boundary-curve
+rebuild): two goals, no engine rebuild. Research pass via `agy` (report at
+`~/.gemini/antigravity-cli/brain/4dc5c5a8-.../tectonic_plate_generation_research.md`;
+agy plumbing works — smoke returned AGY_OK). fable-advisor reviewed the design
+(agent `a0807c217e89bfbf4`); its verdict shaped the impl (below). Built serially,
+no delegation, no full spec (small tasks, Matt's call).
+
+### The two features (all in `utils/tectonicsV3.ts` unless noted)
+
+**Goal 2 — seafloor age → bathymetry.** After the timestep loop, `computeSeafloorAge`
+marks FINAL-STATE divergent-boundary oceanic macro cells as ridges (age 0) and runs
+a multi-source Dijkstra over **oceanic cells only** (continents block propagation)
+for distance-to-ridge; `age = dist / spreadRate`, capped at 180 Ma; empty-ridge
+worlds (Pangea) return all −1 → isostasy fallback. `gdh1Depth(age)` = Stein & Stein
+1992 GDH1 (`2500+350√t` for t<20, else `5651−2473·e^(−0.0278t)`), meters.
+`depthToBandHeight` maps that into the existing oceanic height band (ridge ≈ −0.5,
+old floor ≈ −0.85) — **NOT meters into the raw field**, or the global min shifts and
+normalization rescales land fraction. Fed into the oceanic branch of `composeHeight`
+BEFORE normalization, so seaLevel / Stage-9b oceanDepth remap / climate / erosion
+are untouched.
+
+**Goal 1 — non-blob shapes (microplates).** `injectMicroplates` runs AFTER
+`mergeSmallPlates` (so the 0.5% cutoff doesn't eat them): computes tangential shear
+at boundary cells, picks the top-shear cells spaced ≥0.25 chord apart, appends a new
+`PlateState` per pick (Euler pole from `_micro_v3`, low `plateSpeeds` 0.4–0.7 so they
+stay small), plants ONE seed cell, and lets the existing per-timestep
+`assignPlatesDijkstra` grow each into a connected region.
+
+### fable-advisor's load-bearing corrections (do not undo)
+
+- **Microplates are SEED INJECTION, not post-hoc peeling.** Peeling cells after
+  assignment desyncs `plates[plateIds[i]]` lookups and can reintroduce exclaves.
+  Injection reuses the connectivity-by-construction of Dijkstra region-growth — the
+  0-exclave invariant (Session 9) holds. **Verified: 0 exclaves across 3 seeds,
+  plate count 8→10.**
+- **Divergent rift-lowering restricted to continental-continental** (`crustA===1 &&
+  crustB===1`). The old code lowered ALL divergent cells via `upliftAccum`; for
+  oceanic ridges that fought GDH1. Oceanic divergence elevation is now GDH1's job.
+- **Projection noise damped over deep ocean.** `projectTectonicsToDisplay` blends
+  structural noise at weight `1.2−tectonicStrength` (~0.7); left alone it washes out
+  GDH1. Now scaled by `1 − 0.65·seafloorDetail` for oceanic cells below 0.5, plus
+  abyssal-hill noise (`_abyssal_v3`) at amp `seafloorDetail·0.06`.
+- **Determinism:** new side-streams `_ridge_v3`(unused name — actual streams are
+  `_micro_v3`/`_abyssal_v3`), never touch `plateRng` draw order. Reused the MinHeap
+  index tie-break. **Verified byte-identical run-to-run.**
+
+### Params + tests
+
+New `WorldParams`: `spreadRate` (0.004–0.02, default 0.008), `seafloorDetail`
+(0–1, 0.5), `microplateIntensity` (0–1, 0.35; **0 = no injection, plate layout
+byte-identical** — but age→depth still changes ocean height, so the FEATURE is not
+gated off at 0). Defaults in `hooks/useWorldEngine.ts` + `tests/helpers.ts`; sliders
+in `components/Controls.tsx` Geo/Advanced (Spreading Rate / Seafloor Detail /
+Microplates). Un-skipped the V3-params `paramLiveness` test and added the three.
+
+**Two paramLiveness fixes, same root cause as Session 9's capitalSpacing:**
+`provinceSize` reads DEAD at the 300-cell/4-faction default world (factions too
+small to subdivide) but is live at higher density — gave it a dedicated
+binding-density case (`points:1000, numFactions:5, provinceSize 0.1 vs 0.9`),
+removed it from the generic civ loop. Lakes seeds (`k2`/`lakeworld`) still hold
+under D7p2 — no re-baseline needed.
+
+**TRAP for the next session:** the FULL suite (`npm test`, 23 files parallel) threw
+a spurious "terrain param dead" failure ONCE under parallel load — every test file
+runs a 10k-macro V3 sim, so 23 in parallel stresses the M1. It did NOT recur on
+re-run and paramLiveness passes in isolation. If CI flakes here, the fix is lower
+`simulationResolution` in `tests/helpers.ts` (currently 10000 = prod) or cap vitest
+concurrency — NOT a real dead param. `npm test` now takes ~3 min.
+
+### Open / next
+
+- **D7 part 3 (if ever): the Cortial boundary-curve rebuild** — plates as simulated
+  boundary curves + terranes, not seed-grown regions. The "properly grounded" model;
+  deliberately not done (heuristic layer was the chosen scope). Research report cited
+  above has the method.
+- **Not pushed.** `main` is ahead of `origin/main` by the D7p2 commit + Session 9
+  docs commits. Matt to decide push.
+- ROADMAP still marks D7 🟡 PARTIAL "part 1 done, part 2 open" — part 2 (heuristic
+  layer) is now done; update the tag if desired.
+- Stage-2 close-out debt unchanged: remove V2 dead code + `V3_ENABLED` flag from
+  `worldGen.ts`.
 
 ---
 
