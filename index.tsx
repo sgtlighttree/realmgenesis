@@ -1,6 +1,8 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import ShellApp from './components/shell/ShellApp';
+import DesignShell from './components/shell/DesignShell';
 import './index.css';
 
 const rootElement = document.getElementById('root');
@@ -8,9 +10,20 @@ if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
+// Entry routing:
+//   ?shell=stub → DesignShell (F1 layout prototype, stub panels)
+//   ?shell=1    → ShellApp (F1 redesign, real data + ?globe=0)
+//   otherwise   → classic App
+const shellParam = new URLSearchParams(window.location.search).get('shell');
+
+const Root =
+  shellParam === 'stub' ? <DesignShell />
+  : shellParam !== null ? <ShellApp />
+  : <App />;
+
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <App />
+    {Root}
   </React.StrictMode>
 );

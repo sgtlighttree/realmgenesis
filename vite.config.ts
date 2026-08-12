@@ -10,6 +10,11 @@ export default defineConfig(({ mode }) => {
         host: '0.0.0.0',
       },
       plugins: [react()],
+      worker: {
+        // ES-module worker: the generation closure uses ESM imports
+        // (d3-geo-voronoi et al.) and the classic-worker format cannot.
+        format: 'es',
+      },
       define: {
         'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || '')
       },

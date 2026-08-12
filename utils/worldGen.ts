@@ -1,10 +1,16 @@
 import { geoVoronoi } from 'd3-geo-voronoi';
 import { Cell, LakeData, Point, WorldData, WorldParams, BiomeType, FactionData, CultureData, ReligionData } from '../types';
 import { RNG, SimplexNoise } from './rng';
-import { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS, darkenForFolk } from './colors';
+import { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS, FOLK_COLORS } from './palette';
 import { createNameGenerator, NameGenerator, NameStyle, NAME_STYLES } from './namegen';
 import { detectFeatures } from './features';
 import { MinHeap, landTerrainStepCost } from './pathfinding';
+import { simulateTectonics, projectTectonicsToDisplay } from './tectonicsV3';
+
+// Set to true to enable the V3 terrain model (independent crust + Euler-pole
+// tectonics). The V2 path is kept behind this flag for side-by-side comparison
+// during development. Remove the flag and V2 dead code at the end of Stage 2.
+const V3_ENABLED = true;
 
 // --- DATA STRUCTURES ---
 
@@ -58,7 +64,7 @@ function randomVector(rng: RNG): Point {
 
 // --- NOISE ALGORITHMS ---
 
-function fbm(simplex: SimplexNoise, x: number, y: number, z: number, octaves: number, persistence: number, lacunarity: number): number {
+export function fbm(simplex: SimplexNoise, x: number, y: number, z: number, octaves: number, persistence: number, lacunarity: number): number {
     let total = 0;
     let frequency = 1;
     let amplitude = 1;
@@ -72,7 +78,7 @@ function fbm(simplex: SimplexNoise, x: number, y: number, z: number, octaves: nu
     return total / maxValue;
 }
 
-function ridgedNoise(simplex: SimplexNoise, x: number, y: number, z: number, octaves: number, lacunarity: number): number {
+export function ridgedNoise(simplex: SimplexNoise, x: number, y: number, z: number, octaves: number, lacunarity: number): number {
     let total = 0;
     let frequency = 1;
     let amplitude = 1;
@@ -103,22 +109,17 @@ const checkAbort = (signal?: AbortSignal) => {
     }
 };
 
-async function applyHydraulicErosion(cells: Cell[], iterations: number, seaLevel: number, signal?: AbortSignal): Promise<void> {
+async function applyHydraulicErosion(cells: Cell[], iterations: number, seaLevel: number): Promise<void> {
     cells.forEach(c => c.flux = 0);
     const sorted = [...cells].sort((a, b) => b.height - a.height);
     const erosionRate = 0.02;
     const depositionRate = 0.01;
     const rainAmount = 0.1;
 
-    // Yield every few iterations to keep UI responsive
-    const chunkSize = 5;
-
+    // Each iteration rains on land, then routes flux and erodes/deposits
+    // downhill across the whole cell set. Runs inside a worker, so no
+    // per-iteration yielding is needed to keep the UI responsive.
     for (let iter = 0; iter < iterations; iter++) {
-        if (iter % chunkSize === 0) {
-            await new Promise(r => setTimeout(r, 0));
-            checkAbort(signal);
-        }
-
         // Only rain on land
         sorted.forEach(c => c.flux = c.height >= seaLevel ? rainAmount : 0);
         
@@ -146,16 +147,11 @@ async function applyHydraulicErosion(cells: Cell[], iterations: number, seaLevel
     }
 }
 
-async function applyThermalErosion(cells: Cell[], iterations: number, signal?: AbortSignal) {
+async function applyThermalErosion(cells: Cell[], iterations: number) {
     const talus = 0.008; // Min slope diff
-    const rate = 0.2; 
-    const chunkSize = 5;
+    const rate = 0.2;
 
     for(let iter=0; iter<iterations; iter++) {
-        if (iter % chunkSize === 0) {
-            await new Promise(r => setTimeout(r, 0));
-            checkAbort(signal);
-        }
         cells.forEach(c => {
             let maxDiff = 0;
             let lowestNIndex = -1;
@@ -183,11 +179,9 @@ export function isLakeCell(cell: Cell): boolean {
 
 // --- RIVER GENERATION ---
 
-async function generateRivers(cells: Cell[], seaLevel: number, params: WorldParams, onProgress?: (msg: string) => void, signal?: AbortSignal): Promise<{ rivers: Point[][]; lakes: LakeData[] }> {
+async function generateRivers(cells: Cell[], seaLevel: number, params: WorldParams, onProgress?: (msg: string) => void): Promise<{ rivers: Point[][]; lakes: LakeData[] }> {
     const numCells = cells.length;
     onProgress?.("Rivers: Initializing drainage map...");
-    await new Promise(r => setTimeout(r, 0));
-    checkAbort(signal);
     
     // 1. Depression Filling (Drainage Enforcement)
     // CRITICAL FIX: Use Float64Array to prevent infinite loops caused by precision mismatch 
@@ -218,8 +212,6 @@ async function generateRivers(cells: Cell[], seaLevel: number, params: WorldPara
     while(heap.size() > 0) {
         // Safety break and log update
         if (++processed % 2000 === 0) {
-            await new Promise(r => setTimeout(r, 0));
-            checkAbort(signal);
             onProgress?.(`Rivers: Drainage processed ${processed} cells...`);
         }
 
@@ -302,8 +294,6 @@ async function generateRivers(cells: Cell[], seaLevel: number, params: WorldPara
     }
 
     onProgress?.("Rivers: Accumulating flux...");
-    await new Promise(r => setTimeout(r, 0));
-    checkAbort(signal);
 
     // 2. Accumulate Flux
     const sortedIndices = Array.from({length: numCells}, (_, i) => i)
@@ -336,14 +326,9 @@ async function generateRivers(cells: Cell[], seaLevel: number, params: WorldPara
         return { x: c.center.x * r, y: c.center.y * r, z: c.center.z * r };
     };
 
-    processed = 0;
     for (const startId of candidates) {
         if (visited.has(startId)) continue;
-        if (++processed % 500 === 0) {
-             await new Promise(r => setTimeout(r, 0));
-             checkAbort(signal);
-        }
-        
+
         const path: Point[] = [];
         let curr = startId;
         let safety = 0;
@@ -499,6 +484,17 @@ function enforceConnectivity(cells: Cell[], numPlates: number) {
 // --- GEOGRAPHY GENERATION ---
 
 export async function generateWorld(params: WorldParams, onLog?: (msg: string) => void, signal?: AbortSignal, onProgress?: (stage: number, total: number) => void): Promise<WorldData> {
+  // The only abort checkpoint left. The nine setTimeout(0) yields this used to
+  // ride on existed to keep the MAIN thread barely responsive between stages;
+  // generation now runs in a worker (utils/worldGenClient.ts), where they cost
+  // time and buy nothing. Mid-run cancellation is worker.terminate() — a
+  // synchronous generation loop cannot drain the message queue, so a
+  // message-based abort could only ever be seen at a yield, which is precisely
+  // what was removed. This entry check stays because generateWorld is still
+  // directly callable (the test suite, dev/goldenCompare.html) and the
+  // determinism suite asserts an already-aborted signal throws before any work.
+  checkAbort(signal);
+
   // Must equal the number of progress() calls below (the erosion tick fires
   // even when erosion is skipped) so the bar reaches 100%
   const TOTAL_STAGES = 7;
@@ -517,8 +513,6 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   });
   
   onLog?.("Computing Connectivity...");
-  await new Promise(r => setTimeout(r, 10)); 
-  checkAbort(signal);
 
   const voronoi = geoVoronoi(geoPoints);
   const polygons = voronoi.polygons();
@@ -554,10 +548,34 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   });
   cells.forEach(c => c.neighbors = [...new Set(c.neighbors)]);
 
+  let minH = Infinity, maxH = -Infinity, range = 1;
+
+  if (V3_ENABLED) {
+    onLog?.(`Simulating ${params.plates} Tectonic Plates (V3)...`);
+    progress();
+
+    const macroRes = params.simulationResolution ?? 10000;
+    const macroRngV3 = new RNG(params.seed + '_macro_v3');
+    const macroPoints = generateFibonacciSphere(macroRes, macroRngV3, params.cellJitter * 0.8);
+
+    const crustRng = new RNG(params.seed + '_crust');
+    const plateRngV3 = new RNG(params.seed + '_plates_v3');
+
+    const tectonicResult = simulateTectonics(
+      macroPoints, params, crustRng, plateRngV3, simplex, onLog, signal,
+    );
+
+    checkAbort(signal);
+
+    onLog?.("Projecting tectonics to display resolution...");
+    progress();
+    projectTectonicsToDisplay(cells, points, macroPoints, tectonicResult, params, simplex);
+
+    // V3 path is done — skip V2 plate/height/stress stages and jump to erosion
+  } else {
+
   onLog?.(`Simulating ${params.plates} Tectonic Plates...`);
   progress();
-  await new Promise(r => setTimeout(r, 0));
-  checkAbort(signal);
 
   const numPlates = params.plates;
   const plateRng = new RNG(params.seed + '_plates_loc'); 
@@ -660,7 +678,7 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   onLog?.("Applying Height & Noise...");
   progress();
   const freq = params.noiseScale || 1.0;
-  const plateInf = (params.plateInfluence === undefined ? 0.5 : params.plateInfluence); 
+  const plateInf = (params.tectonicStrength === undefined ? 0.5 : params.tectonicStrength); 
 
   const plateHeights = new Float32Array(numPlates);
   const pRng = new RNG(params.seed + '_plates_h');
@@ -719,24 +737,23 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
       c.height = height;
   });
   
-  let minH = Infinity, maxH = -Infinity;
+  minH = Infinity; maxH = -Infinity;
   cells.forEach(c => { if (c.height < minH) minH = c.height; if (c.height > maxH) maxH = c.height; });
-  let range = maxH - minH || 1;
+  range = maxH - minH || 1;
   cells.forEach(c => c.height = (c.height - minH) / range);
+  } // end else (V2 path)
 
   // EROSION
   progress();
   if (params.erosionIterations > 0) {
       onLog?.(`Eroding Terrain (${params.erosionIterations} iter)...`);
-      await new Promise(r => setTimeout(r, 0));
-      checkAbort(signal);
 
       const resFactor = Math.sqrt(params.points / 5000);
       const hydraulicSteps = Math.ceil(params.erosionIterations * 2 * resFactor);
       const thermalSteps = Math.ceil(params.erosionIterations * 0.5 * resFactor);
       
-      await applyHydraulicErosion(cells, hydraulicSteps, params.seaLevel, signal); 
-      await applyThermalErosion(cells, thermalSteps, signal);
+      await applyHydraulicErosion(cells, hydraulicSteps, params.seaLevel); 
+      await applyThermalErosion(cells, thermalSteps);
       
       minH = Infinity; maxH = -Infinity;
       cells.forEach(c => { if (c.height < minH) minH = c.height; if (c.height > maxH) maxH = c.height; });
@@ -841,7 +858,7 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   });
 
   progress();
-  const { rivers, lakes } = await generateRivers(cells, params.seaLevel, params, onLog, signal);
+  const { rivers, lakes } = await generateRivers(cells, params.seaLevel, params, onLog);
   const world: WorldData = { cells, params, geoJson: polygons, rivers, lakes };
 
   // Named geographic features are terrain-derived (B3) — detect them before
@@ -1132,7 +1149,7 @@ export function recalculateReligions(world: WorldData, params: WorldParams, onLo
             id: culture.id,
             name: template(gen.faction(), culture.name),
             kind: 'folk',
-            color: darkenForFolk(culture.color),
+            color: FOLK_COLORS[culture.id % FOLK_COLORS.length],
             cultureId: culture.id,
             holyCellId: null,
         };

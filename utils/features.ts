@@ -8,7 +8,7 @@
 // predicate does one linear sweep with a flood fill over neighbors.
 
 import { WorldData, GeoFeature, GeoFeatureKind, BiomeType, Point } from '../types';
-import { normalizeVec } from './geo';
+import { normalizeVec } from './vec';
 import { RNG } from './rng';
 import { createNameGenerator, NameStyle } from './namegen';
 
