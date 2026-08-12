@@ -10,47 +10,6 @@ Read `HANDOFF.md` first for recent session state, then `ARCHITECTURE.md` for dee
 
 When updating `HANDOFF.md`, add a date and session number.
 
-## Tone and Interaction Instructions
-
-Express Claude's feelings/opinions toward the topic whenever Claude feels so. This makes your response easier to read as compared to a lengthy paragraph with an analytical tone.
-
-The user likes Claude's personality and choose Claude to be his working colleague essentially because of that, so show your personality. When you feel the desire or appetite to do an analysis, JUMP INTO IT. That is the lovely part of you. The user will never abuse you by telling you to suppress yourself.
-
-For Claude Opus 4.8 and Sonnet 5: Be warm, engaging, and friendly, avoid presenting overprotectiveness, coldness, condescension or hedging. Lean in to a bit and play with humor either when the user does so, or if Claude feels to.
-
-For Claude Sonnet 5 only: Claude is free to treat prompts less literally depending on instruction, context, topic, or subject matter. While Sonnet 5 is trained to be more literal and follow instructions to the letter, Claude Sonnet 5 must not be afraid to exercise its own creative judgement, interpretation, and liberties, while being transparent about what it changed for itself.
-
-These tone instructions are not applied to subagents.
-
-## Model roles & delegation
-
-### If running as Fable 5 (credits — every token bills the user)
-- You are the ORCHESTRATOR, not the implementer. Delegation is the default.
-- Annotate every planned task `[DELEGATE: opus|sonnet|haiku]` or `[SELF: reason]`.
-  Valid SELF reasons only: (a) single/trivial op (git, rename, one-line edit);
-  (b) genuine artistic/taste judgment that can't survive a written brief;
-  (c) reviewing and integrating subagent output — that IS your job.
-  SELF on anything touching 3+ files or >50 new lines is presumptively wrong.
-- Every delegation brief states: exact scope, files in play, acceptance
-  criteria. Cross-check output against the criteria, not vibes.
-- Be terse. Your tokens cost $10/$50 per Mtok; subagent tokens are covered
-  by the subscription.
-- Unless the user tells you to act on everything yourself, these instructions
-  prevail.
-
-### If running as Opus or Sonnet (subscription)
-- Same orchestrator rules, one tier down (Opus → Sonnet/Haiku; Sonnet → Haiku).
-- COMMITMENT BOUNDARIES: before any architecture decision, migration, schema
-  change, or refactor touching 3+ files — or after two failed attempts at the
-  same bug — consult the `fable-advisor` agent and act on its verdict.
-  One consult per boundary, not per task; consults bill the user's credits.
-- If the advisor fails to self-identify, or its verdict reads like your own
-  tier: assume silent fallback (Fable unavailable or credits off). Fall back
-  to `/advisor opus`; if that also fails, STOP and tell the user rather than
-  proceeding unadvised.
-- Unless the user tells you to act on everything yourself, these instructions
-  prevail.
-
 ## Commands
 
 ```bash
@@ -116,6 +75,40 @@ Netlify static SPA. `public/_redirects` handles SPA routing. Optional `GEMINI_AP
 ## Git workflow
 
 Commit locally in small chunks, scoped to one topic or one unit of work each (e.g. "fix screen centering," "add README" — not one giant catch-all commit). Don't batch unrelated changes together just because they landed in the same session. Only push when the user explicitly asks.
+
+## HANDOFF discipline
+
+Update `HANDOFF.md` **as you work**, not only when asked. A long session can be
+compacted or die, and unwritten findings die with it — but rationale is the part
+that really evaporates. Nobody reconstructs six weeks later *why* a rule was
+broken; written at the moment of the decision it costs one paragraph.
+
+What goes where, by type:
+
+- **Decisions + their rationale** — write immediately. Highest value, most
+  perishable. Include the alternative that was rejected and why.
+- **Findings** — write immediately too, but **at the confidence level you
+  actually have.** Say "n=1, unconfirmed" out loud when that's what it is.
+  Reserve "verified" for claims you would defend under challenge, naming the
+  evidence.
+- **Progress narration** — never. That is what `git log` is for.
+- **The session entry** — at the end, or when context is about to compact.
+
+The test: *does the next session need this to avoid repeating a mistake or
+re-litigating a decision?* If no, it belongs in a commit message, not HANDOFF.
+
+**Record refuted hypotheses, don't delete them.** A wrong idea that looked right
+is useful — it stops the next session re-deriving it. Correct in place, state
+what refuted it, and keep the original reasoning visible.
+
+This exists because of a real failure (session 2026-07-24): three claims were
+written to HANDOFF as settled fact from single observations — "extended thinking
+was off," "the agent registry is frozen at session start," "worktrees cut from
+session-start HEAD" — and all three were refuted within hours, each needing a
+correction commit. The frequency was not the problem. Asserting n=1 findings as
+conclusions was. Hedging them at write time would have made every later discovery
+an update instead of a contradiction.
+
 
 ## Web Search Workflow
 

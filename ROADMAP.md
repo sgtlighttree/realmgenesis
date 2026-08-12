@@ -194,6 +194,8 @@ optionally sea-level coupling.
 Re-run generation at higher point density inside a selected spherical cap for
 local/regional maps — Azgaar's "submap" concept, but projection-correct, with
 parent-world values as boundary constraints.
+Idea: A "base resolution" inside one world, but certain spots can be selected with a bounding box
+to upscale/regenerate cells at much higher densities
 
 ### D5. Planetary parameters
 
@@ -205,6 +207,14 @@ first, but D1 (seasons) and tides give them mechanical hooks over time.
 Another overhaul of terrain generaton algorithm to make it more realistic
 and get rid of seam lines on plate boundaries, and more detailed heightmap
 rendering and calculation without increasing cell count
+
+### D7. More realistic tectonic plates
+
+D6 set a foundation for deeper fine-tuning, but plates still look Voronoi-like
+and not grounded in real geophysics, may need a throrough research pass.
+The additional efforts towards realism now create enclaves and exclaves of plates,
+should add more checks for that and should use more grounded and mathematically
+accurate modeling.
 
 ---
 
@@ -230,12 +240,22 @@ re-tessellate onto the cell graph). Lossy by nature; stretch goal.
 
 ---
 
-## F. UI Overhaul
+## F. Frontend/Rendering/UI Overhaul
 
-# F1. Reorganizing the UI
+# F1. Redesigning the UI/Frontend
 The UI has become a mess in an attempt to add more features, especially on mobile.
 A full redesign and rearchitecture is warranted here.
 Can come *before or alongside* D6 with the roadmap in mind.
+
+# F2. 3D Mode Presentation
+Part of redesign is figuring out how the planet is presented; overlays like borders, rivers and roads and routes and the lat/lon grid are also 3D objects, not 2D overlays simply composited over the 3D globe, which affects visibility and accuracy. Or maybe make the globe entirely smooth by default, instead of applying height per cell. Perhaps 3D mode should more like Google Earth Pro in this respect.
+
+# F3. True 2D vector map
+Make it a true vector map like most web mapping apps, but keep it as optimized as possible
+
+# F4. Performance Optimizations
+Self-explanatory, optimize wherever while keeping visual fidelity. Can come last, but better to make efficient renderers/frontends and code wherever possible.
+
 
 ## Recommended first milestone — "Map identity"
 

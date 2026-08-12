@@ -4,6 +4,39 @@
 
 Read [HANDOFF.md](./HANDOFF.md) first for a summary of what was built recently, known issues, and what to tackle next. It is updated at the end of each working session and is the fastest way to orient to the current state of the project.
 
+## HANDOFF discipline
+
+Update `HANDOFF.md` **as you work**, not only when asked. A long session can be
+compacted or die, and unwritten findings die with it — but rationale is the part
+that really evaporates. Nobody reconstructs six weeks later *why* a rule was
+broken; written at the moment of the decision it costs one paragraph.
+
+What goes where, by type:
+
+- **Decisions + their rationale** — write immediately. Highest value, most
+  perishable. Include the alternative that was rejected and why.
+- **Findings** — write immediately too, but **at the confidence level you
+  actually have.** Say "n=1, unconfirmed" out loud when that's what it is.
+  Reserve "verified" for claims you would defend under challenge, naming the
+  evidence.
+- **Progress narration** — never. That is what `git log` is for.
+- **The session entry** — at the end, or when context is about to compact.
+
+The test: *does the next session need this to avoid repeating a mistake or
+re-litigating a decision?* If no, it belongs in a commit message, not HANDOFF.
+
+**Record refuted hypotheses, don't delete them.** A wrong idea that looked right
+is useful — it stops the next session re-deriving it. Correct in place, state
+what refuted it, and keep the original reasoning visible.
+
+This exists because of a real failure (session 2026-07-24): three claims were
+written to HANDOFF as settled fact from single observations — "extended thinking
+was off," "the agent registry is frozen at session start," "worktrees cut from
+session-start HEAD" — and all three were refuted within hours, each needing a
+correction commit. The frequency was not the problem. Asserting n=1 findings as
+conclusions was. Hedging them at write time would have made every later discovery
+an update instead of a contradiction.
+
 ## Architecture Overview
 
 Before making significant changes, read [ARCHITECTURE.md](./ARCHITECTURE.md) for a complete overview of the codebase — the generation pipeline, data model, rendering architecture, state management, and key invariants. It is designed so an LLM (or a new contributor) can navigate the codebase confidently without reading every file.
@@ -42,9 +75,10 @@ npm test           # Vitest suite over the pure engine (tests/)
 
 ## Git Workflow
 
-Commit messages are highly recommended to follow the 50/72 rule: keep the
-subject line at or under 50 characters, and wrap body text near 72 characters.
-Prefer concise, imperative subjects.
+Commit locally in small chunks, scoped to one topic or one unit of work each.
+Don't batch unrelated changes. Commit messages should follow the 50/72 rule:
+subject line at or under 50 characters, body wrapped at 72. Prefer concise,
+imperative subjects.
 
 ## Code Style
 
@@ -100,3 +134,27 @@ Prefer concise, imperative subjects.
 - Utils are pure functions (no side effects except logging callbacks)
 - Services (e.g., `gemini.ts`) wrap external APIs with minimal abstraction
 - Components are presentational — no data fetching or generation logic
+
+## Key Invariants
+
+- **Relative imports only** — `@/` alias is configured but intentionally unused.
+- **`seaLevel` must be passed to `getCellColor`** as the third argument (from `world.params.seaLevel`), not hardcoded.
+- **`factionColors` map required for political rendering** — any render path calling `getCellColor` for political/province mode must pass a faction-color map (build via `buildFactionColorMap(civData)` from `colors.ts`).
+- **R3F element names are strings** (e.g., `"bufferGeometry"`) — intentional pattern to bypass TSX types. `@typescript-eslint/no-explicit-any` is warn, not error.
+- **Gemini API key is ephemeral** — never persisted to storage. Set via `setRuntimeApiKey()` or build-time `GEMINI_API_KEY` env var.
+- **WorldMesh geometry is reused across paint strokes** — `world.cells` identity is the structural key. Paint strokes mutate cells in place and shallow-copy `WorldData`; never replace the `cells` array outside full regeneration.
+- **Every `useMemo` geometry in `WorldViewer` has a matching disposal effect** — follow this pattern when adding scene elements.
+- **`plateInfluence` is clamped to [0.1, 1.0]** inside `worldGen.ts` — do not extend the slider beyond 1.0 without adjusting the clamp.
+- **`mountainHeight`/`oceanDepth` remap is after normalization, before climate** (Stage 9b) — inserting normalization steps requires adjusting remap placement.
+- **Batch `setParams` calls** — use functional updater `setParams(prev => ({ ...prev, ...changes }))` to avoid stale-closure overwrites.
+- **Edit undo uses a shared Map reference** — `currentStrokeSnapshot` ref is pushed to `undoStack` at stroke start and mutated in place; never replace it mid-stroke.
+- **Dymaxion pick buffer must mirror visible rasterization** — same pipeline, same rotation, same sizing.
+
+## Dev Server Etiquette
+
+Never kill a preexisting dev server unless you started it in this session.
+Vite's HMR handles code changes; don't restart unnecessarily.
+
+## Web Search Workflow
+
+For fact-checking and research fan-out, use Google Antigravity CLI (`agy` or `/antigravity:research`). Internal web search is blocked unless explicitly instructed otherwise, or for parallel adversarial verification against agy results.

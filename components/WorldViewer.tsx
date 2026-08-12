@@ -1135,9 +1135,20 @@ const WorldMesh: React.FC<{
   );
 };
 
-const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean; showRoutes?: boolean; showHillshade?: boolean; showContours?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; cultureColors?: Map<number, string>; religionColors?: Map<number, string>; brushSize?: number; rulerArc?: Point[] | null; }> = ({ world, viewMode, showGrid = false, showRivers = true, showRoutes = false, showHillshade = false, showContours = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null }) => {
+const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean; showRoutes?: boolean; showHillshade?: boolean; showContours?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; cultureColors?: Map<number, string>; religionColors?: Map<number, string>; brushSize?: number; rulerArc?: Point[] | null; overlayClassName?: string; paused?: boolean; onPausedChange?: (v: boolean) => void; showPauseControl?: boolean; }> = ({ world, viewMode, showGrid = false, showRivers = true, showRoutes = false, showHillshade = false, showContours = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null, overlayClassName = 'absolute top-4 right-4 z-overlay flex gap-2', paused: pausedProp, onPausedChange, showPauseControl = true }) => {
   const [hoveredCell, setHoveredCell] = useState<Cell | null>(null);
-  const [paused, setPaused] = useState(false);
+  // Rotation pause is controlled-OPTIONAL, the same contract as a native input:
+  // pass `paused` + `onPausedChange` to own it from outside (the shell lifts it
+  // so the control can live in the top strip), or pass neither and this keeps
+  // its own state (classic App). Not a `bare`-style personality flag — the host
+  // chooses where the STATE lives, and the rendering follows from that.
+  const [internalPaused, setInternalPaused] = useState(false);
+  const isPauseControlled = pausedProp !== undefined;
+  const paused = isPauseControlled ? pausedProp : internalPaused;
+  const setPaused = useCallback((v: boolean) => {
+    if (!isPauseControlled) setInternalPaused(v);
+    onPausedChange?.(v);
+  }, [isPauseControlled, onPausedChange]);
   const [isSpaceHeld, setIsSpaceHeld] = useState(false);
   const dragRef = useRef<{ active: boolean; lastX: number; lastY: number }>({ active: false, lastX: 0, lastY: 0 });
   const overlayMode = dymaxionSettings.mode === 'overlay';
@@ -1158,7 +1169,7 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
 
   useEffect(() => {
     if (overlayMode) setPaused(true);
-  }, [overlayMode]);
+  }, [overlayMode, setPaused]);
 
   const wrapAngle = useCallback((v: number) => {
     let r = ((v + 180) % 360 + 360) % 360 - 180;
@@ -1246,17 +1257,20 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
           mouseButtons={orbitMouseButtons}
         />
       </Canvas>
-      {!world && <div className="absolute inset-0 flex items-center justify-center text-white/50">Forging World...</div>}
+      {!world && <div className="absolute inset-0 flex items-center justify-center text-ink-strong/50">Forging World...</div>}
       
-      <div className="absolute top-4 right-4 z-10 flex gap-2">
-         <button
-           onClick={() => { setPaused(!paused); }}
-           disabled={overlayMode}
-           className={`bg-gray-800/80 text-white p-2 backdrop-blur border border-white/10 shadow-lg ${overlayMode ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-700'}`}
-         >
-           {paused ? "▶" : "⏸"}
-         </button>
-      </div>
+      {showPauseControl && (
+        <div className={overlayClassName}>
+           <button
+             onClick={() => { setPaused(!paused); }}
+             disabled={overlayMode}
+             aria-label={paused ? 'Resume globe rotation' : 'Pause globe rotation'}
+             className={`bg-surface-raised/80 text-ink-strong p-2 backdrop-blur border border-white/10 shadow-lg ${overlayMode ? 'opacity-40 cursor-not-allowed' : 'hover:bg-surface-hover'}`}
+           >
+             {paused ? "▶" : "⏸"}
+           </button>
+        </div>
+      )}
     </div>
   );
 };

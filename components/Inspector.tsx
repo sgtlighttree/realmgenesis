@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Eye, EyeOff, ChevronDown, ChevronUp, Ruler, MapPin, Trash2, Star } from 'lucide-react';
 import { WorldData, InspectMode, EditMode, TownData, MarkerKind } from '../types';
+import Select from './Select';
 
 interface WorldDataUpdates {
   townName?: string;
@@ -25,7 +26,7 @@ interface InspectorProps {
   inspectMode: InspectMode;
   collapsed: boolean;
   onToggleEnabled: () => void;
-  onToggleCollapsed: () => void;
+  onToggleCollapsed?: () => void;
   editMode?: EditMode;
   onEditWorldData?: (cellId: number, updates: WorldDataUpdates) => void;
   onRenameProvince?: (factionId: number, provinceId: number, name: string) => void;
@@ -39,6 +40,14 @@ interface InspectorProps {
   onSelectMarker?: (id: number) => void;
   onUpdateMarker?: (id: number, updates: MarkerUpdates) => void;
   onDeleteMarker?: (id: number) => void;
+  /**
+   * Outer wrapper classes. Defaults to the classic float-over-the-globe
+   * anchoring; the shell passes layout-neutral classes to dock it in a rail.
+   * Position and chrome sit on DIFFERENT elements here, hence two knobs.
+   */
+  className?: string;
+  /** Inner card classes (chrome + width switching). See `className`. */
+  cardClassName?: string;
 }
 
 const Inspector: React.FC<InspectorProps> = ({
@@ -61,6 +70,8 @@ const Inspector: React.FC<InspectorProps> = ({
   onSelectMarker,
   onUpdateMarker,
   onDeleteMarker,
+  className = 'absolute top-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none z-overlay',
+  cardClassName,
 }) => {
   const [markersListOpen, setMarkersListOpen] = useState(false);
   // Local drafts for the province/town name inputs below — committed (and
@@ -135,14 +146,18 @@ const Inspector: React.FC<InspectorProps> = ({
     if (cell && onEditWorldData) onEditWorldData(cell.id, updates);
   };
 
-  const inputCls = "bg-gray-900 border border-gray-700 text-white text-xs px-1.5 py-1 w-full focus:outline-none focus:border-blue-500";
+  const inputCls = "bg-surface border border-edge text-ink-strong text-xs px-1.5 py-1 w-full focus:outline-none focus:border-brand";
 
   return (
-    <div className="absolute top-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none z-10">
-      <div className={`bg-black/80 backdrop-blur text-white shadow-xl border border-white/20 transition-all duration-300 pointer-events-auto ${collapsed ? 'w-28' : selectedMarker || isEditing ? 'w-64' : 'min-w-[220px]'}`}>
-        <div className="flex items-center justify-between p-2 border-b border-white/10">
+    <div className={className}>
+      <div className={cardClassName ?? `bg-black/80 backdrop-blur text-ink-strong shadow-xl border border-white/20 transition-all duration-300 pointer-events-auto ${collapsed ? 'w-28' : selectedMarker || isEditing ? 'w-64' : 'min-w-[220px]'}`}>
+        <div className="flex items-center justify-between px-3 py-2 border-b border-edge-subtle">
           {!collapsed && (
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">
+            /* Matches the shell Panel header (shellKit `HEADER`) so the docked
+               Inspector reads as a sibling of Biomes / 2D Projection rather
+               than a different species. The old tiny-uppercase eyebrow was
+               also the one type treatment that dated the panel. */
+            <span className="text-xs font-semibold text-ink-bright tracking-tight">
               {editMode === 'world-edit' ? 'World Edit' : 'Inspector'}
             </span>
           )}
@@ -150,8 +165,10 @@ const Inspector: React.FC<InspectorProps> = ({
             {onToggleMarkerMode && (
               <button
                 onClick={onToggleMarkerMode}
-                className={`p-1 transition-colors ${markerMode ? 'text-amber-400 hover:bg-amber-900/40' : 'text-gray-600 hover:bg-gray-800'}`}
+                className={`p-1 transition-colors ${markerMode ? 'text-warn-soft hover:bg-amber-900/40' : 'text-ink-faint hover:bg-surface-raised'}`}
                 title={markerMode ? 'Disable Marker Placement' : 'Place Marker'}
+                aria-label={markerMode ? 'Disable marker placement' : 'Place marker'}
+                aria-pressed={markerMode}
               >
                 <MapPin size={12} />
               </button>
@@ -159,8 +176,10 @@ const Inspector: React.FC<InspectorProps> = ({
             {onToggleRuler && (
               <button
                 onClick={onToggleRuler}
-                className={`p-1 transition-colors ${rulerActive ? 'text-amber-400 hover:bg-amber-900/40' : 'text-gray-600 hover:bg-gray-800'}`}
+                className={`p-1 transition-colors ${rulerActive ? 'text-warn-soft hover:bg-amber-900/40' : 'text-ink-faint hover:bg-surface-raised'}`}
                 title={rulerActive ? 'Disable Ruler' : 'Measure Distance'}
+                aria-label={rulerActive ? 'Disable ruler' : 'Measure distance'}
+                aria-pressed={rulerActive}
               >
                 <Ruler size={12} />
               </button>
@@ -168,15 +187,24 @@ const Inspector: React.FC<InspectorProps> = ({
             {editMode !== 'world-edit' && (
               <button
                 onClick={onToggleEnabled}
-                className={`p-1 transition-colors ${enabled ? 'text-blue-400 hover:bg-blue-900/40' : 'text-gray-600 hover:bg-gray-800'}`}
+                className={`p-1 transition-colors ${enabled ? 'text-brand-soft hover:bg-blue-900/40' : 'text-ink-faint hover:bg-surface-raised'}`}
                 title={enabled ? "Disable Inspector" : "Enable Inspector"}
+                aria-label={enabled ? 'Disable inspector' : 'Enable inspector'}
+                aria-pressed={enabled}
               >
                 {enabled ? <Eye size={12} /> : <EyeOff size={12} />}
               </button>
             )}
-            <button onClick={onToggleCollapsed} className="p-1 text-gray-400 hover:bg-gray-800">
-              {collapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
-            </button>
+            {onToggleCollapsed && (
+              <button
+                onClick={onToggleCollapsed}
+                aria-label={collapsed ? 'Expand inspector' : 'Collapse inspector'}
+                aria-expanded={!collapsed}
+                className="p-1 text-ink-muted hover:bg-surface-raised"
+              >
+                {collapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+              </button>
+            )}
           </div>
         </div>
 
@@ -188,20 +216,22 @@ const Inspector: React.FC<InspectorProps> = ({
               {onDeleteMarker && (
                 <button
                   onClick={() => onDeleteMarker(selectedMarker.id)}
-                  className="p-0.5 text-red-400 hover:text-red-300"
+                  className="p-0.5 text-danger-soft hover:text-red-300"
                   title="Delete marker"
+                  aria-label={`Delete marker ${selectedMarker.name || ''}`.trim()}
                 >
                   <Trash2 size={12} />
                 </button>
               )}
             </div>
-            <select
+            <Select
               value={selectedMarker.kind}
-              onChange={e => onUpdateMarker?.(selectedMarker.id, { kind: e.target.value as MarkerKind })}
-              className={inputCls}
-            >
-              {MARKER_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
-            </select>
+              options={MARKER_KINDS.map(k => ({ value: k, label: k }))}
+              onChange={(v) => { onUpdateMarker?.(selectedMarker.id, { kind: v }); }}
+              label="Marker kind"
+              className="w-full"
+              triggerClassName="w-full justify-between bg-surface border-edge px-1.5 py-1 capitalize"
+            />
             <input
               type="text"
               value={selectedMarker.name}
@@ -226,20 +256,20 @@ const Inspector: React.FC<InspectorProps> = ({
               <div className="flex flex-col">
                 <span>Cell {cell.id}</span>
                 {locationName && <div className="mt-1">{locationName}</div>}
-                {featureName && <div className="mt-1 text-[10px] text-gray-400 italic">Part of: <span className="text-gray-200">{featureName}</span></div>}
+                {featureName && <div className="mt-1 text-[10px] text-ink-muted italic">Part of: <span className="text-ink">{featureName}</span></div>}
               </div>
               <span style={{ color: '#aaa' }}>{cell.biome}</span>
             </div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-              <div className="text-gray-400">Temp: <span className="text-white">{cell.temperature.toFixed(1)}°C</span></div>
-              <div className="text-gray-400">Rain: <span className="text-white">{(cell.moisture * 100).toFixed(0)}%</span></div>
-              <div className="text-gray-400">Elev: <span className="text-white">{(cell.height * 100).toFixed(0)}%</span></div>
-              <div className="text-gray-400">Pop: <span className="text-white">{cell.population?.toLocaleString()}</span></div>
+              <div className="text-ink-muted">Temp: <span className="text-ink-strong">{cell.temperature.toFixed(1)}°C</span></div>
+              <div className="text-ink-muted">Rain: <span className="text-ink-strong">{(cell.moisture * 100).toFixed(0)}%</span></div>
+              <div className="text-ink-muted">Elev: <span className="text-ink-strong">{(cell.height * 100).toFixed(0)}%</span></div>
+              <div className="text-ink-muted">Pop: <span className="text-ink-strong">{cell.population?.toLocaleString()}</span></div>
               {cultureName && (
-                <div className="text-gray-400 col-span-2">Culture: <span className="text-white">{cultureName}</span></div>
+                <div className="text-ink-muted col-span-2">Culture: <span className="text-ink-strong">{cultureName}</span></div>
               )}
               {religionName && (
-                <div className="text-gray-400 col-span-2">Faith: <span className="text-white">{religionName}</span></div>
+                <div className="text-ink-muted col-span-2">Faith: <span className="text-ink-strong">{religionName}</span></div>
               )}
             </div>
           </div>
@@ -250,22 +280,22 @@ const Inspector: React.FC<InspectorProps> = ({
           <div className="p-2 text-xs space-y-2">
             {/* Read-only physical stats */}
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 pb-2 border-b border-white/10">
-              <div className="text-gray-400">Temp: <span className="text-white">{cell.temperature.toFixed(1)}°C</span></div>
-              <div className="text-gray-400">Rain: <span className="text-white">{(cell.moisture * 100).toFixed(0)}%</span></div>
-              <div className="text-gray-400">Elev: <span className="text-white">{(cell.height * 100).toFixed(0)}%</span></div>
-              <div className="text-gray-400">Biome: <span className="text-white">{cell.biome}</span></div>
+              <div className="text-ink-muted">Temp: <span className="text-ink-strong">{cell.temperature.toFixed(1)}°C</span></div>
+              <div className="text-ink-muted">Rain: <span className="text-ink-strong">{(cell.moisture * 100).toFixed(0)}%</span></div>
+              <div className="text-ink-muted">Elev: <span className="text-ink-strong">{(cell.height * 100).toFixed(0)}%</span></div>
+              <div className="text-ink-muted">Biome: <span className="text-ink-strong">{cell.biome}</span></div>
             </div>
 
             {/* Faction fields */}
             {faction && (
               <div className="space-y-1.5">
-                <p className="text-[10px] text-gray-500 uppercase tracking-wide">Faction</p>
+                <p className="text-[10px] text-ink-muted uppercase tracking-wide">Faction</p>
                 <div className="flex gap-1.5 items-center">
                   <input
                     type="color"
                     value={faction.color}
                     onChange={e => emit({ factionColor: e.target.value })}
-                    className="w-7 h-6 border border-gray-700 bg-transparent cursor-pointer"
+                    className="w-7 h-6 border border-edge bg-transparent cursor-pointer"
                     title="Faction color"
                   />
                   <input
@@ -291,7 +321,7 @@ const Inspector: React.FC<InspectorProps> = ({
             {/* Province fields */}
             {province && faction && (
               <div className="space-y-1.5">
-                <p className="text-[10px] text-gray-500 uppercase tracking-wide">Province</p>
+                <p className="text-[10px] text-ink-muted uppercase tracking-wide">Province</p>
                 <input
                   type="text"
                   value={provinceDraft ?? province.name}
@@ -310,11 +340,11 @@ const Inspector: React.FC<InspectorProps> = ({
             {town && faction && province && (
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-wide">{town.isCapital ? 'Capital' : 'Town'}</p>
+                  <p className="text-[10px] text-ink-muted uppercase tracking-wide">{town.isCapital ? 'Capital' : 'Town'}</p>
                   {!town.isCapital && onRelocateCapital && (
                     <button
                       onClick={() => onRelocateCapital(faction.id, town.cellId)}
-                      className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-amber-900/40 text-amber-300 border border-amber-700 hover:bg-amber-900/70"
+                      className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-amber-900/40 text-amber-300 border border-amber-700 hover:bg-amber-900/70"
                       title="Promote this town to faction capital"
                     >
                       <Star size={9} /> Make Capital
@@ -344,18 +374,18 @@ const Inspector: React.FC<InspectorProps> = ({
             )}
 
             {!faction && (
-              <p className="text-gray-500 italic text-center py-1">Unclaimed — no faction data</p>
+              <p className="text-ink-muted italic text-center py-1">Unclaimed — no faction data</p>
             )}
           </div>
         )}
 
         {!collapsed && !selectedMarker && !enabled && (
-          <div className="p-4 text-[10px] text-gray-500 text-center italic">
+          <div className="p-4 text-[10px] text-ink-muted text-center italic">
             Inspector Disabled
           </div>
         )}
         {!collapsed && !selectedMarker && enabled && !cell && (
-          <div className="p-4 text-[10px] text-gray-500 text-center italic">
+          <div className="p-4 text-[10px] text-ink-muted text-center italic">
             {markerMode ? 'Click the map to place a marker...' : editMode === 'world-edit' ? 'Click a cell to edit...' : 'Click a cell...'}
           </div>
         )}
@@ -365,7 +395,7 @@ const Inspector: React.FC<InspectorProps> = ({
           <div className="border-t border-white/10">
             <button
               onClick={() => { setMarkersListOpen(v => !v); }}
-              className="w-full flex items-center justify-between p-2 text-[10px] text-gray-400 hover:bg-gray-800"
+              className="w-full flex items-center justify-between p-2 text-[10px] text-ink-muted hover:bg-surface-raised"
             >
               <span>Markers ({markers.length})</span>
               {markersListOpen ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
@@ -376,10 +406,10 @@ const Inspector: React.FC<InspectorProps> = ({
                   <button
                     key={m.id}
                     onClick={() => onSelectMarker?.(m.id)}
-                    className={`w-full flex items-center justify-between gap-2 px-2 py-1 text-[10px] text-left ${m.id === selectedMarkerId ? 'bg-blue-900/40 text-blue-200' : 'text-gray-300 hover:bg-gray-800'}`}
+                    className={`w-full flex items-center justify-between gap-2 px-2 py-1 text-[10px] text-left ${m.id === selectedMarkerId ? 'bg-blue-900/40 text-blue-200' : 'text-ink-soft hover:bg-surface-raised'}`}
                   >
                     <span className="truncate">{m.name}</span>
-                    <span className="text-gray-500 uppercase shrink-0">{m.kind}</span>
+                    <span className="text-ink-muted uppercase shrink-0">{m.kind}</span>
                   </button>
                 ))}
               </div>

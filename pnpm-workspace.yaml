@@ -1,0 +1,11 @@
+# pnpm 11 settings. pnpm 10+ blocks dependency build scripts by default, and an
+# undecided script makes `pnpm run <script>` fail outright (the implicit
+# deps-status check exits 1), not merely warn.
+#
+# This list is exactly what `pnpm install` reported as ignored — if a future
+# install prints ERR_PNPM_IGNORED_BUILDS, add what it names rather than guessing.
+#   esbuild    - Vite's bundler
+#   protobufjs - pulled in by @google/genai
+allowBuilds:
+  esbuild: true
+  protobufjs: true
