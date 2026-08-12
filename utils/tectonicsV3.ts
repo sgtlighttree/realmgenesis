@@ -1,5 +1,6 @@
 import { Cell, Point, WorldParams, TectonicResult } from '../types';
 import { RNG, SimplexNoise } from './rng';
+import { MinHeap } from './pathfinding';
 import { seedCrustField } from './crust';
 import {
   randomEulerPole, quatFromAxisAngle, quatRotate,
@@ -90,24 +91,27 @@ function generatePlates(numPlates: number, rng: RNG, plateJitter: number): Plate
 }
 
 function mergeSmallPlates(
-  macroPoints: Point[],
+  macroNeighbors: number[][],
   plateIds: Int32Array,
   plates: PlateState[],
-  crustTypes: Uint8Array,
   minCellThreshold: number,
 ): void {
   const numPlates = plates.length;
+  const numCells = plateIds.length;
   // Count cells per plate
   const counts = new Int32Array(numPlates);
-  for (let i = 0; i < macroPoints.length; i++) {
+  for (let i = 0; i < numCells; i++) {
     counts[plateIds[i]]++;
   }
 
-  // Identify small plates
+  // Repeatedly dissolve the smallest sub-threshold plate. Because Dijkstra
+  // assignment makes each plate a single connected region, merging the WHOLE
+  // region into its most-common adjacent plate keeps the result connected —
+  // the old per-cell nearest-seed reassignment could scatter the dying plate
+  // across several non-adjacent neighbors, re-introducing fragments.
   let changed = true;
   while (changed) {
     changed = false;
-    // Find the smallest plate below threshold
     let smallestId = -1;
     let smallestCount = Infinity;
     for (let j = 0; j < numPlates; j++) {
@@ -118,24 +122,26 @@ function mergeSmallPlates(
     }
     if (smallestId < 0) break;
 
-    // Find the nearest non-small neighbor plate for each cell in this plate
-    // and reassign them
-    const neighborPlateCount = new Float64Array(numPlates);
-    for (let i = 0; i < macroPoints.length; i++) {
+    // Vote for the most-common adjacent plate across the whole dying region.
+    const votes = new Int32Array(numPlates);
+    for (let i = 0; i < numCells; i++) {
       if (plateIds[i] !== smallestId) continue;
-      // Find nearest neighbor plate by checking macro-neighbor cells
-      // (simple: just assign to nearest different plate by seed distance)
-      let minDist = Infinity;
-      let bestNeighbor = -1;
-      for (let j = 0; j < numPlates; j++) {
-        if (j === smallestId || counts[j] === 0) continue;
-        const d = chordDistance(macroPoints[i], plates[j].seedPosition);
-        if (d < minDist) { minDist = d; bestNeighbor = j; }
+      for (const nId of macroNeighbors[i]) {
+        const np = plateIds[nId];
+        if (np !== smallestId && counts[np] > 0) votes[np]++;
       }
-      if (bestNeighbor >= 0) {
-        plateIds[i] = bestNeighbor;
-        counts[bestNeighbor]++;
+    }
+    let target = -1;
+    let bestVotes = 0;
+    for (let j = 0; j < numPlates; j++) {
+      if (votes[j] > bestVotes) { bestVotes = votes[j]; target = j; }
+    }
+
+    if (target >= 0) {
+      for (let i = 0; i < numCells; i++) {
+        if (plateIds[i] === smallestId) plateIds[i] = target;
       }
+      counts[target] += counts[smallestId];
     }
     counts[smallestId] = 0;
     changed = true;
@@ -194,6 +200,19 @@ function buildMacroNeighborGraph(points: Point[], k: number): number[][] {
     // Convert to regular array after all candidates processed
     neighbors[i] = Array.from(bestIds[i]).filter(id => id >= 0);
   }
+
+  // Symmetrize: the top-k relation is directional (i may keep j while j's own
+  // top-k is full of closer cells), but Dijkstra region-growth needs an
+  // undirected graph or plate fronts can leak through one-way edges. Add the
+  // reciprocal of every edge, deduped, in ascending index order for
+  // determinism.
+  const sets: Set<number>[] = neighbors.map(list => new Set(list));
+  for (let i = 0; i < n; i++) {
+    for (const j of neighbors[i]) sets[j].add(i);
+  }
+  for (let i = 0; i < n; i++) {
+    neighbors[i] = Array.from(sets[i]).sort((a, b) => a - b);
+  }
   return neighbors;
 }
 
@@ -211,6 +230,131 @@ function updateTopK(dists: Float64Array, ids: Int32Array, candId: number, candDi
   if (worstDist > candDist) {
     dists[worstIdx] = candDist;
     ids[worstIdx] = candId;
+  }
+}
+
+// Static per-edge growth costs for plate region-growing. A plate front pays
+// `chordDistance * noiseMul * marginMul` to cross each macro edge:
+//   - noiseMul (from boundaryRoughness, sampled at a warp-displaced edge
+//     midpoint) makes fronts advance unevenly, so boundaries stop reading as
+//     clean Voronoi bisectors. Keeps `boundaryRoughness` AND `warpStrength` live.
+//   - marginMul makes crust-type boundaries cheaper to reach, so plate margins
+//     are attracted to continental/oceanic transitions. Keeps `marginCoupling` live.
+// Returned parallel to `macroNeighbors`: costs[i][t] is the cost of edge
+// (i -> macroNeighbors[i][t]). The edge is undirected — both directions share
+// the midpoint sample and the symmetric crust-mismatch test.
+function computeEdgeCosts(
+  macroPoints: Point[],
+  macroNeighbors: number[][],
+  crustTypes: Uint8Array,
+  boundaryRoughness: number,
+  warpStrength: number,
+  marginCoupling: number,
+  warpNoise: SimplexNoise,
+  edgeNoise: SimplexNoise,
+): number[][] {
+  const n = macroPoints.length;
+  const warpAmp = warpStrength * 0.2;
+  const costs: number[][] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const pi = macroPoints[i];
+    const list = macroNeighbors[i];
+    const row = new Array<number>(list.length);
+    for (let t = 0; t < list.length; t++) {
+      const nId = list[t];
+      const pn = macroPoints[nId];
+      // Edge midpoint, warp-displaced so the roughness pattern isn't aligned
+      // to the lattice.
+      let mx = (pi.x + pn.x) * 0.5;
+      let my = (pi.y + pn.y) * 0.5;
+      let mz = (pi.z + pn.z) * 0.5;
+      if (warpAmp > 0) {
+        mx += warpNoise.noise3D(mx * 0.5, my * 0.5, mz * 0.5) * warpAmp;
+        my += warpNoise.noise3D(my * 0.5, mz * 0.5, mx * 0.5) * warpAmp;
+        mz += warpNoise.noise3D(mz * 0.5, mx * 0.5, my * 0.5) * warpAmp;
+      }
+      const noiseMul = boundaryRoughness > 0
+        ? Math.max(0.15, 1 + boundaryRoughness * 0.8 * edgeNoise.noise3D(mx * 4, my * 4, mz * 4))
+        : 1;
+      const marginMul = crustTypes[i] !== crustTypes[nId]
+        ? Math.max(0.2, 1 - marginCoupling * 0.5)
+        : 1;
+      row[t] = chordDistance(pi, pn) * noiseMul * marginMul;
+    }
+    costs[i] = row;
+  }
+  return costs;
+}
+
+// Multi-source Dijkstra region-growth. Every plate grows outward from the macro
+// cell nearest its (rotated) seed, following graph edges — so each plate's
+// territory is a single connected region BY CONSTRUCTION. This is what kills
+// the enclave/exclave artifacts the old per-cell argmin-with-noise produced:
+// there is no way for a cell to end up owned by a plate it has no path to.
+// `plateSpeeds[j]` scales plate j's growth (faster plates claim more territory),
+// giving the size irregularity the old proto-plate-merge scheme was meant to.
+function assignPlatesDijkstra(
+  macroPoints: Point[],
+  macroNeighbors: number[][],
+  edgeCosts: number[][],
+  rotatedSeeds: Point[],
+  plateSpeeds: number[],
+  activeMask: (j: number) => boolean,
+  plateIds: Int32Array,
+): void {
+  const n = macroPoints.length;
+  const dist = new Float64Array(n).fill(Infinity);
+  plateIds.fill(-1);
+
+  interface Node { cell: number; plate: number; dist: number; }
+  // Score baked with tiny index/plate terms so pop order is fully deterministic
+  // on distance ties (identical seeds must give identical assignments).
+  const heap = new MinHeap<Node>(node => node.dist + node.cell * 1e-9 + node.plate * 1e-12);
+
+  // Seed each active plate at its nearest macro cell.
+  for (let j = 0; j < rotatedSeeds.length; j++) {
+    if (!activeMask(j)) continue;
+    let best = -1;
+    let bestD = Infinity;
+    const s = rotatedSeeds[j];
+    for (let i = 0; i < n; i++) {
+      const d = chordDistance(macroPoints[i], s);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    if (best >= 0) heap.push({ cell: best, plate: j, dist: 0 });
+  }
+
+  while (heap.size() > 0) {
+    const { cell, plate, dist: d } = heap.pop()!;
+    if (plateIds[cell] !== -1) continue; // already settled by a cheaper front
+    plateIds[cell] = plate;
+    dist[cell] = d;
+    const speed = plateSpeeds[plate];
+    const list = macroNeighbors[cell];
+    const costRow = edgeCosts[cell];
+    for (let t = 0; t < list.length; t++) {
+      const nId = list[t];
+      if (plateIds[nId] !== -1) continue;
+      const nd = d + costRow[t] / speed;
+      if (nd < dist[nId]) {
+        dist[nId] = nd;
+        heap.push({ cell: nId, plate, dist: nd });
+      }
+    }
+  }
+
+  // Fallback for any cell unreachable through the graph (isolated component):
+  // hand it to the nearest active seed so nothing stays -1.
+  for (let i = 0; i < n; i++) {
+    if (plateIds[i] !== -1) continue;
+    let best = 0;
+    let bestD = Infinity;
+    for (let j = 0; j < rotatedSeeds.length; j++) {
+      if (!activeMask(j)) continue;
+      const d = chordDistance(macroPoints[i], rotatedSeeds[j]);
+      if (d < bestD) { bestD = d; best = j; }
+    }
+    plateIds[i] = best;
   }
 }
 
@@ -250,21 +394,44 @@ export function simulateTectonics(
   // 2. Generate plates with Euler poles (proto-plates + merge for irregular sizes)
   const plates = generatePlates(numPlates, plateRng, plateJitter);
 
-  // 3. Initial plate assignment and merge of small plates
+  // Macro-cell neighbor graph (built once; drives BOTH region growth and the
+  // boundary classification below). Hoisted ahead of assignment because
+  // Dijkstra needs it.
+  onLog?.("V3: Building macro-cell neighbor graph...");
+  const macroNeighbors = buildMacroNeighborGraph(macroPoints, 6);
+
+  // Noise streams: warpNoise displaces the edge-midpoint samples so roughness
+  // isn't lattice-aligned; edgeNoise is an independent side-stream for the
+  // per-edge roughness cost.
+  const warpNoise = new SimplexNoise(new RNG(params.seed + '_warp_v3'));
+  const edgeNoise = new SimplexNoise(new RNG(params.seed + '_edge_v3'));
+  const boundaryRoughness = params.boundaryRoughness ?? 0.3;
+  const warpStrength = params.warpStrength ?? 0.5;
+
+  // Static per-edge growth costs — independent of plate motion, so computed
+  // once and reused every timestep.
+  const edgeCosts = computeEdgeCosts(
+    macroPoints, macroNeighbors, crust.crustTypes,
+    boundaryRoughness, warpStrength, marginCoupling, warpNoise, edgeNoise,
+  );
+
+  // Per-plate growth speed ∈ [0.75, 1.3] — faster plates claim more territory,
+  // giving the power-law size spread the old proto-plate merge approximated.
+  const plateSpeeds = plates.map(() => plateRng.range(0.75, 1.3));
+
+  // Rotated plate seed positions (mutated each step; start at the raw seeds).
+  const rotatedSeeds = plates.map(p => ({ x: p.seedPosition.x, y: p.seedPosition.y, z: p.seedPosition.z }));
+
+  // 3. Initial plate assignment (Dijkstra region-growth) + merge of small plates
   const plateIds = new Int32Array(numMacro);
-  for (let i = 0; i < numMacro; i++) {
-    let minDist = Infinity;
-    let best = 0;
-    for (let j = 0; j < plates.length; j++) {
-      const d = chordDistance(macroPoints[i], plates[j].seedPosition);
-      if (d < minDist) { minDist = d; best = j; }
-    }
-    plateIds[i] = best;
-  }
+  assignPlatesDijkstra(
+    macroPoints, macroNeighbors, edgeCosts, rotatedSeeds, plateSpeeds,
+    () => true, plateIds,
+  );
 
   // Merge plates below 0.5% cell threshold
   const minCellThreshold = Math.max(1, Math.floor(numMacro * 0.005));
-  mergeSmallPlates(macroPoints, plateIds, plates, crust.crustTypes, minCellThreshold);
+  mergeSmallPlates(macroNeighbors, plateIds, plates, minCellThreshold);
 
   // Re-tally plate counts after merge, and set dominant crust types
   const postMergeCounts = new Int32Array(plates.length);
@@ -284,22 +451,10 @@ export function simulateTectonics(
   const activePlateCount = postMergeCounts.filter(c => c > 0).length;
   onLog?.(`V3: ${activePlateCount} active plates after merging`);
 
-  // Warp noise for domain warping (seam fix §5.2)
-  const warpNoise = new SimplexNoise(new RNG(params.seed + '_warp_v3'));
-  const warpFreq = 0.5;
-  const warpAmp = (params.warpStrength ?? 0.5) * 0.2;
-
-  // Rotated plate seed positions (mutated each step)
-  const rotatedSeeds = plates.map(p => ({ x: p.seedPosition.x, y: p.seedPosition.y, z: p.seedPosition.z }));
-
   // Per-macro-cell accumulation buffers
   const upliftAccum = new Float32Array(numMacro);
   const thickness = new Float32Array(numMacro);
   for (let i = 0; i < numMacro; i++) thickness[i] = crust.crustThickness[i];
-
-  // Macro-cell neighbor graph (built once, reused)
-  onLog?.("V3: Building macro-cell neighbor graph...");
-  const macroNeighbors = buildMacroNeighborGraph(macroPoints, 6);
 
   // 4. Timestep loop
   for (let step = 0; step < numSteps; step++) {
@@ -313,59 +468,14 @@ export function simulateTectonics(
       rotatedSeeds[i] = quatRotate(q, rotatedSeeds[i]);
     }
 
-    // 4b. Assign each macro-cell to the nearest rotated seed (with domain warp + margin coupling)
-    for (let i = 0; i < numMacro; i++) {
-      const p = macroPoints[i];
-      const nx = warpNoise.noise3D(p.x * warpFreq, p.y * warpFreq, p.z * warpFreq);
-      const ny = warpNoise.noise3D(p.y * warpFreq, p.z * warpFreq, p.x * warpFreq);
-      const nz = warpNoise.noise3D(p.z * warpFreq, p.x * warpFreq, p.y * warpFreq);
-
-      const cx = simplex.noise3D(p.x * 0.3 + 0.01, p.y * 0.3, p.z * 0.3) -
-                 simplex.noise3D(p.x * 0.3 - 0.01, p.y * 0.3, p.z * 0.3);
-      const cy = simplex.noise3D(p.x * 0.3, p.y * 0.3 + 0.01, p.z * 0.3) -
-                 simplex.noise3D(p.x * 0.3, p.y * 0.3 - 0.01, p.z * 0.3);
-      const cz = simplex.noise3D(p.x * 0.3, p.y * 0.3, p.z * 0.3 + 0.01) -
-                 simplex.noise3D(p.x * 0.3, p.y * 0.3, p.z * 0.3 - 0.01);
-
-      const wx = p.x + nx * warpAmp + cx * marginCoupling * 0.1;
-      const wy = p.y + ny * warpAmp + cy * marginCoupling * 0.1;
-      const wz = p.z + nz * warpAmp + cz * marginCoupling * 0.1;
-      const wp = normalizeVec({ x: wx, y: wy, z: wz });
-
-      let minDist = Infinity;
-      let bestPlate = 0;
-      const bRoughness = params.boundaryRoughness ?? 0.3;
-
-      for (let j = 0; j < plates.length; j++) {
-        if (postMergeCounts[j] === 0) continue;
-        let d = chordDistance(wp, rotatedSeeds[j]);
-
-        // Boundary roughness: per-plate noise offset
-        // Noise phase shifted per plate (j * constants) so each plate
-        // gets a different perturbation. Cells near boundaries flip to
-        // whichever plate's noise makes it closer.
-        if (bRoughness > 0) {
-          const bNoise = simplex.noise3D(
-            p.x * 2 + j * 10.7,
-            p.y * 2 + j * 3.1,
-            p.z * 2 + j * 7.3,
-          );
-          d += bNoise * bRoughness * 0.6;
-        }
-
-        if (d < minDist - 0.001) {
-          minDist = d;
-          bestPlate = j;
-        } else if (Math.abs(d - minDist) < 0.002) {
-          const cellIsContinental = crust.crustTypes[i] === 1;
-          const plateIsContinental = plates[j].dominantCrustType === 1;
-          if (cellIsContinental === plateIsContinental) {
-            bestPlate = j;
-          }
-        }
-      }
-      plateIds[i] = bestPlate;
-    }
+    // 4b. Re-grow plate regions from the rotated seeds. Region-growth over the
+    // macro graph keeps every plate connected each step — no argmin lottery, so
+    // no enclaves/exclaves. Roughness and margin attraction live in the static
+    // edge costs; plate motion enters only through the moving seeds.
+    assignPlatesDijkstra(
+      macroPoints, macroNeighbors, edgeCosts, rotatedSeeds, plateSpeeds,
+      j => postMergeCounts[j] > 0, plateIds,
+    );
 
     // 4c. Classify boundaries and accumulate uplift — velocity-scaled, asymmetric
     for (let i = 0; i < numMacro; i++) {
