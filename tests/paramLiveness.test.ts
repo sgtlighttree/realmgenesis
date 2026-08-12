@@ -49,7 +49,6 @@ const CIV_PERTURBATIONS: Record<string, Perturbation> = {
   civSizeVariance: { civSizeVariance: 1.0 },
   waterCrossingCost: { waterCrossingCost: 0.1 },
   territorialWaters: { territorialWaters: 0.9 },
-  capitalSpacing: { capitalSpacing: 1.0 },
   provinceSize: { provinceSize: 0.1 },
 };
 
@@ -72,6 +71,18 @@ describe('every tunable param influences the world', () => {
       const world = await generateWorld(makeParams(perturbation));
       expect(civSignature(world), `param "${name}" appears to be dead — output unchanged`).not.toBe(baseSig);
     }
+  }, 120000);
+
+  // capitalSpacing only *binds* when capitals are dense enough for the minimum
+  // separation to reject a candidate. At the default faction count under V3
+  // terrain the capitals already spread past the threshold, so the constraint
+  // is inert — the param is live (verified at 8/12 factions), just non-binding
+  // there. Isolate it at a binding density instead of the default seed.
+  it('capitalSpacing changes capital placement at binding density', async () => {
+    const tight = await generateWorld(makeParams({ numFactions: 12, capitalSpacing: 0.1 }));
+    const loose = await generateWorld(makeParams({ numFactions: 12, capitalSpacing: 1.0 }));
+    expect(civSignature(loose), 'param "capitalSpacing" appears to be dead — output unchanged')
+      .not.toBe(civSignature(tight));
   }, 120000);
 
   // nameStyle is a labels-only param: it must change the generated names but

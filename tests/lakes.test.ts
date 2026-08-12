@@ -5,13 +5,14 @@ import { makeParams } from './helpers';
 
 const isLakeBiome = (b: BiomeType) => b === BiomeType.LAKE || b === BiomeType.SALT_LAKE;
 
-// Deterministic seeds discovered by scanning at 300 points:
-//   'lakeworld' -> exactly one salt lake (5 cells, hot + arid basin)
-//   'abc'       -> exactly one fresh lake (1 cell, cool basin)
+// Deterministic seeds discovered by scanning at 300 points under the V3 terrain
+// model:
+//   'k2'        -> exactly one salt lake (1 cell, hot + arid endorheic basin)
+//   'lakeworld' -> exactly one fresh lake (2 cells, cool basin)
 // The default 'test_seed' produces no depressions, which is why the existing
 // determinism/regression signatures stay byte-identical.
-const SALT_SEED = 'lakeworld';
-const FRESH_SEED = 'abc';
+const SALT_SEED = 'k2';
+const FRESH_SEED = 'lakeworld';
 
 describe('lakes', () => {
   it('produces the expected lakes for the salt-lake seed', async () => {
@@ -19,7 +20,7 @@ describe('lakes', () => {
     expect(world.lakes).toBeDefined();
     expect(world.lakes!.length).toBe(1);
     const lake = world.lakes![0];
-    expect(lake.cellIds.length).toBe(5);
+    expect(lake.cellIds.length).toBe(1);
     expect(lake.isSalt).toBe(true);
     expect(lake.isEndorheic).toBe(true);
     // Every lake cell carries the matching hydrology biome.
