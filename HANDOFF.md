@@ -11,27 +11,27 @@ workflow/style rules.
 IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED 2026-08-07 — back to classic npm.** The `packageManager: pnpm` pin was removed from `package.json`; `pnpm-lock.yaml` and pnpm's symlinked `node_modules` are gone; `npm install` regenerates a plain `package-lock.json` with a self-contained `node_modules`. The global pnpm store (`~/Library/pnpm`) is being dismantled. Any `pnpm ...` commands in this repo's docs are stale — use `npm ...` equivalents. Check that everything runs smoothly before proceeding with anything else.
 
 - [ ] Make a true vector 2D mode instead of raster, but keep it optimized
-- [ ] V3 of terrain generation algorithm. Goal is to make plate boundaries far more realistic, make part of Milestone D.
+- [~] V3 of terrain generation algorithm. Goal is to make plate boundaries far more realistic, make part of Milestone D. — *V3 shipped & live; D7 part 1 (enclaves/exclaves killed, connected plates) done Session 9. D7 part 2 (grounded geophysics, non-Voronoi boundaries) still open.*
 - [ ] Major UI/frontend/rendering overhaul (Milestone F), use skill `/impeccable` for visual UI review
 - - [ ] F1b: Further refine things for brand identity
 - - [ ] Mobile: Minimize the padding and card-inside-card design but that's for later.
 - [ ] Major feature, for much, MUCH later: World Formats: Planet, Flat Earth (Disc, Rectangle, etc.)
-- [ ] Add a favicon just to clear the constant 404'ing
-- [ ] **BUG found during Session 7 review, pre-existing, not caused by the worker
-  work:** the undo stack is never cleared on generation. Paint a stroke, hit
-  Generate, then undo — it writes the OLD world's pre-paint heights and biomes
-  into the NEW world's cells *by id*. The confirm dialog says the strokes "will
-  be lost, and this cannot be undone", but they survive and are actively
-  harmful. One `setUndoStack([])` in the generate path.
+- [x] ~~Add a favicon just to clear the constant 404'ing~~ — **DONE Session 9** (`public/favicon.svg` + `<link rel=icon>`; 404 gone, 0 console errors).
+- [x] ~~**BUG found during Session 7 review:** undo stack never cleared on generation~~ — **FIXED** (commit `bf987db` "Clear undo stack on generation and load", in the merged stack; verified in Session 9 smoke: undo count → 0 / disabled after generate).
 
 ---
 
-## Session 9 (2026-08-12) — D7 part 1: killed plate enclaves/exclaves (Dijkstra region-growth)
+## Session 9 (2026-08-12) — D7 part 1 (plate enclaves killed), V3 shipped to main, F1 shell default, CI green
 
-Branch `d6-stage1-worker`. **Uncommitted** at time of writing (V3_ENABLED flip,
-npm reversion, doc edits, and this fix are all unstaged together — see below).
-Fast gates green: typecheck 0, lint 0 errors / **29** warnings (my edit deleted a
-dead `neighborPlateCount` var, so 30→29), build OK, `tectonicsV3.test.ts` 6/6.
+**Shipped and pushed to `origin/main` — CI passes** (run on `7f572f5`,
+`completed / success`). All four gates green: typecheck 0, lint 0 errors / **29**
+warnings, test **166 passed / 1 skipped**, build OK. V3 is the live terrain model
+with connected plates; the F1 redesign shell is now the default route.
+
+This session did four things, in order: (1) D7 part 1 — the plate enclave fix;
+(2) merged the whole D6/redesign stack to `main` as a checkpoint; (3) parity
+smoke on the shell → made it the default; (4) fixed the CI failure that
+checkpoint triggered. Sections below, newest concern last.
 
 **Context:** Matt flipped `V3_ENABLED = true` (uncommitted), rendered it, and
 logged ROADMAP **D7** — plates "still look Voronoi-like... create enclaves and
@@ -80,96 +80,68 @@ index/plate tie-break terms (`dist + cell*1e-9 + plate*1e-12`).
   ordering was the risk; the baked tie-break holds it).
 - Plate sizes now varied (e.g. 12/18/45/77 cells), not uniform pentagons.
 
-**NOT done / open:**
+### Checkpoint merge → main, then CI blew up (pnpm/npm mismatch)
+
+After the enclave fix, the whole `d6-stage1-worker` stack was merged to `main`
+as a `--no-ff` checkpoint (`f39c8a2`) and pushed. **CI failed in ~6 seconds** —
+because `.github/workflows/ci.yml` was still 100% pnpm (`pnpm/action-setup`,
+`pnpm install --frozen-lockfile`) after the 2026-08-07 npm reversion, so install
+failed instantly with no `pnpm-lock.yaml`. Fixed the workflow to `npm ci` + npm
+scripts. Also pruned stale branches: `codacy-fixes`, `c3-roads-trade-routes`
+(both 0-unique, fully merged). `main` is a linear fast-forward ancestor of the
+old branch, so the merge pulled the F1 shell + D6 stages + this fix in one hop.
+
+### Making the test job actually green (V3-enablement fallout)
+
+Fixing pnpm→npm surfaced real test breakage from V3 being live. All resolved:
+- **`roughness` was DEAD under V3** — the only terrain param that left the
+  signature unchanged (maskType/ridgeBlend/mountainHeight/warpStrength all live).
+  Wired it into `projectTectonicsToDisplay`: structural relief ×`(0.5 + roughness)`,
+  centered so default 0.5 = ×1.0 (default-roughness seeds stay byte-identical,
+  slider is meaningful again). *This corrected my first-draft claim that
+  paramLiveness was "just a timeout" — it was a genuine dead param.*
+- **routes/lakes were TIMEOUTS** — V3 gen is ~9s vs old ~0.3s. Raised the global
+  vitest `testTimeout` to 120s in `vite.config.ts` (config, not assertions).
+- **lakes seeds re-baselined** — V3 terrain shifts per-seed hydrology, so the
+  V2-scanned seeds were invalid. Rescanned: `k2` → 1-cell salt-endorheic,
+  `lakeworld` → 2-cell fresh (`tests/lakes.test.ts`).
+- **`capitalSpacing` reads dead at default density, but ISN'T broken** — it only
+  *binds* when capitals are dense enough for the min-separation to reject a
+  candidate (`minChordSq = spacing² · 4/numFactions`, `worldGen.ts:1348`). At the
+  paramLiveness default faction count under V3 terrain capitals already spread
+  past the threshold, so it's inert there; verified live at 8/12 factions. Gave
+  it a dedicated binding-density case (numFactions 12, spacing 0.1 vs 1.0) instead
+  of the generic civ loop.
+
+### Shell smoke → made default; favicon
+
+Parity smoke on `?shell=1` before promoting it: **paint** (16 strokes → undo
+count 16), **undo** (16→15), **generate-gate + confirm dialog**, **discard +
+undo-stack-cleared-on-generate**, **abort** (same `Controls.tsx:1545` "Cancel
+Generation" path, `handleCancel`), **V3 renders connected plates in-shell**,
+**narrow fold** (functional, bottom-tab sheets reachable — cosmetically pre-F1b).
+ShellApp routes every handler from the shared `useWorldEngine` hook to the same
+components as classic, so parity is structural. **`index.tsx` flipped: ShellApp
+is default; classic → `?shell=classic`; old `?shell=1` links still resolve.**
+Added `public/favicon.svg` (planet) + `<link rel=icon>` to clear the
+`/favicon.ico` 404.
+
+**Method note that bit me:** I first "concluded" paint was broken in-shell from a
+canvas pixel-readback that barely moved. WRONG — synthetic `MouseEvent`s don't
+drive Map2D paint (known: real events do). The app's own undo counter (16) is the
+right instrument and proved paint worked. Don't trust synthetic-canvas pixel
+probes for Map2D; read app state.
+
+### Still open
+
 - **D7 part 2 (the "grounded geophysics / less Voronoi-like" half) is untouched.**
   Boundaries are now organic and connected, but the model is still warped-Voronoi
-  region-growth, not simulated plate-boundary curves. That's the bigger research
-  effort D7 flags.
-- **Full `npm test` is RED — for TWO different reasons, one real:**
-  1. **`roughness` is genuinely DEAD under V3** (probe across all terrain params
-     at low res: only `roughness` leaves the terrain signature unchanged; every
-     other param — incl. maskType, ridgeBlend, mountainHeight, warpStrength — is
-     live). So `paramLiveness` "terrain params change the terrain signature"
-     fails on a REAL assertion, reached ~5th in iteration (~45s, before its 120s
-     timeout). **CORRECTION of my first draft of this entry, which lumped
-     paramLiveness under "timeouts" — that was wrong.** V3 height comes from
-     tectonics+crust+projection noise (`noiseScale`/`detailLevel`/
-     `boundaryRoughness`), not V2's `roughness`-scaled fBm. DECISION NEEDED: wire
-     `roughness` into the V3 projection-noise amplitude (keep the slider
-     meaningful) OR accept it dead and move it to the skip list (like
-     `plateInfluence`→`tectonicStrength` in Session 8).
-  2. **routes (6/6) + lakes (1) TIME OUT** — V3 generation is ~9s vs the old
-     ~0.3s, blowing the default 5s per-test timeout. Pure slowness, not
-     correctness (the routes "determinism" failure was confirmed a timeout, NOT
-     nondeterminism). Fix = bump those test timeouts. Needs Matt's ok to touch
-     tests.
-- Not committed. The working tree tangles four things (npm reversion, V3 flag
-  flip, Matt's D7/ROADMAP doc edits, this fix) — wants scoped commits when Matt
-  says go.
-
----
-
-## ⚡ NEW-THREAD PICKUP (2026-07-27, end of Session 7)
-
-Branch **`d6-stage1-worker`**, cut from `redesign` @ `bdd8f22`. NOT pushed, NOT
-merged. Gates: typecheck 0, lint 0 errors / **29** warnings (ratchet — and
-headroom is now ZERO, see below), **159** tests, build OK.
-
-**D6 Stage 1 is DONE: generation runs in a Web Worker, with no algorithm
-change.** Every generated value is bit-identical to before. The next big rock is
-**D6 Stage 2 — the V3 terrain model**, which is designed but **not planned**.
-
-Before writing any Stage 2 code, read:
-
-1. `docs/superpowers/specs/2026-07-26-d6-terrain-v3-design.md` §3–§5 — the model
-2. `docs/research/2026-07-25-tectonics-adversarial-pass.md` — the red-team
-
-Stage 2 starts with `writing-plans` (or `brainstorming` for §9), **not with
-code**. §9 lists four questions Stage 1 does not answer: V3 behind a flag or
-outright, whether erosion moves to edge-length-weighted diffusion, whether
-Lloyd's relaxation is worth it, and the empirical `N`/coarse-resolution values.
-
-**The one thing most likely to be re-derived wrongly, repeated from Session 6g
-so you meet it without opening the spec:** §5.1 records a REFUTED hypothesis.
-"Accumulate uplift over 20–40 timesteps" was our headline seam fix and it is
-**wrong** — with small per-step rotation the same cell-graph edge is re-selected
-as the boundary every step, so uplift piles onto one edge and produces a
-*taller, thinner* wall exactly on the Voronoi cut. Read the refutation before
-proposing it again.
-
-**Do not restore the lint ratchet to 30.** It is 29, `package.json`'s CLI flag
-is the looser `--max-warnings 30`, and the tighter number is the real gate.
-**Headroom is zero**, and Stage 2 adds new params, modules and tests — so the
-first warning anywhere breaks the gate, and the obvious move (read package.json,
-conclude 30 is fine) is the wrong one.
-
-**If you need headroom, buy it by fixing an existing warning, not by raising the
-number.** The 29 break down as **25 `no-explicit-any` + 4
-`react-hooks/exhaustive-deps`**, and they cluster:
-`components/WorldViewer.tsx` **16**, `hooks/useWorldEngine.ts` 4,
-`components/Controls.tsx` 2, `utils/export.ts` 2, `utils/worldGen.ts` 2, then one
-each in `DymaxionPreview2D.tsx`, `EditToolbar.tsx`, `Map2D.tsx`. WorldViewer's 16
-are mostly the deliberate R3F string-element pattern (CLAUDE.md invariant) — a
-real cleanup target for F-tier, not something to "fix" casually while doing
-terrain work.
-
-### Two Stage 1 facts Stage 2 needs, that the spec cannot know
-
-1. **The measured numbers bound spec §4.1 ("simulate coarse, project once").**
-   A single full generation costs **~1.0s at 20k cells** and **~17.4s at 200k**
-   on the main thread (worker adds ~20%, of which ~4s at 200k is transfer). §4.1
-   proposes 20–40 timesteps over 5k–20k macro-cells — so budget against the 20k
-   figure, and note that the per-step cost is only the *tectonic* loop, not a
-   full pipeline pass. The 200k number is what makes §4.1 non-optional: 20–40
-   steps at display resolution is plainly out of reach, which is the empirical
-   backing for a decision the spec argues from precedent alone.
-2. **RULE, not a note: never route a partial recalc through `deserializeWorld`.**
-   It mints a **new `cells` array on every call**. `WorldMesh` geometry is keyed
-   on `world.cells` identity (CLAUDE.md invariant), so a civ-only or
-   province-only recalc sent through the worker would silently force a full
-   geometry rebuild and surface as a frame-rate regression with no obvious cause.
-   Full regeneration is the only correct caller today. If Stage 2 wants partial
-   work in the worker, the transfer contract needs an in-place update path first.
+  region-growth, not simulated plate-boundary curves — the bigger research effort
+  D7 flags.
+- **Shell is default but pre-F1b on mobile** — functional, not polished (padding /
+  card-in-card nesting). F1b brand pass + 44px touch targets still pending.
+- **V2 dead code + `V3_ENABLED` flag** still in `worldGen.ts` — remove at Stage 2
+  close-out now that V3 is the shipped path.
 
 ---
 
@@ -469,6 +441,70 @@ the classic (non-`?shell=1`) route under the worker.
 
 ---
 
+## ⚡ NEW-THREAD PICKUP (2026-07-27, end of Session 7)
+
+Branch **`d6-stage1-worker`**, cut from `redesign` @ `bdd8f22`. NOT pushed, NOT
+merged. Gates: typecheck 0, lint 0 errors / **29** warnings (ratchet — and
+headroom is now ZERO, see below), **159** tests, build OK.
+
+**D6 Stage 1 is DONE: generation runs in a Web Worker, with no algorithm
+change.** Every generated value is bit-identical to before. The next big rock is
+**D6 Stage 2 — the V3 terrain model**, which is designed but **not planned**.
+
+Before writing any Stage 2 code, read:
+
+1. `docs/superpowers/specs/2026-07-26-d6-terrain-v3-design.md` §3–§5 — the model
+2. `docs/research/2026-07-25-tectonics-adversarial-pass.md` — the red-team
+
+Stage 2 starts with `writing-plans` (or `brainstorming` for §9), **not with
+code**. §9 lists four questions Stage 1 does not answer: V3 behind a flag or
+outright, whether erosion moves to edge-length-weighted diffusion, whether
+Lloyd's relaxation is worth it, and the empirical `N`/coarse-resolution values.
+
+**The one thing most likely to be re-derived wrongly, repeated from Session 6g
+so you meet it without opening the spec:** §5.1 records a REFUTED hypothesis.
+"Accumulate uplift over 20–40 timesteps" was our headline seam fix and it is
+**wrong** — with small per-step rotation the same cell-graph edge is re-selected
+as the boundary every step, so uplift piles onto one edge and produces a
+*taller, thinner* wall exactly on the Voronoi cut. Read the refutation before
+proposing it again.
+
+**Do not restore the lint ratchet to 30.** It is 29, `package.json`'s CLI flag
+is the looser `--max-warnings 30`, and the tighter number is the real gate.
+**Headroom is zero**, and Stage 2 adds new params, modules and tests — so the
+first warning anywhere breaks the gate, and the obvious move (read package.json,
+conclude 30 is fine) is the wrong one.
+
+**If you need headroom, buy it by fixing an existing warning, not by raising the
+number.** The 29 break down as **25 `no-explicit-any` + 4
+`react-hooks/exhaustive-deps`**, and they cluster:
+`components/WorldViewer.tsx` **16**, `hooks/useWorldEngine.ts` 4,
+`components/Controls.tsx` 2, `utils/export.ts` 2, `utils/worldGen.ts` 2, then one
+each in `DymaxionPreview2D.tsx`, `EditToolbar.tsx`, `Map2D.tsx`. WorldViewer's 16
+are mostly the deliberate R3F string-element pattern (CLAUDE.md invariant) — a
+real cleanup target for F-tier, not something to "fix" casually while doing
+terrain work.
+
+### Two Stage 1 facts Stage 2 needs, that the spec cannot know
+
+1. **The measured numbers bound spec §4.1 ("simulate coarse, project once").**
+   A single full generation costs **~1.0s at 20k cells** and **~17.4s at 200k**
+   on the main thread (worker adds ~20%, of which ~4s at 200k is transfer). §4.1
+   proposes 20–40 timesteps over 5k–20k macro-cells — so budget against the 20k
+   figure, and note that the per-step cost is only the *tectonic* loop, not a
+   full pipeline pass. The 200k number is what makes §4.1 non-optional: 20–40
+   steps at display resolution is plainly out of reach, which is the empirical
+   backing for a decision the spec argues from precedent alone.
+2. **RULE, not a note: never route a partial recalc through `deserializeWorld`.**
+   It mints a **new `cells` array on every call**. `WorldMesh` geometry is keyed
+   on `world.cells` identity (CLAUDE.md invariant), so a civ-only or
+   province-only recalc sent through the worker would silently force a full
+   geometry rebuild and surface as a frame-rate regression with no obvious cause.
+   Full regeneration is the only correct caller today. If Stage 2 wants partial
+   work in the worker, the transfer contract needs an in-place update path first.
+
+---
+
 ## ⚡ PREVIOUS PICKUP (2026-07-26, end of Session 6g)
 
 Branch `redesign`, **now pushed to `origin/redesign`** (Matt's explicit request;
@@ -541,6 +577,50 @@ It is now a four-mode triage — SCRIPT / DELEGATE / DECOMPOSE / SELF — keyed 
 "what is expensive, the decisions or the typing?" Cross-reviewed by the advisor
 and by agy, **which disagreed with each other**; the reconciliation, including
 which advice was rejected and why, is in `8859e7e`'s commit body.
+
+---
+
+## Session 6f (2026-07-25) — pause control regression + ARIA names
+
+Commits `0683952`..`5b92847`. Gates: typecheck 0, lint 0/29, 138 tests, build OK.
+Pickup items 1 (done in 6e) and 2 are now both closed. See the WideShell
+canvas-clipping trap recorded at the end of the 6e entry — that is the reusable
+finding from the pause bug and the thing most likely to bite again.
+
+**ARIA pass — what was actually wrong.** 44 buttons relied on `title`. `title` is
+a mouse tooltip: not an accessible name, and absent on touch entirely. Worst
+case confirmed as recorded: the 17 biome swatches are buttons whose whole content
+is a background colour, so a reader announced the palette as "button, button,
+button". All icon-only controls now carry `aria-label`; toggles carry the state
+their styling implies (`aria-pressed` on biome/faction swatches, eraser, seed
+locks, Inspector marker/ruler/eye; `aria-expanded` on collapse chevrons).
+
+- **Save-slot Load/Delete are named per ENTRY** (`Load saved map <name>`), because
+  the list repeats the same two icons per row — a generic "Load" gives a reader
+  no way to tell which map it is on.
+- **The System Console header was a `<div onClick>`** — not focusable, no role,
+  keyboard-inoperable. Now a real `<button>`. A brace-aware sweep found no other
+  clickable non-interactive elements. **`Select`'s `role="option"` rows are
+  CORRECT as-is** and should not be "fixed": options in a composite listbox are
+  deliberately not individually focusable — the listbox owns arrows/type-ahead/
+  Home/End. A naive a11y scanner flags these; don't act on it.
+
+**Verified in the browser, not from source** — 44 buttons on classic, 48 in the
+wide shell with edit mode open, **zero unnamed, zero title-only**. Two tooling
+traps met on the way, both worth knowing:
+
+- A regex source scan is not enough. It missed the `<div onClick>` entirely
+  (only `<button` was scanned) and it flagged ~13 false positives where a
+  `{expr}` body renders perfectly good text.
+- **Playwright's YAML aria-snapshot elides the name of a button whose text sits
+  in a nested `<div>`** — it rendered "Generate World" as a nameless `button`.
+  That is a snapshot-formatting artifact, NOT a real defect: Chrome names it
+  fine, proven because `getByRole('button', {name:'Generate World'})` resolves
+  to it. Confirm against the DOM before chasing one of these.
+
+**Still open from the original list:** 44px touch targets (the new strip pause
+button is 34×26, consistent with its siblings and inheriting the same problem),
+retiring classic, and whether `shellKit`'s stub panels ship.
 
 ---
 
@@ -648,50 +728,6 @@ evidence was worthless in both directions.
 
 ---
 
-## Session 6f (2026-07-25) — pause control regression + ARIA names
-
-Commits `0683952`..`5b92847`. Gates: typecheck 0, lint 0/29, 138 tests, build OK.
-Pickup items 1 (done in 6e) and 2 are now both closed. See the WideShell
-canvas-clipping trap recorded at the end of the 6e entry — that is the reusable
-finding from the pause bug and the thing most likely to bite again.
-
-**ARIA pass — what was actually wrong.** 44 buttons relied on `title`. `title` is
-a mouse tooltip: not an accessible name, and absent on touch entirely. Worst
-case confirmed as recorded: the 17 biome swatches are buttons whose whole content
-is a background colour, so a reader announced the palette as "button, button,
-button". All icon-only controls now carry `aria-label`; toggles carry the state
-their styling implies (`aria-pressed` on biome/faction swatches, eraser, seed
-locks, Inspector marker/ruler/eye; `aria-expanded` on collapse chevrons).
-
-- **Save-slot Load/Delete are named per ENTRY** (`Load saved map <name>`), because
-  the list repeats the same two icons per row — a generic "Load" gives a reader
-  no way to tell which map it is on.
-- **The System Console header was a `<div onClick>`** — not focusable, no role,
-  keyboard-inoperable. Now a real `<button>`. A brace-aware sweep found no other
-  clickable non-interactive elements. **`Select`'s `role="option"` rows are
-  CORRECT as-is** and should not be "fixed": options in a composite listbox are
-  deliberately not individually focusable — the listbox owns arrows/type-ahead/
-  Home/End. A naive a11y scanner flags these; don't act on it.
-
-**Verified in the browser, not from source** — 44 buttons on classic, 48 in the
-wide shell with edit mode open, **zero unnamed, zero title-only**. Two tooling
-traps met on the way, both worth knowing:
-
-- A regex source scan is not enough. It missed the `<div onClick>` entirely
-  (only `<button` was scanned) and it flagged ~13 false positives where a
-  `{expr}` body renders perfectly good text.
-- **Playwright's YAML aria-snapshot elides the name of a button whose text sits
-  in a nested `<div>`** — it rendered "Generate World" as a nameless `button`.
-  That is a snapshot-formatting artifact, NOT a real defect: Chrome names it
-  fine, proven because `getByRole('button', {name:'Generate World'})` resolves
-  to it. Confirm against the DOM before chasing one of these.
-
-**Still open from the original list:** 44px touch targets (the new strip pause
-button is 34×26, consistent with its siblings and inheriting the same problem),
-retiring classic, and whether `shellKit`'s stub panels ship.
-
----
-
 ## ⚡ F1 (DESKTOP) FOUNDATIONAL WORK — DECLARED DONE 2026-07-25 (Matt)
 
 Branch `redesign`, NOT pushed, NOT merged. `?shell=1` is the redesign,
@@ -750,81 +786,6 @@ be re-wrapped in a `Panel`; the canvas is shifted left, not inset.
 
 **Known cosmetic nit:** long biome names ("Temperate Rainforest") clip at the
 right edge of the two-column legend. Needs a truncate or a narrower type step.
-
----
-
-## Previous pickup (2026-07-24, end of Session 4)
-
-**C3 (roads & trade routes) SHIPPED this session** — the last pre-D6
-additive feature. The whole C-tier and pre-D6 batch are now done. A fresh
-thread picks up at the **big-rock planning phase**:
-
-1. **D6 / vector-2D / A3 as ONE rendering-contract decision** (see the D6/F1
-   sequencing analysis below — that framing still holds). This is a
-   COMMITMENT BOUNDARY: brainstorm + advisor-consult before writing code.
-2. **F1 (UI overhaul)** — may come before/alongside D6; needs Matt's design
-   input, use `/impeccable`. C-tier UI was kept deliberately minimal (C3
-   added exactly one "Roads & Routes" toggle) precisely to limit F1 rework.
-
-The spec + plan for C3 live at `docs/superpowers/specs/2026-07-24-c3-*.md`
-and `docs/superpowers/plans/2026-07-24-c3-*.md` (brainstorming → writing-plans
-→ executing-plans workflow; useful template for the next feature).
-
-**Execution-mode note for Session 4:** Matt directed inline/self execution
-(no subagent delegation) because C3 was a serial one-file-at-a-time chain,
-and codified that as a new CLAUDE.md clause. Delegation stays the default
-for parallelizable work; skip it when serial.
-
-### Session 3 delegation protocol (working policies, also in memory)
-
-- **Sonnet 5 subagents by default** — Matt's directive. Opus only if
-  unavoidable (and then he wants 4.6; the Agent tool can't pin versions, so
-  flag to him instead of silently using another Opus). Subagent spend limit
-  was hit once mid-session (killed the A4 agent mid-task) — if agents fail
-  with a spend-limit error, finish the work inline from the brief.
-- **Briefs carry ALL design decisions** (exact files, integration points,
-  acceptance criteria incl. "lint ratchet exactly 30 warnings, add none",
-  "do not commit", "do not touch HANDOFF/CLAUDE/ROADMAP"). Sonnet's
-  literalness is an asset with a complete brief.
-- **One agent at a time** — every feature funnels through App.tsx/
-  Controls.tsx (prop-drilled architecture); parallel agents collide.
-- **Fallback heartbeat**: alongside each agent launch, arm a ~40-min Monitor
-  timer (`sleep 2400; echo ...`). Agent finishes first → TaskStop the timer.
-  Timer fires first → SendMessage the agent for status. Never heartbeat with
-  no agent running. (Cache economics: at this context size one miss ≈ ten
-  warm turns.)
-- **Orchestrator verifies everything**: re-run all four gates yourself,
-  read the key diffs, browser-verify via Playwright (dev server on :3000;
-  synthetic clicks need MouseEvent not PointerEvent for Map2D picking),
-  commit in logical chunks with 50/72 messages. Do NOT push (standing rule).
-
-### Post-milestone tier — SHIPPED this session (commits 47ef94f..f0459a0)
-
-| Feature | Commits | Notes |
-|---|---|---|
-| A4 hillshading + contours | 47ef94f | Relief-only Lambert shade map (no terminator), cell-edge isolines, toggles + export. Agent died at spend limit; finished inline. |
-| A5 geodesic ruler + scale bar | a78c60c | measure.ts pure math; ruler intercepts onInspect (children untouched); projection-aware scale bar (project-2-points method); agent caught a Map2D blit-deps bug itself. |
-| E1/E2 SVG + GeoJSON export | 3461990 | Layered SVG (mirror on geo groups, counter-mirrored text); RFC 7946 FeatureCollection; validated with xmllint + python beyond the suite. |
-| C4 markers/POIs | b429b83 | Sphere-position-anchored (survive regen), 'marker' LabelKind through shared pipeline, save/load with sanitizer; agent caught a pin double-mirroring bug. |
-| C5 civ editor ops | 117a0d5 | mergeFactions (full province-id map built BEFORE cell rewrite), renames, capital relocation (dual isCapital flag pair). Split deferred. |
-| C1 cultures | 09f4bdf, f0459a0 | Terrain-affinity Dijkstra cultures on '_cultures' stream (civRng untouched — liveness-proven); per-culture namebase styles drive faction/town naming by capital's culture. Browser-verified: NAJRA/ZAGHATI (desert) beside VESTAD/Isgard (norse). |
-
-Suite: 52 → 119 tests across the tier. Every feature: typecheck 0, lint
-0 errors / exactly 30 warnings (ratchet — do not exceed), build OK.
-
-### D6 / F1 sequencing analysis (agreed with Matt)
-
-- D6 (terrain V3: realistic plate boundaries, sub-cell heightmap detail)
-  breaks VALUES not INTERFACES for most features — derived layers (civs,
-  cultures, routes) regenerate by design. True wait-list: D4 submaps
-  (reuses the generator), A3 raster-heavy styling, B2 resurvey semantics,
-  D1–D3 tuning. The D6 planning phase should absorb THREE things as one
-  rendering-contract decision: terrain V3 + Matt's vector-2D note + A3.
-- F1 (UI overhaul, Matt's addition): may come before or alongside D6.
-  Deliberately NOT started in full-auto — needs Matt's design input. C-tier
-  UI additions were kept minimal (buttons/selects) to limit rework.
-- Pre-D6 batch order was: A5 → E1/E2 → C4 → C5 → C1 → C2 → C3 (all shipped
-  except C2 in-flight, C3 next).
 
 ---
 
@@ -1369,6 +1330,81 @@ geometry to the GLB exporter when convenient — small, mirrors the river path.
 **Tuning knob, non-blocking:** "nearest 3 major ports" can draw short sea hops
 paralleling a coast road; dedup against road-connected pairs or set a min
 crossing distance if it ever reads as clutter (Matt picked the dense web).
+
+---
+
+## Previous pickup (2026-07-24, end of Session 4)
+
+**C3 (roads & trade routes) SHIPPED this session** — the last pre-D6
+additive feature. The whole C-tier and pre-D6 batch are now done. A fresh
+thread picks up at the **big-rock planning phase**:
+
+1. **D6 / vector-2D / A3 as ONE rendering-contract decision** (see the D6/F1
+   sequencing analysis below — that framing still holds). This is a
+   COMMITMENT BOUNDARY: brainstorm + advisor-consult before writing code.
+2. **F1 (UI overhaul)** — may come before/alongside D6; needs Matt's design
+   input, use `/impeccable`. C-tier UI was kept deliberately minimal (C3
+   added exactly one "Roads & Routes" toggle) precisely to limit F1 rework.
+
+The spec + plan for C3 live at `docs/superpowers/specs/2026-07-24-c3-*.md`
+and `docs/superpowers/plans/2026-07-24-c3-*.md` (brainstorming → writing-plans
+→ executing-plans workflow; useful template for the next feature).
+
+**Execution-mode note for Session 4:** Matt directed inline/self execution
+(no subagent delegation) because C3 was a serial one-file-at-a-time chain,
+and codified that as a new CLAUDE.md clause. Delegation stays the default
+for parallelizable work; skip it when serial.
+
+### Session 3 delegation protocol (working policies, also in memory)
+
+- **Sonnet 5 subagents by default** — Matt's directive. Opus only if
+  unavoidable (and then he wants 4.6; the Agent tool can't pin versions, so
+  flag to him instead of silently using another Opus). Subagent spend limit
+  was hit once mid-session (killed the A4 agent mid-task) — if agents fail
+  with a spend-limit error, finish the work inline from the brief.
+- **Briefs carry ALL design decisions** (exact files, integration points,
+  acceptance criteria incl. "lint ratchet exactly 30 warnings, add none",
+  "do not commit", "do not touch HANDOFF/CLAUDE/ROADMAP"). Sonnet's
+  literalness is an asset with a complete brief.
+- **One agent at a time** — every feature funnels through App.tsx/
+  Controls.tsx (prop-drilled architecture); parallel agents collide.
+- **Fallback heartbeat**: alongside each agent launch, arm a ~40-min Monitor
+  timer (`sleep 2400; echo ...`). Agent finishes first → TaskStop the timer.
+  Timer fires first → SendMessage the agent for status. Never heartbeat with
+  no agent running. (Cache economics: at this context size one miss ≈ ten
+  warm turns.)
+- **Orchestrator verifies everything**: re-run all four gates yourself,
+  read the key diffs, browser-verify via Playwright (dev server on :3000;
+  synthetic clicks need MouseEvent not PointerEvent for Map2D picking),
+  commit in logical chunks with 50/72 messages. Do NOT push (standing rule).
+
+### Post-milestone tier — SHIPPED this session (commits 47ef94f..f0459a0)
+
+| Feature | Commits | Notes |
+|---|---|---|
+| A4 hillshading + contours | 47ef94f | Relief-only Lambert shade map (no terminator), cell-edge isolines, toggles + export. Agent died at spend limit; finished inline. |
+| A5 geodesic ruler + scale bar | a78c60c | measure.ts pure math; ruler intercepts onInspect (children untouched); projection-aware scale bar (project-2-points method); agent caught a Map2D blit-deps bug itself. |
+| E1/E2 SVG + GeoJSON export | 3461990 | Layered SVG (mirror on geo groups, counter-mirrored text); RFC 7946 FeatureCollection; validated with xmllint + python beyond the suite. |
+| C4 markers/POIs | b429b83 | Sphere-position-anchored (survive regen), 'marker' LabelKind through shared pipeline, save/load with sanitizer; agent caught a pin double-mirroring bug. |
+| C5 civ editor ops | 117a0d5 | mergeFactions (full province-id map built BEFORE cell rewrite), renames, capital relocation (dual isCapital flag pair). Split deferred. |
+| C1 cultures | 09f4bdf, f0459a0 | Terrain-affinity Dijkstra cultures on '_cultures' stream (civRng untouched — liveness-proven); per-culture namebase styles drive faction/town naming by capital's culture. Browser-verified: NAJRA/ZAGHATI (desert) beside VESTAD/Isgard (norse). |
+
+Suite: 52 → 119 tests across the tier. Every feature: typecheck 0, lint
+0 errors / exactly 30 warnings (ratchet — do not exceed), build OK.
+
+### D6 / F1 sequencing analysis (agreed with Matt)
+
+- D6 (terrain V3: realistic plate boundaries, sub-cell heightmap detail)
+  breaks VALUES not INTERFACES for most features — derived layers (civs,
+  cultures, routes) regenerate by design. True wait-list: D4 submaps
+  (reuses the generator), A3 raster-heavy styling, B2 resurvey semantics,
+  D1–D3 tuning. The D6 planning phase should absorb THREE things as one
+  rendering-contract decision: terrain V3 + Matt's vector-2D note + A3.
+- F1 (UI overhaul, Matt's addition): may come before or alongside D6.
+  Deliberately NOT started in full-auto — needs Matt's design input. C-tier
+  UI additions were kept minimal (buttons/selects) to limit rework.
+- Pre-D6 batch order was: A5 → E1/E2 → C4 → C5 → C1 → C2 → C3 (all shipped
+  except C2 in-flight, C3 next).
 
 ---
 
