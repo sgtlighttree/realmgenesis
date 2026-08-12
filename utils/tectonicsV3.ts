@@ -622,7 +622,12 @@ export function projectTectonicsToDisplay(
     const ridgedVal = ridgedNoise(simplex, dp.x * freq, dp.y * freq, dp.z * freq, 3, 2.0);
     const ridgedRemapped = (ridgedVal * 2.0) - 1.0;
     const blend = params.ridgeBlend === undefined ? 0 : params.ridgeBlend;
-    const structuralNoise = fbmVal * (1 - blend) + ridgedRemapped * blend;
+    // Roughness scales sub-cell structural relief. Centered so the default
+    // (0.5) is ×1.0 — seeds at default roughness stay byte-identical while the
+    // Terrain Roughness slider stays meaningful under V3 (it drove V2's fBm
+    // amplitude; here it drives the display-resolution relief amplitude).
+    const roughness = params.roughness ?? 0.5;
+    const structuralNoise = (fbmVal * (1 - blend) + ridgedRemapped * blend) * (0.5 + roughness);
 
     const noiseInfluence = 1.2 - tectonicStrength;
     height = height * tectonicStrength + structuralNoise * noiseInfluence;
