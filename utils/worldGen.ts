@@ -10,7 +10,7 @@ import { simulateTectonics, projectTectonicsToDisplay } from './tectonicsV3';
 // Set to true to enable the V3 terrain model (independent crust + Euler-pole
 // tectonics). The V2 path is kept behind this flag for side-by-side comparison
 // during development. Remove the flag and V2 dead code at the end of Stage 2.
-const V3_ENABLED = false;
+const V3_ENABLED = true;
 
 // --- DATA STRUCTURES ---
 
