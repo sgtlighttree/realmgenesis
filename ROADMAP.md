@@ -194,6 +194,8 @@ optionally sea-level coupling.
 Re-run generation at higher point density inside a selected spherical cap for
 local/regional maps — Azgaar's "submap" concept, but projection-correct, with
 parent-world values as boundary constraints.
+Idea: A "base resolution" inside one world, but certain spots can be selected with a bounding box
+to upscale/regenerate cells at much higher densities
 
 ### D5. Planetary parameters
 
@@ -205,6 +207,14 @@ first, but D1 (seasons) and tides give them mechanical hooks over time.
 Another overhaul of terrain generaton algorithm to make it more realistic
 and get rid of seam lines on plate boundaries, and more detailed heightmap
 rendering and calculation without increasing cell count
+
+### D7. More realistic tectonic plates
+
+D6 set a foundation for deeper fine-tuning, but plates still look Voronoi-like
+and not grounded in real geophysics, may need a throrough research pass.
+The additional efforts towards realism now create enclaves and exclaves of plates,
+should add more checks for that and should use more grounded and mathematically
+accurate modeling.
 
 ---
 

@@ -8,7 +8,7 @@ workflow/style rules.
 
 > Matt's scratchpad and notes for things observed outside an active coding session. If an item is addressed, click the checkbox, and/or add a ~~strikethrough~~ for emphasis.
 
-IMPORTANT, DO THIS FIRST: THIS PROJECT HAS BEEN MIGRATED TO PNPM. Check that everything runs smoothly before proceeding with anything else.
+IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED 2026-08-07 — back to classic npm.** The `packageManager: pnpm` pin was removed from `package.json`; `pnpm-lock.yaml` and pnpm's symlinked `node_modules` are gone; `npm install` regenerates a plain `package-lock.json` with a self-contained `node_modules`. The global pnpm store (`~/Library/pnpm`) is being dismantled. Any `pnpm ...` commands in this repo's docs are stale — use `npm ...` equivalents. Check that everything runs smoothly before proceeding with anything else.
 
 - [ ] Make a true vector 2D mode instead of raster, but keep it optimized
 - [ ] V3 of terrain generation algorithm. Goal is to make plate boundaries far more realistic, make part of Milestone D.
@@ -23,6 +23,89 @@ IMPORTANT, DO THIS FIRST: THIS PROJECT HAS BEEN MIGRATED TO PNPM. Check that eve
   into the NEW world's cells *by id*. The confirm dialog says the strokes "will
   be lost, and this cannot be undone", but they survive and are actively
   harmful. One `setUndoStack([])` in the generate path.
+
+---
+
+## Session 9 (2026-08-12) — D7 part 1: killed plate enclaves/exclaves (Dijkstra region-growth)
+
+Branch `d6-stage1-worker`. **Uncommitted** at time of writing (V3_ENABLED flip,
+npm reversion, doc edits, and this fix are all unstaged together — see below).
+Fast gates green: typecheck 0, lint 0 errors / **29** warnings (my edit deleted a
+dead `neighborPlateCount` var, so 30→29), build OK, `tectonicsV3.test.ts` 6/6.
+
+**Context:** Matt flipped `V3_ENABLED = true` (uncommitted), rendered it, and
+logged ROADMAP **D7** — plates "still look Voronoi-like... create enclaves and
+exclaves." Confirmed both in-browser (2D Mercator + 3D) before touching code.
+
+**Root cause (verified in code, not guessed):** plate assignment in the timestep
+loop was a **global nearest-rotated-seed argmin over ALL plates** with a *per-plate*
+`boundaryRoughness` noise discount added to each plate's distance independently
+(old `tectonicsV3.ts` 4b block). A distant plate's noise could swing negative
+enough (±0.6 chord at roughness=1) to beat the true-nearest plate, so a cell
+ringed by plate A got handed to plate B whose seed was across the globe →
+detached exclave. **Nothing forced a plate's cells to be connected.** Two more
+contributors fable-advisor caught: the tie-break at old lines 356-365 set
+`bestPlate=j` without updating `minDist` (extra salt-and-pepper), and
+`mergeSmallPlates` reassigned dying-plate cells by *global seed distance*, itself
+scattering fragments.
+
+**Fix (fable-advisor's call, chosen over my warp+CC-repair idea):** replace the
+argmin lottery with **multi-source Dijkstra region-growth** over the macro
+neighbor graph. Every plate grows outward from the macro cell nearest its rotated
+seed, following edges — so each plate is **one connected region by construction**,
+no repair pass needed. Irregular, non-Voronoi boundaries come from *noisy static
+edge costs* (`computeEdgeCosts`): `chord × noiseMul × marginMul`, where noiseMul
+(from `boundaryRoughness`, sampled at a warp-displaced edge midpoint — keeps
+`warpStrength` live) roughens fronts and marginMul (from `marginCoupling`)
+attracts boundaries to crust-type transitions. Per-plate growth speeds
+∈[0.75,1.3] from `plateRng` give power-law size spread (replaces the half-built
+proto-plate 2.5×-merge scheme, which was dead code). This is the standard
+Experilous/Gainey planet-gen technique — **no research pass needed**, per advisor.
+
+**Changes, all in `utils/tectonicsV3.ts`:** symmetrized `buildMacroNeighborGraph`
+(top-k is directional; Dijkstra needs undirected); new `computeEdgeCosts` +
+`assignPlatesDijkstra` (imports `MinHeap` from `./pathfinding`); hoisted the
+neighbor-graph build ahead of assignment; replaced both the initial assignment
+and the per-step 4b block with Dijkstra calls; rewrote `mergeSmallPlates` to
+dissolve a small region wholesale into its most-common adjacent plate
+(connectivity-preserving). Determinism kept via a heap score with tiny
+index/plate tie-break terms (`dist + cell*1e-9 + plate*1e-12`).
+
+**Verified (not assumed):**
+- **0 exclaves.** A connected-components probe over the *display* cell graph
+  across seeds `realmgenesis`/`route-test`/`abcxyz`: **every plate = exactly 1
+  component, largestStray=0.** Before, the Mercator showed cyan fingers marooned
+  in red and blue blobs floating in yellow-green.
+- **Deterministic** — same seed twice → byte-identical height+plateId (heap
+  ordering was the risk; the baked tie-break holds it).
+- Plate sizes now varied (e.g. 12/18/45/77 cells), not uniform pentagons.
+
+**NOT done / open:**
+- **D7 part 2 (the "grounded geophysics / less Voronoi-like" half) is untouched.**
+  Boundaries are now organic and connected, but the model is still warped-Voronoi
+  region-growth, not simulated plate-boundary curves. That's the bigger research
+  effort D7 flags.
+- **Full `npm test` is RED — for TWO different reasons, one real:**
+  1. **`roughness` is genuinely DEAD under V3** (probe across all terrain params
+     at low res: only `roughness` leaves the terrain signature unchanged; every
+     other param — incl. maskType, ridgeBlend, mountainHeight, warpStrength — is
+     live). So `paramLiveness` "terrain params change the terrain signature"
+     fails on a REAL assertion, reached ~5th in iteration (~45s, before its 120s
+     timeout). **CORRECTION of my first draft of this entry, which lumped
+     paramLiveness under "timeouts" — that was wrong.** V3 height comes from
+     tectonics+crust+projection noise (`noiseScale`/`detailLevel`/
+     `boundaryRoughness`), not V2's `roughness`-scaled fBm. DECISION NEEDED: wire
+     `roughness` into the V3 projection-noise amplitude (keep the slider
+     meaningful) OR accept it dead and move it to the skip list (like
+     `plateInfluence`→`tectonicStrength` in Session 8).
+  2. **routes (6/6) + lakes (1) TIME OUT** — V3 generation is ~9s vs the old
+     ~0.3s, blowing the default 5s per-test timeout. Pure slowness, not
+     correctness (the routes "determinism" failure was confirmed a timeout, NOT
+     nondeterminism). Fix = bump those test timeouts. Needs Matt's ok to touch
+     tests.
+- Not committed. The working tree tangles four things (npm reversion, V3 flag
+  flip, Matt's D7/ROADMAP doc edits, this fix) — wants scoped commits when Matt
+  says go.
 
 ---
 
@@ -90,7 +173,7 @@ terrain work.
 
 ---
 
-## Session 8 (2026-08-01) — D6 Stage 2 (V3 terrain model) built and iterated
+## Session 8 (2026-08-01) — D6 Stage 2 (V3 terrain model) built and iterated, made by Deepseek V4 Flash, Opencode Harness
 
 Branch `d6-stage1-worker`, commits from `7f596be`..`0276376`. Gates: typecheck 0,
 lint 0 errors / **30** warnings (ratchet = 30 in `package.json`, 29 was the last
