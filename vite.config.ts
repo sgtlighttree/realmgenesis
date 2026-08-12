@@ -22,6 +22,14 @@ export default defineConfig(({ mode }) => {
         alias: {
           '@': path.resolve(__dirname, '.'),
         }
-      }
+      },
+      test: {
+        // V3 terrain generation is ~9s per world on this machine and slower on
+        // CI runners; several suites generate multiple worlds per test. The
+        // default 5s per-test timeout is far too tight now that V3 is the live
+        // path, so raise the floor suite-wide (tests with an explicit timeout
+        // still win).
+        testTimeout: 120000,
+      },
     };
 });
