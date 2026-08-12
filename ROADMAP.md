@@ -18,6 +18,11 @@ Themes are ordered roughly by leverage. Within each theme, items are ordered
 by suggested implementation order. File references point at the current code
 that each feature would build on.
 
+**Status key:** ✅ DONE · 🟡 PARTIAL (see note under the item) · ⬜ TODO.
+As of 2026-08-12: the "Map identity" milestone (A1/A2/B1/B3), A4/A5, C1–C4,
+E1/E2, and the D6 terrain overhaul are shipped. D7 part 1 (connected plates)
+landed Session 9; the F1 shell is now the default route.
+
 ---
 
 ## A. Cartographic presentation
@@ -26,7 +31,8 @@ The biggest gap. A generated world currently *renders* but does not *read* as
 a map: no names appear anywhere, and every view mode is a data visualization
 rather than a cartographic style.
 
-### A1. Map labels & typography
+### A1. Map labels & typography  —  ✅ DONE
+> _core shipped; per-glyph curved text still deferred_
 
 Render names — factions, towns, rivers, lakes, geographic features — on the
 2D map and the 3D globe. Names already exist in `CivData`
@@ -48,7 +54,7 @@ labels; nothing else is ever labeled.
 
 This is the single most transformative feature for "proper fantasy map" feel.
 
-### A2. Offline name generation (namebases)
+### A2. Offline name generation (namebases)  —  ✅ DONE
 
 Seeded Markov-chain / syllable namebases so every world gets names with no
 API key. Azgaar's namebase model is the reference: several built-in styles
@@ -65,7 +71,7 @@ that trains a small char-level Markov model.
   named world.
 - New `nameStyle` param + Civ-tab selector.
 
-### A3. Map style system (fantasy rendering)
+### A3. Map style system (fantasy rendering)  —  ⬜ TODO
 
 A style layer over the existing view modes: parchment/hand-drawn preset with
 coastline outline strokes, ocean hatching or stipple patterns, paper texture,
@@ -73,13 +79,13 @@ and either relief glyphs (mountain/hill/forest icons) or hillshading. Styles
 apply to Map2D, the globe texture path, and PNG export. This is what makes
 output pinboard-worthy rather than diagnostic.
 
-### A4. Hillshading & contour lines
+### A4. Hillshading & contour lines  —  ✅ DONE
 
 Cheap wins from existing per-cell height: a hillshade pass (light-vector dot
 cell normal) usable in any view, and elevation isolines. Both are derived
 data — no pipeline changes.
 
-### A5. Scale bar & great-circle measurement
+### A5. Scale bar & great-circle measurement  —  ✅ DONE
 
 `planetRadius` is already a parameter, so true geodesic distance is one
 formula away. A ruler tool measuring great-circle distance between clicked
@@ -88,7 +94,8 @@ costs from civ expansion in `utils/worldGen.ts`), plus a projection-aware
 scale bar on exports. Flat-map tools fundamentally cannot do this correctly —
 it's a headline geodesic feature.
 
-### A6. Grid overlays
+### A6. Grid overlays  —  🟡 PARTIAL
+> _3D + 2D graticule shipped; configurable density + geodesic hex grid TODO_
 
 The 10° graticule exists on the globe; add configurable density, 2D-view
 graticules, and a geodesic hex grid (icosahedral subdivision) overlay for
@@ -98,7 +105,7 @@ hex-crawl RPG use.
 
 ## B. Physical geography completeness
 
-### B1. Lakes as first-class features
+### B1. Lakes as first-class features  —  ✅ DONE
 
 The Priority-Flood depression fill in `generateRivers()`
 (`utils/worldGen.ts`) already computes a per-cell `waterLevel`; land cells
@@ -114,14 +121,14 @@ discarded. Surfacing them:
 - Civ integration: no capitals/towns/population on lakes; lake adjacency
   counts as coast.
 
-### B2. River & lake editing / naming
+### B2. River & lake editing / naming  —  ⬜ TODO
 
 Extend the existing paint/edit system (`utils/paintUtils.ts`) to hydrology:
 rename rivers and lakes, delete or redirect river segments, adjust lake
 levels. Painting terrain over a lake clears it (snapshot semantics), with a
 "resurvey" action to recompute hydrology-derived features.
 
-### B3. Auto-detected & named geographic features
+### B3. Auto-detected & named geographic features  —  ✅ DONE
 
 Cluster cells to detect mountain ranges (contiguous high elevation), peaks,
 deserts, forests, oceans/seas (water bodies by size), and islands (small land
@@ -133,34 +140,35 @@ fine at the 200k-cell cap. Surfaced in the Inspector and consumed by A1.
 
 ## C. Worldbuilding depth (civilization layer)
 
-### C1. Cultures layer
+### C1. Cultures layer  —  ✅ DONE
 
 Distinct from factions: culture regions spread by terrain affinity, each tied
 to a namebase from A2. Factions then inherit (and can span) cultures —
 enabling believable multi-ethnic states and consistent regional naming.
 
-### C2. Religions layer
+### C2. Religions layer  —  ✅ DONE
 
 Folk religions derived per culture, plus organized religions spreading from
 holy cities along the faction graph and (later) trade routes.
 
-### C3. Roads & trade routes
+### C3. Roads & trade routes  —  ✅ DONE
 
 A*/Dijkstra paths between towns over the existing terrain-cost model (reuse
 the cost logic in `recalculateCivs`), plus sea routes between ports. Route
 connectivity should feed back into town importance/population.
 
-### C4. Markers & notes (POIs)
+### C4. Markers & notes (POIs)  —  ✅ DONE
 
 User-placed pins (dungeon, ruin, battlefield, portal, …) with free-text
 notes, persisted in the JSON save; optional Gemini lore per marker.
 
-### C5. Editor completeness
+### C5. Editor completeness  —  🟡 PARTIAL
+> _merge/rename/capital-relocation done; faction split deferred_
 
 Already tracked in `HANDOFF.md` next tasks: merge/split factions, province
 management, bulk rename, town/capital relocation.
 
-### C6. Diplomacy & relations (later)
+### C6. Diplomacy & relations (later)  —  ⬜ TODO
 
 Inter-faction relations, vassals, alliances, war status — mostly flavor and
 map overlays, cheap once C1–C3 exist.
@@ -172,24 +180,24 @@ map overlays, cheap once C1–C3 exist.
 Features that exploit the sphere-native architecture — the category where
 RealmGenesis can do things no flat-map tool can.
 
-### D1. Seasonal cycle
+### D1. Seasonal cycle  —  ⬜ TODO
 
 `axialTilt` currently produces a single static climate. Compute insolation
 per orbital position for a season slider: temperature bands, ice extent, and
 optionally biome edges shift through the year.
 
-### D2. Ocean currents
+### D2. Ocean currents  —  ⬜ TODO
 
 Currents deflected by continents and Coriolis, feeding the existing 8-pass
 moisture transport and temperature model (warm currents moderating coastal
 climates — think Gulf Stream). A major realism upgrade to climate.
 
-### D3. Ice caps & glaciers
+### D3. Ice caps & glaciers  —  ⬜ TODO
 
 Sea-ice extent from temperature (seasonal with D1), glacial land cover, and
 optionally sea-level coupling.
 
-### D4. Regional zoom / submap generation
+### D4. Regional zoom / submap generation  —  ⬜ TODO
 
 Re-run generation at higher point density inside a selected spherical cap for
 local/regional maps — Azgaar's "submap" concept, but projection-correct, with
@@ -197,18 +205,20 @@ parent-world values as boundary constraints.
 Idea: A "base resolution" inside one world, but certain spots can be selected with a bounding box
 to upscale/regenerate cells at much higher densities
 
-### D5. Planetary parameters
+### D5. Planetary parameters  —  ⬜ TODO
 
 Day length, gravity, star class, moons — mostly lore/export metadata at
 first, but D1 (seasons) and tides give them mechanical hooks over time.
 
-### D6.  (added by Matt/Maintainer)
+### D6.  (added by Matt/Maintainer)  —  ✅ DONE
+> _V3 terrain model shipped & live (Session 8/9)_
 
 Another overhaul of terrain generaton algorithm to make it more realistic
 and get rid of seam lines on plate boundaries, and more detailed heightmap
 rendering and calculation without increasing cell count
 
-### D7. More realistic tectonic plates
+### D7. More realistic tectonic plates  —  🟡 PARTIAL
+> _part 1 (enclaves/exclaves killed, connected plates) DONE Session 9; part 2 (grounded geophysics, non-Voronoi boundaries) open_
 
 D6 set a foundation for deeper fine-tuning, but plates still look Voronoi-like
 and not grounded in real geophysics, may need a throrough research pass.
@@ -220,20 +230,21 @@ accurate modeling.
 
 ## E. Interoperability & export
 
-### E1. SVG export
+### E1. SVG export  —  ✅ DONE
 
 Vector export of coastlines, borders, rivers, and labels for post-processing
 in Inkscape/Illustrator — a key Azgaar strength and a frequent request for
 any mapping tool. The cached GeoJSON cell geometry (`WorldData.geoJson`) plus
 d3-geo path generation makes this tractable.
 
-### E2. GeoJSON export
+### E2. GeoJSON export  —  ✅ DONE
 
 Cells, coastlines, borders, and rivers as GeoJSON. The data is genuinely
 geodesic (lon/lat on a sphere), so exports open cleanly in QGIS and web-GIS
 tooling with zero fudging — worth advertising.
 
-### E3. Azgaar `.map` import (stretch)
+### E3. Azgaar `.map` import (stretch)  —  ⬜ TODO
+> _stretch goal_
 
 Project an Azgaar flat map onto the sphere (equirectangular assumption,
 re-tessellate onto the cell graph). Lossy by nature; stretch goal.
@@ -242,22 +253,24 @@ re-tessellate onto the cell graph). Lossy by nature; stretch goal.
 
 ## F. Frontend/Rendering/UI Overhaul
 
-# F1. Redesigning the UI/Frontend
+# F1. Redesigning the UI/Frontend  —  🟡 PARTIAL
+> _desktop foundational done + F1 shell now the default route (Session 9); F1b brand pass + mobile polish pending_
 The UI has become a mess in an attempt to add more features, especially on mobile.
 A full redesign and rearchitecture is warranted here.
 Can come *before or alongside* D6 with the roadmap in mind.
 
-# F2. 3D Mode Presentation
+# F2. 3D Mode Presentation  —  ⬜ TODO
 Part of redesign is figuring out how the planet is presented; overlays like borders, rivers and roads and routes and the lat/lon grid are also 3D objects, not 2D overlays simply composited over the 3D globe, which affects visibility and accuracy. Or maybe make the globe entirely smooth by default, instead of applying height per cell. Perhaps 3D mode should more like Google Earth Pro in this respect.
 
-# F3. True 2D vector map
+# F3. True 2D vector map  —  ⬜ TODO
 Make it a true vector map like most web mapping apps, but keep it as optimized as possible
 
-# F4. Performance Optimizations
+# F4. Performance Optimizations  —  ⬜ TODO
 Self-explanatory, optimize wherever while keeping visual fidelity. Can come last, but better to make efficient renderers/frontends and code wherever possible.
 
 
-## Recommended first milestone — "Map identity"
+## Recommended first milestone — "Map identity"  —  ✅ DONE
+> _A1 + A2 + B1 + B3 all shipped (pre-D6 tier, Sessions 3–4)._
 
 **A1 + A2 + B1 + B3: labels, offline namebases, lakes, and named geographic
 features.** Together these turn the simulation viewer into something that
