@@ -49,7 +49,6 @@ const CIV_PERTURBATIONS: Record<string, Perturbation> = {
   civSizeVariance: { civSizeVariance: 1.0 },
   waterCrossingCost: { waterCrossingCost: 0.1 },
   territorialWaters: { territorialWaters: 0.9 },
-  provinceSize: { provinceSize: 0.1 },
 };
 
 describe('every tunable param influences the world', () => {
@@ -83,6 +82,16 @@ describe('every tunable param influences the world', () => {
     const loose = await generateWorld(makeParams({ numFactions: 12, capitalSpacing: 1.0 }));
     expect(civSignature(loose), 'param "capitalSpacing" appears to be dead — output unchanged')
       .not.toBe(civSignature(tight));
+  }, 120000);
+
+  // provinceSize, like capitalSpacing, only binds when factions are large enough
+  // to subdivide into multiple provinces. The default 300-cell world (4 tiny
+  // factions) leaves it inert, so isolate it at a higher land/faction density.
+  it('provinceSize changes province subdivision at binding density', async () => {
+    const small = await generateWorld(makeParams({ points: 1000, numFactions: 5, provinceSize: 0.1 }));
+    const large = await generateWorld(makeParams({ points: 1000, numFactions: 5, provinceSize: 0.9 }));
+    expect(civSignature(large), 'param "provinceSize" appears to be dead — output unchanged')
+      .not.toBe(civSignature(small));
   }, 120000);
 
   // nameStyle is a labels-only param: it must change the generated names but
@@ -119,9 +128,9 @@ describe('every tunable param influences the world', () => {
       .toBe(terrainSignature(baseline));
   }, 120000);
 
-  // V3 terrain model params are inert when V3_ENABLED is false (default).
-  // Remove .skip when V3 goes live.
-  it.skip('V3 params change the terrain signature when V3 is active', async () => {
+  // V3 terrain model params. V3 is now the live path (V3_ENABLED = true), so
+  // these must all influence the terrain signature.
+  it('V3 params change the terrain signature', async () => {
     const baseline = await generateWorld(makeParams());
     const baseSig = terrainSignature(baseline);
 
@@ -131,6 +140,9 @@ describe('every tunable param influences the world', () => {
       simulationResolution: { simulationResolution: 5000 },
       plateJitter: { plateJitter: 0.8 },
       boundaryRoughness: { boundaryRoughness: 0.8 },
+      spreadRate: { spreadRate: 0.02 },
+      seafloorDetail: { seafloorDetail: 1.0 },
+      microplateIntensity: { microplateIntensity: 0.9 },
     };
 
     for (const [name, perturbation] of Object.entries(v3Perturbations)) {

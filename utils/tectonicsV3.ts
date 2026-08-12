@@ -368,6 +368,144 @@ function computeRelativeVelocity(
   return sub3(vAs, vBs);
 }
 
+// GDH1 seafloor depth (Stein & Stein 1992), meters, as a function of crust age
+// in Ma. Ridge crest ~2500 m, flattening toward ~5651 m for old floor.
+function gdh1Depth(ageMa: number): number {
+  const t = Math.max(0, ageMa);
+  return t < 20 ? 2500 + 350 * Math.sqrt(t) : 5651 - 2473 * Math.exp(-0.0278 * t);
+}
+
+// Map a GDH1 depth (m) into the engine's oceanic height band: ridge ≈ −0.5,
+// oldest floor ≈ −0.85. Kept inside the existing ocean band so the global
+// normalization and the Stage-9b oceanDepth remap keep behaving.
+function depthToBandHeight(depthM: number): number {
+  const f = Math.min(1, Math.max(0, (depthM - 2500) / (5651 - 2500)));
+  return -0.5 - f * 0.35;
+}
+
+// Seafloor age via multi-source Dijkstra distance-to-ridge over OCEANIC macro
+// cells only (continents block propagation). Ridges = oceanic cells on a
+// divergent boundary in the final state. age = distance / spreadRate, capped.
+// Returns Ma per cell; −1 for continental/non-ocean. Empty-ridge worlds return
+// all −1 so the caller falls back to isostasy.
+const MAX_SEAFLOOR_AGE = 180; // Ma; oldest surviving oceanic crust on Earth
+function computeSeafloorAge(
+  macroPoints: Point[],
+  macroNeighbors: number[][],
+  plateIds: Int32Array,
+  crustTypes: Uint8Array,
+  plates: PlateState[],
+  rotatedSeeds: Point[],
+  spreadRate: number,
+): Float32Array {
+  const n = macroPoints.length;
+  const age = new Float32Array(n).fill(-1);
+  const dist = new Float64Array(n).fill(Infinity);
+  const heap = new MinHeap<{ cell: number; dist: number }>(x => x.dist + x.cell * 1e-9);
+
+  for (let i = 0; i < n; i++) {
+    if (crustTypes[i] !== 0) continue; // oceanic only
+    const p = macroPoints[i];
+    for (const nId of macroNeighbors[i]) {
+      if (plateIds[nId] === plateIds[i]) continue;
+      const relV = computeRelativeVelocity(plates[plateIds[i]], plates[plateIds[nId]], p);
+      const edgeNormal = normalizeVec({
+        x: macroPoints[nId].x - p.x, y: macroPoints[nId].y - p.y, z: macroPoints[nId].z - p.z,
+      });
+      if (dot3(relV, edgeNormal) > 0.0005) { // divergent → ridge
+        dist[i] = 0;
+        heap.push({ cell: i, dist: 0 });
+        break;
+      }
+    }
+  }
+  if (heap.size() === 0) return age; // no ridges (e.g. Pangea) → all −1, isostasy fallback
+
+  while (heap.size() > 0) {
+    const { cell, dist: d } = heap.pop()!;
+    if (d > dist[cell]) continue;
+    for (const nId of macroNeighbors[cell]) {
+      if (crustTypes[nId] !== 0) continue; // stay in the ocean
+      const nd = d + chordDistance(macroPoints[cell], macroPoints[nId]);
+      if (nd < dist[nId]) { dist[nId] = nd; heap.push({ cell: nId, dist: nd }); }
+    }
+  }
+
+  const rate = Math.max(1e-4, spreadRate);
+  for (let i = 0; i < n; i++) {
+    if (crustTypes[i] !== 0) continue;
+    // Unreached oceanic basin (ringed by land): saturate to max age.
+    const d = dist[i] === Infinity ? MAX_SEAFLOOR_AGE * rate : dist[i];
+    age[i] = Math.min(MAX_SEAFLOOR_AGE, d / rate);
+  }
+  return age;
+}
+
+// Microplate injection (D7 part 2, Goal 1). Instead of peeling cells post-hoc
+// (which desyncs plate lookups), seed new small plates at high-shear boundary
+// segments and let the existing per-timestep Dijkstra re-assignment grow them
+// as connected regions — so the 0-exclave invariant holds by construction.
+// Draws only from `microRng` so plateRng's draw order (determinism) is untouched.
+function injectMicroplates(
+  macroPoints: Point[],
+  macroNeighbors: number[][],
+  plateIds: Int32Array,
+  plates: PlateState[],
+  plateSpeeds: number[],
+  rotatedSeeds: Point[],
+  crustTypes: Uint8Array,
+  intensity: number,
+  microRng: RNG,
+): void {
+  if (intensity <= 0) return;
+  const n = macroPoints.length;
+  // Shear magnitude at each boundary cell (tangential relative velocity).
+  const shear = new Float64Array(n).fill(-1);
+  for (let i = 0; i < n; i++) {
+    const p = macroPoints[i];
+    let maxShear = 0;
+    for (const nId of macroNeighbors[i]) {
+      if (plateIds[nId] === plateIds[i]) continue;
+      const relV = computeRelativeVelocity(plates[plateIds[i]], plates[plateIds[nId]], p);
+      const edgeNormal = normalizeVec({
+        x: macroPoints[nId].x - p.x, y: macroPoints[nId].y - p.y, z: macroPoints[nId].z - p.z,
+      });
+      const vn = dot3(relV, edgeNormal);
+      const vt = magnitude(sub3(relV, scale3(edgeNormal, vn)));
+      if (vt > maxShear) maxShear = vt;
+    }
+    if (maxShear > 0) shear[i] = maxShear;
+  }
+  // Rank boundary cells by shear, take the strongest, spaced apart so microplates
+  // don't clump. Count scales with intensity and plate count.
+  const ranked = [...Array(n).keys()].filter(i => shear[i] > 0).sort((a, b) =>
+    shear[b] - shear[a] || a - b);
+  const target = Math.round(intensity * Math.max(2, plates.length * 0.6));
+  const chosen: number[] = [];
+  const minSepSq = 0.25 * 0.25; // ~chord separation between microplate seeds
+  for (const c of ranked) {
+    if (chosen.length >= target) break;
+    const pc = macroPoints[c];
+    if (chosen.some(o => {
+      const q = macroPoints[o];
+      return (pc.x - q.x) ** 2 + (pc.y - q.y) ** 2 + (pc.z - q.z) ** 2 < minSepSq;
+    })) continue;
+    chosen.push(c);
+  }
+  for (const c of chosen) {
+    const micro: PlateState = {
+      id: plates.length,
+      eulerPole: randomEulerPole(microRng),
+      dominantCrustType: crustTypes[c],
+      seedPosition: { x: macroPoints[c].x, y: macroPoints[c].y, z: macroPoints[c].z },
+    };
+    plates.push(micro);
+    plateSpeeds.push(microRng.range(0.4, 0.7)); // slow → small
+    rotatedSeeds.push({ x: macroPoints[c].x, y: macroPoints[c].y, z: macroPoints[c].z });
+    plateIds[c] = micro.id; // plant one cell so it's active; re-assignment grows it
+  }
+}
+
 // --- 3. Timestep loop ---
 
 export function simulateTectonics(
@@ -385,6 +523,8 @@ export function simulateTectonics(
   const marginCoupling = params.marginCoupling ?? 0.3;
   const tectonicStrength = params.tectonicStrength ?? 0.5;
   const plateJitter = params.plateJitter ?? 0.3;
+  const spreadRate = params.spreadRate ?? 0.008;
+  const microplateIntensity = params.microplateIntensity ?? 0;
 
   if (signal?.aborted) throw new Error('Generation Cancelled');
 
@@ -433,7 +573,16 @@ export function simulateTectonics(
   const minCellThreshold = Math.max(1, Math.floor(numMacro * 0.005));
   mergeSmallPlates(macroNeighbors, plateIds, plates, minCellThreshold);
 
-  // Re-tally plate counts after merge, and set dominant crust types
+  // D7 part 2: inject shear-driven microplates AFTER merge (so the 0.5% cutoff
+  // doesn't eat them). They grow to connected regions in the timestep loop.
+  const microRng = new RNG(params.seed + '_micro_v3');
+  injectMicroplates(
+    macroPoints, macroNeighbors, plateIds, plates, plateSpeeds, rotatedSeeds,
+    crust.crustTypes, microplateIntensity, microRng,
+  );
+
+  // Re-tally plate counts after merge + microplate injection, and set dominant
+  // crust types (sizes to the possibly-grown plates array).
   const postMergeCounts = new Int32Array(plates.length);
   for (let i = 0; i < numMacro; i++) {
     postMergeCounts[plateIds[i]]++;
@@ -520,8 +669,10 @@ export function simulateTectonics(
             if (vnMag > maxSubductionTrench) maxSubductionTrench = vnMag;
             if (vnMag > maxSubductionUplift) maxSubductionUplift = vnMag;
           }
-        } else if (vn > 0.0005) {
-          // Divergent — rift (no positive uplift contribution)
+        } else if (vn > 0.0005 && crustA === 1 && crustB === 1) {
+          // Divergent CONTINENTAL rift only — a rift valley. Oceanic divergence
+          // is a spreading ridge; its elevation comes from GDH1 age→depth below,
+          // so lowering it here would fight the bathymetry model.
           const riftAmount = vn * tectonicStrength * 10;
           upliftAccum[i] -= riftAmount;
           thickness[i] = Math.max(0, thickness[i] - riftAmount);
@@ -551,12 +702,30 @@ export function simulateTectonics(
     }
   }
 
-  // 5. Compose final height from crust thickness + uplift + isostasy
+  // 4d. Seafloor age → bathymetry (D7 part 2, Goal 2). Final-state ridges only.
+  onLog?.("V3: Computing seafloor age (bathymetry)...");
+  const seafloorAge = computeSeafloorAge(
+    macroPoints, macroNeighbors, plateIds, crust.crustTypes, plates, rotatedSeeds, spreadRate,
+  );
+  const seafloorDetail = params.seafloorDetail ?? 0.5;
+  const abyssalNoise = new SimplexNoise(new RNG(params.seed + '_abyssal_v3'));
+
+  // 5. Compose final height. Oceanic floor with a valid age follows GDH1
+  // subsidence (deeper away from ridges) instead of flat isostasy; continents
+  // and ridgeless basins keep isostasy. Uplift (subduction trenches/arcs) still
+  // adds on top so convergent features survive.
   onLog?.("V3: Composing tectonic heights...");
   const heights = new Float32Array(numMacro);
   for (let i = 0; i < numMacro; i++) {
-    const isostaticElevation = saturatedIsostasy(thickness[i], crust.crustTypes[i] === 1);
-    let h = isostaticElevation + upliftAccum[i] * 0.5;
+    let base: number;
+    if (crust.crustTypes[i] === 0 && seafloorAge[i] >= 0) {
+      const p = macroPoints[i];
+      const hill = abyssalNoise.noise3D(p.x * 6, p.y * 6, p.z * 6) * seafloorDetail * 0.06;
+      base = depthToBandHeight(gdh1Depth(seafloorAge[i])) + hill;
+    } else {
+      base = saturatedIsostasy(thickness[i], crust.crustTypes[i] === 1);
+    }
+    let h = base + upliftAccum[i] * 0.5;
     h = applyPassiveMargin(h, crust.crustTypes, i, macroNeighbors);
     heights[i] = h;
   }
@@ -629,7 +798,12 @@ export function projectTectonicsToDisplay(
     const roughness = params.roughness ?? 0.5;
     const structuralNoise = (fbmVal * (1 - blend) + ridgedRemapped * blend) * (0.5 + roughness);
 
-    const noiseInfluence = 1.2 - tectonicStrength;
+    // Deep-ocean cells carry GDH1 bathymetry; damp the structural noise there
+    // (scaled by seafloorDetail) so the age→depth gradient isn't washed out.
+    let noiseInfluence = 1.2 - tectonicStrength;
+    if (dc.crustType === 0 && macroResult.heights[nearest] < 0.5) {
+      noiseInfluence *= 1 - 0.65 * (params.seafloorDetail ?? 0.5);
+    }
     height = height * tectonicStrength + structuralNoise * noiseInfluence;
 
     // 5. Coastline flattening (same as V2)

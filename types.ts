@@ -112,6 +112,11 @@ export interface WorldParams {
   plateJitter: number; // 0-1, how irregularly plate seeds are distributed (0=uniform, 1=chaotic)
   boundaryRoughness: number; // 0-1, how jagged/fractal plate boundaries are (0=straight arcs, 1=highly irregular)
 
+  // D7 part 2 — geophysical realism (all inert at their zero-ish defaults on old seeds)
+  spreadRate: number; // 0.004-0.02, chord-per-Ma seafloor spreading rate; smaller = older/deeper floor
+  seafloorDetail: number; // 0-1, abyssal-hill noise amplitude on the deep ocean floor
+  microplateIntensity: number; // 0-1, how many shear-driven microplates to inject (0 = none, byte-identical)
+
   plates: number;
   seaLevel: number;
   roughness: number; // 0-1

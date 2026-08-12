@@ -860,6 +860,42 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                   className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
+              <div className="space-y-1" title="Seafloor spreading rate. Lower = older, deeper ocean floor away from mid-ocean ridges (GDH1 bathymetry).">
+                <div className="flex justify-between text-xs text-ink-muted">
+                  <label>Spreading Rate</label>
+                  <span>{params.spreadRate?.toFixed(3) ?? '0.008'}</span>
+                </div>
+                <input
+                  type="range" min="0.004" max="0.02" step="0.001"
+                  value={params.spreadRate ?? 0.008}
+                  onChange={(e) => { handleAdvancedChange('spreadRate', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
+                />
+              </div>
+              <div className="space-y-1" title="Abyssal-hill texture on the deep ocean floor. Higher = more seamounts and roughness between ridge and trench.">
+                <div className="flex justify-between text-xs text-ink-muted">
+                  <label>Seafloor Detail</label>
+                  <span>{params.seafloorDetail?.toFixed(2) ?? '0.50'}</span>
+                </div>
+                <input
+                  type="range" min="0" max="1" step="0.05"
+                  value={params.seafloorDetail ?? 0.5}
+                  onChange={(e) => { handleAdvancedChange('seafloorDetail', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
+                />
+              </div>
+              <div className="space-y-1" title="How many shear-driven microplates to inject along high-strain boundaries. 0 = none, higher = more elongated slivers breaking up round plates.">
+                <div className="flex justify-between text-xs text-ink-muted">
+                  <label>Microplates</label>
+                  <span>{params.microplateIntensity?.toFixed(2) ?? '0.35'}</span>
+                </div>
+                <input
+                  type="range" min="0" max="1" step="0.05"
+                  value={params.microplateIntensity ?? 0.35}
+                  onChange={(e) => { handleAdvancedChange('microplateIntensity', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
+                />
+              </div>
            </div>
         )}
 
