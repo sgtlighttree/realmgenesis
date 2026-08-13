@@ -443,7 +443,9 @@ function computeSeafloorAge(
   plates: PlateState[],
   rotatedSeeds: Point[],
   spreadRate: number,
+  seed: string,
 ): Float32Array {
+  const ageNoise = new SimplexNoise(new RNG(seed + '_agenoise_v3'));
   const n = macroPoints.length;
   const age = new Float32Array(n).fill(-1);
   const dist = new Float64Array(n).fill(Infinity);
@@ -482,7 +484,10 @@ function computeSeafloorAge(
     if (crustTypes[i] !== 0) continue;
     // Unreached oceanic basin (ringed by land): saturate to max age.
     const d = dist[i] === Infinity ? MAX_SEAFLOOR_AGE * rate : dist[i];
-    age[i] = Math.min(MAX_SEAFLOOR_AGE, d / rate);
+    const raw = d / rate;
+    const p = macroPoints[i];
+    const perturbed = raw * (1 + 0.1 * ageNoise.noise3D(p.x * 2, p.y * 2, p.z * 2));
+    age[i] = Math.max(0, Math.min(MAX_SEAFLOOR_AGE, perturbed));
   }
   return age;
 }
@@ -752,7 +757,7 @@ export function simulateTectonics(
   // 4d. Seafloor age → bathymetry (D7 part 2, Goal 2). Final-state ridges only.
   onLog?.("V3: Computing seafloor age (bathymetry)...");
   const seafloorAge = computeSeafloorAge(
-    macroPoints, macroNeighbors, plateIds, crust.crustTypes, plates, rotatedSeeds, spreadRate,
+    macroPoints, macroNeighbors, plateIds, crust.crustTypes, plates, rotatedSeeds, spreadRate, params.seed,
   );
   const seafloorDetail = params.seafloorDetail ?? 0.5;
   const abyssalNoise = new SimplexNoise(new RNG(params.seed + '_abyssal_v3'));
