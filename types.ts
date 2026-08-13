@@ -116,6 +116,7 @@ export interface WorldParams {
   spreadRate: number; // 0.004-0.02, chord-per-Ma seafloor spreading rate; smaller = older/deeper floor
   seafloorDetail: number; // 0-1, abyssal-hill noise amplitude on the deep ocean floor
   microplateIntensity: number; // 0-1, how many shear-driven microplates to inject (0 = none, byte-identical)
+  plateElongation: number; // 0–1: seed-chain length → plate elongation (0 = round blobs)
 
   plates: number;
   seaLevel: number;

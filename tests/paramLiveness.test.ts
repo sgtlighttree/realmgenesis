@@ -45,7 +45,6 @@ const TERRAIN_PERTURBATIONS: Record<string, Perturbation> = {
 const CIV_PERTURBATIONS: Record<string, Perturbation> = {
   civSeed: { civSeed: 'other_civs' },
   numFactions: { numFactions: 2 },
-  borderRoughness: { borderRoughness: 0.9 },
   civSizeVariance: { civSizeVariance: 1.0 },
   waterCrossingCost: { waterCrossingCost: 0.1 },
   territorialWaters: { territorialWaters: 0.9 },
@@ -82,6 +81,17 @@ describe('every tunable param influences the world', () => {
     const loose = await generateWorld(makeParams({ numFactions: 12, capitalSpacing: 1.0 }));
     expect(civSignature(loose), 'param "capitalSpacing" appears to be dead — output unchanged')
       .not.toBe(civSignature(tight));
+  }, 120000);
+
+  // borderRoughness is inert at the default 4-faction/300-cell test world
+  // under D7 plateElongation terrain (verified deterministic across reruns —
+  // not a flake); it is live at higher faction density (verified at
+  // numFactions 8/12/16). Isolate it there instead of the default seed.
+  it('borderRoughness changes civ borders at binding density', async () => {
+    const smooth = await generateWorld(makeParams({ numFactions: 8, borderRoughness: 0.0 }));
+    const rough = await generateWorld(makeParams({ numFactions: 8, borderRoughness: 0.9 }));
+    expect(civSignature(rough), 'param "borderRoughness" appears to be dead — output unchanged')
+      .not.toBe(civSignature(smooth));
   }, 120000);
 
   // provinceSize, like capitalSpacing, only binds when factions are large enough
@@ -149,5 +159,8 @@ describe('every tunable param influences the world', () => {
       const world = await generateWorld(makeParams(perturbation));
       expect(terrainSignature(world), `V3 param "${name}" appears to be dead — output unchanged`).not.toBe(baseSig);
     }
+
+    expect(terrainSignature(await generateWorld(makeParams({ plateElongation: 0.0 }))))
+      .not.toBe(terrainSignature(await generateWorld(makeParams({ plateElongation: 1.0 }))));
   }, 120000);
 });

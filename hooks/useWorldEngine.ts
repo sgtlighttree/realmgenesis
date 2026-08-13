@@ -35,6 +35,7 @@ const DEFAULT_PARAMS: WorldParams = {
   spreadRate: 0.008,
   seafloorDetail: 0.5,
   microplateIntensity: 0.35,
+  plateElongation: 0.4,
   baseTemperature: 30,
   poleTemperature: -30, 
   rainfallMultiplier: 1.0,
