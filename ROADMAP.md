@@ -217,14 +217,23 @@ Another overhaul of terrain generaton algorithm to make it more realistic
 and get rid of seam lines on plate boundaries, and more detailed heightmap
 rendering and calculation without increasing cell count
 
-### D7. More realistic tectonic plates  —  🟡 PARTIAL
-> _part 1 (enclaves/exclaves killed, connected plates) DONE Session 9; part 2 (grounded geophysics, non-Voronoi boundaries) open_
+### D7. More realistic tectonic plates  —  ✅ DONE (heuristic tier); Cortial rebuild = deliberate NO-GO
+> _part 1 (connected plates) Session 9; part 2 (seafloor age→bathymetry + microplates) Session 10; part 3 (plate-shape polish) Session 12. The Cortial boundary-curve rebuild was evaluated and declined — see below._
 
-D6 set a foundation for deeper fine-tuning, but plates still look Voronoi-like
-and not grounded in real geophysics, may need a throrough research pass.
-The additional efforts towards realism now create enclaves and exclaves of plates,
-should add more checks for that and should use more grounded and mathematically
-accurate modeling.
+D6 set the foundation; parts 1–3 completed the heuristic-tier plate model:
+- **Part 1 (S9):** multi-source Dijkstra region-growth → 0 enclaves/exclaves by construction.
+- **Part 2 (S10):** seafloor age→GDH1 bathymetry, shear-driven microplates.
+- **Part 3 (S12):** the real de-blob levers turned out to be **plateJitter** (size/position
+  variety) and **boundaryRoughness** (jagged boundaries), both range-extended to 0–3 and
+  defaulted to 1.5; plus band/chain seeding (`plateElongation`, mild) and seafloor age noise.
+
+**Cortial boundary-curve rebuild — NO-GO** (both advisors + render agreed): it would destroy
+the 0-exclave-by-construction invariant for weeks of sphere geometric-robustness work, and
+the research report's own recommendation for a browser budget is the heuristic tier already
+shipped. **Shelved (not abandoned)** next levers, recorded in HANDOFF Session 12 for a future
+`docs/ENGINEERING-NOTES.md`: anisotropic Dijkstra growth (real shape lever), transform-edge
+fracture, and the Cortial path itself. Also open: fine-mesh (display) plate connectivity is
+not guaranteed by the macro→fine downsample (pre-existing).
 
 ---
 

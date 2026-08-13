@@ -25,6 +25,92 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## Session 12 (2026-08-13) — D7 part 3 decision + plate-shape polish (branch `d7-polish`)
+
+On branch **`d7-polish`** (cut from `main` @ `58c093e`), **NOT merged, NOT pushed**.
+Commits `80629ac`..`76fdc62`. All gates green (typecheck 0, lint 0/29, **170 tests**,
+build OK). Executed subagent-driven (SDD workspace + ledger at
+`.superpowers/sdd/2026-08-13-d7-polish-plate-shape/`).
+
+### The decision: NO-GO on the Cortial rebuild (D7 part 3)
+
+D7 part 3 was framed as the "Cortial boundary-curve rebuild" (plates as a topological
+graph of boundary curves + terranes). **Both the `advisor` tool and the `fable-advisor`
+subagent independently ruled NO-GO**, and a fresh render confirmed it:
+
+- The rebuild replaces the whole plate-assignment substrate — killing
+  `assignPlatesDijkstra`, `computeEdgeCosts`, `mergeSmallPlates`, `injectMicroplates`,
+  and the **connectivity-by-construction 0-exclave invariant** (Session 9). Cortial's
+  curve-graph has no equivalent; curve intersection + retriangulation on a sphere is
+  weeks of geometric-robustness edge cases.
+- The commissioned research report's OWN engineering recommendation for a ~10k-cell
+  browser budget (§4) is the heuristic tier — **which Sessions 9–10 already shipped.**
+  Report at `~/.gemini/antigravity-cli/brain/4dc5c5a8-.../tectonic_plate_generation_research.md`.
+
+Spec: `docs/superpowers/specs/2026-08-13-d7-polish-plate-shape-design.md`.
+Plan: `docs/superpowers/plans/2026-08-13-d7-polish-plate-shape.md`.
+
+### What shipped (the heuristic-tier polish)
+
+- **Task 1 (`80629ac`, fix `65a1a30`): band/chain seeding** — `plateElongation` param
+  (0–1, default 0.4). Grows each plate's Dijkstra source into a velocity-aligned
+  connected chain. A **shared `claimed` set** across the seed loop keeps per-plate source
+  sets disjoint → macro 0-exclave invariant holds by construction. No RNG in the walk.
+- **Task 2 (`29d995d`): seafloor age perturbation** — `age *= (1 + 0.1·noise)` from a
+  fresh `_agenoise_v3` stream, breaks GDH1's clean age bands. Bathymetry-only.
+- **Task 1c (`76fdc62`): the actual de-blob win** — extended **`plateJitter`** and
+  **`boundaryRoughness`** slider ranges to **0–3** and raised both defaults **0.3→1.5**.
+  No formula change (both scale linearly in their consumers). Re-baselined lakes
+  (`SALT_SEED` `basin`→`s149`, now a 4-cell salt-endorheic; no 1-cell match across ~270
+  seeds) and routes (`SEA_SEED` `'islands'`).
+
+### The load-bearing finding (verified by render, seed `realmgenesis`)
+
+**Band seeding / `plateElongation` is visually near-INERT at the macro-silhouette level.**
+Chains cap at 3 cells (0.4) / 5 cells (1.0) out of a ~10k-macro grid — negligible against
+a plate that grows to hundreds of cells via Dijkstra front expansion. Renders at 0.4 AND
+1.0 look identical to baseline. **The real levers are `plateJitter` (plate size/position
+variety) and `boundaryRoughness` (jagged interlocking boundaries).** At jitter 1.5 +
+roughness 1.5 the plates read as genuinely tectonic — varied sizes, fractal boundaries.
+Renders in the session scratchpad (`d7-*.png`).
+
+### SHELVED, not abandoned (next levers if D7 is revisited)
+
+Matt's call: shelve these in HANDOFF now; **split into `docs/ENGINEERING-NOTES.md` LATER**
+(no docs-suite exists yet — do not create it this session).
+
+1. **Anisotropic Dijkstra growth cost** — fable-advisor's "real shape lever": in the relax
+   inner loop, `cost × (1 + k·(1 − |dot(edgeDir, v̂)|))` where `v̂ = normalize(cross3(
+   plates[plate].eulerPole.axis, macroPoints[cell]))`, `k = plateElongation·~0.8`, computed
+   once per popped cell. Deterministic, connectivity-preserving, clamp k so max stretch
+   ≈2–3:1 (over-strong = fake cigars). Elongates the WHOLE plate along its motion, unlike
+   the seed-chain. Design in the plan's Task-1b brief (`.superpowers/sdd/.../task-1b-brief.md`).
+   Deferred because jitter+roughness already delivered the de-blob.
+2. **Transform-edge fracture** (plan Task 3, approach b) — feed step *k*'s transform
+   classification into step *k+1*'s cost field (recompute as a SET, never accumulate).
+   Shelved: `boundaryRoughness` at 1.5 already gives the jaggedness; marginal on top.
+3. **Cortial boundary-curve rebuild** — the "properly grounded" model. Deliberate NO-GO
+   (above); method in the research report. The path stays open but is not recommended for
+   this browser budget.
+
+### Traps / notes for next session
+
+- **Fine-mesh `cell.plateId` connectivity is NOT a general invariant** — the macro→fine
+  nearest-macro-cell downsample can pinch a thin macro plate into disconnected DISPLAY
+  strays. This is **pre-existing** (fires even at `plateElongation` 0 / old seeding), not
+  introduced here. Macro connectivity IS guaranteed (the `claimed` set). The
+  `tests/plateConnectivity.test.ts` guard is **seed-`realmgenesis`-specific**, not a
+  general invariant (its own comment says so). Fixing the downsample (BFS cleanup or a
+  better projection) is a real future task.
+- **SDD implementer trap:** the Task-1c implementer stalled by spawning a background
+  poller and waiting for it — a subagent cannot be resumed by a background notification.
+  Fix was to instruct synchronous foreground execution. If delegating long test runs,
+  tell the subagent to run blocking, per-file, never backgrounded.
+- `plateElongation` stays default 0.4 (mild seed-chain, live/tested) even though it's
+  cosmetic — kept because it's cheap and the anisotropy lever will reuse the param.
+
+---
+
 ## Session 11 (2026-08-13) — Stage-2 close-out: V2 dead code + V3_ENABLED removed
 
 Commit `c6923dc` on `main` (Session 10's `2325607` is now pushed; this sits on

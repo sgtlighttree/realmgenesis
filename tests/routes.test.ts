@@ -107,9 +107,14 @@ describe('computeRoutes — roads', () => {
   });
 });
 
+// Rescanned for D7 Task 1c (plateJitter/boundaryRoughness defaults raised to
+// 1.5): 'sea-test' no longer produces distinct-landmass coastal towns under
+// the new terrain (0 sea routes at the new defaults) — 'islands' does.
+const SEA_SEED = 'islands';
+
 describe('computeRoutes — sea', () => {
   it('produces sea routes between distinct coastal towns, structurally valid', async () => {
-    const w = await build('sea-test');
+    const w = await build(SEA_SEED);
     const sea = (w.routes ?? []).filter(r => r.kind === 'searoute');
     expect(sea.length).toBeGreaterThan(0);
     for (const r of sea) {
@@ -119,7 +124,7 @@ describe('computeRoutes — sea', () => {
   });
 
   it('sea-route endpoints are coastal cells (a water neighbor exists)', async () => {
-    const w = await build('sea-test');
+    const w = await build(SEA_SEED);
     const seaLevel = w.params.seaLevel;
     const isCoastal = (cellId: number) =>
       w.cells[cellId].neighbors.some(n => isWaterCell(w.cells[n], seaLevel));

@@ -286,13 +286,19 @@ function computeEdgeCosts(
   return costs;
 }
 
-// Multi-source Dijkstra region-growth. Every plate grows outward from the macro
-// cell nearest its (rotated) seed, following graph edges — so each plate's
-// territory is a single connected region BY CONSTRUCTION. This is what kills
-// the enclave/exclave artifacts the old per-cell argmin-with-noise produced:
-// there is no way for a cell to end up owned by a plate it has no path to.
-// `plateSpeeds[j]` scales plate j's growth (faster plates claim more territory),
-// giving the size irregularity the old proto-plate-merge scheme was meant to.
+// Multi-source Dijkstra region-growth. Every plate grows outward from its
+// seed chain (a connected run of macro cells — see the `elongation` seeding
+// below), following graph edges — so each plate's MACRO-cell territory is a
+// single connected region BY CONSTRUCTION. This is what kills the enclave/
+// exclave artifacts the old per-cell argmin-with-noise produced at the macro
+// level: there is no way for a macro cell to end up owned by a plate it has
+// no path to. NOTE: this guarantee is at the macro-graph level only — the
+// nearest-macro-cell downsample onto the fine mesh (`dc.plateId =
+// macroResult.plateIds[nearest]`) can still pinch a connected macro region
+// into disconnected fine-mesh cells; measured pre-existing at elongation 0.0
+// too (see tests/plateConnectivity.test.ts). `plateSpeeds[j]` scales plate
+// j's growth (faster plates claim more territory), giving the size
+// irregularity the old proto-plate-merge scheme was meant to.
 function assignPlatesDijkstra(
   macroPoints: Point[],
   macroNeighbors: number[][],
@@ -301,6 +307,8 @@ function assignPlatesDijkstra(
   plateSpeeds: number[],
   activeMask: (j: number) => boolean,
   plateIds: Int32Array,
+  plates: PlateState[],
+  elongation: number,
 ): void {
   const n = macroPoints.length;
   const dist = new Float64Array(n).fill(Infinity);
@@ -311,17 +319,55 @@ function assignPlatesDijkstra(
   // on distance ties (identical seeds must give identical assignments).
   const heap = new MinHeap<Node>(node => node.dist + node.cell * 1e-9 + node.plate * 1e-12);
 
-  // Seed each active plate at its nearest macro cell.
+  // Seed each active plate at a chain of macro cells grown from the nearest
+  // unclaimed cell along the plate's velocity direction — elongated seeds
+  // produce elongated plates instead of round Voronoi blobs.
+  const chainLen = 1 + Math.round(elongation * 4);
+  // Cells already used as a dist-0 source by an EARLIER plate's chain. Disjoint
+  // source sets across plates are what keep connectivity by construction: two
+  // plates must never both seed the same cell, or one plate's chain gets severed
+  // into an exclave. A dist-0 pop always beats any positive-dist front, so every
+  // unclaimed source settles for its own plate.
+  const claimed = new Uint8Array(n);
   for (let j = 0; j < rotatedSeeds.length; j++) {
     if (!activeMask(j)) continue;
-    let best = -1;
-    let bestD = Infinity;
+    // nearest UNCLAIMED macro cell to the (rotated) seed
+    let best = -1, bestD = Infinity;
     const s = rotatedSeeds[j];
     for (let i = 0; i < n; i++) {
+      if (claimed[i]) continue;
       const d = chordDistance(macroPoints[i], s);
       if (d < bestD) { bestD = d; best = i; }
     }
-    if (best >= 0) heap.push({ cell: best, plate: j, dist: 0 });
+    if (best < 0) continue;
+
+    // chain axis = plate velocity direction at the seed (tangent to sphere)
+    const vel = scale3(cross3(plates[j].eulerPole.axis, s), plates[j].eulerPole.rate);
+    const axis = magnitude(vel) > 1e-9 ? normalizeVec(vel) : null;
+
+    // walk a connected chain of UNCLAIMED cells forward along the axis; all become dist-0 sources
+    claimed[best] = 1;
+    heap.push({ cell: best, plate: j, dist: 0 });
+    let tip = best;
+    let chainSize = 1;
+    while (axis && chainSize < chainLen) {
+      let nextCell = -1, nextDot = 0; // require forward progress (dot > 0)
+      for (const nId of macroNeighbors[tip]) {
+        if (claimed[nId]) continue;
+        const dir = normalizeVec({
+          x: macroPoints[nId].x - macroPoints[tip].x,
+          y: macroPoints[nId].y - macroPoints[tip].y,
+          z: macroPoints[nId].z - macroPoints[tip].z,
+        });
+        const d = dot3(dir, axis);
+        if (d > nextDot || (d === nextDot && nextCell >= 0 && nId < nextCell)) { nextDot = d; nextCell = nId; }
+      }
+      if (nextCell < 0) break;
+      claimed[nextCell] = 1;
+      heap.push({ cell: nextCell, plate: j, dist: 0 });
+      tip = nextCell;
+      chainSize++;
+    }
   }
 
   while (heap.size() > 0) {
@@ -397,7 +443,9 @@ function computeSeafloorAge(
   plates: PlateState[],
   rotatedSeeds: Point[],
   spreadRate: number,
+  seed: string,
 ): Float32Array {
+  const ageNoise = new SimplexNoise(new RNG(seed + '_agenoise_v3'));
   const n = macroPoints.length;
   const age = new Float32Array(n).fill(-1);
   const dist = new Float64Array(n).fill(Infinity);
@@ -436,7 +484,10 @@ function computeSeafloorAge(
     if (crustTypes[i] !== 0) continue;
     // Unreached oceanic basin (ringed by land): saturate to max age.
     const d = dist[i] === Infinity ? MAX_SEAFLOOR_AGE * rate : dist[i];
-    age[i] = Math.min(MAX_SEAFLOOR_AGE, d / rate);
+    const raw = d / rate;
+    const p = macroPoints[i];
+    const perturbed = raw * (1 + 0.1 * ageNoise.noise3D(p.x * 2, p.y * 2, p.z * 2));
+    age[i] = Math.max(0, Math.min(MAX_SEAFLOOR_AGE, perturbed));
   }
   return age;
 }
@@ -547,6 +598,7 @@ export function simulateTectonics(
   const edgeNoise = new SimplexNoise(new RNG(params.seed + '_edge_v3'));
   const boundaryRoughness = params.boundaryRoughness ?? 0.3;
   const warpStrength = params.warpStrength ?? 0.5;
+  const plateElongation = params.plateElongation ?? 0.4;
 
   // Static per-edge growth costs — independent of plate motion, so computed
   // once and reused every timestep.
@@ -566,7 +618,7 @@ export function simulateTectonics(
   const plateIds = new Int32Array(numMacro);
   assignPlatesDijkstra(
     macroPoints, macroNeighbors, edgeCosts, rotatedSeeds, plateSpeeds,
-    () => true, plateIds,
+    () => true, plateIds, plates, plateElongation,
   );
 
   // Merge plates below 0.5% cell threshold
@@ -623,7 +675,7 @@ export function simulateTectonics(
     // edge costs; plate motion enters only through the moving seeds.
     assignPlatesDijkstra(
       macroPoints, macroNeighbors, edgeCosts, rotatedSeeds, plateSpeeds,
-      j => postMergeCounts[j] > 0, plateIds,
+      j => postMergeCounts[j] > 0, plateIds, plates, plateElongation,
     );
 
     // 4c. Classify boundaries and accumulate uplift — velocity-scaled, asymmetric
@@ -705,7 +757,7 @@ export function simulateTectonics(
   // 4d. Seafloor age → bathymetry (D7 part 2, Goal 2). Final-state ridges only.
   onLog?.("V3: Computing seafloor age (bathymetry)...");
   const seafloorAge = computeSeafloorAge(
-    macroPoints, macroNeighbors, plateIds, crust.crustTypes, plates, rotatedSeeds, spreadRate,
+    macroPoints, macroNeighbors, plateIds, crust.crustTypes, plates, rotatedSeeds, spreadRate, params.seed,
   );
   const seafloorDetail = params.seafloorDetail ?? 0.5;
   const abyssalNoise = new SimplexNoise(new RNG(params.seed + '_abyssal_v3'));

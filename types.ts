@@ -109,13 +109,14 @@ export interface WorldParams {
   marginCoupling: number; // 0-1, geometric correlation between mountain belts and continental margins
   numTimesteps: number; // 10-60, simulation timesteps
   simulationResolution: number; // 5000-20000, macro-cell count for tectonic simulation
-  plateJitter: number; // 0-1, how irregularly plate seeds are distributed (0=uniform, 1=chaotic)
-  boundaryRoughness: number; // 0-1, how jagged/fractal plate boundaries are (0=straight arcs, 1=highly irregular)
+  plateJitter: number; // 0-3, how irregularly plate seeds are distributed (0=uniform, 1=chaotic, >1=strongly varied sizes)
+  boundaryRoughness: number; // 0-3, how jagged/fractal plate boundaries are (0=straight arcs, 1=highly irregular, >1=extreme fracture)
 
   // D7 part 2 — geophysical realism (all inert at their zero-ish defaults on old seeds)
   spreadRate: number; // 0.004-0.02, chord-per-Ma seafloor spreading rate; smaller = older/deeper floor
   seafloorDetail: number; // 0-1, abyssal-hill noise amplitude on the deep ocean floor
   microplateIntensity: number; // 0-1, how many shear-driven microplates to inject (0 = none, byte-identical)
+  plateElongation: number; // 0–1: seed-chain length → plate elongation (0 = round blobs)
 
   plates: number;
   seaLevel: number;
