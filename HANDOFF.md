@@ -23,6 +23,38 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## Session 11 (2026-08-13) — Stage-2 close-out: V2 dead code + V3_ENABLED removed
+
+Commit `c6923dc` on `main` (Session 10's `2325607` is now pushed; this sits on
+top, **NOT pushed**). Gates: typecheck 0, lint 0 errors / **29** warnings, build
+OK, **168 tests pass** (see flake note). Serial single-file edit — not
+parallelized (one file, one dependency chain, one gate run verifies all of it).
+
+**What.** V3 has been the only live terrain path since Session 9, so the V2
+plate/height/stress branch behind `const V3_ENABLED = true` was unreachable.
+Removed in `utils/worldGen.ts`: the flag + its comment, the whole V2 `else`
+branch (~170 lines), and the now-dead helpers `randomVector` +
+`enforceConnectivity` (both only called from V2). Method: unwrapped the
+`if (V3_ENABLED)` and dedented the V3 body, then deleted the else span by awk
+line-range (cleaner than hand-pasting 170 lines). Updated the stale
+`V3_ENABLED = true` mention in `tests/paramLiveness.test.ts:131` comment.
+
+**Byte-identical.** Pure dead-code deletion — same RNG side-streams
+(`_macro_v3`/`_crust`/`_plates_v3`), same V3 logic, no reordering. Terrain
+output is unchanged from Session 10.
+
+**The Session-10 parallel-load flake recurred, as predicted.** `npm test` (23
+files) threw ONE `paramLiveness > terrain params change signature` **timeout**
+(120s, not a dead-param assertion) under M1 parallel load; passes 7/7 in
+isolation (`npx vitest run tests/paramLiveness.test.ts`). Not a real failure and
+not from this change. Documented fix if CI flakes remains: lower
+`simulationResolution` in `tests/helpers.ts` or cap vitest concurrency.
+
+**Stage-2 debt is now CLOSED** — the "remove V2 dead code + V3_ENABLED" item
+listed in every prior session's open-list is done.
+
+---
+
 ## Session 10 (2026-08-12) — D7 part 2 (seafloor age→bathymetry + shear microplates)
 
 Commit `8999918` on `main`, **NOT pushed** (sits on top of Session 9's pushed
