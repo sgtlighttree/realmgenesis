@@ -7,11 +7,6 @@ import { detectFeatures } from './features';
 import { MinHeap, landTerrainStepCost } from './pathfinding';
 import { simulateTectonics, projectTectonicsToDisplay } from './tectonicsV3';
 
-// Set to true to enable the V3 terrain model (independent crust + Euler-pole
-// tectonics). The V2 path is kept behind this flag for side-by-side comparison
-// during development. Remove the flag and V2 dead code at the end of Stage 2.
-const V3_ENABLED = true;
-
 // --- DATA STRUCTURES ---
 
 // --- MATH HELPERS ---
@@ -48,18 +43,6 @@ function generateFibonacciSphere(samples: number, rng: RNG, jitter: number): Poi
     points.push({ x, y: py, z });
   }
   return points;
-}
-
-function randomVector(rng: RNG): Point {
-    const u = rng.next();
-    const v = rng.next();
-    const theta = 2 * Math.PI * u;
-    const phi = Math.acos(2 * v - 1);
-    return {
-        x: Math.sin(phi) * Math.cos(theta),
-        y: Math.sin(phi) * Math.sin(theta),
-        z: Math.cos(phi)
-    };
 }
 
 // --- NOISE ALGORITHMS ---
@@ -395,92 +378,6 @@ export function determineBiome(height: number, temp: number, moisture: number, s
 
 // --- TECTONIC HELPERS ---
 
-function enforceConnectivity(cells: Cell[], numPlates: number) {
-    const componentId = new Int32Array(cells.length).fill(-1);
-    const compSize: number[] = [];
-    const compPlate: number[] = [];
-    
-    let compCount = 0;
-    
-    for(let i=0; i<cells.length; i++) {
-        if(componentId[i] !== -1) continue;
-        
-        const pid = cells[i].plateId;
-        const q = [i];
-        componentId[i] = compCount;
-        let size = 0;
-        
-        let head = 0;
-        while(head < q.length) {
-            const curr = q[head++];
-            size++;
-            for(const nId of cells[curr].neighbors) {
-                if(componentId[nId] === -1 && cells[nId].plateId === pid) {
-                    componentId[nId] = compCount;
-                    q.push(nId);
-                }
-            }
-        }
-        compSize.push(size);
-        compPlate.push(pid);
-        compCount++;
-    }
-
-    const largestCompForPlate = new Int32Array(numPlates).fill(-1);
-    const maxS = new Int32Array(numPlates).fill(-1);
-    
-    for(let c=0; c<compCount; c++) {
-        const pid = compPlate[c];
-        if(compSize[c] > maxS[pid]) {
-            maxS[pid] = compSize[c];
-            largestCompForPlate[pid] = c;
-        }
-    }
-
-    const isOrphan = (cIdx: number) => {
-        const pid = compPlate[cIdx];
-        return largestCompForPlate[pid] !== cIdx;
-    }
-
-    const compCells: number[][] = Array.from({length: compCount}, () => []);
-    for(let i=0; i<cells.length; i++) {
-        compCells[componentId[i]].push(i);
-    }
-
-    const orphanIndices: number[] = [];
-    for(let c=0; c<compCount; c++) {
-        if(isOrphan(c)) orphanIndices.push(c);
-    }
-    orphanIndices.sort((a,b) => compSize[a] - compSize[b]);
-
-    orphanIndices.forEach(cIdx => {
-        const myCells = compCells[cIdx];
-        const neighborCounts = new Map<number, number>();
-        
-        for(const cellId of myCells) {
-            for(const nId of cells[cellId].neighbors) {
-                const nComp = componentId[nId];
-                if(nComp !== cIdx) {
-                    const nPlate = cells[nId].plateId;
-                    neighborCounts.set(nPlate, (neighborCounts.get(nPlate) || 0) + 1);
-                }
-            }
-        }
-
-        let bestP = -1;
-        let maxCount = -1;
-        neighborCounts.forEach((count, pid) => {
-            if(count > maxCount) { maxCount = count; bestP = pid; }
-        });
-
-        if(bestP !== -1) {
-            for(const cellId of myCells) {
-                cells[cellId].plateId = bestP;
-            }
-        }
-    });
-}
-
 // --- GEOGRAPHY GENERATION ---
 
 export async function generateWorld(params: WorldParams, onLog?: (msg: string) => void, signal?: AbortSignal, onProgress?: (stage: number, total: number) => void): Promise<WorldData> {
@@ -550,198 +447,25 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
 
   let minH = Infinity, maxH = -Infinity, range = 1;
 
-  if (V3_ENABLED) {
-    onLog?.(`Simulating ${params.plates} Tectonic Plates (V3)...`);
-    progress();
-
-    const macroRes = params.simulationResolution ?? 10000;
-    const macroRngV3 = new RNG(params.seed + '_macro_v3');
-    const macroPoints = generateFibonacciSphere(macroRes, macroRngV3, params.cellJitter * 0.8);
-
-    const crustRng = new RNG(params.seed + '_crust');
-    const plateRngV3 = new RNG(params.seed + '_plates_v3');
-
-    const tectonicResult = simulateTectonics(
-      macroPoints, params, crustRng, plateRngV3, simplex, onLog, signal,
-    );
-
-    checkAbort(signal);
-
-    onLog?.("Projecting tectonics to display resolution...");
-    progress();
-    projectTectonicsToDisplay(cells, points, macroPoints, tectonicResult, params, simplex);
-
-    // V3 path is done — skip V2 plate/height/stress stages and jump to erosion
-  } else {
-
   onLog?.(`Simulating ${params.plates} Tectonic Plates...`);
   progress();
 
-  const numPlates = params.plates;
-  const plateRng = new RNG(params.seed + '_plates_loc'); 
-  
-  const plateVectors: Point[] = [];
-  for(let i=0; i<numPlates; i++) {
-      plateVectors.push(randomVector(plateRng));
-  }
+  const macroRes = params.simulationResolution ?? 10000;
+  const macroRngV3 = new RNG(params.seed + '_macro_v3');
+  const macroPoints = generateFibonacciSphere(macroRes, macroRngV3, params.cellJitter * 0.8);
 
-  const warpNoise = new SimplexNoise(new RNG(params.seed + '_warp'));
-  const warpFreq = 0.5; 
-  const warpAmp = (params.warpStrength ?? 0.5) * 0.2; 
+  const crustRng = new RNG(params.seed + '_crust');
+  const plateRngV3 = new RNG(params.seed + '_plates_v3');
 
-  cells.forEach(cell => {
-      const nx = warpNoise.noise3D(cell.center.x * warpFreq, cell.center.y * warpFreq, cell.center.z * warpFreq);
-      const ny = warpNoise.noise3D(cell.center.y * warpFreq, cell.center.z * warpFreq, cell.center.x * warpFreq);
-      const nz = warpNoise.noise3D(cell.center.z * warpFreq, cell.center.x * warpFreq, cell.center.y * warpFreq);
-      
-      const wx = cell.center.x + nx * warpAmp;
-      const wy = cell.center.y + ny * warpAmp;
-      const wz = cell.center.z + nz * warpAmp;
-      
-      let minDist = Infinity;
-      let bestPlate = 0;
-      
-      for(let i=0; i<numPlates; i++) {
-          const p = plateVectors[i];
-          const d = (wx - p.x)**2 + (wy - p.y)**2 + (wz - p.z)**2;
-          if (d < minDist) {
-              minDist = d;
-              bestPlate = i;
-          }
-      }
-      cell.plateId = bestPlate;
-  });
+  const tectonicResult = simulateTectonics(
+    macroPoints, params, crustRng, plateRngV3, simplex, onLog, signal,
+  );
 
-  enforceConnectivity(cells, numPlates);
+  checkAbort(signal);
 
-  const moveRng = new RNG(params.seed + '_plates_move');
-  const plateDrift = plateVectors.map(() => ({ 
-      x: moveRng.next() - 0.5, 
-      y: moveRng.next() - 0.5, 
-      z: moveRng.next() - 0.5 
-  }));
-
-  const cellStress = new Float32Array(cells.length).fill(0); 
-  const distToEdge = new Float32Array(cells.length).fill(0);
-
-  cells.forEach(c => {
-      let isBoundary = false;
-      let maxStress = 0;
-      
-      for (const nId of c.neighbors) {
-          const n = cells[nId];
-          if (n.plateId !== c.plateId) {
-              isBoundary = true;
-              const driftA = plateDrift[c.plateId % plateDrift.length];
-              const driftB = plateDrift[n.plateId % plateDrift.length];
-              const dx = n.center.x - c.center.x;
-              const dy = n.center.y - c.center.y;
-              const dz = n.center.z - c.center.z;
-              const rvx = driftA.x - driftB.x;
-              const rvy = driftA.y - driftB.y;
-              const rvz = driftA.z - driftB.z;
-              const dot = (rvx*dx + rvy*dy + rvz*dz) * 10; 
-              if (Math.abs(dot) > Math.abs(maxStress)) maxStress = dot;
-          }
-      }
-      
-      if (isBoundary) {
-          cellStress[c.id] = maxStress;
-          distToEdge[c.id] = 0; 
-      } else {
-          distToEdge[c.id] = 1.0; 
-      }
-  });
-
-  const spreadIterations = Math.max(2, Math.floor(4 * Math.sqrt(params.points / 4000)));
-  
-  const nextStress = new Float32Array(cells.length);
-  const nextDist = new Float32Array(cells.length);
-
-  for(let i=0; i<spreadIterations; i++) {
-      cells.forEach(c => {
-          let stressSum = cellStress[c.id];
-          let distSum = distToEdge[c.id];
-          let count = 1;
-          c.neighbors.forEach(nId => {
-              stressSum += cellStress[nId];
-              distSum += distToEdge[nId];
-              count++;
-          });
-          nextStress[c.id] = stressSum / count;
-          nextDist[c.id] = distSum / count + 0.1; 
-      });
-      nextStress.forEach((v,k) => cellStress[k] = v);
-      nextDist.forEach((v,k) => distToEdge[k] = v);
-  }
-
-  onLog?.("Applying Height & Noise...");
+  onLog?.("Projecting tectonics to display resolution...");
   progress();
-  const freq = params.noiseScale || 1.0;
-  const plateInf = (params.tectonicStrength === undefined ? 0.5 : params.tectonicStrength); 
-
-  const plateHeights = new Float32Array(numPlates);
-  const pRng = new RNG(params.seed + '_plates_h');
-  
-  let landChance = 0.45;
-  let landLevel = 0.2;
-  let oceanLevel = -0.5;
-
-  if (params.landStyle === 'Archipelago') { landChance = 0.25; landLevel = 0.1; oceanLevel = -0.3; }
-  if (params.landStyle === 'Islands') { landChance = 0.15; landLevel = 0.2; oceanLevel = -0.6; }
-  if (params.landStyle === 'Pangea') { landChance = 0.6; landLevel = 0.25; oceanLevel = -0.45; }
-
-  for (let i = 0; i < numPlates; i++) {
-      const isLand = pRng.next() < landChance;
-      plateHeights[i] = isLand ? (landLevel + pRng.next() * 0.3) : (oceanLevel + pRng.next() * 0.3);
-  }
-
-  // detailLevel is the FBM octave count for the structural terrain noise
-  // (default 3 = the historical hardcoded value, so default worlds are unchanged)
-  const octaves = Math.min(8, Math.max(1, Math.round(params.detailLevel ?? 3)));
-
-  cells.forEach(c => {
-      const fbmVal = fbm(simplex, c.center.x * freq, c.center.y * freq, c.center.z * freq, octaves, 0.5, 2.0);
-      const ridgedVal = ridgedNoise(simplex, c.center.x * freq, c.center.y * freq, c.center.z * freq, 3, 2.0);
-      const ridgedRemapped = (ridgedVal * 2.0) - 1.0;
-      const blend = params.ridgeBlend === undefined ? 0 : params.ridgeBlend;
-      const structuralNoise = fbmVal * (1 - blend) + ridgedRemapped * blend;
-      let baseSum = 0; 
-      let bCount = 0;
-      c.neighbors.forEach(n => { baseSum += plateHeights[cells[n].plateId]; bCount++; });
-      baseSum += plateHeights[c.plateId]; bCount++;
-      const avgBase = baseSum / bCount;
-      const influence = Math.min(1, Math.max(0.1, plateInf));
-      let height = avgBase * influence + structuralNoise * (1.2 - influence);
-      const stress = cellStress[c.id]; 
-      const edgeProx = Math.max(0, 1.0 - distToEdge[c.id] * 0.5); 
-      if (edgeProx > 0) {
-          if (stress > 0.05) {
-              const mtnHeight = stress * edgeProx * 1.5;
-              const ridge = ridgedNoise(simplex, c.center.x * freq, c.center.y * freq, c.center.z * freq, 4, 2.5);
-              height += mtnHeight + (ridge * 0.3 * mtnHeight);
-          } else if (stress < -0.05) {
-              height -= Math.abs(stress) * edgeProx * 1.0;
-          }
-      }
-      const detail = fbm(simplex, c.center.x * 6, c.center.y * 6, c.center.z * 6, 2, 0.5, 2.5);
-      height += detail * params.roughness * 0.15;
-      if (height > -0.2 && height < 0.2) {
-          height = height * 0.5 + (height > 0 ? 0.05 : -0.05);
-      }
-      if (params.maskType === 'Pangea') {
-          const mask = (c.center.x * 0.8 + c.center.y * 0.2 + 1) * 0.5;
-          const smoothMask = mask * mask * (3 - 2 * mask);
-          height = height * 0.5 + smoothMask * 0.8 - 0.2;
-      }
-      c.height = height;
-  });
-  
-  minH = Infinity; maxH = -Infinity;
-  cells.forEach(c => { if (c.height < minH) minH = c.height; if (c.height > maxH) maxH = c.height; });
-  range = maxH - minH || 1;
-  cells.forEach(c => c.height = (c.height - minH) / range);
-  } // end else (V2 path)
+  projectTectonicsToDisplay(cells, points, macroPoints, tectonicResult, params, simplex);
 
   // EROSION
   progress();
