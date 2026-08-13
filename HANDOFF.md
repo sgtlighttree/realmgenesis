@@ -19,7 +19,9 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 - [x] ~~Add a favicon just to clear the constant 404'ing~~ — **DONE Session 9** (`public/favicon.svg` + `<link rel=icon>`; 404 gone, 0 console errors).
 - [x] ~~**BUG found during Session 7 review:** undo stack never cleared on generation~~ — **FIXED** (commit `bf987db` "Clear undo stack on generation and load", in the merged stack; verified in Session 9 smoke: undo count → 0 / disabled after generate).
 - [ ] Seafloor Detail slider function more like a sea level controller.
+      ACTUALLY DO THIS NEXT AFTER D7 FINISH
 - [ ] Dedicated export workflow/screen for depthmaps, can use existing algorithms but as a pure pixel-based DEM data generator, not constrained by cell count, for use in other programs like Blender or game engines.
+- [ ] Actually make a comprehensive documentation even as were in the middle of an overhaul, just so the relatively static bits and decisions can live somewhere else.
 
 ---
 
