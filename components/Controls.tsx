@@ -896,6 +896,18 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                   className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
+              <div className="space-y-1" title="Seed-chain length for plate growth. 0 = round Voronoi blobs, higher = elongated, band-shaped plates along their motion direction.">
+                <div className="flex justify-between text-xs text-ink-muted">
+                  <label>Plate Elongation</label>
+                  <span>{params.plateElongation?.toFixed(2) ?? '0.40'}</span>
+                </div>
+                <input
+                  type="range" min="0" max="1" step="0.05"
+                  value={params.plateElongation ?? 0.4}
+                  onChange={(e) => { handleAdvancedChange('plateElongation', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
+                />
+              </div>
            </div>
         )}
 

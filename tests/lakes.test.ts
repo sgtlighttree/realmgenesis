@@ -6,12 +6,14 @@ import { makeParams } from './helpers';
 const isLakeBiome = (b: BiomeType) => b === BiomeType.LAKE || b === BiomeType.SALT_LAKE;
 
 // Deterministic seeds discovered by scanning at 300 points under the V3 terrain
-// model:
-//   'k2'        -> exactly one salt lake (1 cell, hot + arid endorheic basin)
-//   'lakeworld' -> exactly one fresh lake (2 cells, cool basin)
+// model. Rescanned for D7 plateElongation (band/chain plate seeding) —
+// 'k2' no longer produces a lake under the shifted terrain; 'basin' does
+// and matches the same shape 'k2' used to (1-cell salt endorheic).
+//   'basin'     -> exactly one salt lake (1 cell, hot + arid endorheic basin)
+//   'lakeworld' -> exactly one fresh lake (2 cells, cool basin) — unchanged
 // The default 'test_seed' produces no depressions, which is why the existing
 // determinism/regression signatures stay byte-identical.
-const SALT_SEED = 'k2';
+const SALT_SEED = 'basin';
 const FRESH_SEED = 'lakeworld';
 
 describe('lakes', () => {
