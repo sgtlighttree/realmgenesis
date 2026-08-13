@@ -84,9 +84,10 @@ describe('every tunable param influences the world', () => {
   }, 120000);
 
   // borderRoughness is inert at the default 4-faction/300-cell test world
-  // under D7 plateElongation terrain (verified deterministic across reruns —
-  // not a flake); it is live at higher faction density (verified at
-  // numFactions 8/12/16). Isolate it there instead of the default seed.
+  // under the D7 plateJitter/boundaryRoughness 1.5 default terrain (verified
+  // deterministic across reruns — not a flake); it is live at higher faction
+  // density (verified at numFactions 8/12/16). Isolate it there instead of the
+  // default seed.
   it('borderRoughness changes civ borders at binding density', async () => {
     const smooth = await generateWorld(makeParams({ numFactions: 8, borderRoughness: 0.0 }));
     const rough = await generateWorld(makeParams({ numFactions: 8, borderRoughness: 0.9 }));
