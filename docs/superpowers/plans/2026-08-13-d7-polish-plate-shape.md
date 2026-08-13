@@ -76,10 +76,16 @@ describe('band seeding preserves plate connectivity', () => {
 });
 ```
 
-- [ ] **Step 2: Run it — expect a TYPE error / fail**
+Then write the genuine TDD-**RED** gate in `tests/paramLiveness.test.ts` (this is the assertion that honestly fails pre-implementation — before Steps 4–5, `plateElongation` is ignored, so 0.0 and 1.0 produce identical worlds). Add inside the V3-params test:
+```ts
+    expect(terrainSignature(await generateWorld(makeParams({ plateElongation: 0.0 }))))
+      .not.toBe(terrainSignature(await generateWorld(makeParams({ plateElongation: 1.0 }))));
+```
 
-Run: `npx vitest run tests/plateConnectivity.test.ts`
-Expected: FAIL — `plateElongation` not on `WorldParams` (or `makeParams` rejects the key).
+- [ ] **Step 2: Run both — connectivity GREEN (guard), liveness RED**
+
+Run: `npx vitest run tests/plateConnectivity.test.ts tests/paramLiveness.test.ts`
+Expected: `plateConnectivity` **PASSES** — it is a guard that must hold on today's code and after Step 4 (vitest does not typecheck, so the extra `plateElongation` key is inert at runtime; the world generates and connectivity already holds). `paramLiveness` **FAILS** on the new `.not.toBe` — identical worlds until the algorithm lands. That failure is the real RED gate; do not "fix" it by touching the type or the test. (If `paramLiveness` times out instead of asserting, re-run it in isolation — Session-10 flake.)
 
 - [ ] **Step 3: Add the param to the type + defaults**
 
@@ -113,15 +119,22 @@ function assignPlatesDijkstra(
 ): void {
 ```
 
-Replace the single-source seed loop (315–325) with a chain seeder:
+Replace the single-source seed loop (315–325) with a chain seeder. **A `claimed` set shared across the whole seed loop is load-bearing** (see the exclave note below):
 ```ts
   const chainLen = 1 + Math.round(elongation * 4);
+  // Cells already used as a dist-0 source by an EARLIER plate's chain. Disjoint
+  // source sets across plates are what keep connectivity by construction: two
+  // plates must never both seed the same cell, or one plate's chain gets severed
+  // into an exclave. A dist-0 pop always beats any positive-dist front, so every
+  // unclaimed source settles for its own plate.
+  const claimed = new Uint8Array(n);
   for (let j = 0; j < rotatedSeeds.length; j++) {
     if (!activeMask(j)) continue;
-    // nearest macro cell to the (rotated) seed
+    // nearest UNCLAIMED macro cell to the (rotated) seed
     let best = -1, bestD = Infinity;
     const s = rotatedSeeds[j];
     for (let i = 0; i < n; i++) {
+      if (claimed[i]) continue;
       const d = chordDistance(macroPoints[i], s);
       if (d < bestD) { bestD = d; best = i; }
     }
@@ -131,14 +144,15 @@ Replace the single-source seed loop (315–325) with a chain seeder:
     const vel = scale3(cross3(plates[j].eulerPole.axis, s), plates[j].eulerPole.rate);
     const axis = magnitude(vel) > 1e-9 ? normalizeVec(vel) : null;
 
-    // walk a connected chain of cells forward along the axis; all become dist-0 sources
-    const chain = new Set<number>([best]);
+    // walk a connected chain of UNCLAIMED cells forward along the axis; all become dist-0 sources
+    claimed[best] = 1;
     heap.push({ cell: best, plate: j, dist: 0 });
     let tip = best;
-    while (axis && chain.size < chainLen) {
+    let chainSize = 1;
+    while (axis && chainSize < chainLen) {
       let nextCell = -1, nextDot = 0; // require forward progress (dot > 0)
       for (const nId of macroNeighbors[tip]) {
-        if (chain.has(nId)) continue;
+        if (claimed[nId]) continue;
         const dir = normalizeVec({
           x: macroPoints[nId].x - macroPoints[tip].x,
           y: macroPoints[nId].y - macroPoints[tip].y,
@@ -148,13 +162,16 @@ Replace the single-source seed loop (315–325) with a chain seeder:
         if (d > nextDot || (d === nextDot && nextCell >= 0 && nId < nextCell)) { nextDot = d; nextCell = nId; }
       }
       if (nextCell < 0) break;
-      chain.add(nextCell);
+      claimed[nextCell] = 1;
       heap.push({ cell: nextCell, plate: j, dist: 0 });
       tip = nextCell;
+      chainSize++;
     }
   }
 ```
-> Note: `n`, `heap`, `chordDistance` are already in scope at that point in the function. The chain walk is pure geometry — **no RNG draw** — so `plateRng` order is untouched and `elongation === 0` (`chainLen === 1`) reproduces today's single-source seeding byte-identically.
+> **Why `claimed` (fable-advisor catch):** chains are 3–5 cells and proto-plate/microplate seeds are dense and boundary-adjacent, so two plates' chains can otherwise both push the same cell B at dist 0. The earlier plate wins the pop (plate-index tiebreak, line 312), severing the later plate's chain into two independently-grown regions with a foreign plate between them → **exclave**. It is seed-dependent, so a single-seed test can pass while other seeds violate the invariant. Sharing `claimed` across the seed loop makes the per-plate source sets disjoint, restoring connectivity by construction.
+>
+> Note: `n`, `heap`, `chordDistance` are already in scope. The chain walk is pure geometry — **no RNG draw** — so `plateRng` order is untouched and `elongation === 0` (`chainLen === 1`) reproduces today's single-source seeding byte-identically (the single nearest cell is never pre-claimed since each plate's nearest differs; if a rare tie pre-claims it, the plate falls to its next-nearest — still deterministic).
 
 - [ ] **Step 5: Update both call sites + thread the param**
 
@@ -182,13 +199,12 @@ Call site 2 (624–627):
 Run: `npx vitest run tests/plateConnectivity.test.ts`
 Expected: PASS (0 stray components). If it fails with stray > 0, a chain crossed into a disconnected region — check the `chain.has(nId)` guard and that all chain cells share `plate: j`.
 
-- [ ] **Step 7: Add the paramLiveness case**
+- [ ] **Step 7: Confirm the liveness gate is now GREEN**
 
-`tests/paramLiveness.test.ts` — inside the V3-params test (`it('V3 params change the terrain signature', ...)`), add an assertion mirroring the existing ones:
-```ts
-    expect(terrainSignature(await generateWorld(makeParams({ plateElongation: 0.0 }))))
-      .not.toBe(terrainSignature(await generateWorld(makeParams({ plateElongation: 1.0 }))));
-```
+The `plateElongation` `.not.toBe` assertion was written in Step 1. Re-run it — now that Steps 4–5 make the param live, it must PASS:
+
+Run: `npx vitest run tests/paramLiveness.test.ts`
+Expected: PASS (elongation 0.0 vs 1.0 now produce different terrain signatures). This RED→GREEN transition is the proof the param is wired.
 
 - [ ] **Step 8: Add the Controls slider**
 
@@ -337,16 +353,29 @@ At the start of the loop body (before 4b's `assignPlatesDijkstra`), rebuild from
 ```
 Change 4b's call to pass `effectiveEdgeCosts` instead of `edgeCosts`.
 
-- [ ] **Step 5: Set transform flags in 4c**
+- [ ] **Step 5: Set transform flags in 4c — indexed loop + per-cell reset**
 
-In the 4c neighbor loop, you already compute `relV` and `edgeNormal` and a shear term. Where a boundary is classified transform (tangential relative velocity dominates — `|relV·n|` small relative to `|relV|`, matching the existing shear branch), set the directed-edge flag for next step. Clear it otherwise so edges that stop being transforms revert:
+Two edits to 4c, both load-bearing:
+
+**(a) Convert 4c's neighbor loop from `for...of` to indexed**, so a directed-edge index `t` exists. The loop currently reads `for (const nId of macroNeighbors[i]) {` (~637). Change to:
 ```ts
-        // inside 4c, per neighbor nId at index t of macroNeighbors[i]:
-        const vn = dot3(relV, edgeNormal);
-        const speed = magnitude(relV);
-        isTransform[i][t] = speed > 1e-6 && Math.abs(vn) / speed < 0.4 ? 1 : 0;
+      const nRow = macroNeighbors[i];
+      for (let t = 0; t < nRow.length; t++) {
+        const nId = nRow[t];
+        if (plateIds[nId] === plateIds[i]) continue;
+        // ... existing body unchanged (relV, edgeNormal, vn, vnMag, vtMag, classification) ...
 ```
-> The flag is **overwritten** (set to 1 or 0) each step — this is the non-accumulating "as a SET" requirement. Reset the whole `isTransform` row for cells the loop visits; for cells with no cross-plate neighbor the flag stays 0.
+
+**(b) Reset the whole row before the neighbor loop, then set only cross-plate transform edges.** Because 4c `continue`s on same-plate edges (638), a flag left set from a prior step would never be cleared when an edge stops being a transform — the accumulation failure the task header warns against. At the **top of each cell `i`'s 4c body**, before the neighbor loop:
+```ts
+      isTransform[i].fill(0);
+```
+Then, inside the loop after the existing `vn` (650) and `vtMag` (651) are computed, reuse those locals (do NOT recompute — one transform definition, consistent with `injectMicroplates`' shear at line 474):
+```ts
+        // transform = tangential relative velocity dominates the normal component
+        isTransform[i][t] = vtMag > vnMag ? 1 : 0;
+```
+> `vnMag` (= `Math.abs(vn)`) and `vtMag` are already computed at 649–651. The flag is thus **rebuilt as a set** each step: cleared by `fill(0)`, then set to 1 only on current transform edges. Edges that stop being transforms revert to 0 next step; same-plate edges (skipped by `continue`) stay 0.
 
 - [ ] **Step 6: Run connectivity + determinism**
 
