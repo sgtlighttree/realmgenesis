@@ -836,25 +836,25 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                   className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
-              <div className="space-y-1" title="How irregularly plate seeds are distributed. 0 = uniform Fibonacci, 1 = chaotic boundaries with microplates.">
+              <div className="space-y-1" title="How irregularly plate seeds are distributed. 0 = uniform Fibonacci, 1 = chaotic, >1 = strongly varied plate sizes.">
                 <div className="flex justify-between text-xs text-ink-muted">
                   <label>Plate Jitter</label>
                   <span>{params.plateJitter?.toFixed(2) ?? '0.30'}</span>
                 </div>
                 <input
-                  type="range" min="0" max="1" step="0.05"
+                  type="range" min="0" max="3" step="0.05"
                   value={params.plateJitter ?? 0.3}
                   onChange={(e) => { handleAdvancedChange('plateJitter', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
-              <div className="space-y-1" title="How jagged/fractal plate boundaries are. 0 = clean great-circle arcs, 1 = highly irregular interlocking boundaries.">
+              <div className="space-y-1" title="How jagged/fractal plate boundaries are. 0 = clean great-circle arcs, 1 = highly irregular, >1 = extreme interlocking fracture.">
                 <div className="flex justify-between text-xs text-ink-muted">
                   <label>Boundary Roughness</label>
                   <span>{params.boundaryRoughness?.toFixed(2) ?? '0.30'}</span>
                 </div>
                 <input
-                  type="range" min="0" max="1" step="0.05"
+                  type="range" min="0" max="3" step="0.05"
                   value={params.boundaryRoughness ?? 0.3}
                   onChange={(e) => { handleAdvancedChange('boundaryRoughness', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
