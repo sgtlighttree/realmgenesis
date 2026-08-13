@@ -128,8 +128,8 @@ describe('every tunable param influences the world', () => {
       .toBe(terrainSignature(baseline));
   }, 120000);
 
-  // V3 terrain model params. V3 is now the live path (V3_ENABLED = true), so
-  // these must all influence the terrain signature.
+  // V3 terrain model params. V3 is the only terrain path, so these must all
+  // influence the terrain signature.
   it('V3 params change the terrain signature', async () => {
     const baseline = await generateWorld(makeParams());
     const baseSig = terrainSignature(baseline);
