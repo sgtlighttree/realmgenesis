@@ -35,7 +35,7 @@ function strayComponents(cells: { plateId: number; neighbors: number[] }[]): num
 // disconnected fine cells. This is out of Task 1's scope — Task 1 only fixes
 // macro-level chain-seed connectivity.
 describe('band seeding preserves plate connectivity', () => {
-  it('has 0 stray plate components at elongation 0.4', async () => {
+  it('seed "realmgenesis": 0 stray fine-mesh components (regression guard, not a general invariant)', async () => {
     const world = await generateWorld(makeParams({ seed: 'realmgenesis', plateElongation: 0.4 }));
     expect(strayComponents(world.cells as never)).toBe(0);
   }, 120000);

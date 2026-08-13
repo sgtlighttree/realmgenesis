@@ -160,7 +160,8 @@ describe('every tunable param influences the world', () => {
       expect(terrainSignature(world), `V3 param "${name}" appears to be dead — output unchanged`).not.toBe(baseSig);
     }
 
-    expect(terrainSignature(await generateWorld(makeParams({ plateElongation: 0.0 }))))
+    expect(terrainSignature(await generateWorld(makeParams({ plateElongation: 0.0 }))),
+      'param "plateElongation" appears to be dead — output unchanged')
       .not.toBe(terrainSignature(await generateWorld(makeParams({ plateElongation: 1.0 }))));
   }, 120000);
 });
