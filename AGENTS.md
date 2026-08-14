@@ -39,13 +39,13 @@ an update instead of a contradiction.
 
 ## Architecture Overview
 
-Before making significant changes, read [ARCHITECTURE.md](./ARCHITECTURE.md) for a complete overview of the codebase — the generation pipeline, data model, rendering architecture, state management, and key invariants. It is designed so an LLM (or a new contributor) can navigate the codebase confidently without reading every file.
+Before making significant changes, read [`docs/`](./docs/README.md) for a complete overview of the codebase — the generation pipeline, data model, rendering architecture, state management, and key invariants. Start at `docs/README.md`. (The old `ARCHITECTURE.md` monolith is archived at `docs/archive/` and known to drift.)
 
 Key entry points:
 
-- **All app state**: `App.tsx` — 24+ `useState` variables + edit-mode refs, prop-drilled to all children
+- **All app state**: `hooks/useWorldEngine.ts` — the state-owning hook, consumed by `components/shell/ShellApp.tsx` (the default route) and prop-drilled. (`App.tsx` is the legacy `?shell=classic` route.)
 - **Data types**: `types.ts` — `Cell`, `WorldData`, `WorldParams`, `BiomeType`
-- **Generation logic**: `utils/worldGen.ts` — `generateWorld()` (12-stage async pipeline, line 491)
+- **Generation logic**: `utils/worldGen.ts` — `generateWorld()` (runs in a Web Worker; V3 pipeline)
 - **Color mapping**: `utils/colors.ts` — `getCellColor(cell, viewMode, seaLevel, factionColors?)`
 - **Map painting**: `utils/paintUtils.ts` — brush BFS, stroke functions, undo snapshots
 - **Edit toolbar**: `components/EditToolbar.tsx` — paint/edit mode HUD
@@ -105,7 +105,7 @@ imperative subjects.
 - Functional components with `React.FC<Props>` type annotation
 - Props defined as `interface ComponentProps { ... }`
 - Use `useCallback` for event handlers passed as props, `useMemo` for expensive computations
-- `useState` for local state, all app-level state lives in `App.tsx`
+- `useState` for local state, all app-level state lives in `hooks/useWorldEngine.ts`
 - No class components
 
 ### Naming Conventions
@@ -130,7 +130,7 @@ imperative subjects.
 - Overlays: `backdrop-blur-md`, `bg-black/50`, `border-white/10`
 
 ### Architecture Patterns
-- Single source of truth: `App.tsx` holds all state, passes down via props
+- Single source of truth: `hooks/useWorldEngine.ts` holds all state, the shell passes it down via props
 - Utils are pure functions (no side effects except logging callbacks)
 - Services (e.g., `gemini.ts`) wrap external APIs with minimal abstraction
 - Components are presentational — no data fetching or generation logic
