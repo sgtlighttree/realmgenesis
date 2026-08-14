@@ -1,3 +1,14 @@
+> **📦 ARCHIVED — SUPERSEDED, KNOWN TO DRIFT.** This monolith was last broadly
+> accurate around Session 6. It **predates** the Web-Worker generation boundary
+> (D6 Stage 1), the V3 terrain model (Sessions 8–12), the F1 shell (now the
+> default route), the `plateInfluence`→`tectonicStrength` rename, lakes,
+> cultures, religions, routes, markers, and half the current `utils/` modules.
+> Do not trust any factual claim here. It is kept only so old links resolve and
+> as a topic checklist for [`../README.md`](../README.md), the current docs set.
+> Concretely stale: "No Web Workers are used", the V2 12-stage/K-means pipeline,
+> the 15-value biome enum (now 17), the 10-mode `ViewMode` (now 12), all
+> line-number anchors, and "state lives in `App.tsx`" (now `useWorldEngine.ts`).
+
 # RealmGenesis 3D -- Architecture Documentation
 
 ## Table of Contents
