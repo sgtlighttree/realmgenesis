@@ -926,6 +926,25 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                   className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
              </div>
+              {/* D1: Season is render-only — it recolors (temperature, snow line,
+                  biome edges) without regenerating. Neutral (0.5) shows the
+                  canonical annual-mean world. Read out as the subsolar latitude. */}
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-ink-muted">
+                  <label>Season (subsolar latitude)</label>
+                  <span>{(() => {
+                    const decl = (params.axialTilt || 0) * Math.sin(2 * Math.PI * ((params.season ?? 0.5)));
+                    return Math.abs(decl) < 0.05 ? 'Equinox (annual mean)' : `Sun ${decl >= 0 ? 'N' : 'S'} ${Math.abs(decl).toFixed(1)}°`;
+                  })()}</span>
+                </div>
+                <input
+                  type="range" min="0" max="1" step="0.01"
+                  value={params.season ?? 0.5}
+                  onChange={(e) => { handleChange('season', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
+                  disabled={!params.axialTilt}
+                />
+             </div>
              {/* ... (rest of climate sliders) ... */}
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-ink-muted">
