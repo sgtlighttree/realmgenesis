@@ -18,10 +18,77 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 - [ ] Major feature, for much, MUCH later: World Formats: Planet, Flat Earth (Disc, Rectangle, etc.)
 - [x] ~~Add a favicon just to clear the constant 404'ing~~ — **DONE Session 9** (`public/favicon.svg` + `<link rel=icon>`; 404 gone, 0 console errors).
 - [x] ~~**BUG found during Session 7 review:** undo stack never cleared on generation~~ — **FIXED** (commit `bf987db` "Clear undo stack on generation and load", in the merged stack; verified in Session 9 smoke: undo count → 0 / disabled after generate).
-- [ ] Seafloor Detail slider function more like a sea level controller.
-      ACTUALLY DO THIS NEXT AFTER D7 FINISH
+- [x] ~~Seafloor Detail slider function more like a sea level controller.~~
+      **DONE Session 13** — repurposed into `seafloorDepth` (0.3–2.0, default 1.0), a
+      linear ocean-floor depth datum in Stage-9b (mean water depth up/down, coastline
+      fixed), complementing `oceanDepth`'s contrast curve. Old `seafloorDetail` texture
+      knob retired (baked at 0.5). Commit `3a5a046`; spec in `docs/superpowers/specs/`.
 - [ ] Dedicated export workflow/screen for depthmaps, can use existing algorithms but as a pure pixel-based DEM data generator, not constrained by cell count, for use in other programs like Blender or game engines.
-- [ ] Actually make a comprehensive documentation even as were in the middle of an overhaul, just so the relatively static bits and decisions can live somewhere else.
+- [x] ~~Actually make a comprehensive documentation even as were in the middle of an overhaul, just so the relatively static bits and decisions can live somewhere else.~~
+      **DONE Session 13** — full `docs/` suite (11 topic docs + index) rebuilt from code,
+      three-doc rule established (`docs/`=settled · HANDOFF=live · ROADMAP=future). Stale
+      `ARCHITECTURE.md`/`AUDIT.md` archived; CLAUDE/README/AGENTS repointed. See `docs/README.md`.
+
+---
+
+## Session 13 (2026-08-14) — seafloorDepth datum + full docs/ suite
+
+On `main`, commits `3a5a046`..(this entry). **NOT pushed.** All gates green:
+typecheck 0, lint 0/29, **full suite 170 tests / 24 files pass** (ran the complete
+`npm test`, not just targeted — the M1 parallel-load flake did NOT recur), build OK.
+
+### seafloorDepth (commit `3a5a046`)
+
+Repurposed the "Seafloor Detail" slider into **`seafloorDepth`** (0.3–2.0, default
+1.0): a **linear** multiplier on each water cell's depth below `seaLevel`, in the
+Stage-9b remap block alongside `mountainHeight`/`oceanDepth`. `<1` raises the whole
+floor (shallower seas), `>1` sinks it (deeper abyss); relative bathymetry shape
+preserved, **coastline held fixed**. Complements `oceanDepth` (a *contrast* power-curve).
+
+- **Byte-identical at default** — `h' = sl − sl·min(1, shaped·sd)`; with `sd=1`,
+  `min(1, shaped)` is a no-op since `shaped ∈ [0,1]`. The block doesn't even fire at
+  defaults. Verified: full suite passes, `worldGen` determinism holds.
+- **Retired `seafloorDetail`** — its two internal jobs (abyssal-hill amplitude, GDH1
+  noise-damping) baked at the former 0.5 default in `tectonicsV3.ts`, so default worlds
+  are visually unchanged and the GDH1-protection stays. `paramLiveness` case swapped.
+  Precedent: `plateInfluence`→`tectonicStrength`.
+- Spec: `docs/superpowers/specs/2026-08-14-seafloor-depth-datum-design.md`.
+
+### Full docs/ suite (commits `4b4c291`..end)
+
+Matt asked for "a set of /docs" reviewing the whole codebase. Built a `docs/` suite,
+**rebuilt from code with file citations, NOT copied from the drifted monolith** (advisor's
+call — reorganizing the stale ARCHITECTURE.md would have laundered its wrong claims).
+
+- **The rule** (in `docs/README.md`): `docs/`=settled · `HANDOFF.md`=live · `ROADMAP.md`=future.
+- **11 topic docs**, all ✅: architecture, generation-pipeline, tectonics-v3, data-model,
+  params-reference, rendering, civilization, export, invariants, testing, ENGINEERING-NOTES.
+  The last three are the highest-value (decisions/gotchas/refuted-hypotheses); ENGINEERING-NOTES
+  fulfils the Session-12 promise to split out the shelved D7 levers.
+- **Archived** `ARCHITECTURE.md` → `docs/archive/ARCHITECTURE-legacy.md` and `AUDIT.md`
+  (2026-07-17, mostly resolved) → `docs/archive/audit-2026-07-17.md`, both with stale-notice headers.
+- **Repointed** CLAUDE.md, README.md, AGENTS.md at `docs/` and **fixed their drifted claims**
+  in the same pass: state is `useWorldEngine.ts`+shell (not App.tsx), generation is worker-run
+  V3 (not 12-stage main-thread), **no `plateInfluence` clamp exists** (renamed `tectonicStrength`,
+  V2 clamp deleted S11 — CLAUDE.md's copy was stale), Stage-9b remap includes `seafloorDepth`,
+  README `pnpm`→`npm`.
+
+### Drift corrected (verified against code, for the record)
+
+Legacy docs were ~6 sessions stale. Confirmed against source: BiomeType is **17** (added
+LAKE/SALT_LAKE), ViewMode is **12** (added culture/religion), `plateInfluence` is dead (only a
+stale `[0,2.0]` validation bound in `export.ts:468`), `DEFAULT_PARAMS` is in `useWorldEngine.ts`,
+`plateJitter`/`boundaryRoughness` default **1.5** (not 0.3), `detailLevel`/`civSizeVariance` are
+now live (old AUDIT flagged them dead — since fixed). Export surface now includes SVG+GeoJSON
+(E1/E2); PNG is 2K/4K/8K (16K/32K removed); save schema is v1.4 (params+civData+markers).
+
+### Open / next
+
+- **Nothing pushed.** `main` is ahead of `origin/main` by the whole session. Matt to decide push.
+- The `plateInfluence` stale validation key in `export.ts` is harmless (validator tolerates it)
+  but could be cleaned when convenient — noted in `docs/params-reference.md`.
+- Root `AGENTS.md` still has some line-number/`?shell` details worth a future pass; the
+  load-bearing state/pipeline claims are fixed.
 
 ---
 
