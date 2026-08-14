@@ -36,7 +36,7 @@ convention entrypoints, not reference docs.
 | [civilization.md](civilization.md) | Cultures → religions → factions → provinces → towns → routes → markers → AI lore | 🟡 pending |
 | [export.md](export.md) | PNG raster, SVG, GeoJSON, GLB, and save/load persistence | 🟡 pending |
 | [invariants.md](invariants.md) | Non-obvious facts that break things if violated — each re-verified against current code | ✅ current |
-| [testing.md](testing.md) | Test philosophy, the three determinism instruments, why there is no golden fixture, the param-liveness contract | 🟡 pending |
+| [testing.md](testing.md) | Test philosophy, the three determinism instruments, why there is no golden fixture, the param-liveness contract | ✅ current |
 | [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md) | Shelved-not-abandoned levers, refuted hypotheses, decisions with their rationale | ✅ current |
 | [archive/](archive/) | Point-in-time documents kept for the record, not current truth (dated) | — |
 
