@@ -27,7 +27,7 @@ convention entrypoints, not reference docs.
 
 | Doc | Covers | Status |
 |-----|--------|--------|
-| [architecture.md](architecture.md) | System overview, state ownership (`useWorldEngine`), shell routing, the Web-Worker generation boundary, module map | 🟡 pending |
+| [architecture.md](architecture.md) | System overview, state ownership (`useWorldEngine`), shell routing, the Web-Worker generation boundary, module map | ✅ current |
 | [generation-pipeline.md](generation-pipeline.md) | The worker → `generateWorld` stage pipeline as it runs today | 🟡 pending |
 | [tectonics-v3.md](tectonics-v3.md) | The V3 terrain model: crust fields, Euler-pole kinematics, Dijkstra plate growth, GDH1 bathymetry, microplates | 🟡 pending |
 | [data-model.md](data-model.md) | `Cell`, `WorldData`, `WorldParams`, `BiomeType` (17), `ViewMode` (12), and the six worldbuilding entity types | 🟡 pending |
