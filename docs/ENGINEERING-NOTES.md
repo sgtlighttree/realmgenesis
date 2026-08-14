@@ -133,6 +133,23 @@ or climate-driven `seaLevel` adjustment computed at generation, not in `getCellC
 Glacial land cover beyond the existing `ICE_CAP` biome + snow is also deferred —
 revisit only if polar lowlands read wrong once sea-ice is in.
 
+### D5 planetary params — day length, gravity, moons deferred
+D5 shipped **host star class only** (`starClass`, a live temperature hook). The
+other three listed params were deliberately NOT built, because none has a
+principled mechanical hook in the current model, and each would ship a permanent
+save-schema field:
+- **Day length** — no diurnal cycle exists; its only real hook is Coriolis
+  strength, which is D2 (ocean currents / wind) territory. Revisit with D2.
+- **Gravity** — there is **no principled mapping** from *g* to the normalized
+  `[0,1]` height field. Wiring it into the Stage-9b remap would be a fudge factor
+  that duplicates `mountainHeight` — a knob that lies. Do **not** add it as a
+  relief scaler. A real hook would need a physical erosion/isostasy model.
+- **Moons** — no tide model, so it would be a pure lore string. Revisit only if a
+  tide simulation is ever built.
+The guiding rule (same as the D3 sea-ice-temp decision): a param must do something
+real and non-duplicative, or it doesn't ship — a hollow param is worse than none
+because it's permanent once in the save schema.
+
 ---
 
 ## Standing decisions (settled, with rationale)
