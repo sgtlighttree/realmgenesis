@@ -7,6 +7,7 @@ import { detectFeatures } from './features';
 import { MinHeap, landTerrainStepCost } from './pathfinding';
 import { simulateTectonics, projectTectonicsToDisplay } from './tectonicsV3';
 import { annualMeanLatTemp } from './seasons';
+import { applyStarClass } from './planetary';
 
 // --- DATA STRUCTURES ---
 
@@ -578,7 +579,10 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
       // axis tilt. The per-season excursion is applied in the render layer
       // (utils/seasons.ts seasonalTemperatureDelta), never baked into cell.temperature.
       const phi = Math.asin(Math.max(-1, Math.min(1, c.center.y)));
-      let temp = annualMeanLatTemp(phi, params);
+      // D5: host star spectral class scales insolation (Kelvin-space, so a dimmer
+      // star cools the whole world and deepens the poles). G-class is an exact
+      // no-op, so default worlds stay byte-identical.
+      let temp = applyStarClass(annualMeanLatTemp(phi, params), params.starClass);
       const elevation = Math.max(0, c.height - params.seaLevel);
       temp -= elevation * 60;
       if (tempVariance > 0) temp += simplex.noise3D(c.center.x * 5, c.center.y * 5, c.center.z * 5) * tempVariance;

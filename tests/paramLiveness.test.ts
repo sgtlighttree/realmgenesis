@@ -39,6 +39,7 @@ const TERRAIN_PERTURBATIONS: Record<string, Perturbation> = {
   moistureTransport: { moistureTransport: 0.9 },
   temperatureVariance: { temperatureVariance: 15 },
   axialTilt: { axialTilt: 60 },
+  starClass: { starClass: 'M' }, // D5: cooler star lowers global temperature
 };
 
 // Civ-layer params: expect regionId/provinceId/population changes

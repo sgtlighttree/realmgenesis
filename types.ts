@@ -130,6 +130,7 @@ export interface WorldParams {
   moistureTransport: number;
   temperatureVariance: number;
   season: number; // D1: orbital position 0-1, 0.5 = neutral (annual mean). Render-only, not a generation param.
+  starClass: StarClass; // D5: host star spectral class — scales global insolation/temperature (G = Sun-like default).
 
   // Political
   numFactions: number;
@@ -294,6 +295,8 @@ export interface TectonicResult {
 export type DisplayMode = 'globe' | 'mercator' | 'dymaxion';
 export type InspectMode = 'click' | 'hover' | 'off';
 export type ViewMode = 'biome' | 'height' | 'height_bw' | 'temperature' | 'moisture' | 'plates' | 'political' | 'population' | 'province' | 'satellite' | 'culture' | 'religion';
+// D5: host star spectral class (hottest → coolest). Scales global insolation.
+export type StarClass = 'O' | 'B' | 'A' | 'F' | 'G' | 'K' | 'M';
 export type EditMode = 'off' | 'terrain-raise' | 'terrain-lower' | 'terrain-flatten' | 'terrain-smooth' | 'biome' | 'political' | 'world-edit';
 export type PaintStyle = 'adaptive' | 'freeform';
 export const POLITICAL_ERASER_ID = -1;

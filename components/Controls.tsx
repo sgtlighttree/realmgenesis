@@ -4,6 +4,7 @@ import { RefreshCw, Globe, Mountain, Lock, Unlock, Shuffle, Layers, Zap, Save, T
 import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
 import { downloadSVG, downloadGeoJSON } from '../utils/exportVector';
 import { NAME_STYLES } from '../utils/namegen';
+import { STAR_CLASSES, STAR_CLASS_LABELS } from '../utils/planetary';
 import { exportGLB } from '../utils/exportGLB';
 import { WorldData } from '../types';
 import DymaxionPreview2D from './DymaxionPreview2D';
@@ -210,6 +211,7 @@ const Controls: React.FC<ControlsProps> = ({
       params.moistureTransport,
       params.temperatureVariance,
       params.axialTilt,
+      params.starClass,
       autoUpdate
   ]);
 
@@ -943,6 +945,19 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                   onChange={(e) => { handleChange('season', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                   disabled={!params.axialTilt}
+                />
+             </div>
+              {/* D5: host star spectral class — scales global insolation
+                  (temperature → biomes → sea-ice all follow). G is Sun-like. */}
+              <div className="space-y-1">
+                <label className="text-xs text-ink-muted block mb-1">Host Star Class</label>
+                <Select
+                   value={params.starClass || 'G'}
+                   options={STAR_CLASSES.map(sc => ({ value: sc, label: STAR_CLASS_LABELS[sc] }))}
+                   onChange={(v) => { handleChange('starClass', v); }}
+                   label="Host star class"
+                   className="w-full"
+                   triggerClassName="w-full justify-between bg-surface-raised border-edge px-2 py-2 text-xs"
                 />
              </div>
              {/* ... (rest of climate sliders) ... */}

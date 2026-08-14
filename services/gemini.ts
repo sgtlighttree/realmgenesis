@@ -43,9 +43,10 @@ export const generateWorldLore = async (world: WorldData): Promise<LoreData> => 
 
   let prompt = `
     You are a fantasy world builder. 
-    World Context: 
+    World Context:
     - ${world.params.plates} tectonic plates.
     - Dominant biome: ${getDominantBiome(world)}.
+    - Orbits a ${world.params.starClass ?? 'G'}-class star.
     
     Factions: ${JSON.stringify(factionSummaries)}
   `;
