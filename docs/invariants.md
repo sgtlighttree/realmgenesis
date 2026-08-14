@@ -112,9 +112,10 @@ Never replace the `cells` array outside a full regeneration.
 ## Rendering
 
 ### 10. `seaLevel` must be passed to `getCellColor`
-Signature is `getCellColor(cell, viewMode, seaLevel, factionColors?)`. The third
-arg must be `world.params.seaLevel`, not a hardcoded value, or ocean/land color
-boundaries are wrong in every mode.
+Signature is `getCellColor(cell, viewMode, seaLevel, factionColors?,
+cultureColors?, religionColors?)` (`utils/colors.ts`, verified at
+`components/Map2D.tsx`). The third arg must be `world.params.seaLevel`, not a
+hardcoded value, or ocean/land color boundaries are wrong in every mode.
 
 ### 11. Political/province/culture/religion modes need a color map
 Pass `factionColors` (build via `buildFactionColorMap(civData)` from
