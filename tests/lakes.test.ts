@@ -6,18 +6,17 @@ import { makeParams } from './helpers';
 const isLakeBiome = (b: BiomeType) => b === BiomeType.LAKE || b === BiomeType.SALT_LAKE;
 
 // Deterministic seeds discovered by scanning at 300 points under the V3 terrain
-// model. Rescanned for D7 Task 1c (plateJitter/boundaryRoughness defaults
-// raised to 1.5) — 'basin' no longer produces a 1-cell salt-endorheic lake
-// under the shifted terrain (it now yields 3 cells); 's149' does produce a
-// single salt-endorheic lake, but at 4 cells rather than 1 — no 1-cell
-// candidate turned up across ~270 scanned seeds at the new defaults, so
-// this is the smallest deterministic match found.
-//   's149'      -> exactly one salt lake (4 cells, hot + arid endorheic basin)
+// model. Rescanned for D1 (seasonal cycle): untilting the wind block shifted
+// 's149's drainage so it now carries an outflow (open + fresh, meanMoist 0.03)
+// instead of the salt-endorheic basin it was under the old tilted-wind climate.
+// 's7' produces a single salt-endorheic lake (2 cells) at the D1 climate — the
+// first single-lake salt match in the s1..s130 rescan.
+//   's7'        -> exactly one salt lake (2 cells, arid endorheic basin)
 //   'lakeworld' -> exactly one fresh lake (2 cells, cool basin) — unchanged,
-//                  still passes at the new defaults
+//                  still passes under the D1 climate
 // The default 'test_seed' produces no depressions, which is why the existing
 // determinism/regression signatures stay byte-identical.
-const SALT_SEED = 's149';
+const SALT_SEED = 's7';
 const FRESH_SEED = 'lakeworld';
 
 describe('lakes', () => {
@@ -26,7 +25,7 @@ describe('lakes', () => {
     expect(world.lakes).toBeDefined();
     expect(world.lakes!.length).toBe(1);
     const lake = world.lakes![0];
-    expect(lake.cellIds.length).toBe(4);
+    expect(lake.cellIds.length).toBe(2);
     expect(lake.isSalt).toBe(true);
     expect(lake.isEndorheic).toBe(true);
     // Every lake cell carries the matching hydrology biome.
