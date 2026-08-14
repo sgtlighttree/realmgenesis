@@ -91,7 +91,7 @@ inline-comment source: `types.ts`. Defaults: `DEFAULT_PARAMS` in
 |-------|---------|---------|--------|
 | `loreLevel` | `1` | 1 / 2 / 3 | Gemini prompt depth: 1 = names, 2 = + provinces/towns, 3 = + backstories. |
 
-## Known stale validation key
-`utils/export.ts` still bounds-checks a `plateInfluence` key on import, but no
-engine code reads it (the param is `tectonicStrength`). Harmless — the validator
-tolerates it — but not a live parameter.
+## Validation note
+`utils/export.ts` bounds-checks `tectonicStrength: [0, 2.0]` on import. Before
+Session 13's follow-up this was a dead `plateInfluence` key (the V2 name); it was
+renamed to the live param, so the import validator now actually guards the value.

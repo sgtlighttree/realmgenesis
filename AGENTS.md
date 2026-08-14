@@ -46,7 +46,7 @@ Key entry points:
 - **All app state**: `hooks/useWorldEngine.ts` — the state-owning hook, consumed by `components/shell/ShellApp.tsx` (the default route) and prop-drilled. (`App.tsx` is the legacy `?shell=classic` route.)
 - **Data types**: `types.ts` — `Cell`, `WorldData`, `WorldParams`, `BiomeType`
 - **Generation logic**: `utils/worldGen.ts` — `generateWorld()` (runs in a Web Worker; V3 pipeline)
-- **Color mapping**: `utils/colors.ts` — `getCellColor(cell, viewMode, seaLevel, factionColors?)`
+- **Color mapping**: `utils/colors.ts` — `getCellColor(cell, viewMode, seaLevel, factionColors?, cultureColors?, religionColors?)`
 - **Map painting**: `utils/paintUtils.ts` — brush BFS, stroke functions, undo snapshots
 - **Edit toolbar**: `components/EditToolbar.tsx` — paint/edit mode HUD
 - **3D rendering**: `components/WorldViewer.tsx`
@@ -144,8 +144,8 @@ imperative subjects.
 - **Gemini API key is ephemeral** — never persisted to storage. Set via `setRuntimeApiKey()` or build-time `GEMINI_API_KEY` env var.
 - **WorldMesh geometry is reused across paint strokes** — `world.cells` identity is the structural key. Paint strokes mutate cells in place and shallow-copy `WorldData`; never replace the `cells` array outside full regeneration.
 - **Every `useMemo` geometry in `WorldViewer` has a matching disposal effect** — follow this pattern when adding scene elements.
-- **`plateInfluence` is clamped to [0.1, 1.0]** inside `worldGen.ts` — do not extend the slider beyond 1.0 without adjusting the clamp.
-- **`mountainHeight`/`oceanDepth` remap is after normalization, before climate** (Stage 9b) — inserting normalization steps requires adjusting remap placement.
+- **No `plateInfluence` clamp exists** — the param was renamed `tectonicStrength` (range 0–2, unclamped); the V2 `[0.1, 1.0]` clamp was deleted with the V2 engine. The `export.ts` validation now bounds `tectonicStrength` directly (no stale `plateInfluence` key remains).
+- **`mountainHeight`/`oceanDepth`/`seafloorDepth` remap is after normalization, before climate** (Stage 9b) — inserting normalization steps requires adjusting remap placement. `oceanDepth` is a contrast power-curve; `seafloorDepth` is a linear mean-depth datum.
 - **Batch `setParams` calls** — use functional updater `setParams(prev => ({ ...prev, ...changes }))` to avoid stale-closure overwrites.
 - **Edit undo uses a shared Map reference** — `currentStrokeSnapshot` ref is pushed to `undoStack` at stroke start and mutated in place; never replace it mid-stroke.
 - **Dymaxion pick buffer must mirror visible rasterization** — same pipeline, same rotation, same sizing.

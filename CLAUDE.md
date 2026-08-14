@@ -47,7 +47,7 @@ The param-liveness test (`tests/paramLiveness.test.ts`) fails if any `WorldParam
 - **Gemini API key is ephemeral** — never persisted to storage. Set via `setRuntimeApiKey()` or build-time `GEMINI_API_KEY` env var.
 - **WorldMesh geometry is reused across paint strokes** — `world.cells` identity is the structural key. Paint strokes mutate cells in place and shallow-copy `WorldData`; never replace the `cells` array outside full regeneration.
 - **Every `useMemo` geometry in `WorldViewer` has a matching disposal effect** — follow this pattern when adding scene elements.
-- **No `plateInfluence` clamp exists** — the param was renamed `tectonicStrength` (range 0–2, unclamped); the V2 `[0.1, 1.0]` clamp was deleted with the V2 engine. A stale `plateInfluence` bound lingers in `export.ts` validation but keys nothing.
+- **No `plateInfluence` clamp exists** — the param was renamed `tectonicStrength` (range 0–2, unclamped); the V2 `[0.1, 1.0]` clamp was deleted with the V2 engine. The `export.ts` import validator now bounds `tectonicStrength: [0, 2.0]` directly (the old dead `plateInfluence` key was renamed to it).
 - **`mountainHeight`/`oceanDepth`/`seafloorDepth` remap is after normalization, before climate** (Stage 9b) — inserting normalization steps requires adjusting remap placement. `oceanDepth` is a contrast power-curve; `seafloorDepth` is a linear mean-depth datum.
 - **Batch `setParams` calls** — use functional updater `setParams(prev => ({ ...prev, ...changes }))` to avoid stale-closure overwrites.
 - **Edit undo uses a shared Map reference** — `currentStrokeSnapshot` ref is pushed to `undoStack` at stroke start and mutated in place; never replace it mid-stroke.
