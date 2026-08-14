@@ -17,7 +17,7 @@ inline-comment source: `types.ts`. Defaults: `DEFAULT_PARAMS` in
 | `seed` | `'realmgenesis'` | string | Terrain RNG seed (hashed to uint32). Drives all terrain-derived names. |
 | `points` | `5000` | 2,000–200,000 | Voronoi cell count. Higher = more detail, slower. UI + import share the cap. |
 | `planetRadius` | `6371` | km | **Display only** — feeds the geodesic ruler/scale; no simulation effect. |
-| `axialTilt` | `23.5` | 0–90° | Modulates the temperature latitude gradient. |
+| `axialTilt` | `23.5` | −90–90° | **D1:** obliquity — the amplitude of the seasonal declination `δ(s)=tilt·sin(2πs)`. Enters generation via the orbit-averaged annual-mean temperature (Jensen on the quadratic latitude curve), no longer a static climate offset. Also drives the per-season excursion in the render layer. |
 
 ## Geography
 | Param | Default | Range | Effect |
@@ -67,6 +67,14 @@ inline-comment source: `types.ts`. Defaults: `DEFAULT_PARAMS` in
 | `rainfallMultiplier` | `1.0` | 0.1–3.0 | Scales moisture globally. |
 | `moistureTransport` | `0.5` | 0–1 | How far wind carries moisture inland. |
 | `temperatureVariance` | `5` | 0–20 | Simplex noise added to temperature. |
+| `season` | `0.5` | 0–1 | **D1: render-only** — orbital position; 0.5 = neutral (shows the canonical annual-mean world). Off-neutral shifts shown temperature, snow line, and biome edges (and D3 sea-ice extent) via a closed-form excursion in the color path. **Does not regenerate**, is **excluded from paramLiveness**, and is synced into `world.params` by an effect in `useWorldEngine`. |
+| `starClass` | `'G'` | O / B / A / F / G / K / M | **D5: generation param** — host star spectral class. Scales global insolation → temperature in Kelvin (Stefan-Boltzmann), cascading into biomes + D3 sea-ice. G = 1.0 exact no-op. Live in paramLiveness; **regenerates** on change (in the auto-update dep list). |
+
+> **season vs starClass — the render-only / generation split.** `season` never
+> re-runs generation (it recolors live) and is kept out of paramLiveness on
+> purpose. `starClass` *is* a generation param (changing it re-runs the world) and
+> is asserted live in paramLiveness. Both sit in `WorldParams`; do not move
+> `season` into the regen path or `starClass` out of it.
 
 ## Political
 | Param | Default | Range | Effect |
