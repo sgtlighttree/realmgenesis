@@ -88,6 +88,12 @@ line, and biome edges through the year. **Render-only — never regenerates.**
 - Default (0.5) is a **free fast-path**: `seasonalTemperatureDelta` returns 0 (tilt=0
   or season=0.5), so `displayBiome` skips `determineBiome` and default-world
   performance is unchanged.
+- **Verified in-browser** (Playwright, 5k cells, Mercator, biome view, 0 console
+  errors): driving the season slider 0.5→0.15 recolored the main map (pixel checksum
+  909197→895365) and the minimap, with the readout showing "Sun N 19.0°"
+  (δ=24°·sin(2π·0.15)≈19.4°, correct). Restoring to 0.5 returned the main map to
+  **checksum 909197 exactly** — the equinox-anchoring neutral==canonical invariant
+  holds pixel-for-pixel end-to-end.
 
 ### D1 — state wiring, UI, back-compat
 
