@@ -190,12 +190,24 @@ ROADMAP D5 → 🟡 PARTIAL. Deferred three recorded in ENGINEERING-NOTES.
   Sun-like" trigger confirmed in-browser), but the custom `Select` does NOT respond to
   synthetic `.click()` (same harness limitation as S9 synthetic events — a test-harness
   quirk, not a product bug). Engine effect is exhaustively verified by census +
-  paramLiveness + determinism instead. Its change→regen wiring is the identical Select→
-  handleChange→setParams→auto-update pattern as nameStyle/loreLevel (which work).
+  paramLiveness + determinism instead. Its change→regen wiring mirrors **`landStyle`**
+  (`Controls.tsx:641`) — a `Select` that IS in the auto-update regen dep list
+  (`:195`) and works — the correct precedent (NOT `nameStyle`, which is a Select but
+  deliberately *not* in the regen deps). `starClass` is likewise in the dep list (`:214`).
 - Full suite: **181 tests / 25 files green** (starClass adds a paramLiveness
   perturbation inside the existing loop, so no new test count).
 
 ### Session 14 status: D1 + D3 + D5(partial) all done, verified, committed, NOT pushed.
+
+**Open (non-blocking, for a future session):**
+- **`tests/helpers.ts` `makeParams` and `DEFAULT_PARAMS` can silently diverge** — both
+  are hand-maintained param lists (season + starClass were added to each by hand this
+  session). No test asserts they match, so a param added to one but not the other yields
+  a suite that passes against a config the app never runs. Worth a guard test that every
+  `DEFAULT_PARAMS` key exists in the helper (advisor flagged, S14).
+- **Next milestone-D rock: D2 (ocean currents)** — the big climate-realism lift, but it
+  re-baselines every climate test and pairs with the deferred D1 seasonal-moisture and
+  D5 day-length hooks. Or D4 (submaps), a separate architectural track.
 
 ---
 
