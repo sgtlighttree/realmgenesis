@@ -6,6 +6,7 @@ import { createNameGenerator, NameGenerator, NameStyle, NAME_STYLES } from './na
 import { detectFeatures } from './features';
 import { MinHeap, landTerrainStepCost } from './pathfinding';
 import { simulateTectonics, projectTectonicsToDisplay } from './tectonicsV3';
+import { annualMeanLatTemp } from './seasons';
 
 // --- DATA STRUCTURES ---
 
@@ -513,11 +514,9 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   progress();
   
   const windVectors = cells.map(c => {
-      const tiltRad = (params.axialTilt || 0) * (Math.PI / 180);
-      const cosT = Math.cos(tiltRad);
-      const sinT = Math.sin(tiltRad);
-      const rotY = c.center.y * cosT - c.center.x * sinT; 
-      const lat = Math.asin(Math.max(-1, Math.min(1, rotY))); 
+      // D1: wind bands use geometric latitude (not a tilted axis) so winds and
+      // temperature share one frame. Winds stay annual/static per the D1 scope.
+      const lat = Math.asin(Math.max(-1, Math.min(1, c.center.y)));
       const latDeg = lat * (180 / Math.PI);
       let dir = 1; 
       if (Math.abs(latDeg) < 30) dir = -1; 
@@ -573,11 +572,13 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   
   const tempVariance = params.temperatureVariance === undefined ? 5 : params.temperatureVariance;
   cells.forEach(c => {
-      const tiltRad = (params.axialTilt || 0) * (Math.PI / 180);
-      const rotY = c.center.y * Math.cos(tiltRad) - c.center.x * Math.sin(tiltRad);
-      const lat = Math.asin(Math.max(-1, Math.min(1, rotY)));
-      const latRatio = Math.abs(lat) / (Math.PI / 2); 
-      let temp = params.baseTemperature * (1 - latRatio * latRatio) + params.poleTemperature * (latRatio * latRatio);
+      // D1: annual-mean temperature = orbit average of the latitude curve at the
+      // cell's GEOMETRIC latitude. axialTilt enters through the orbit average
+      // (Jensen's inequality on the quadratic curve), replacing the old static
+      // axis tilt. The per-season excursion is applied in the render layer
+      // (utils/seasons.ts seasonalTemperatureDelta), never baked into cell.temperature.
+      const phi = Math.asin(Math.max(-1, Math.min(1, c.center.y)));
+      let temp = annualMeanLatTemp(phi, params);
       const elevation = Math.max(0, c.height - params.seaLevel);
       temp -= elevation * 60;
       if (tempVariance > 0) temp += simplex.noise3D(c.center.x * 5, c.center.y * 5, c.center.z * 5) * tempVariance;
