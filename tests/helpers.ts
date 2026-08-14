@@ -1,53 +1,19 @@
 import { WorldData, WorldParams } from '../types';
+import { DEFAULT_PARAMS } from '../utils/defaultParams';
 
-// Small, fast baseline for engine tests. Mirrors App.tsx DEFAULT_PARAMS with
-// a reduced point count and one erosion pass so a full generation stays fast.
+// Small, fast baseline for engine tests. Spreads the app's canonical
+// DEFAULT_PARAMS (single source of truth — divergence is now structurally
+// impossible) and overrides only the handful of keys that keep a full
+// generation fast: a reduced point count, fewer plates/factions, one erosion
+// pass, and stable test seeds.
 export const makeParams = (overrides: Partial<WorldParams> = {}): WorldParams => ({
+  ...DEFAULT_PARAMS,
   mapName: 'test',
   points: 300,
-  planetRadius: 6371,
-  axialTilt: 23.5,
   plates: 8,
-  seaLevel: 0.55,
-  roughness: 0.5,
-  detailLevel: 3,
-  landStyle: 'Continents',
-  cellJitter: 0.5,
-  noiseScale: 0.4,
-  ridgeBlend: 0.1,
-  mountainHeight: 1.0,
-  oceanDepth: 1.0,
-  maskType: 'None',
-  warpStrength: 0.5,
-  tectonicStrength: 0.5,
   erosionIterations: 1,
-  marginCoupling: 0.3,
-  numTimesteps: 20,
-  simulationResolution: 10000,
-  plateJitter: 1.5,
-  boundaryRoughness: 1.5,
-  spreadRate: 0.008,
-  seafloorDepth: 1.0,
-  microplateIntensity: 0.35,
-  plateElongation: 0.4,
-  baseTemperature: 30,
-  poleTemperature: -30,
-  rainfallMultiplier: 1.0,
-  moistureTransport: 0.5,
-  temperatureVariance: 5,
-  season: 0.5,
-  starClass: 'G',
   numFactions: 4,
   civSeed: 'test_civs',
-  borderRoughness: 0.2,
-  civSizeVariance: 0.5,
-  waterCrossingCost: 0.8,
-  territorialWaters: 0.15,
-  capitalSpacing: 0.5,
-  provinceSize: 0.5,
-  numCultures: 4,
-  nameStyle: 'fantasy',
-  loreLevel: 1,
   seed: 'test_seed',
   ...overrides,
 });

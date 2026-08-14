@@ -2,8 +2,8 @@
 
 Every generation parameter, its default, and what it does. Type +
 inline-comment source: `types.ts`. Defaults: `DEFAULT_PARAMS` in
-`hooks/useWorldEngine.ts` (mirrored in `tests/helpers.ts`). Sliders:
-`components/Controls.tsx`.
+`utils/defaultParams.ts` (imported by `hooks/useWorldEngine.ts`; spread by
+`tests/helpers.ts` `makeParams`). Sliders: `components/Controls.tsx`.
 
 > **Every tunable key here must influence output** — `tests/paramLiveness.test.ts`
 > fails otherwise. When you add a param, add it to that test. When a param reads

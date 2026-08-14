@@ -81,7 +81,8 @@ edit state, and every handler, and returns them as one object. `ShellApp`
 > **Correction:** legacy docs said "all state lives in `App.tsx`." `App.tsx` is
 > now the **legacy classic route** (`?shell=classic`); the live app is
 > `components/shell/ShellApp.tsx` on the hook. `DEFAULT_PARAMS` lives in
-> `useWorldEngine.ts`, not `App.tsx`.
+> `utils/defaultParams.ts` (imported by the hook; also spread by
+> `tests/helpers.ts` `makeParams`), not `App.tsx` or `useWorldEngine.ts`.
 
 ### 6. Batch multi-field `setParams` with the functional updater
 `setParams(prev => ({ ...prev, a, b }))`, never two sequential
