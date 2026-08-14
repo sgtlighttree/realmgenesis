@@ -200,10 +200,16 @@ Currents deflected by continents and Coriolis, feeding the existing 8-pass
 moisture transport and temperature model (warm currents moderating coastal
 climates — think Gulf Stream). A major realism upgrade to climate.
 
-### D3. Ice caps & glaciers  —  ⬜ TODO
+### D3. Ice caps & glaciers  —  ✅ DONE
+> _sea-ice shipped Session 14; sea-level coupling deferred to ENGINEERING-NOTES_
 
-Sea-ice extent from temperature (seasonal with D1), glacial land cover, and
-optionally sea-level coupling.
+Seasonal sea-ice: open-ocean cells below the seawater freeze point (−2°C, a
+physical constant) render as ice in the satellite + biome views — a render
+overlay reading D1's seasonal temperature, so polar caps form at neutral and
+migrate hemisphere-to-hemisphere with the season. `cell.biome` stays `OCEAN`
+(no civ/nav impact). Land ice stays with the existing `ICE_CAP` biome + snow.
+Sea-level coupling (ice ↔ coastline) deferred (it's a generation-stage change,
+not a render overlay). Spec: `docs/superpowers/specs/2026-08-15-d3-sea-ice-design.md`.
 
 ### D4. Regional zoom / submap generation  —  ⬜ TODO
 

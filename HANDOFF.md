@@ -137,9 +137,33 @@ milestone D.
   same "slider moved mid-generation is dropped" limitation documented in S8 for all
   params. Not fixed (rare; self-heals).
 - **Not pushed.** Matt to decide push.
-- **Next this session (Matt's direction): D3 (ice caps/glaciers) then D5 (planetary
-  params), consult advisor at each boundary.** D3 will touch the same temperature
-  threshold surface as D1 — build on the now-green seasonal temp.
+
+### D3 seasonal sea-ice (spec: `docs/superpowers/specs/2026-08-15-d3-sea-ice-design.md`)
+
+Built straight on D1's seasonal temperature. **Render overlay, no param, no
+generation change** — the shape the advisor pushed for (unattended-safe).
+
+- **Sea-ice** = open-ocean cell whose *seasonal* temp < `SEAWATER_FREEZE_C` (−2°C,
+  a **constant** in `utils/seasons.ts`, not a slider — seawater freeze is physics;
+  `poleTemperature`/`baseTemperature`/`axialTilt` are the real live iciness levers).
+  In `getCellColor`, an early-return before the switch: satellite + biome modes
+  only (NOT height/height_bw/temperature — those are data views), water cells,
+  lakes excluded. `cell.biome` stays OCEAN → no civ/nav impact. Colder → whiter
+  (`#bcd4e6`→`#fff` by `(freeze−temp)/15`).
+- **Land ice deliberately untouched** — existing `ICE_CAP` biome + snow-on-elevation
+  already handle it; a third whitening path would muddy satellite mode.
+- **Census gated the design** (advisor's blocking ask, run before color code):
+  defaults give 35/237 ocean cells (14.8%) below −2°C — visible polar caps, not
+  zero, not swamping. Edge band ~3 cells (mild `temperatureVariance` speckle, fine).
+- **Verified in-browser** (Playwright, 5k, Mercator, 0 errors): neutral season →
+  both poles full sea-ice (0 blue in polar bands), equator blue. Season 0.25
+  (N summer) → **north cap melts to open water (ice 17.3k→0.5k, ocean 0→16.8k),
+  south stays frozen** — ice migrates by hemisphere. Pure-function test asserts a
+  latitude that freezes in winter / thaws in summer. Full suite: **181 tests** (+2).
+- **Deferred** (ENGINEERING-NOTES): sea-level coupling (ice↔coastline is a
+  generation-stage change, not a render overlay) and glacial land beyond ICE_CAP.
+
+### Still next this session: D5 (planetary params), advisor at the boundary.
 
 ---
 

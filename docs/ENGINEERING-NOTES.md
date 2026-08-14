@@ -122,6 +122,17 @@ store per-cell, and interpolate — or gate it behind an explicit "simulate seas
 moisture" toggle so the default stays cheap. Pairs naturally with D2 (ocean
 currents), which also feeds the moisture model.
 
+### Sea-level coupling for ice — deferred from D3
+D3 (sea-ice) ships as a render overlay: cells below the seawater freeze point
+render as ice, no change to height or coastline. The "grounded" extension —
+glacial/sea ice mass lowering global sea level (more ice → lower `seaLevel` →
+exposed shelf) — is deliberately deferred. It changes the **coastline**, so it is
+a generation-stage / regeneration concern, not a render overlay, and it would ripple
+into hydrology, biomes, and civs. If revisited, it belongs alongside a seasonal-
+or climate-driven `seaLevel` adjustment computed at generation, not in `getCellColor`.
+Glacial land cover beyond the existing `ICE_CAP` biome + snow is also deferred —
+revisit only if polar lowlands read wrong once sea-ice is in.
+
 ---
 
 ## Standing decisions (settled, with rationale)
