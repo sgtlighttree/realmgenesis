@@ -31,6 +31,112 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## Session 14 (2026-08-14) — D1 seasonal cycle + export.ts validator cleanup
+
+On `main`, on top of Session 13. **NOT pushed.** All gates green: typecheck 0,
+lint 0/29, **full suite 179 tests / 25 files pass** (+9 seasons; no M1 flake this
+run), build OK, worker chunk still 84KB (no THREE leak from the new
+`colors → worldGen` import).
+
+### Warm-up: dead `plateInfluence` validator key (commits `69543a9`/`3ddf603`)
+
+Renamed the dead `plateInfluence: [0,2.0]` bound in `utils/export.ts`
+`validateWorldParams` to the live `tectonicStrength` (same range) — kills the dead
+key and starts guarding the real param on import. Synced the drifted claims in
+AGENTS.md (stale V2 `[0.1,1.0]` clamp note; 4-arg → 6-arg `getCellColor`), CLAUDE.md,
+and docs/. Precedent for the rename-not-delete: matches the S8 `plateInfluence`→
+`tectonicStrength` rename.
+
+### D1 seasonal cycle — the model (spec: `docs/superpowers/specs/2026-08-14-d1-seasonal-cycle-design.md`)
+
+A `season` slider (orbital position 0–1, neutral **0.5**) shifts temperature, snow
+line, and biome edges through the year. **Render-only — never regenerates.**
+
+- **`axialTilt` reinterpreted.** Was a static rotation baking a permanent climate
+  offset; now the amplitude of a seasonal excursion `δ(s) = tilt·sin(2πs)`.
+- **Stored `cell.temperature` = orbit-averaged annual mean** at *geometric* latitude
+  (`utils/seasons.ts annualMeanLatTemp`, 96-sample). This is the fix for the
+  **blocking trap**: if tilt only lived in the render layer, generation output would
+  be tilt-invariant at neutral and `paramLiveness` would fail (the `roughness`/S9
+  failure mode — `axialTilt` IS in that test, line 41). Because the latitude curve is
+  quadratic, the orbit average shifts with tilt (Jensen), so tilt stays live.
+  **Verified: paramLiveness 8/8 after the change.**
+- **Excursion anchored to the EQUINOX, not the annual mean** — this was a real
+  conceptual correction the unit test caught. `ΔT(s) = Tlat(φ−δ(s)) − Tlat(φ)`. The
+  mean-anchored form (`− annualMean`) equals `+C·tilt²/2` *uniformly* at any equinox
+  (~+2°C at tilt 23.5°), so no single instant is the annual mean and nudging off
+  neutral would **pop every cell ~2°C**. Equinox-anchoring makes ΔT≡0 at neutral
+  *continuously* → neutral view = canonical annual-mean world, no pop. Stored temp
+  still uses the orbit mean, so liveness is unaffected by the anchor choice.
+- **Wind block untilted** to geometric latitude (coherence: winds + temp share one
+  axis). Winds stay annual per scope. **This is what shifted the lakes fixture (below).**
+
+### D1 — Option B (biomes shift, civs frozen), render threading
+
+- Canonical `cell.biome`/`cell.temperature` are **never mutated** (civs/export/labels
+  stay annual). `getCellColor` gained a 7th optional `seasonalDelta` arg; at a
+  non-neutral season it derives shown temp + a **display-only** biome
+  (`determineBiome(height, T(s), moistureAnnual, seaLevel)`, land cells only — never
+  water/lakes). Threaded through **8 surfaces**: Map2D ×2, WorldViewer, MiniMap,
+  export.ts ×2, exportVector, exportGLB. Exports render **as-displayed**.
+- **`DymaxionPreview2D` deliberately left season-neutral** — it's a projection-fold
+  settings preview (already omits faction colors); a stable reference beats a
+  slider-reactive one. (Spec lists it; the exclusion is intentional, not a miss.)
+- **`colors.ts` now imports `determineBiome` from `worldGen`** (same pattern as
+  paintUtils). No cycle (worldGen doesn't import colors) and no worker bloat
+  (verified: worker chunk unchanged at 84KB — colors/THREE stay out of the worker).
+- Default (0.5) is a **free fast-path**: `seasonalTemperatureDelta` returns 0 (tilt=0
+  or season=0.5), so `displayBiome` skips `determineBiome` and default-world
+  performance is unchanged.
+
+### D1 — state wiring, UI, back-compat
+
+- **Sync effect** in `useWorldEngine` (`useEffect([params.season])`): pushes
+  `params.season` into `world.params.season` keeping `world.cells` identity → viewers
+  redraw, WorldMesh geometry reused (paint-stroke pattern). Can't loop (setWorld only;
+  returns `prev` when unchanged).
+- **Season slider** in Controls (Climate tab, after Axial Tilt), read out as subsolar
+  latitude ("Sun N 23.5°" / "Equinox (annual mean)"), disabled when tilt=0. **Not** in
+  the auto-update regen dep list.
+- **Inspector** shows "· now X°C" beside the canonical temp when off-neutral (avoids
+  panel/map disagreement).
+- **Old-save back-compat:** `withParamDefaults` in export.ts defaults a missing
+  `season` to 0.5 (pattern of nameStyle/numCultures); helper/UI also use `?? 0.5`.
+  `validateWorldParams` bounds `season: [0,1]`.
+
+### D1 — lakes fixture re-baseline (`tests/lakes.test.ts`)
+
+Untilting the wind block shifted `s149`'s hydrology: **diagnosed directly** (advisor's
+call — check before scanning) — it's now 1 lake / 4 cells but **open + fresh**
+(gained an outflow; meanMoist 0.03), no longer salt-endorheic. Terrain/drainage
+shift → seed replacement (S9/S12 precedent: change the constant + cell count only,
+**no structural loosening** of the assertion). Rescanned s1..s130: **`s7`** = single
+salt-endorheic lake, 2 cells. `SALT_SEED s149→s7`, cell count `4→2`. `lakeworld`
+(fresh) unchanged. **Determinism break was explicitly authorized by Matt** for
+milestone D.
+
+- **Instrument note:** the first scan attempts piped vitest `console.log` and got
+  *nothing* (not even the unconditional summary line) — vitest console through a pipe
+  was swallowed. Fix: have the scan `fs.writeFileSync` a JSON scratchpad and read that.
+  Don't trust a piped-console scan that emits zero.
+
+### Deferred / open
+
+- **Seasonal wind + moisture (monsoons)** deferred to `docs/ENGINEERING-NOTES.md`
+  ("Deferred — Milestone D climate depth"): needs the 8-pass moisture solver per
+  season (can't be a free formula), and would break the free O(n) biome-at-season
+  recompute (biome would depend on a per-season moisture field). Revisit with D2.
+- **Edge (pre-existing class):** changing `season` *during* a manual generate leaves
+  `world.params.season` at the gen-time snapshot until the slider is next touched —
+  same "slider moved mid-generation is dropped" limitation documented in S8 for all
+  params. Not fixed (rare; self-heals).
+- **Not pushed.** Matt to decide push.
+- **Next this session (Matt's direction): D3 (ice caps/glaciers) then D5 (planetary
+  params), consult advisor at each boundary.** D3 will touch the same temperature
+  threshold surface as D1 — build on the now-green seasonal temp.
+
+---
+
 ## Session 13 (2026-08-14) — seafloorDepth datum + full docs/ suite
 
 On `main`, commits `3a5a046`..(this entry). **NOT pushed.** All gates green:

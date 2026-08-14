@@ -32,9 +32,20 @@ noise) are additive, so the seasonal excursion is a pure function of latitude an
 φ        = asin(clamp(cell.center.y, -1, 1))        // geometric latitude, radians
 Tlat(ψ)  = baseTemperature·(1 − r²) + poleTemperature·r²,   r = |ψ| / (π/2)
 δ(s)     = axialTilt_rad · sin(2π·s)                 // subsolar declination, s ∈ [0,1)
-Tmean_lat(φ) = ⟨ Tlat(φ − δ(s)) ⟩ over one orbit     // 12–24 sample average
-ΔT(φ, s) = Tlat(φ − δ(s)) − Tmean_lat(φ)             // seasonal excursion, mean 0 by construction
+Tmean_lat(φ) = ⟨ Tlat(φ − δ(s)) ⟩ over one orbit     // orbit average (96 samples)
+ΔT(φ, s) = Tlat(φ − δ(s)) − Tlat(φ)                  // seasonal excursion, ANCHORED TO EQUINOX
 ```
+
+**Why the excursion is anchored to the equinox, not the annual mean.** The
+mean-anchored form `ΔT = Tlat(φ−δ) − Tmean_lat(φ)` is physically the "true"
+deviation but has a fatal UX flaw: at any equinox (δ=0) it equals `Tlat(φ) −
+Tmean_lat(φ) = +C·tilt²/2` **uniformly** (C = (base−pole)/(π/2)², ≈ +2°C at
+tilt 23.5°), so no single season instant reproduces the annual mean, and nudging
+the slider off neutral would pop every cell ~2°C at once. Anchoring to the
+equinox — `ΔT = Tlat(φ−δ(s)) − Tlat(φ)` — makes `ΔT ≡ 0` at the neutral season
+(s = 0.5) *continuously*, so the neutral view is exactly the canonical
+annual-mean world with no discontinuity. The stored temperature still uses
+`Tmean_lat` (below), so `axialTilt` stays live regardless of the excursion anchor.
 
 - **Stored (generation):** `cell.temperature = Tmean_lat(φ) − elevation·60 + noise·temperatureVariance`.
   This is the orbit-averaged annual mean. It keeps `axialTilt` affecting generated
@@ -74,8 +85,11 @@ byte-identical to today). A trailing optional (over a 7th positional) is chosen 
 
 Each render path computes the per-cell delta once via a shared pure helper
 `seasonalTemperatureDelta(cell, params)` (returns 0 when `season === 0.5`) and passes it.
-**9 call sites:** `Map2D.tsx` (×2), `WorldViewer.tsx`, `MiniMap.tsx`, `DymaxionPreview2D.tsx`,
+**8 threaded surfaces:** `Map2D.tsx` (×2), `WorldViewer.tsx`, `MiniMap.tsx`,
 `utils/export.ts` (×2), `utils/exportVector.ts`, `utils/exportGLB.ts`.
+`DymaxionPreview2D.tsx` is **deliberately left season-neutral** — it is a
+projection-fold settings preview (it already omits faction colors), and a stable
+reference image is more useful there than one that shifts with the season slider.
 
 - **Displayed biome:** in `Map2D`/`WorldViewer` biome + satellite modes, the color path
   derives the seasonal biome from the seasonal temperature for display only. `cell.biome`

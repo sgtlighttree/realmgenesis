@@ -180,11 +180,19 @@ map overlays, cheap once C1–C3 exist.
 Features that exploit the sphere-native architecture — the category where
 RealmGenesis can do things no flat-map tool can.
 
-### D1. Seasonal cycle  —  ⬜ TODO
+### D1. Seasonal cycle  —  ✅ DONE
+> _shipped Session 14; wind/moisture-monsoon variant deferred to ENGINEERING-NOTES_
 
-`axialTilt` currently produces a single static climate. Compute insolation
-per orbital position for a season slider: temperature bands, ice extent, and
-optionally biome edges shift through the year.
+`axialTilt` was a static climate offset; it's now the amplitude of a seasonal
+excursion. A `season` slider (orbital position, neutral at 0.5) shifts
+temperature, snow line, and biome edges through the year — render-only, no
+regeneration. Stored `cell.temperature` is the tilt-dependent orbit-averaged
+annual mean (keeps `axialTilt` a live generation param); the per-season excursion
+is a closed-form per-cell formula (`utils/seasons.ts`) applied in the color path,
+anchored to the equinox so neutral reproduces the canonical annual-mean world.
+Biomes shift for display; civs/export/labels stay pinned to the annual world.
+Wind + moisture stay annual (the monsoon variant is deferred). Spec:
+`docs/superpowers/specs/2026-08-14-d1-seasonal-cycle-design.md`.
 
 ### D2. Ocean currents  —  ⬜ TODO
 

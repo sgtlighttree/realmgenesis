@@ -97,6 +97,33 @@ the research report cited in HANDOFF Session 10/12.
 
 ---
 
+## Deferred — Milestone D climate depth
+
+### Seasonal wind + moisture (monsoons) — deferred from D1
+D1 (seasonal cycle) shipped with **temperature + ice/biome edges** moving through
+the year, but **wind and moisture stay annual**. The richer variant: rerun the
+wind-band classification and the 8-pass moisture transport solver per season so
+wet/dry seasons and monsoon reversals appear (subsolar point drags the ITCZ, wind
+bands migrate, rain shifts hemisphere).
+
+Deferred deliberately, two reasons:
+1. **Cost.** The 8-pass moisture solver is the expensive part of the climate pass.
+   D1's temperature excursion is a closed-form per-cell formula
+   (`utils/seasons.ts`), recomputed live in the render layer for free. Seasonal
+   moisture cannot be — it needs the solver, so it would be either a per-season
+   regeneration or a set of precomputed seasonal moisture snapshots.
+2. **Architecture.** D1's seasonal biome recompute is a free O(n) pure function
+   because moisture is annual: `determineBiome(height, T(s), moistureAnnual, sl)`.
+   If moisture also varied by season, biome-at-season would depend on a per-season
+   moisture field, breaking the "recompute biome live in the color path" seam.
+
+If revisited: precompute N seasonal moisture fields at generation (N≈4–12),
+store per-cell, and interpolate — or gate it behind an explicit "simulate seasonal
+moisture" toggle so the default stays cheap. Pairs naturally with D2 (ocean
+currents), which also feeds the moisture model.
+
+---
+
 ## Standing decisions (settled, with rationale)
 
 ### The V3 terrain model is the only path
