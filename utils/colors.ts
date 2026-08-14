@@ -1,6 +1,7 @@
 import { BiomeType, Cell, CivData, CultureData, ReligionData, ViewMode } from '../types';
 import * as THREE from 'three';
 import { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS } from './palette';
+import { determineBiome } from './worldGen';
 
 export { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS };
 
@@ -87,8 +88,20 @@ const getProvinceVariant = (baseColorHex: string, provId: number, strength = 1):
   return c;
 };
 
-export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, factionColors?: Map<number, string>, cultureColors?: Map<number, string>, religionColors?: Map<number, string>): THREE.Color => {
+export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, factionColors?: Map<number, string>, cultureColors?: Map<number, string>, religionColors?: Map<number, string>, seasonalDelta?: number): THREE.Color => {
   const color = new THREE.Color();
+
+  // D1: at a non-neutral season the render layer passes a per-cell temperature
+  // excursion. Shown temperature = stored (annual-mean) + delta; the DISPLAYED
+  // biome is re-derived from it for land cells only (never for water/lakes,
+  // which are hydrology-derived and outside determineBiome's remit). cell.biome
+  // and cell.temperature themselves are never mutated — civs/export stay canonical.
+  const seasonalTemp = cell.temperature + (seasonalDelta ?? 0);
+  const displayBiome =
+    seasonalDelta && cell.height >= seaLevel &&
+    cell.biome !== BiomeType.LAKE && cell.biome !== BiomeType.SALT_LAKE
+      ? determineBiome(cell.height, seasonalTemp, cell.moisture, seaLevel)
+      : cell.biome;
 
   switch (mode) {
     case 'satellite':
@@ -102,7 +115,7 @@ export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, facti
          color.setHex(cell.biome === BiomeType.SALT_LAKE ? 0xd2e6df : 0x2f7fa6);
       } else {
          const t = (cell.height - seaLevel) / (1 - seaLevel);
-         switch(cell.biome) {
+         switch(displayBiome) {
              case BiomeType.ICE_CAP: color.setHex(0xffffff); break;
              case BiomeType.TUNDRA: color.setHex(0x78766a); break;
              case BiomeType.HOT_DESERT: color.setHex(0xdabba0); break;
@@ -119,8 +132,8 @@ export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, facti
              default: color.setHex(0x335533);
          }
          let snowThreshold = 0.65;
-         if (cell.temperature > 20) snowThreshold = 0.85;
-         if (t > 0.35 && cell.biome !== BiomeType.ICE_CAP) {
+         if (seasonalTemp > 20) snowThreshold = 0.85;
+         if (t > 0.35 && displayBiome !== BiomeType.ICE_CAP) {
              const rockFactor = Math.min(1, (t - 0.35) * 4);
              color.lerp(new THREE.Color(0x524e49), rockFactor);
          }
@@ -161,7 +174,7 @@ export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, facti
     case 'temperature':
       const minT = -30;
       const maxT = 50;
-      const tNorm = Math.max(0, Math.min(1, (cell.temperature - minT) / (maxT - minT)));
+      const tNorm = Math.max(0, Math.min(1, (seasonalTemp - minT) / (maxT - minT)));
       color.setHSL(0.65 - (tNorm * 0.65), 0.8, 0.5);
       break;
 
@@ -273,7 +286,7 @@ export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, facti
 
     case 'biome':
     default:
-      color.set(BIOME_COLORS[cell.biome] || '#ff00ff');
+      color.set(BIOME_COLORS[displayBiome] || '#ff00ff');
       break;
   }
 
