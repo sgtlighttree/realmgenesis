@@ -31,6 +31,35 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## Session 15 (2026-08-15) — DEFAULT_PARAMS single-source (S14 debt closed)
+
+On `main`, commit `a4d68ca`, on top of the 14-commit unpushed S13/S14 stack.
+**NOT pushed** (Matt's call — third session running). Gates: typecheck 0, lint
+0/29, determinism + paramLiveness **14 pass** (value-identical refactor; full
+suite not re-run — no output change possible).
+
+Closed the S14 "`makeParams`/`DEFAULT_PARAMS` can silently diverge" item, but
+**reframed first** (advisor concurred): every `WorldParams` key is *required*, so
+strict typecheck already forced both lists to carry every key — a key-set guard
+test would assert what the gate enforces, and a value-equality test is unwritable
+(`makeParams` intentionally differs on 7 keys for speed). The real (narrow) gap was
+a future *optional* key.
+
+**Structural fix, not a test.** Extracted `DEFAULT_PARAMS` → `utils/defaultParams.ts`
+(types-only import — dodges the `useWorldEngine → worldGenClient → worldGen.worker?worker`
+chain that's unresolvable under vitest). `helpers.ts` `makeParams` now spreads it +
+the 7-key test delta (`mapName/points/plates/erosionIterations/numFactions/civSeed/seed`).
+Value-identical → **no determinism break, no re-baseline** (proven: worldGen determinism
+test still green). Divergence is now impossible by construction. Docs repointed
+(architecture/invariants/params-reference).
+
+**Next fork surfaced to Matt** (all his call — commitment boundary): the big
+Milestone-D tracks (D2 ocean currents / D4 submaps) vs. his own unchecked HANDOFF
+notes — the self-contained **depthmap/DEM export screen** (line 26) is a better
+"full auto" candidate than D2 (touches no climate test, reuses existing algorithms).
+
+---
+
 ## Session 14 (2026-08-14) — D1 seasonal cycle + export.ts validator cleanup
 
 On `main`, on top of Session 13. **NOT pushed.** All gates green: typecheck 0,
