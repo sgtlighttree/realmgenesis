@@ -36,6 +36,7 @@ export const makeParams = (overrides: Partial<WorldParams> = {}): WorldParams =>
   moistureTransport: 0.5,
   temperatureVariance: 5,
   season: 0.5,
+  starClass: 'G',
   numFactions: 4,
   civSeed: 'test_civs',
   borderRoughness: 0.2,

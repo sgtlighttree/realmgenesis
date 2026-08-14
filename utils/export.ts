@@ -21,6 +21,8 @@ const withParamDefaults = (params: WorldParams): WorldParams => ({
   numCultures: typeof params.numCultures === 'number' && isFinite(params.numCultures) ? params.numCultures : 4,
   // D1: pre-D1 saves lack season → default to the neutral (annual-mean) point.
   season: typeof params.season === 'number' && isFinite(params.season) ? params.season : 0.5,
+  // D5: pre-D5 saves lack starClass → default to Sun-like G (no-op).
+  starClass: (['O', 'B', 'A', 'F', 'G', 'K', 'M'] as const).includes(params.starClass) ? params.starClass : 'G',
 });
 
 // Matches the options offered in the Export tab. 16K+ exceeded browser
@@ -503,6 +505,7 @@ export const validateWorldParams = (params: unknown): params is Record<string, u
     if ('landStyle' in p && typeof p.landStyle !== 'string') return false;
     if ('maskType' in p && typeof p.maskType !== 'string') return false;
     if ('nameStyle' in p && typeof p.nameStyle !== 'string') return false;
+    if ('starClass' in p && !['O', 'B', 'A', 'F', 'G', 'K', 'M'].includes(p.starClass as string)) return false;
     if ('loreLevel' in p) {
         const ll = p.loreLevel;
         if (typeof ll !== 'number' || ![1, 2, 3].includes(ll)) return false;

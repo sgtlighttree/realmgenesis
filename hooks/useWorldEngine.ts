@@ -42,6 +42,7 @@ const DEFAULT_PARAMS: WorldParams = {
   moistureTransport: 0.5,
   temperatureVariance: 5,
   season: 0.5,
+  starClass: 'G',
   numFactions: 6,
   civSeed: 'realmgenesis_civs',
   borderRoughness: 0.2, 
