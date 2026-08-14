@@ -52,9 +52,9 @@ step after erosion, move the remap after it too.
 
 ### 3. There is no `plateInfluence` clamp any more
 The V3 terrain model uses `tectonicStrength` (renamed from `plateInfluence` in
-Session 8) with **no `[0.1, 1.0]` clamp**. A stale validation bound
-`plateInfluence: [0, 2.0]` still lingers in `utils/export.ts` but keys nothing
-in the engine.
+Session 8) with **no `[0.1, 1.0]` clamp**. The import validator in
+`utils/export.ts` bounds it as `tectonicStrength: [0, 2.0]` (the old dead
+`plateInfluence` key was renamed to the live param post-Session-13).
 
 > **Correction:** legacy invariant #18 (and the CLAUDE.md copy) claimed
 > `plateInfluence` is hard-clamped to `[0.1, 1.0]` inside `worldGen.ts`. That

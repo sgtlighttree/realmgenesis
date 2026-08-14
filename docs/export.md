@@ -61,6 +61,6 @@ Imports are defended: `validateWorldParams` bounds-checks numeric params;
 rather than crashing); `validateMarkers` sanitizes the marker array. `civData`
 and markers are metadata, so a failed check is non-fatal.
 
-> The params validator still tolerates a `plateInfluence` bound that keys nothing
-> live (the param is `tectonicStrength`) — see
+> The params validator bounds `tectonicStrength: [0, 2.0]` (renamed from the old
+> dead `plateInfluence` key post-Session-13) — see
 > [params-reference.md](params-reference.md).
