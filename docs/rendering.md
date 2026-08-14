@@ -2,8 +2,9 @@
 
 Three surfaces share one coloring function and one world: the 3D globe, the 2D
 map, and the export paths. The single source of per-cell color is
-`getCellColor(cell, viewMode, seaLevel, factionColors?)` in `utils/colors.ts` —
-change it once and globe, Map2D, minimap, PNG, and GLB all follow.
+`getCellColor(cell, viewMode, seaLevel, factionColors?, cultureColors?,
+religionColors?)` in `utils/colors.ts` — change it once and globe, Map2D,
+minimap, PNG, and GLB all follow.
 
 The GPU-lifecycle and pick-buffer mechanics that break things if violated live
 in [invariants.md](invariants.md) §10–§17; this doc is the map of the surfaces.
