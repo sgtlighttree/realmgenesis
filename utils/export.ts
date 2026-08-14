@@ -2,6 +2,7 @@ import * as d3 from 'd3';
 import { geoWinkel3, geoRobinson, geoMollweide } from 'd3-geo-projection';
 import { WorldData, ViewMode, WorldParams, CivData, DymaxionSettings, LabelVisibility, DEFAULT_LABEL_VISIBILITY, MarkerData, MarkerKind, RouteData } from '../types';
 import { buildFactionColorMap, buildCultureColorMap, buildReligionColorMap, getCellColor } from './colors';
+import { seasonalTemperatureDelta } from './seasons';
 import { buildDymaxionNet } from './dymaxion';
 import { insideTri, barycentric, normalizeVec, toLonLat, projectToDymaxionNet, Point2 } from './geo';
 import { collectLabels, drawMapLabels } from './labels';
@@ -18,6 +19,8 @@ const withParamDefaults = (params: WorldParams): WorldParams => ({
   ...params,
   nameStyle: NAME_STYLES.includes(params.nameStyle as NameStyle) ? params.nameStyle : 'fantasy',
   numCultures: typeof params.numCultures === 'number' && isFinite(params.numCultures) ? params.numCultures : 4,
+  // D1: pre-D1 saves lack season → default to the neutral (annual-mean) point.
+  season: typeof params.season === 'number' && isFinite(params.season) ? params.season : 0.5,
 });
 
 // Matches the options offered in the Export tab. 16K+ exceeded browser
@@ -93,7 +96,7 @@ const renderEquirectangular = (
   world.cells.forEach((cell, i) => {
     const feature = world.geoJson.features[i];
     if (!feature) return;
-    const threeColor = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors);
+    const threeColor = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors, seasonalTemperatureDelta(cell, world.params));
     if (shadeMap) threeColor.multiplyScalar(shadeMap[cell.id]);
     const hexColor = '#' + threeColor.getHexString();
     ctx.beginPath();
@@ -350,7 +353,7 @@ export const exportMap = async (
   world.cells.forEach((cell, i) => {
     const feature = world.geoJson.features[i];
     if (!feature) return;
-    const threeColor = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors);
+    const threeColor = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors, seasonalTemperatureDelta(cell, world.params));
     if (shadeMap) threeColor.multiplyScalar(shadeMap[cell.id]);
     const hexColor = '#' + threeColor.getHexString();
     ctx.beginPath();
@@ -472,6 +475,7 @@ export const validateWorldParams = (params: unknown): params is Record<string, u
         rainfallMultiplier: [0, 3],
         moistureTransport: [0, 1],
         temperatureVariance: [0, 20],
+        season: [0, 1],
         numFactions: [2, 20],
         numCultures: [2, 8],
         capitalSpacing: [0, 1],

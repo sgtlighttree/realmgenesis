@@ -2,6 +2,7 @@ import * as d3 from 'd3';
 import { geoWinkel3, geoRobinson, geoMollweide } from 'd3-geo-projection';
 import { WorldData, ViewMode, Cell, BiomeType, Point } from '../types';
 import { buildFactionColorMap, buildCultureColorMap, buildReligionColorMap, getCellColor } from './colors';
+import { seasonalTemperatureDelta } from './seasons';
 import { toLonLat, Point3 } from './geo';
 import { collectLabels, LABEL_CONFIG } from './labels';
 import { ProjectionType } from './export';
@@ -97,7 +98,7 @@ const renderCellPaths = (world: WorldData, viewMode: ViewMode, pathGenerator: d3
     if (!feature?.geometry) return;
     const d = pathGenerator(feature);
     if (!d) return;
-    const hex = '#' + getCellColor(cell, viewMode, seaLevel, factionColors, cultureColors, religionColors).getHexString();
+    const hex = '#' + getCellColor(cell, viewMode, seaLevel, factionColors, cultureColors, religionColors, seasonalTemperatureDelta(cell, world.params)).getHexString();
     parts.push(`<path d="${d}" fill="${hex}" stroke="${hex}" stroke-width="1"/>`);
   });
   return parts.join('');

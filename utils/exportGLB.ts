@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { WorldData, ViewMode, Cell } from '../types';
 import { buildFactionColorMap, buildCultureColorMap, buildReligionColorMap, getCellColor } from './colors';
+import { seasonalTemperatureDelta } from './seasons';
 
 const buildWorldMesh = (world: WorldData, viewMode: ViewMode): THREE.Mesh => {
   const positions: number[] = [];
@@ -10,7 +11,7 @@ const buildWorldMesh = (world: WorldData, viewMode: ViewMode): THREE.Mesh => {
   const religionColors = buildReligionColorMap(world.religions);
 
   world.cells.forEach(cell => {
-    const c = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors);
+    const c = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors, seasonalTemperatureDelta(cell, world.params));
     const hMult = 1 + cell.height * 0.05;
     const cx = cell.center.x * hMult;
     const cy = cell.center.y * hMult;

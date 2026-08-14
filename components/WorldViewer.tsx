@@ -4,6 +4,7 @@ import { OrbitControls, Stars, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, MarkerData, RouteData } from '../types';
 import { getCellColor } from '../utils/colors';
+import { seasonalTemperatureDelta } from '../utils/seasons';
 import { computeShadeMap, computeContourSegments } from '../utils/shading';
 import { collectLabels, MapLabel } from '../utils/labels';
 
@@ -887,7 +888,7 @@ const WorldMesh: React.FC<{
     const col = colAttr.array as Float32Array;
     let o = 0;
     for (const cell of world.cells) {
-      const c = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors);
+      const c = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors, seasonalTemperatureDelta(cell, world.params));
       // Multiply in relief shading only when toggled; the off path stays a
       // straight color copy so rendering is unchanged.
       if (showHillshade) c.multiplyScalar(shadeMap[cell.id]);

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as d3 from 'd3';
 import { WorldData, ViewMode, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, Point, MarkerData } from '../types';
 import { getCellColor } from '../utils/colors';
+import { seasonalTemperatureDelta } from '../utils/seasons';
 import { insideTri, barycentric, normalizeVec, toLonLat, getDymaxionNetTransform, projectDymaxionPoint, Point2, Point3 } from '../utils/geo';
 import { collectLabels, drawMapLabels } from '../utils/labels';
 import { computeShadeMap, computeContourSegments, drawContourPaths } from '../utils/shading';
@@ -366,7 +367,7 @@ const Map2D: React.FC<{
       for (let i = 0; i < world.cells.length; i++) {
         const feature = world.geoJson?.features?.[i];
         if (!feature || !feature.geometry) continue;
-        const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors);
+        const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors, seasonalTemperatureDelta(world.cells[i], world.params));
         if (shadeMap) color.multiplyScalar(shadeMap[i]);
         const hexColor = '#' + color.getHexString();
         srcCtx.beginPath();
@@ -597,7 +598,7 @@ const Map2D: React.FC<{
     for (let i = 0; i < world.cells.length; i++) {
         const feature = world.geoJson?.features?.[i];
       if (!feature || !feature.geometry) continue;
-        const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors);
+        const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors, seasonalTemperatureDelta(world.cells[i], world.params));
         if (shadeMap) color.multiplyScalar(shadeMap[i]);
         const hexColor = '#' + color.getHexString();
       ctx.beginPath();
