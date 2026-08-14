@@ -35,7 +35,7 @@ convention entrypoints, not reference docs.
 | [rendering.md](rendering.md) | 3D globe (`WorldViewer`), 2D map (`Map2D`), Dymaxion, coloring, labels, hillshading | 🟡 pending |
 | [civilization.md](civilization.md) | Cultures → religions → factions → provinces → towns → routes → markers → AI lore | 🟡 pending |
 | [export.md](export.md) | PNG raster, SVG, GeoJSON, GLB, and save/load persistence | 🟡 pending |
-| [invariants.md](invariants.md) | Non-obvious facts that break things if violated — each re-verified against current code | 🟡 pending |
+| [invariants.md](invariants.md) | Non-obvious facts that break things if violated — each re-verified against current code | ✅ current |
 | [testing.md](testing.md) | Test philosophy, the three determinism instruments, why there is no golden fixture, the param-liveness contract | 🟡 pending |
 | [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md) | Shelved-not-abandoned levers, refuted hypotheses, decisions with their rationale | 🟡 pending |
 | [archive/](archive/) | Point-in-time documents kept for the record, not current truth (dated) | — |
