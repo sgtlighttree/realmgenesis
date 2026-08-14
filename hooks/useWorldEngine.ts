@@ -41,6 +41,7 @@ const DEFAULT_PARAMS: WorldParams = {
   rainfallMultiplier: 1.0,
   moistureTransport: 0.5,
   temperatureVariance: 5,
+  season: 0.5,
   numFactions: 6,
   civSeed: 'realmgenesis_civs',
   borderRoughness: 0.2, 
@@ -156,6 +157,18 @@ export function useWorldEngine() {
   useEffect(() => {
     setRuntimeApiKey(apiKey);
   }, [apiKey]);
+
+  // D1: the season slider is a render-only param — it must recolor without
+  // regenerating. The viewers read world.params (a generation snapshot), so
+  // push params.season into world.params here, keeping world.cells identity so
+  // WorldMesh geometry is reused and only colors recompute (paint-stroke pattern).
+  useEffect(() => {
+    setWorld(prev =>
+      prev && prev.params.season !== params.season
+        ? { ...prev, params: { ...prev.params, season: params.season } }
+        : prev,
+    );
+  }, [params.season]);
 
   // Controller reference to persist across renders
   const abortControllerRef = useRef<AbortController | null>(null);

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Eye, EyeOff, ChevronDown, ChevronUp, Ruler, MapPin, Trash2, Star } from 'lucide-react';
 import { WorldData, InspectMode, EditMode, TownData, MarkerKind } from '../types';
+import { seasonalTemperatureDelta } from '../utils/seasons';
 import Select from './Select';
 
 interface WorldDataUpdates {
@@ -86,6 +87,10 @@ const Inspector: React.FC<InspectorProps> = ({
   const markers = world?.markers ?? [];
   const selectedMarker = selectedMarkerId !== null ? markers.find(m => m.id === selectedMarkerId) ?? null : null;
   const cell = world && cellId !== null ? world.cells[cellId] : null;
+  // D1: cell.temperature is the canonical annual mean; show the seasonal value
+  // too when the season slider is off-neutral, so the panel never silently
+  // disagrees with the (seasonally recolored) map.
+  const seasonDelta = cell && world ? seasonalTemperatureDelta(cell, world.params) : 0;
   const enabled = inspectMode === 'click' || editMode === 'world-edit';
   const isEditing = editMode === 'world-edit' && cell !== null && onEditWorldData !== undefined;
 
@@ -261,7 +266,7 @@ const Inspector: React.FC<InspectorProps> = ({
               <span style={{ color: '#aaa' }}>{cell.biome}</span>
             </div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-              <div className="text-ink-muted">Temp: <span className="text-ink-strong">{cell.temperature.toFixed(1)}°C</span></div>
+              <div className="text-ink-muted">Temp: <span className="text-ink-strong">{cell.temperature.toFixed(1)}°C</span>{seasonDelta !== 0 && <span className="text-ink"> · now {(cell.temperature + seasonDelta).toFixed(1)}°C</span>}</div>
               <div className="text-ink-muted">Rain: <span className="text-ink-strong">{(cell.moisture * 100).toFixed(0)}%</span></div>
               <div className="text-ink-muted">Elev: <span className="text-ink-strong">{(cell.height * 100).toFixed(0)}%</span></div>
               <div className="text-ink-muted">Pop: <span className="text-ink-strong">{cell.population?.toLocaleString()}</span></div>
@@ -280,7 +285,7 @@ const Inspector: React.FC<InspectorProps> = ({
           <div className="p-2 text-xs space-y-2">
             {/* Read-only physical stats */}
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 pb-2 border-b border-white/10">
-              <div className="text-ink-muted">Temp: <span className="text-ink-strong">{cell.temperature.toFixed(1)}°C</span></div>
+              <div className="text-ink-muted">Temp: <span className="text-ink-strong">{cell.temperature.toFixed(1)}°C</span>{seasonDelta !== 0 && <span className="text-ink"> · now {(cell.temperature + seasonDelta).toFixed(1)}°C</span>}</div>
               <div className="text-ink-muted">Rain: <span className="text-ink-strong">{(cell.moisture * 100).toFixed(0)}%</span></div>
               <div className="text-ink-muted">Elev: <span className="text-ink-strong">{(cell.height * 100).toFixed(0)}%</span></div>
               <div className="text-ink-muted">Biome: <span className="text-ink-strong">{cell.biome}</span></div>
