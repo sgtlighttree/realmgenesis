@@ -163,7 +163,39 @@ generation change** — the shape the advisor pushed for (unattended-safe).
 - **Deferred** (ENGINEERING-NOTES): sea-level coupling (ice↔coastline is a
   generation-stage change, not a render overlay) and glacial land beyond ICE_CAP.
 
-### Still next this session: D5 (planetary params), advisor at the boundary.
+### D5 planetary params — host star class ONLY (spec: `docs/superpowers/specs/2026-08-15-d5-star-class-design.md`)
+
+**Advisor talked me out of the full metadata set** — day length / gravity / moons
+are hollow (no mechanical hook) and gravity-as-relief-scaler would *lie* (duplicate
+`mountainHeight`). Shipped **only `starClass`**, the one param with a real live hook.
+ROADMAP D5 → 🟡 PARTIAL. Deferred three recorded in ENGINEERING-NOTES.
+
+- **`starClass`** (O–M, default G) scales global insolation → temperature, in
+  `utils/planetary.ts applyStarClass`, applied to the latitude temp before the
+  elevation lapse in `worldGen`. **Kelvin-space** (Stefan-Boltzmann T∝L^¼), NOT a °C
+  multiply — a °C multiply would wrongly *warm* the negative pole temp for a dimmer
+  star; Kelvin drives it further negative (correct). Factors are a **stylized**
+  insolation range (0.93–1.07), not literal luminosity. Cascades through D1 biomes +
+  D3 sea-ice for free (K-class ices over, F-class bakes).
+- **`G = 1.0` is an exact identity** (short-circuit) → default worlds byte-identical.
+  Confirmed: census G min/max temp (−26.9/32.1) == the pre-D5 D3 census exactly.
+- **First-class generation param** (not render-only): types `StarClass`, DEFAULT_PARAMS
+  + helpers `'G'`, paramLiveness `starClass:'M'` (live), validateWorldParams +
+  withParamDefaults (old-save default 'G'), Controls `Select` in Climate tab (added to
+  auto-update regen deps), lore prompt surfacing.
+- **Biome-variety census** (advisor's blocking check): G=11 biomes, O=8 (hot: rainforest/
+  desert/savanna, max 53°C), M=6 (cold: tundra/ice-cap/boreal, min −44°C). Both extremes
+  varied — no monoculture, range needs no narrowing.
+- **Browser note:** the star-class `Select` **renders** correctly (label + "G — yellow,
+  Sun-like" trigger confirmed in-browser), but the custom `Select` does NOT respond to
+  synthetic `.click()` (same harness limitation as S9 synthetic events — a test-harness
+  quirk, not a product bug). Engine effect is exhaustively verified by census +
+  paramLiveness + determinism instead. Its change→regen wiring is the identical Select→
+  handleChange→setParams→auto-update pattern as nameStyle/loreLevel (which work).
+- Full suite: **181 tests / 25 files green** (starClass adds a paramLiveness
+  perturbation inside the existing loop, so no new test count).
+
+### Session 14 status: D1 + D3 + D5(partial) all done, verified, committed, NOT pushed.
 
 ---
 

@@ -219,10 +219,20 @@ parent-world values as boundary constraints.
 Idea: A "base resolution" inside one world, but certain spots can be selected with a bounding box
 to upscale/regenerate cells at much higher densities
 
-### D5. Planetary parameters  —  ⬜ TODO
+### D5. Planetary parameters  —  🟡 PARTIAL
+> _host star class shipped Session 14; day length / gravity / moons deferred_
 
 Day length, gravity, star class, moons — mostly lore/export metadata at
 first, but D1 (seasons) and tides give them mechanical hooks over time.
+
+**Shipped: host star class** (`starClass`, O–M, default G). Scales global
+insolation → temperature (Kelvin-space Stefan-Boltzmann scale), which cascades
+through D1's biomes and D3's sea-ice — a K-class world ices over, an F-class one
+bakes. G is a byte-identical no-op. Surfaced in Controls, lore, and save.
+**Deferred** (no principled hook yet — see ENGINEERING-NOTES): day length (needs
+D2/Coriolis), gravity (would be a relief fudge duplicating `mountainHeight`),
+moons (needs a tide model). Spec:
+`docs/superpowers/specs/2026-08-15-d5-star-class-design.md`.
 
 ### D6.  (added by Matt/Maintainer)  —  ✅ DONE
 > _V3 terrain model shipped & live (Session 8/9)_
