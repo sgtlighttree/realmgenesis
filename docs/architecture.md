@@ -34,8 +34,10 @@ edit, lore). It returns them as one object; `ShellApp` consumes the hook and
 prop-drills into the components. No Context, Redux, or Zustand — trace any value
 to `useWorldEngine`.
 
-`DEFAULT_PARAMS` is defined in `useWorldEngine.ts` (mirrored in `tests/helpers.ts`
-for the test suite).
+`DEFAULT_PARAMS` is defined in `utils/defaultParams.ts` (a types-only module, so it
+imports cleanly outside the worker chain). `useWorldEngine.ts` seeds its `params`
+state from it, and `tests/helpers.ts` `makeParams` spreads it (overriding ~7 keys for
+test speed) — one source of truth, so the two cannot silently diverge.
 
 ## The generation boundary — a Web Worker
 

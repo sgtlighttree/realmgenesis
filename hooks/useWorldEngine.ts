@@ -7,55 +7,7 @@ import { mergeFactions, renameProvince, renameTown, relocateCapital } from '../u
 import { getCellsInRadius, applyTerrainStroke, applyFlattenStroke, applySmoothStroke, applyPoliticalStroke, applyBiomeStroke, refreshBiomes } from '../utils/paintUtils';
 import { generateWorldLore, setRuntimeApiKey } from '../services/gemini';
 import { greatCircleDistanceKm, sampleGreatCircleArc } from '../utils/measure';
-
-const DEFAULT_PARAMS: WorldParams = {
-  mapName: 'map',
-  points: 5000,
-  planetRadius: 6371, 
-  axialTilt: 23.5,
-  plates: 12,
-  seaLevel: 0.55,
-  roughness: 0.5,
-  detailLevel: 3, // FBM octaves; 3 = historical default terrain character
-  landStyle: 'Continents',
-  cellJitter: 0.5,
-  noiseScale: 0.4,
-  ridgeBlend: 0.1,
-  mountainHeight: 1.0,
-  oceanDepth: 1.0,
-  maskType: 'None',
-  warpStrength: 0.5,
-  tectonicStrength: 0.5,
-  erosionIterations: 2,
-  marginCoupling: 0.3,
-  numTimesteps: 20,
-  simulationResolution: 10000,
-  plateJitter: 1.5,
-  boundaryRoughness: 1.5,
-  spreadRate: 0.008,
-  seafloorDepth: 1.0,
-  microplateIntensity: 0.35,
-  plateElongation: 0.4,
-  baseTemperature: 30,
-  poleTemperature: -30, 
-  rainfallMultiplier: 1.0,
-  moistureTransport: 0.5,
-  temperatureVariance: 5,
-  season: 0.5,
-  starClass: 'G',
-  numFactions: 6,
-  civSeed: 'realmgenesis_civs',
-  borderRoughness: 0.2, 
-  civSizeVariance: 0.5,
-  waterCrossingCost: 0.8,
-  territorialWaters: 0.15,
-  capitalSpacing: 0.5,
-  provinceSize: 0.5,
-  numCultures: 4,
-  nameStyle: 'fantasy',
-  loreLevel: 1,
-  seed: 'realmgenesis',
-};
+import { DEFAULT_PARAMS } from '../utils/defaultParams';
 
 const isValidProvinceId = (world: WorldData, factionId: number, provinceId: number | undefined): provinceId is number => {
   if (provinceId === undefined) return false;
