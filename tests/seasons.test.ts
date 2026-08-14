@@ -4,6 +4,7 @@ import {
   seasonalDeclination,
   annualMeanLatTemp,
   seasonalTemperatureDelta,
+  SEAWATER_FREEZE_C,
 } from '../utils/seasons';
 import { makeParams } from './helpers';
 
@@ -81,6 +82,34 @@ describe('seasonalTemperatureDelta', () => {
     expect(north).toBeGreaterThan(0);
     expect(south).toBeLessThan(0);
     expect(Math.sign(north)).not.toBe(Math.sign(south));
+  });
+});
+
+describe('D3 sea-ice edge moves with season', () => {
+  // An ocean cell's stored temperature ≈ annual-mean latitude temp (no elevation
+  // lapse underwater). Shown temp = stored + seasonal excursion. Somewhere in the
+  // mid-high latitudes there must be a cell that is open water in its hemisphere's
+  // summer but frozen (below the seawater freeze constant) in winter — i.e. the
+  // sea-ice edge migrates. This is the physics D3's render overlay reads.
+  it('has a latitude that freezes in winter but thaws in summer', () => {
+    const p = makeParams({ axialTilt: 23.5, poleTemperature: -30, baseTemperature: 30 });
+    const shown = (lat: number, s: number) =>
+      annualMeanLatTemp(lat, p) + seasonalTemperatureDelta(cellAtLat(lat), { ...p, season: s });
+    let flips = 0;
+    for (let lat = 0.6; lat < 1.5; lat += 0.02) {
+      const nSummer = shown(lat, 0.25); // subsolar north
+      const nWinter = shown(lat, 0.75); // subsolar south
+      if (nWinter < SEAWATER_FREEZE_C && nSummer >= SEAWATER_FREEZE_C) flips++;
+    }
+    expect(flips).toBeGreaterThan(0);
+  });
+
+  it('winter is colder than summer in the northern hemisphere', () => {
+    const p = makeParams({ axialTilt: 23.5 });
+    const lat = 1.1;
+    const shown = (s: number) =>
+      annualMeanLatTemp(lat, p) + seasonalTemperatureDelta(cellAtLat(lat), { ...p, season: s });
+    expect(shown(0.75)).toBeLessThan(shown(0.25));
   });
 });
 
