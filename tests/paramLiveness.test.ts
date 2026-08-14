@@ -152,7 +152,7 @@ describe('every tunable param influences the world', () => {
       plateJitter: { plateJitter: 0.8 },
       boundaryRoughness: { boundaryRoughness: 0.8 },
       spreadRate: { spreadRate: 0.02 },
-      seafloorDetail: { seafloorDetail: 1.0 },
+      seafloorDepth: { seafloorDepth: 0.5 },
       microplateIntensity: { microplateIntensity: 0.9 },
     };
 

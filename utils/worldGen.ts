@@ -490,7 +490,11 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   {
       const mh = params.mountainHeight ?? 1.0;
       const od = params.oceanDepth ?? 1.0;
-      if (mh !== 1.0 || od !== 1.0) {
+      // seafloorDepth: linear ocean-floor datum (mean water depth). Multiplies
+      // the reshaped depth, holding the coastline fixed. 1.0 is a no-op (shaped
+      // ∈ [0,1], so min(1, shaped·1) === shaped) → byte-identical to before.
+      const sd = params.seafloorDepth ?? 1.0;
+      if (mh !== 1.0 || od !== 1.0 || sd !== 1.0) {
           const sl = params.seaLevel;
           cells.forEach(c => {
               if (c.height >= sl) {
@@ -498,7 +502,8 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
                   c.height = sl + (1 - sl) * Math.pow(Math.max(0, t), 1 / Math.max(0.1, mh));
               } else {
                   const t = (sl - c.height) / Math.max(1e-6, sl);
-                  c.height = sl - sl * Math.pow(Math.max(0, t), 1 / Math.max(0.1, od));
+                  const shaped = Math.pow(Math.max(0, t), 1 / Math.max(0.1, od));
+                  c.height = sl - sl * Math.min(1, shaped * sd);
               }
           });
       }

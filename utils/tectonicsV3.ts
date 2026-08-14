@@ -759,7 +759,10 @@ export function simulateTectonics(
   const seafloorAge = computeSeafloorAge(
     macroPoints, macroNeighbors, plateIds, crust.crustTypes, plates, rotatedSeeds, spreadRate, params.seed,
   );
-  const seafloorDetail = params.seafloorDetail ?? 0.5;
+  // Abyssal-hill texture amplitude, baked at the former seafloorDetail default
+  // (0.5). The Seafloor Detail slider was repurposed into the seafloorDepth datum
+  // (Stage 9b, worldGen.ts); this internal texture is no longer user-exposed.
+  const seafloorDetail = 0.5;
   const abyssalNoise = new SimplexNoise(new RNG(params.seed + '_abyssal_v3'));
 
   // 5. Compose final height. Oceanic floor with a valid age follows GDH1
@@ -851,10 +854,11 @@ export function projectTectonicsToDisplay(
     const structuralNoise = (fbmVal * (1 - blend) + ridgedRemapped * blend) * (0.5 + roughness);
 
     // Deep-ocean cells carry GDH1 bathymetry; damp the structural noise there
-    // (scaled by seafloorDetail) so the age→depth gradient isn't washed out.
+    // so the age→depth gradient isn't washed out. Damping baked at the former
+    // seafloorDetail default (0.5 → factor 0.675); the slider is now seafloorDepth.
     let noiseInfluence = 1.2 - tectonicStrength;
     if (dc.crustType === 0 && macroResult.heights[nearest] < 0.5) {
-      noiseInfluence *= 1 - 0.65 * (params.seafloorDetail ?? 0.5);
+      noiseInfluence *= 1 - 0.65 * 0.5;
     }
     height = height * tectonicStrength + structuralNoise * noiseInfluence;
 
