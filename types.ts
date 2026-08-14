@@ -129,7 +129,8 @@ export interface WorldParams {
   rainfallMultiplier: number;
   moistureTransport: number;
   temperatureVariance: number;
-  
+  season: number; // D1: orbital position 0-1, 0.5 = neutral (annual mean). Render-only, not a generation param.
+
   // Political
   numFactions: number;
   civSeed: string; 
