@@ -33,7 +33,7 @@
 
 1. **Clone & Install**:
    ```bash
-   pnpm install
+   npm install
    ```
 
 2. **Configure (Optional)**:
@@ -41,12 +41,13 @@
 
 3. **Launch**:
    ```bash
-   pnpm run dev
+   npm run dev
    ```
 
 ## 📖 Documentation
 
-- [**ARCHITECTURE.md**](./ARCHITECTURE.md) — Detailed technical overview: generation pipeline, data model, rendering architecture, module API reference, key invariants, and an LLM quick-navigation guide.
+- [**docs/**](./docs/README.md) — The settled technical reference: architecture, generation pipeline, V3 tectonics, data model, params reference, rendering, civilization layers, export, invariants, testing, and engineering notes. Start at `docs/README.md`.
+- [**HANDOFF.md**](./HANDOFF.md) — Recent-session state and open work. [**ROADMAP.md**](./ROADMAP.md) — planned features.
 - [**AGENTS.md**](./AGENTS.md) — Commands, code style guide, and conventions for contributors and AI agents.
 
 ## 🌐 Deployment

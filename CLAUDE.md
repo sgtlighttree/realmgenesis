@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 RealmGenesis 3D is a browser-only procedural fantasy world engine — spherical Voronoi cells, tectonic plates, erosion, climate, biomes, civilizations, and AI lore. React 19 + Three.js/R3F for 3D, Canvas2D + d3 for 2D projections, Google Gemini for lore. No backend.
 
-Read `HANDOFF.md` first for recent session state, then `ARCHITECTURE.md` for deep technical context, then `AGENTS.md` for style rules.
+Read `HANDOFF.md` first for recent session state, then `docs/` (start at `docs/README.md`) for settled technical context, then `AGENTS.md` for style rules. The old monolithic `ARCHITECTURE.md` is archived at `docs/archive/` and known to drift — don't trust it.
 
 When updating `HANDOFF.md`, add a date and session number.
 
@@ -28,9 +28,9 @@ The param-liveness test (`tests/paramLiveness.test.ts`) fails if any `WorldParam
 
 ## Architecture at a Glance
 
-**All state lives in `App.tsx`** and is prop-drilled. No Context, Redux, or Zustand. Trace any value up to `App.tsx`.
+**All state lives in `hooks/useWorldEngine.ts`** and is prop-drilled by the shell (`components/shell/ShellApp.tsx`, the default route). No Context, Redux, or Zustand. Trace any value up to `useWorldEngine`. (`App.tsx` is the legacy `?shell=classic` route.)
 
-**Generation pipeline** (`utils/worldGen.ts` → `generateWorld()`): 12 async stages on the main thread — point distribution → Voronoi → plates → height → erosion → climate → biomes → rivers. Cancellable via `AbortController`. Yields between stages with `setTimeout(0)`.
+**Generation pipeline** (`utils/worldGen.ts` → `generateWorld()`): runs in a **Web Worker** (`workers/worldGen.worker.ts` via `utils/worldGenClient.ts`), 7 progress stages — Fibonacci+Voronoi → V3 tectonic macro-sim → project to display → erosion → Stage-9b remap → climate/biomes → rivers/lakes → civs. Cancellable via `worker.terminate()`. See `docs/generation-pipeline.md` and `docs/tectonics-v3.md`.
 
 **Rendering**: `WorldViewer.tsx` (3D globe via R3F), `Map2D.tsx` (Mercator/Dymaxion via Canvas2D). Cell colors come from `utils/colors.ts` → `getCellColor(cell, viewMode, seaLevel, factionColors?)`.
 
@@ -47,8 +47,8 @@ The param-liveness test (`tests/paramLiveness.test.ts`) fails if any `WorldParam
 - **Gemini API key is ephemeral** — never persisted to storage. Set via `setRuntimeApiKey()` or build-time `GEMINI_API_KEY` env var.
 - **WorldMesh geometry is reused across paint strokes** — `world.cells` identity is the structural key. Paint strokes mutate cells in place and shallow-copy `WorldData`; never replace the `cells` array outside full regeneration.
 - **Every `useMemo` geometry in `WorldViewer` has a matching disposal effect** — follow this pattern when adding scene elements.
-- **`plateInfluence` is clamped to [0.1, 1.0]** inside `worldGen.ts` — do not extend the slider beyond 1.0 without adjusting the clamp.
-- **`mountainHeight`/`oceanDepth` remap is after normalization, before climate** (Stage 9b) — inserting normalization steps requires adjusting remap placement.
+- **No `plateInfluence` clamp exists** — the param was renamed `tectonicStrength` (range 0–2, unclamped); the V2 `[0.1, 1.0]` clamp was deleted with the V2 engine. A stale `plateInfluence` bound lingers in `export.ts` validation but keys nothing.
+- **`mountainHeight`/`oceanDepth`/`seafloorDepth` remap is after normalization, before climate** (Stage 9b) — inserting normalization steps requires adjusting remap placement. `oceanDepth` is a contrast power-curve; `seafloorDepth` is a linear mean-depth datum.
 - **Batch `setParams` calls** — use functional updater `setParams(prev => ({ ...prev, ...changes }))` to avoid stale-closure overwrites.
 - **Edit undo uses a shared Map reference** — `currentStrokeSnapshot` ref is pushed to `undoStack` at stroke start and mutated in place; never replace it mid-stroke.
 - **Dymaxion pick buffer must mirror visible rasterization** — same pipeline, same rotation, same sizing.
