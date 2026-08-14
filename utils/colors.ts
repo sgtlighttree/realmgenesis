@@ -2,6 +2,7 @@ import { BiomeType, Cell, CivData, CultureData, ReligionData, ViewMode } from '.
 import * as THREE from 'three';
 import { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS } from './palette';
 import { determineBiome } from './worldGen';
+import { SEAWATER_FREEZE_C } from './seasons';
 
 export { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS };
 
@@ -102,6 +103,23 @@ export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, facti
     cell.biome !== BiomeType.LAKE && cell.biome !== BiomeType.SALT_LAKE
       ? determineBiome(cell.height, seasonalTemp, cell.moisture, seaLevel)
       : cell.biome;
+
+  // D3: seasonal sea-ice — open-ocean cells whose seasonal temperature is below
+  // seawater freezing render as ice, in the physical views only (satellite +
+  // biome). Render overlay: cell.biome stays OCEAN (no civ/nav impact). Lakes
+  // are excluded (they read as lakes, not sea-ice) and the data/elevation views
+  // (height/temperature/…) are untouched so the datum is never obscured.
+  if (
+    (mode === 'satellite' || mode === 'biome') &&
+    cell.height < seaLevel &&
+    cell.biome !== BiomeType.LAKE && cell.biome !== BiomeType.SALT_LAKE &&
+    seasonalTemp < SEAWATER_FREEZE_C
+  ) {
+    // Colder ice reads whiter; the thin edge keeps a pale blue cast.
+    const iciness = Math.min(1, (SEAWATER_FREEZE_C - seasonalTemp) / 15);
+    color.copy(new THREE.Color(0xbcd4e6)).lerp(new THREE.Color(0xffffff), iciness);
+    return color;
+  }
 
   switch (mode) {
     case 'satellite':

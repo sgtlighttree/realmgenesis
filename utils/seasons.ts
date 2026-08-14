@@ -8,6 +8,12 @@ import { Cell, WorldParams } from '../types';
 // (declination 0 → the shown world equals the annual mean). axialTilt is the
 // amplitude of the seasonal excursion, no longer a static climate offset.
 
+// D3: seawater freezing point (°C). A physical constant, not a creative knob —
+// the iciness levers are poleTemperature/baseTemperature/axialTilt (all live +
+// regenerating). Sea-ice is a render overlay: water cells whose *seasonal*
+// temperature falls below this render as ice (see utils/colors.ts).
+export const SEAWATER_FREEZE_C = -2;
+
 // Samples used to orbit-average the latitude temperature curve. A smooth
 // sinusoid-composed function converges fast; 96 keeps the annual mean stable to
 // ~1e-3 °C so the seasonal excursion is symmetric to well under a paramLiveness
