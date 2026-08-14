@@ -872,15 +872,15 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                   className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
-              <div className="space-y-1" title="Abyssal-hill texture on the deep ocean floor. Higher = more seamounts and roughness between ridge and trench.">
+              <div className="space-y-1" title="Overall ocean-floor depth. Lower = shallower seas (floor rises toward the coast); higher = deeper abyss. Coastline stays put — this scales mean water depth, unlike Ocean Depth which reshapes the trench-vs-shelf contrast.">
                 <div className="flex justify-between text-xs text-ink-muted">
-                  <label>Seafloor Detail</label>
-                  <span>{params.seafloorDetail?.toFixed(2) ?? '0.50'}</span>
+                  <label>Seafloor Depth</label>
+                  <span>{params.seafloorDepth?.toFixed(2) ?? '1.00'}</span>
                 </div>
                 <input
-                  type="range" min="0" max="1" step="0.05"
-                  value={params.seafloorDetail ?? 0.5}
-                  onChange={(e) => { handleAdvancedChange('seafloorDetail', parseFloat(e.target.value)); }}
+                  type="range" min="0.3" max="2" step="0.05"
+                  value={params.seafloorDepth ?? 1.0}
+                  onChange={(e) => { handleAdvancedChange('seafloorDepth', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>

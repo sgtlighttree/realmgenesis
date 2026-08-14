@@ -27,7 +27,7 @@ export const makeParams = (overrides: Partial<WorldParams> = {}): WorldParams =>
   plateJitter: 1.5,
   boundaryRoughness: 1.5,
   spreadRate: 0.008,
-  seafloorDetail: 0.5,
+  seafloorDepth: 1.0,
   microplateIntensity: 0.35,
   plateElongation: 0.4,
   baseTemperature: 30,
