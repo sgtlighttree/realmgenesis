@@ -465,7 +465,7 @@ export const validateWorldParams = (params: unknown): params is Record<string, u
         noiseScale: [0.1, 5.0],
         ridgeBlend: [0, 1],
         warpStrength: [0, 2.0],
-        plateInfluence: [0, 2.0],
+        tectonicStrength: [0, 2.0],
         erosionIterations: [0, 50],
         baseTemperature: [-10, 50],
         poleTemperature: [-50, 20],
