@@ -8,6 +8,7 @@ import { MinHeap, landTerrainStepCost } from './pathfinding';
 import { simulateTectonics, projectTectonicsToDisplay } from './tectonicsV3';
 import { annualMeanLatTemp } from './seasons';
 import { applyStarClass } from './planetary';
+import { computeOceanCurrents, computeSstAnomaly, COAST_K, EVAP_K, OceanCurrentField } from './currents';
 
 // --- DATA STRUCTURES ---
 
@@ -530,9 +531,21 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
       return { x: (-c.center.z / len) * dir, y: 0, z: (c.center.x / len) * dir };
   });
 
-  cells.forEach(c => { 
-      if (c.height < params.seaLevel) c.moisture = 1.0; 
-      else c.moisture = 0.1 * params.rainfallMultiplier; 
+  // D2: ocean currents. currentStrength === 0 short-circuits the whole stage
+  // (moisture seed stays literal 1.0, temperature adds nothing) → byte-identical
+  // to pre-D2. Otherwise a fixed-pass relaxation yields a velocity field + SST
+  // anomaly that moderates coastal temperature and warm-current evaporation.
+  const currentStrength = params.currentStrength ?? 1.0;
+  let currentField: OceanCurrentField | null = null;
+  let sstAnomaly: Float32Array | null = null;
+  if (currentStrength > 0) {
+      currentField = computeOceanCurrents(cells, windVectors, params.seaLevel, currentStrength);
+      sstAnomaly = computeSstAnomaly(cells, currentField, params, params.seaLevel);
+  }
+
+  cells.forEach((c, i) => {
+      if (c.height < params.seaLevel) c.moisture = sstAnomaly ? 1.0 + EVAP_K * Math.max(0, sstAnomaly[i]) : 1.0;
+      else c.moisture = 0.1 * params.rainfallMultiplier;
   });
   
   const moistureMix = params.moistureTransport === undefined ? 0.5 : params.moistureTransport;
@@ -540,9 +553,9 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   for(let pass=0; pass<8; pass++) {
       const newMoisture = new Float32Array(cells.length);
       cells.forEach((c, i) => {
-          if (c.height < params.seaLevel) { 
-              newMoisture[i] = 1.0; 
-              return; 
+          if (c.height < params.seaLevel) {
+              newMoisture[i] = sstAnomaly ? 1.0 + EVAP_K * Math.max(0, sstAnomaly[i]) : 1.0;
+              return;
           }
           let incomingMoisture = 0; 
           let count = 0;
@@ -572,7 +585,7 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   }
   
   const tempVariance = params.temperatureVariance === undefined ? 5 : params.temperatureVariance;
-  cells.forEach(c => {
+  cells.forEach((c, ci) => {
       // D1: annual-mean temperature = orbit average of the latitude curve at the
       // cell's GEOMETRIC latitude. axialTilt enters through the orbit average
       // (Jensen's inequality on the quadratic curve), replacing the old static
@@ -583,6 +596,18 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
       // star cools the whole world and deepens the poles). G-class is an exact
       // no-op, so default worlds stay byte-identical.
       let temp = applyStarClass(annualMeanLatTemp(phi, params), params.starClass);
+      // D2: ocean cells take their own SST anomaly (so D3 sea-ice responds to a
+      // warm/cold current); land cells take a 1-ring coastal-moderation blend of
+      // adjacent ocean anomalies. Null field (currentStrength=0) → no-op.
+      if (sstAnomaly) {
+          if (c.height < params.seaLevel) {
+              temp += sstAnomaly[ci] * currentStrength;
+          } else {
+              let sum = 0, cnt = 0;
+              for (const nb of c.neighbors) if (cells[nb].height < params.seaLevel) { sum += sstAnomaly[nb]; cnt++; }
+              if (cnt > 0) temp += COAST_K * currentStrength * (sum / cnt);
+          }
+      }
       const elevation = Math.max(0, c.height - params.seaLevel);
       temp -= elevation * 60;
       if (tempVariance > 0) temp += simplex.noise3D(c.center.x * 5, c.center.y * 5, c.center.z * 5) * tempVariance;
