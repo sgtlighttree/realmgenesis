@@ -39,6 +39,7 @@ export const DEFAULT_PARAMS: WorldParams = {
   temperatureVariance: 5,
   season: 0.5,
   starClass: 'G',
+  currentStrength: 1.0,
   numFactions: 6,
   civSeed: 'realmgenesis_civs',
   borderRoughness: 0.2,
