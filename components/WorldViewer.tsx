@@ -7,6 +7,7 @@ import { getCellColor } from '../utils/colors';
 import { seasonalTemperatureDelta } from '../utils/seasons';
 import { computeShadeMap, computeContourSegments } from '../utils/shading';
 import { collectLabels, MapLabel } from '../utils/labels';
+import { ScreenOverlay, OverlayTenant } from './overlays/ScreenOverlay';
 
 const Mesh = 'mesh' as any;
 const Group = 'group' as any;
@@ -1087,11 +1088,15 @@ const WorldMesh: React.FC<{
       if (inspectMode === 'hover' && !isPaintMode) onHover(null);
   }, [inspectMode, isPaintMode, onHover]);
 
+  // F2 screen-space overlay tenants (populated by later tasks).
+  const overlayTenants = useMemo<OverlayTenant[]>(() => [], []);
+
   return (
     <Group>
         <Group ref={spinRef}>
             <Mesh
             ref={meshRef}
+            name="globe-mesh"
             geometry={geometry}
             onPointerMove={tracksPointerMove ? handlePointerMove : undefined}
             onPointerOut={tracksPointerMove ? handlePointerOut : undefined}
@@ -1133,6 +1138,7 @@ const WorldMesh: React.FC<{
                 <MeshBasicMaterial color="#000000" side={THREE.FrontSide} />
             </Mesh>
         </Group>
+        <ScreenOverlay world={world} tenants={overlayTenants} />
     </Group>
   );
 };
