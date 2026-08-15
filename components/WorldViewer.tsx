@@ -1310,8 +1310,9 @@ const LatLongGrid: React.FC<{ radius: number }> = ({ radius }) => {
 
 // The planet's rotation axis (pole-to-pole), rendered inside the tilted world
 // group so it visibly leans by `axialTilt`. Along local Y, so it stays fixed as
-// the globe spins around it. depthTest off → the full axis reads through the
-// sphere for tilt visualization while navigating. Extends past both poles.
+// the globe spins around it. depthTest ON → the globe occludes the back half
+// (reads as a real 3D axis, not an overlay pasted on top); the two poles poke
+// out past the sphere so the tilt stays legible while navigating.
 const TiltAxisLine: React.FC<{ radius?: number }> = ({ radius = 1.35 }) => {
   const geometry = useMemo(() => {
       const geo = new THREE.BufferGeometry();
@@ -1321,7 +1322,7 @@ const TiltAxisLine: React.FC<{ radius?: number }> = ({ radius = 1.35 }) => {
   useEffect(() => () => { geometry.dispose(); }, [geometry]);
   return (
       <LineSegments geometry={geometry}>
-          <LineBasicMaterial color="#ffd166" opacity={0.7} transparent depthTest={false} />
+          <LineBasicMaterial color="#ffd166" opacity={0.85} transparent depthTest={true} />
       </LineSegments>
   );
 };

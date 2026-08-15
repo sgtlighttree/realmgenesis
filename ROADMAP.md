@@ -310,6 +310,12 @@ Can come *before or alongside* D6 with the roadmap in mind.
 # F2. 3D Mode Presentation  —  ⬜ TODO
 Part of redesign is figuring out how the planet is presented; overlays like borders, rivers and roads and routes and the lat/lon grid are also 3D objects, not 2D overlays simply composited over the 3D globe, which affects visibility and accuracy. Or maybe make the globe entirely smooth by default, instead of applying height per cell. Perhaps 3D mode should more like Google Earth Pro in this respect.
 
+- **Ocean-current visualization** (from D2): a currents view-mode / arrow or
+  streamline overlay drawing the `computeOceanCurrents` velocity field on the globe
+  and 2D map, with warm/cold tint from the SST anomaly. The data already exists per
+  cell at generation; this is a render-layer feature. Deferred from D2 (climate
+  coupling shipped first).
+
 # F3. True 2D vector map  —  ⬜ TODO
 Make it a true vector map like most web mapping apps, but keep it as optimized as possible
 

@@ -127,10 +127,29 @@ Semi-simulated gyres feeding **temperature + moisture** (both, Matt's call). Com
   Full suite **185/186** — the one fail is paramLiveness "terrain signature" at 190s,
   the documented M1 parallel-load timeout (passes 8/8 isolated). 186 = 181 (S14) + 4
   currents + 1 worldGen no-op.
-- **Known knob nuance** (not a bug): `EVAP_K` boosts the ocean moisture seed above
-  1.0, but the temperature loop ends with `moisture = clamp(moisture·rainfallMult, 0, 1)`
-  — so the wettest warm-current coasts saturate at the clamp, giving diminishing
-  moisture return as `currentStrength`→2. Temperature moderation is unaffected.
+### D2 post-review polish (S15, on top of the D2 stack — Matt's requests + advisor items)
+
+Small follow-ups after Matt played with it. All committed, NOT pushed. currents+worldGen
+tests 11/11, lakes/routes/biomes 19/19 (blast radius still zero after the moisture change).
+
+- **Moisture-clamp saturation FIXED (was the "known knob nuance").** The warm-only boost
+  `1.0 + EVAP_K·max(0, sst)` saturated at the `[0,1]` clamp — wettest coasts all pinned to
+  1.0, knob stopped differentiating them. Now **signed**: `max(0.3, 1.0 + EVAP_K·sst)` — cold
+  currents **dry** downwind coasts (coastal-desert / Atacama–Namib effect), using the dry-side
+  headroom; warm keep them wet. More realistic *and* resolves the clamp. `currentStrength=0`
+  no-op preserved (null branch → literal 1.0). Spec §7 + ENGINEERING-NOTES seam + params-ref updated.
+- **SST star-frame fix (Matt: "SST yes").** `computeSstAnomaly` now seeds from the
+  **star-scaled** latitude temp (`applyStarClass(...)`), matching the frame worldGen adds the
+  anomaly to. G-class = exact 1.0 no-op → default worlds unaffected; removes the ~2% M-class
+  frame mismatch. `currents.ts` imports `./planetary` (pure, worker-safe).
+- **Tilt-axis line occlusion FIXED (Matt: looked weird as an overlay).** Was `depthTest={false}`
+  (drew on top of the globe). Now `depthTest={true}` → the globe masks the back half, reads as a
+  real 3D axis; poles still poke out. Opacity 0.7→0.85.
+- **Currents visualization → ROADMAP F2** (Matt's call — it's a UI/presentation item): a currents
+  view-mode / arrow overlay drawing the velocity field + SST tint. Data exists per cell; render-only.
+- **Shelved (Matt's call), recorded in ENGINEERING-NOTES "D2 shelved levers":** seasonal current
+  reversal (monsoons, annual→per-season solve) and divergence-free/incompressible gyres (rejected
+  on **compute budget + determinism** — the shipped fixed-pass relaxation is the browser-safe tier).
 
 ---
 
