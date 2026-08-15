@@ -114,7 +114,10 @@ Semi-simulated gyres feeding **temperature + moisture** (both, Matt's call). Com
   load (~30s timeout, the documented S10/S11/S14 flake) — both pass in isolation;
   re-run isolated before believing a failure.
 - **In-browser verify** (Playwright, reused Matt's running :3000, Mercator biome
-  view, 5k cells, seed realmgenesis): currentStrength 0 vs 1.0 gave **different**
+  view, 5k cells, seed realmgenesis; **checksums are PRE-signed-evaporation — the
+  polish section below changed the moisture model, so 1321658870 is stale as a
+  current-baseline number, though the 0-vs-1.0 *difference* conclusion still holds**):
+  currentStrength 0 vs 1.0 gave **different**
   canvas checksums (1441336199 vs 1321658870) with non-black fraction stable at
   0.576 → currents change temperature/biomes/sea-ice but **not** the coastline (as
   designed). **0 console errors.** Temperature-view direct look blocked by the known
@@ -138,6 +141,11 @@ tests 11/11, lakes/routes/biomes 19/19 (blast radius still zero after the moistu
   currents **dry** downwind coasts (coastal-desert / Atacama–Namib effect), using the dry-side
   headroom; warm keep them wet. More realistic *and* resolves the clamp. `currentStrength=0`
   no-op preserved (null branch → literal 1.0). Spec §7 + ENGINEERING-NOTES seam + params-ref updated.
+  **Calibration checked by biome census** (advisor's ask — 300-cell fixtures can't catch
+  over-drying; 5k cells, seed realmgenesis): arid (Hot/Cold Desert + Steppe) went **653→649
+  cells (47.4%→47.1% of land)** off→signed-on — i.e. currents *slightly reduce* arid, no desert
+  collapse. Warm-current moderation visible: Ice Cap 57→51, Mediterranean 76→80, Tundra 78→83.
+  Effect is subtle-but-correct on this (already-arid) world; slider→2 for more. No `EVAP_K` change.
 - **SST star-frame fix (Matt: "SST yes").** `computeSstAnomaly` now seeds from the
   **star-scaled** latitude temp (`applyStarClass(...)`), matching the frame worldGen adds the
   anomaly to. G-class = exact 1.0 no-op → default worlds unaffected; removes the ~2% M-class

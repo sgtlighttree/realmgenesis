@@ -23,7 +23,7 @@ const HEAT_MIX = 0.5;    // upstream blend per pass
 
 // Coupling constants consumed by worldGen (centralized here for tuning).
 export const COAST_K = 0.6; // land coastal-moderation weight
-export const EVAP_K = 0.02; // evaporation boost per +°C of warm anomaly
+export const EVAP_K = 0.02; // signed evaporation per °C of SST anomaly (+ wets, − dries)
 
 const projectTangent = (
   vx: number, vy: number, vz: number,
