@@ -31,6 +31,88 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## Session 18 (2026-08-16) — F2 draped graticule (grid follows relief)
+
+On branch **`f2-drape-graticule`** (cut from `main` after S17 was merged +
+**pushed** — `main` is now at `cca4c7b`, origin up to date). Commits: spec+plan,
+`nearestCell`, drape integration, lint fix. **NOT merged / NOT pushed.** Gates
+green: typecheck 0, lint 0/29, build OK (worker chunk unchanged — render-side),
+**full suite 201/201, 30 files, no M1 flake this run.** advisor final = SHIP.
+
+### What shipped
+
+The raised-globe graticule now **drapes over terrain** instead of sitting at one
+radius — the deferred "drape tier" from S17. Each grid sample projects at the
+terrain radius at its lat/lon (`1 + max(nearestCellHeight, seaLevel)·0.05`), so
+the line rides relief, meets terrain at coastlines, and has **zero parallax at any
+zoom without flattening**. Spec:
+`docs/superpowers/specs/2026-08-15-f2-drape-graticule-design.md`; plan:
+`docs/superpowers/plans/2026-08-15-f2-drape-graticule.md`.
+
+- **`utils/nearestCell.ts`** — `nearestCellWalk` (greedy `dot(dir, center)`
+  hill-climb over the **symmetric** Voronoi neighbor graph — verified symmetric at
+  `worldGen.ts:445-446` before committing to the walk) + `nearestCellBrute` seed.
+  Seeded by the previous sample → 1–3 hops/sample; one O(n) brute seed + ~5100
+  short walks per **gated** redraw. No spatial index, no cache.
+- **`drawGraticuleTenant`** (`components/overlays/tenants.ts`) — raised path drapes
+  via a running `startId`; smooth path unchanged (unit sphere). Currents untouched
+  (already cell-bound).
+
+### ⚠️ Drape is NOT reachable by default — read this
+
+**Turning on the Lat/Long grid still FLATTENS the globe** (the S17 grid→smooth
+coupling is intentionally kept — advisor's call: it's the safety net for the
+queued *non-draping* ScreenOverlay tenants — roads/routes, contours, borders,
+labels). **To see the drape: turn Smooth Globe OFF with the grid ON.** Dropping
+the coupling is a **one-line change** in `useWorldEngine`'s coupled `setShowGrid`
+(remove the `if (b) setSmoothGlobe(true)`), which would make raised+draped the
+default. **Deliberately left to Matt** — decide with eyes on screen whether the
+raised-draped grid should be the default now that parallax is fixed on relief.
+
+### Delegation (Matt's instruction: OpenCode first, then Sonnet)
+
+- **`nearestCell` → OpenCode/DeepSeek** (`opencode-go/deepseek-v4-flash`, scratch
+  dir). Attempt 1: **timed out at the 2-min cap, wrote nothing.** Attempt 2:
+  **succeeded** — wrote both files AND self-verified `walk===brute` over 100k
+  directions on an icosahedron graph. Output quality exceeded the plan draft
+  (empty-array guard, out-of-range clamp, richer test). **One real bug** (NaN
+  `startId` → `cells[NaN]` crash) caught by its own test; fixed with a
+  `Number.isFinite` guard. Verdict: net-positive here (self-contained pure module),
+  matching S16 (good for self-contained gen, not integration).
+- **Drape integration → in-house**, not a subagent (advisor-sanctioned): a ~20-line
+  edit to a file already in context — a subagent round-trip would cost more Opus
+  tokens than it saves, against the "keep usage low" intent.
+
+### Verification (raised globe, grid on / smooth off)
+
+Grid drapes over terrain cells at high zoom, meets coastlines, and **stays pinned
+to the same cells across a dolly** (A/B zoom pair, same view). Parallax
+elimination is **by construction** (per-sample radius == the mesh formula), and
+was confirmed visually + A/B'd across a dolly (not merely argued). 0 console
+errors. **Caveat:** drape screenshots used seed **`yg2fa9`** (Generate randomizes
+the seed), not `realmgenesis`. Per-sample walk cost is **unmeasured at the 200k
+cap** — reasoned cheap (1 O(n) seed + ~5100 short walks per gated redraw), verified
+only at 5k.
+
+### Trap for next session (recurring class)
+
+**React state batching:** two synchronous `.click()`s on coupled toggles race —
+grid's coupling set `smoothGlobe=true`, then the smooth button's `onChange(!checked)`
+read the *pre-coupling* `checked` and set it true again (net: no-op). Same class as
+the S16 stale-fiber-`memoizedProps` and S9/S14 synthetic-`Select` notes. **Coupled
+toggles need a render tick between clicks — never batch two coupled-state clicks in
+one `evaluate`.**
+
+### Open / next
+
+- **NOT merged / NOT pushed.** Branch `f2-drape-graticule` for Matt to finish.
+- Coupling decision (above) — Matt's call.
+- Remaining ScreenOverlay tenant migrations (roads/routes, contours, borders,
+  rivers, labels) still queued (ROADMAP F2); none drape yet — the coupling covers
+  them until they do.
+
+---
+
 ## Session 17 (2026-08-15) — F2 overlay parallax fix + smooth-globe mode
 
 On branch **`f2-currents-overlay`** (continues S16), commits `7b83387` (radius
