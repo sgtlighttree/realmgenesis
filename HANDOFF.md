@@ -31,6 +31,84 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## Session 17 (2026-08-15) — F2 overlay parallax fix + smooth-globe mode
+
+On branch **`f2-currents-overlay`** (continues S16), commits `7b83387` (radius
+fix) + `565c2b2` (smooth-globe). **NOT pushed / NOT merged.** Gates green:
+typecheck 0, lint 0/29, build OK (worker chunk unchanged 87.06KB — all new code
+is render-side), overlay tests 20/20 (screenProject + displayRadius +
+currentsPersistence + worldTransfer). In-browser verified (Playwright, 5k, 0
+console errors). This **closes the S16 KNOWN ISSUE** (overlay projection accuracy).
+
+### Part 1 — radius fix (`7b83387`): recovered ~5° of the occlusion error
+
+The S16 overlay projected + horizon-tested at **unit radius** while the globe
+mesh renders each cell at `1 + height·0.05` (WorldViewer.tsx:898). Fixed per the
+S16 next-session prompt:
+- **`isVisible` (`utils/screenProject.ts`)** now normalizes by the point's true
+  `|P|` (exact per-point perspective horizon) and drops `eps` 0.08→0.005.
+- **`ScreenOverlay`** scales each cell center by `displayRadius`; **currents**
+  tip lifted to the cell radius; **graticule** placed at the **sea-level** radius
+  (`1 + seaLevel·0.05`, coastlines render there → parallax-free at the edge the
+  eye locks onto). Advisor's call **over** the S16-prompt's option-(b) 1.055
+  (which would halo off the ocean limb). **Contract documented** on
+  `LocalProjector`/`OverlayTenant`: tenants MUST pass points at rendered radius
+  (guards the queued roads/contours/borders/rivers/labels tenants).
+- Discriminating test added (r=1.05 limb point the old fat-eps unit-radius path
+  wrongly culled).
+
+**This fixed bug 1 (occlusion — grid now reaches the limb) but NOT bug 2
+(parallax on zoom).** Matt confirmed: parallax persists at any zoom.
+
+### Part 2 — smooth-globe (`565c2b2`): the actual parallax fix
+
+**Root cause of residual parallax (the load-bearing finding):** the graticule
+sits at ONE radius while terrain relief spans r=1.0..1.05. A grid line and a
+mountain at the same lat/lon project to different pixels under perspective, and
+the gap grows with zoom. **No single grid radius can fix this against bumpy
+terrain** — only removing the bumpiness does. (Currents ARE parallax-free after
+Part 1 — they're pinned per-cell. The complaint was the graticule.)
+
+**Decision (Matt's, brainstormed — bounded path):** add a **`smoothGlobe`**
+toggle that collapses the globe to a unit sphere so terrain + overlay share one
+surface → zero parallax **by construction**. Matches ROADMAP F2's own
+"smooth by default / Google-Earth" note.
+- **Default OFF (raised)** — Matt's call, NOT default-smooth. Relief is the
+  default look.
+- **Coupling: grid ON auto-enables smooth** (grid can't read cleanly on relief).
+  One-way nudge in `useWorldEngine`'s coupled `setShowGrid`; manual "Smooth
+  Globe" toggle in the view-controls row overrides.
+- **Rejected alternatives:** permanent-flat (destroys relief, no way back);
+  drape-overlay / per-point terrain-height sampling (keeps relief AND kills
+  parallax — the "proper" fix, deferred as the next tier, "figure out later").
+
+**Implementation — `utils/displayRadius.ts`** `(height, smooth, offset) =>
+(smooth ? 1 : 1 + height·0.05) + offset`, the single source threaded through
+EVERY globe geometry builder that hardcoded `1 + height·0.05`: terrain mesh,
+`ScreenOverlay` (grid + currents tenants), rivers, routes, contours, borders,
+city markers, selection, highlight, ruler. **Export (GLB/PNG) deliberately
+untouched — keeps relief.** Baked river/route paths flatten by normalizing to
+unit then re-lifting (their height is baked into magnitude at gen time).
+
+**Verified in-browser:** grid-on flattens the globe; graticule lies on the
+surface and stays pinned to terrain through a full zoom-in (screenshots in
+session scratchpad). displayRadius unit-tested (3 cases).
+
+### Open / next
+
+- **NOT pushed / NOT merged.** `f2-currents-overlay` now carries S16 + S17.
+  Matt to decide finish (finishing-a-development-branch).
+- **Drape-overlay tier deferred** (Matt: "figure out later") — sample terrain
+  height per graticule point so the grid follows relief with zero parallax AND
+  keeps the raised globe. The "proper rewrite" alternative; would let smooth be
+  optional rather than grid-coupled.
+- **`MarkerPins` left un-flattened** (pins protrude by design) — the one globe
+  overlay not on `displayRadius`; float above the flat surface. Acceptable/minor.
+- Advisor's S16 nit still stands: screen-space overlays overpaint city
+  markers/labels (draw above everything). Expect it as feedback with labels on.
+
+---
+
 ## Session 16 (2026-08-15) — F2 screen-space overlay foundation + ocean-current viz
 
 On branch **`f2-currents-overlay`** (cut from `main` @ `7297908`, the S13–S15 stack
