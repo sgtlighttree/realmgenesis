@@ -5,6 +5,7 @@
 import { WorldData } from '../../types';
 import { ProjectedCells } from '../../utils/screenProject';
 import { displayRadius } from '../../utils/displayRadius';
+import { nearestCellWalk, nearestCellBrute } from '../../utils/nearestCell';
 import { LocalProjector } from './ScreenOverlay';
 
 // --- currents draw constants (single source; also consumed by Map2D, Task 6) ---
@@ -74,11 +75,14 @@ const GRAT_SEG = 96; // samples per line (smooth circles)
 // draw across the globe silhouette (the win over the old always-visible 3D grid).
 //
 // Radius: the grid is not cell-bound, so it needs a deliberate radius (see the
-// LocalProjector contract). We put it at the SEA-LEVEL rendered radius
-// (1 + seaLevel·0.05) — coastlines render right there, so the grid is
-// parallax-free at the edge the eye actually locks onto, and land peaks occlude
-// it (the Google-Earth read). Locking it above max relief (~1.055) instead would
-// float a visible halo off the ocean limb wherever there's no mountain.
+// LocalProjector contract). On the SMOOTH globe every cell is r=1, so the grid
+// sits on the unit sphere (zero parallax). On the RAISED globe it DRAPES: each
+// sample is projected at the terrain radius at its lat/lon (nearest cell height,
+// clamped to sea level) so the line rides relief and meets terrain at coastlines,
+// with zero parallax at any zoom (the Google-Earth read). The nearest cell is
+// found by a greedy Voronoi hill-climb (utils/nearestCell) seeded by the previous
+// sample — 1–3 hops along a polyline — so the whole grid costs one O(n) brute
+// seed + ~5100 short walks per (gated) redraw.
 export function drawGraticuleTenant(
   ctx: CanvasRenderingContext2D,
   _proj: ProjectedCells,
@@ -89,20 +93,31 @@ export function drawGraticuleTenant(
   ctx.strokeStyle = 'rgba(255,255,255,0.28)';
   ctx.lineWidth = 1;
   const pt: [number, number] = [0, 0];
-  // Smooth globe: sit exactly on the unit sphere (zero parallax). Relief: sit at
-  // the sea-level rendered radius so the grid is parallax-free at coastlines.
-  const R = smooth ? 1 : 1 + world.params.seaLevel * 0.05;
+  const cells = world.cells;
+  const sea = world.params.seaLevel;
+  // Running nearest-cell id carried across the whole draw; -1 = seed via brute
+  // scan on the first sample, then hill-climb from the previous sample.
+  let startId = -1;
+
+  // Projects a UNIT direction, applying the drape radius on the raised globe.
+  const projSample = (x: number, y: number, z: number): boolean => {
+    if (smooth || cells.length === 0) return project(x, y, z, pt); // unit sphere
+    startId = startId < 0 ? nearestCellBrute(cells, x, y, z) : nearestCellWalk(cells, x, y, z, startId);
+    const h = Math.max(cells[startId].height, sea);
+    const r = 1 + h * 0.05;
+    return project(x * r, y * r, z * r, pt);
+  };
 
   // parallels (constant latitude)
   for (let lat = -80; lat <= 80; lat += 10) {
     const la = lat * D2R;
-    const cy = Math.sin(la) * R;
-    const cr = Math.cos(la) * R;
+    const cy = Math.sin(la);
+    const cr = Math.cos(la);
     let drawing = false;
     ctx.beginPath();
     for (let s = 0; s <= GRAT_SEG; s++) {
       const lon = (s / GRAT_SEG) * Math.PI * 2;
-      if (project(cr * Math.cos(lon), cy, cr * Math.sin(lon), pt)) {
+      if (projSample(cr * Math.cos(lon), cy, cr * Math.sin(lon))) {
         if (drawing) ctx.lineTo(pt[0], pt[1]);
         else { ctx.moveTo(pt[0], pt[1]); drawing = true; }
       } else {
@@ -121,8 +136,8 @@ export function drawGraticuleTenant(
     ctx.beginPath();
     for (let s = 0; s <= GRAT_SEG; s++) {
       const lat = (s / GRAT_SEG) * Math.PI - Math.PI / 2;
-      const cla = Math.cos(lat) * R;
-      if (project(cla * cl, Math.sin(lat) * R, cla * sl, pt)) {
+      const cla = Math.cos(lat);
+      if (projSample(cla * cl, Math.sin(lat), cla * sl)) {
         if (drawing) ctx.lineTo(pt[0], pt[1]);
         else { ctx.moveTo(pt[0], pt[1]); drawing = true; }
       } else {
