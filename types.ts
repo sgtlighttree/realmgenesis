@@ -260,6 +260,13 @@ export interface MarkerData {
   position: Point;
 }
 
+export interface OceanCurrentData {
+  vx: Float32Array;   // per-cell tangential velocity (unit-sphere frame)
+  vy: Float32Array;
+  vz: Float32Array;
+  sst: Float32Array;  // per-cell SST anomaly, °C (ocean cells; 0 elsewhere)
+}
+
 export interface WorldData {
   cells: Cell[];
   params: WorldParams;
@@ -272,6 +279,7 @@ export interface WorldData {
   cultures?: CultureData[]; // culture layer (C1)
   religions?: ReligionData[]; // religion layer (C2)
   routes?: RouteData[]; // roads & sea trade routes (C3)
+  currents?: OceanCurrentData; // D2 field, gen-time only; never serialized (regenerates like rivers/routes)
 }
 
 // C3: a land road or sea trade route between two towns. Derived from civData +

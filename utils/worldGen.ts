@@ -624,6 +624,11 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
   progress();
   const { rivers, lakes } = await generateRivers(cells, params.seaLevel, params, onLog);
   const world: WorldData = { cells, params, geoJson: polygons, rivers, lakes };
+  if (currentField && sstAnomaly) {
+    world.currents = {
+      vx: currentField.vx, vy: currentField.vy, vz: currentField.vz, sst: sstAnomaly,
+    };
+  }
 
   // Named geographic features are terrain-derived (B3) — detect them before
   // civs so they never depend on, and are never mutated by, the civ passes.
