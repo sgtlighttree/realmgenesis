@@ -146,6 +146,10 @@ tests 11/11, lakes/routes/biomes 19/19 (blast radius still zero after the moistu
   cells (47.4%→47.1% of land)** off→signed-on — i.e. currents *slightly reduce* arid, no desert
   collapse. Warm-current moderation visible: Ice Cap 57→51, Mediterranean 76→80, Tundra 78→83.
   Effect is subtle-but-correct on this (already-arid) world; slider→2 for more. No `EVAP_K` change.
+  **Signed version rendered** (advisor: the model changed after Matt's warm-only look — rerender):
+  Mercator biome, 5k, seed realmgenesis, tilt 23.5, cs 1.0 → checksum **1239554339** (vs pre-signed
+  1321658870; modest shift matching the census), non-black 0.575 (coastline fixed), **0 console
+  errors**, healthy varied-biome continent. This is the current signed baseline number.
 - **SST star-frame fix (Matt: "SST yes").** `computeSstAnomaly` now seeds from the
   **star-scaled** latitude temp (`applyStarClass(...)`), matching the frame worldGen adds the
   anomaly to. G-class = exact 1.0 no-op → default worlds unaffected; removes the ~2% M-class
