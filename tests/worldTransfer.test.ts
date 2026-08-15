@@ -104,4 +104,23 @@ describe('worldTransfer round trip', () => {
     payload.biome[0] = 255;
     expect(() => deserializeWorld(payload)).toThrow(/out-of-range biome/i);
   }, 30000);
+
+  // F2: the ocean-current field must survive the worker transfer, not just a
+  // direct generateWorld() call — the persistence unit test bypasses this layer.
+  it('round-trips the ocean-current field when currentStrength > 0', async () => {
+    const w = await generateWorld(makeParams({ currentStrength: 1.0 }));
+    expect(w.currents).toBeDefined();
+    const back = deserializeWorld(serializeWorld(w).payload);
+    expect(back.currents).toBeDefined();
+    expect(back.currents!.vx.length).toBe(w.cells.length);
+    expect(Array.from(back.currents!.vx)).toEqual(Array.from(w.currents!.vx));
+    expect(Array.from(back.currents!.sst)).toEqual(Array.from(w.currents!.sst));
+  }, 30000);
+
+  it('omits currents across transfer when currentStrength is 0', async () => {
+    const w = await generateWorld(makeParams({ currentStrength: 0 }));
+    expect(w.currents).toBeUndefined();
+    const back = deserializeWorld(serializeWorld(w).payload);
+    expect(back.currents).toBeUndefined();
+  }, 30000);
 });

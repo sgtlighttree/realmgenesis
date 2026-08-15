@@ -54,6 +54,8 @@ export interface WorldPayload {
   // ragged cellIds for lakes and features
   lakeIdOffsets: Uint32Array; lakeIdData: Int32Array;
   featIdOffsets: Uint32Array; featIdData: Int32Array;
+  // D2 ocean-current field (F2) — per-cell Float32, present iff world.currents.
+  curVx?: Float32Array; curVy?: Float32Array; curVz?: Float32Array; curSst?: Float32Array;
   // roster-scale: plain structured clone
   params: WorldParams;
   civData?: CivData;
@@ -165,6 +167,8 @@ export const serializeWorld = (world: WorldData): { payload: WorldPayload; trans
     hasRivers: world.rivers !== undefined,
     lakeIdOffsets: lakeIds.offsets, lakeIdData: lakeIds.data,
     featIdOffsets: featIds.offsets, featIdData: featIds.data,
+    curVx: world.currents?.vx, curVy: world.currents?.vy,
+    curVz: world.currents?.vz, curSst: world.currents?.sst,
     params: world.params,
     civData: world.civData,
     cultures: world.cultures,
@@ -272,5 +276,8 @@ export const deserializeWorld = (p: WorldPayload): WorldData => {
   if (p.religions !== undefined) world.religions = p.religions;
   if (p.markers !== undefined) world.markers = p.markers;
   if (p.routes !== undefined) world.routes = p.routes;
+  if (p.curVx && p.curVy && p.curVz && p.curSst) {
+    world.currents = { vx: p.curVx, vy: p.curVy, vz: p.curVz, sst: p.curSst };
+  }
   return world;
 };
