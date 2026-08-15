@@ -40,6 +40,7 @@ const TERRAIN_PERTURBATIONS: Record<string, Perturbation> = {
   temperatureVariance: { temperatureVariance: 15 },
   axialTilt: { axialTilt: 60 },
   starClass: { starClass: 'M' }, // D5: cooler star lowers global temperature
+  currentStrength: { currentStrength: 0 }, // D2: disabling ocean currents changes the climate signature (default is 1.0)
 };
 
 // Civ-layer params: expect regionId/provinceId/population changes

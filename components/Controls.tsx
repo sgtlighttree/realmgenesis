@@ -212,6 +212,7 @@ const Controls: React.FC<ControlsProps> = ({
       params.temperatureVariance,
       params.axialTilt,
       params.starClass,
+      params.currentStrength,
       autoUpdate
   ]);
 
@@ -958,6 +959,21 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                    label="Host star class"
                    className="w-full"
                    triggerClassName="w-full justify-between bg-surface-raised border-edge px-2 py-2 text-xs"
+                />
+             </div>
+              {/* D2: ocean currents — a warm current moderates downwind coasts
+                  (Gulf Stream), a cold current chills them. Generation param;
+                  0 = disabled (byte-identical). */}
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-ink-muted">
+                  <label>Ocean Currents (Coastal Climate)</label>
+                  <span>{(params.currentStrength ?? 1.0) === 0 ? 'Off' : `${(params.currentStrength ?? 1.0).toFixed(2)}×`}</span>
+                </div>
+                <input
+                  type="range" min="0" max="2" step="0.05"
+                  value={params.currentStrength ?? 1.0}
+                  onChange={(e) => { handleChange('currentStrength', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
              </div>
              {/* ... (rest of climate sliders) ... */}
