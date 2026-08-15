@@ -122,6 +122,16 @@ store per-cell, and interpolate — or gate it behind an explicit "simulate seas
 moisture" toggle so the default stays cheap. Pairs naturally with D2 (ocean
 currents), which also feeds the moisture model.
 
+**D2 composability seam (read this before building seasonal moisture).** D2 (ocean
+currents, shipped S15) injects a warm-current **evaporation** term into the ocean
+moisture *seed* (`1.0 + EVAP_K·max(0, sstAnomaly)` in the `worldGen` 8-pass, from
+`utils/currents.ts`). This is the **annual** ocean-moisture baseline and introduces
+**no per-season field**, so D1/D3's free O(n) biome-at-season recompute is preserved.
+When seasonal moisture lands, it must **layer its per-season overlay on top of** this
+current-modified annual baseline — do **not** overwrite the ocean seed back to a bare
+`1.0`, or warm-current coasts silently lose their extra rainfall. The current field
+itself stays annual/steady-state (no seasonal gyre reversal) at this tier.
+
 ### Sea-level coupling for ice — deferred from D3
 D3 (sea-ice) ships as a render overlay: cells below the seawater freeze point
 render as ice, no change to height or coastline. The "grounded" extension —
