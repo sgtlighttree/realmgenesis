@@ -86,4 +86,14 @@ describe('generateWorld', () => {
     controller.abort();
     await expect(generateWorld(makeParams(), undefined, controller.signal)).rejects.toThrow('Generation Cancelled');
   }, 30000);
+
+  it('D2: currentStrength=0 is a byte-identical no-op; default-on changes climate', async () => {
+    const climateSig = (w: Awaited<ReturnType<typeof generateWorld>>) =>
+      w.cells.map(c => `${c.temperature.toFixed(6)}|${c.moisture.toFixed(6)}`).join(';');
+    const off = climateSig(await generateWorld(makeParams({ currentStrength: 0 })));
+    const off2 = climateSig(await generateWorld(makeParams({ currentStrength: 0 })));
+    const on = climateSig(await generateWorld(makeParams({ currentStrength: 1.0 })));
+    expect(off).toBe(off2);    // stage skipped + deterministic
+    expect(on).not.toBe(off);  // default-on actually moves temperature + moisture
+  }, 60000);
 });
