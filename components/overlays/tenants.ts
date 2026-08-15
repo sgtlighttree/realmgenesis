@@ -60,11 +60,59 @@ export function drawCurrentsTenant(
   }
 }
 
+const D2R = Math.PI / 180;
+const GRAT_SEG = 96; // samples per line (smooth circles)
+
+// 10° graticule drawn in screen space: parallels −80..80°, meridians 0..350°,
+// each sampled on the unit sphere, projected via the horizon-culling projector.
+// The polyline breaks wherever a sample crosses behind the limb, so lines never
+// draw across the globe silhouette (the win over the old always-visible 3D grid).
 export function drawGraticuleTenant(
-  _ctx: CanvasRenderingContext2D,
+  ctx: CanvasRenderingContext2D,
   _proj: ProjectedCells,
   _world: WorldData,
-  _project: LocalProjector,
+  project: LocalProjector,
 ): void {
-  // implemented in Task 5
+  ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+  ctx.lineWidth = 1;
+  const pt: [number, number] = [0, 0];
+
+  // parallels (constant latitude)
+  for (let lat = -80; lat <= 80; lat += 10) {
+    const la = lat * D2R;
+    const cy = Math.sin(la);
+    const cr = Math.cos(la);
+    let drawing = false;
+    ctx.beginPath();
+    for (let s = 0; s <= GRAT_SEG; s++) {
+      const lon = (s / GRAT_SEG) * Math.PI * 2;
+      if (project(cr * Math.cos(lon), cy, cr * Math.sin(lon), pt)) {
+        if (drawing) ctx.lineTo(pt[0], pt[1]);
+        else { ctx.moveTo(pt[0], pt[1]); drawing = true; }
+      } else {
+        drawing = false;
+      }
+    }
+    ctx.stroke();
+  }
+
+  // meridians (constant longitude, pole to pole)
+  for (let lon = 0; lon < 360; lon += 10) {
+    const lo = lon * D2R;
+    const cl = Math.cos(lo);
+    const sl = Math.sin(lo);
+    let drawing = false;
+    ctx.beginPath();
+    for (let s = 0; s <= GRAT_SEG; s++) {
+      const lat = (s / GRAT_SEG) * Math.PI - Math.PI / 2;
+      const cla = Math.cos(lat);
+      if (project(cla * cl, Math.sin(lat), cla * sl, pt)) {
+        if (drawing) ctx.lineTo(pt[0], pt[1]);
+        else { ctx.moveTo(pt[0], pt[1]); drawing = true; }
+      } else {
+        drawing = false;
+      }
+    }
+    ctx.stroke();
+  }
 }

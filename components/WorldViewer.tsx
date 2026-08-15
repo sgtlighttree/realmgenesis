@@ -8,7 +8,7 @@ import { seasonalTemperatureDelta } from '../utils/seasons';
 import { computeShadeMap, computeContourSegments } from '../utils/shading';
 import { collectLabels, MapLabel } from '../utils/labels';
 import { ScreenOverlay, OverlayTenant } from './overlays/ScreenOverlay';
-import { drawCurrentsTenant } from './overlays/tenants';
+import { drawCurrentsTenant, drawGraticuleTenant } from './overlays/tenants';
 
 const Mesh = 'mesh' as any;
 const Group = 'group' as any;
@@ -1093,7 +1093,8 @@ const WorldMesh: React.FC<{
   // F2 screen-space overlay tenants.
   const overlayTenants = useMemo<OverlayTenant[]>(() => [
     { id: 'currents', visible: showCurrents && !!world.currents, draw: drawCurrentsTenant },
-  ], [showCurrents, world.currents]);
+    { id: 'graticule', visible: showGrid, draw: drawGraticuleTenant },
+  ], [showCurrents, world.currents, showGrid]);
 
   return (
     <Group>
@@ -1120,7 +1121,7 @@ const WorldMesh: React.FC<{
                 <RiverLines world={world} visible={showRivers} />
                 <RouteLines world={world} visible={showRoutes} />
                 <ContourLines world={world} visible={showContours} />
-                {showGrid && <LatLongGrid radius={1.06} />}
+                {/* Lat/long grid migrated to ScreenOverlay (F2 graticule tenant). */}
                 {showGrid && <TiltAxisLine radius={1.35} />}
                 {/* Cell highlight outline */}
                 {highlightCellId !== null && world.cells[highlightCellId] && (
@@ -1289,35 +1290,6 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
 };
 
 export default WorldViewer;
-
-const LatLongGrid: React.FC<{ radius: number }> = ({ radius }) => {
-  const geometry = useMemo(() => {
-      const segments = 64; const positions: number[] = [];
-      for (let i = 1; i < 18; i++) { 
-          const lat = (i * 10 - 90) * (Math.PI / 180); const r = Math.cos(lat) * radius; const y = Math.sin(lat) * radius;
-          for (let j = 0; j <= segments; j++) {
-              const lon = (j / segments) * Math.PI * 2; const nextLon = ((j + 1) / segments) * Math.PI * 2;
-              positions.push(Math.cos(lon) * r, y, Math.sin(lon) * r, Math.cos(nextLon) * r, y, Math.sin(nextLon) * r);
-          }
-      }
-      for (let i = 0; i < 36; i++) { 
-          const lon = (i * 10) * (Math.PI / 180); const cosLon = Math.cos(lon); const sinLon = Math.sin(lon);
-          for (let j = 0; j <= segments; j++) {
-              const lat = (j / segments) * Math.PI - Math.PI/2; const nextLat = ((j + 1) / segments) * Math.PI - Math.PI/2;
-              positions.push(Math.cos(lat) * cosLon * radius, Math.sin(lat) * radius, Math.cos(lat) * sinLon * radius, Math.cos(nextLat) * cosLon * radius, Math.sin(nextLat) * radius, Math.cos(nextLat) * sinLon * radius);
-          }
-      }
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-      return geo;
-  }, [radius]);
-  useEffect(() => () => { geometry.dispose(); }, [geometry]);
-  return (
-      <LineSegments geometry={geometry}>
-          <LineBasicMaterial color="#ffffff" opacity={0.15} transparent depthTest={true} />
-      </LineSegments>
-  );
-};
 
 // The planet's rotation axis (pole-to-pole), rendered inside the tilted world
 // group so it visibly leans by `axialTilt`. Along local Y, so it stays fixed as
