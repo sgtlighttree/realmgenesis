@@ -100,6 +100,9 @@ export const ScreenOverlay: React.FC<{ world: WorldData; tenants: OverlayTenant[
     const gm = globe ? globe.matrixWorld : null;
 
     // Redraw only when the camera, globe rotation, or active tenants changed.
+    // Keyed on camera.matrixWorld (pose) + globe matrix; assumes a fixed
+    // projection (dolly-zoom via OrbitControls). If FOV/zoom is ever animated,
+    // add camera.projectionMatrix to the key so it doesn't go stale.
     const active = tenants.filter((t) => t.visible);
     const key = active.map((t) => t.id).join(',') + '|' + matrixKey(camera.matrixWorld, gm ? gm.elements : IDENT);
     if (key === lastKey.current) return;
