@@ -194,11 +194,26 @@ Biomes shift for display; civs/export/labels stay pinned to the annual world.
 Wind + moisture stay annual (the monsoon variant is deferred). Spec:
 `docs/superpowers/specs/2026-08-14-d1-seasonal-cycle-design.md`.
 
-### D2. Ocean currents  —  ⬜ TODO
+### D2. Ocean currents  —  ✅ DONE
+> _shipped Session 15; annual/steady-state, semi-simulated gyres; seasonal current reversal deferred_
 
 Currents deflected by continents and Coriolis, feeding the existing 8-pass
 moisture transport and temperature model (warm currents moderating coastal
 climates — think Gulf Stream). A major realism upgrade to climate.
+
+**Shipped: `currentStrength`** (0–2, default-on 1.0). A fixed-pass, fixed-order
+relaxation (`utils/currents.ts`, deterministic, no RNG, no Poisson solve — the
+divergence-free tier would break determinism + the browser budget) seeds ocean
+velocity from wind stress, then relaxes with Coriolis deflection (∝ sin lat),
+advective smoothing, and net-land-normal boundary tangency → emergent gyres +
+western-boundary currents. A heat-advection pass yields an SST anomaly that
+**moderates coastal temperature** (ocean cells + a 1-ring land coastal blend) and
+**boosts warm-current evaporation** into the 8-pass moisture transport. Cascades
+through D1 biomes + D3 sea-ice for free. **0 = byte-identical escape hatch**
+(stage short-circuits). Coupling into **both temperature and moisture** pulls part
+of the deferred D1 seasonal-moisture work forward — see the composability seam in
+ENGINEERING-NOTES. Spec:
+`docs/superpowers/specs/2026-08-15-d2-ocean-currents-design.md`.
 
 ### D3. Ice caps & glaciers  —  ✅ DONE
 > _sea-ice shipped Session 14; sea-level coupling deferred to ENGINEERING-NOTES_

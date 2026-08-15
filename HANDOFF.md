@@ -31,12 +31,17 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## Session 15 (2026-08-15) — DEFAULT_PARAMS single-source (S14 debt closed)
+## Session 15 (2026-08-15) — DEFAULT_PARAMS single-source + D2 ocean currents
 
-On `main`, commit `a4d68ca`, on top of the 14-commit unpushed S13/S14 stack.
-**NOT pushed** (Matt's call — third session running). Gates: typecheck 0, lint
-0/29, determinism + paramLiveness **14 pass** (value-identical refactor; full
-suite not re-run — no output change possible).
+On `main`, commits `a4d68ca`..(D2 stack), on top of the 14-commit unpushed S13/S14
+stack. **NOT pushed** (Matt's call — third+ session running). Two pieces of work:
+(1) the S14 DEFAULT_PARAMS debt (below), then (2) **D2 ocean currents** (further
+down). Gates green: typecheck 0, lint 0/29, D2 unit tests + worldGen determinism +
+paramLiveness pass; all climate fixtures pass (blast radius zero). Full suite flakes
+only on the documented M1 parallel-load timeout (features/religions determinism) —
+green in isolation.
+
+### DEFAULT_PARAMS single-source (S14 debt closed)
 
 Closed the S14 "`makeParams`/`DEFAULT_PARAMS` can silently diverge" item, but
 **reframed first** (advisor concurred): every `WorldParams` key is *required*, so
@@ -57,6 +62,61 @@ test still green). Divergence is now impossible by construction. Docs repointed
 Milestone-D tracks (D2 ocean currents / D4 submaps) vs. his own unchecked HANDOFF
 notes — the self-contained **depthmap/DEM export screen** (line 26) is a better
 "full auto" candidate than D2 (touches no climate test, reuses existing algorithms).
+**Matt chose D2.**
+
+### D2 ocean currents (spec: `docs/superpowers/specs/2026-08-15-d2-ocean-currents-design.md`, plan: `docs/superpowers/plans/2026-08-15-d2-ocean-currents.md`)
+
+Semi-simulated gyres feeding **temperature + moisture** (both, Matt's call). Commits
+`ed2c0ad`..(D2 stack). **NOT pushed.** Three advisor consults shaped it.
+
+- **Fidelity: fixed-pass relaxation, NOT a divergence-free solver.** The advisor's
+  load-bearing finding: determinism is the project's test invariant, and a Poisson/
+  convergence-threshold gyre solver breaks it *and* the browser budget. So
+  `utils/currents.ts` is two fixed-pass, fixed-order, **RNG-free** relaxations (same
+  shape as the 8-pass moisture loop): (1) velocity seeded from wind stress, then
+  Coriolis deflection (∝ sin lat) + advective smoothing + **net-land-normal**
+  boundary tangency; (2) heat advection → SST anomaly. Sverdrup streamfunction was
+  rejected (no natural "west"/basin on the geodesic graph — the advisor's edge-case
+  warning). Gyres are emergent, not incompressible — the honest cosmetic limit.
+- **Net-normal tangency, not per-edge** (found in TDD): per-edge tangency is
+  geometrically unsatisfiable at concave coastal cells (into/speed hit 0.86 in test);
+  removing the component along the *summed* land-normal is satisfiable and physical
+  ("no net flow into the coast").
+- **Coupling.** Ocean cells take their own anomaly (D3 sea-ice responds); land cells
+  a 1-ring coastal blend (`COAST_K`); warm anomaly boosts ocean moisture seed
+  (`EVAP_K`) → the 8-pass carries it downwind. Upstream heat-advection **mirrors the
+  8-pass accumulate-over-all-`dot>0`-neighbors / `count===0` fallback** (advisor:
+  not a single-argmax pick — that reintroduces a tie-break).
+- **`currentStrength` (0–2, default-on 1.0). 0 = early-return short-circuit** of the
+  whole stage (moisture seed stays literal `1.0`), NOT a ×0 — provable byte-identical
+  by the worldGen determinism test. First-class gen param: types, defaultParams,
+  Controls (Climate tab, in regen deps), validate `[0,2]`, withParamDefaults `1.0`,
+  paramLiveness (`currentStrength:0`), lore.
+- **D1 escape-hatch proof by entailment, not a fragile pixel match.** The advisor
+  wanted the 909197 checksum re-verified at 0. I proved it stronger: the unit test
+  shows currentStrength=0 is byte-identical at the **engine** level, and the render
+  is a pure function of engine output (D2 never touched `colors.ts`), so the render
+  at 0 is *necessarily* identical to pre-D2 — no dependence on browser-stable
+  rasterization. The D1 season neutral==canonical + return-to-exact invariant holds
+  against the new baseline by construction (season delta is 0 at 0.5 regardless of
+  baseline).
+- **Re-baseline blast radius = ZERO** (the pleasant surprise). Ran all five
+  climate-sensitive fixtures (lakes s7/lakeworld, routes islands, biomes, features,
+  religions) — **all pass** with currents default-on. At the 300-cell test seeds,
+  coastlines are short enough that the anomaly/evaporation shifts stay under the
+  pinned assertions' tolerances, and determinism holds (RNG-free solver). **Task 6's
+  planned seed-rescan delegation was therefore unnecessary and skipped.** NOTE: the
+  features + religions **determinism** tests flake-fail under full-suite M1 parallel
+  load (~30s timeout, the documented S10/S11/S14 flake) — both pass in isolation;
+  re-run isolated before believing a failure.
+- **In-browser verify** (Playwright, reused Matt's running :3000, Mercator biome
+  view, 5k cells, seed realmgenesis): currentStrength 0 vs 1.0 gave **different**
+  canvas checksums (1441336199 vs 1321658870) with non-black fraction stable at
+  0.576 → currents change temperature/biomes/sea-ice but **not** the coastline (as
+  designed). **0 console errors.** Temperature-view direct look blocked by the known
+  synthetic-`Select` harness quirk (S9/S14), not a product bug. Default constants
+  (`DRAG/CORIOLIS_K/MIX/COAST_K/EVAP_K` in `currents.ts`) kept — clean, differentiated,
+  error-free; slider covers 0–2 for taste.
 
 ---
 
