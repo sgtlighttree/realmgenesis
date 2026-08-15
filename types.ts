@@ -131,6 +131,7 @@ export interface WorldParams {
   temperatureVariance: number;
   season: number; // D1: orbital position 0-1, 0.5 = neutral (annual mean). Render-only, not a generation param.
   starClass: StarClass; // D5: host star spectral class — scales global insolation/temperature (G = Sun-like default).
+  currentStrength: number; // D2: ocean-current intensity (0-2). 0 = disabled/byte-identical; scales Coriolis, coastal temperature moderation, and warm-current evaporation.
 
   // Political
   numFactions: number;

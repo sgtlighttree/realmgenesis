@@ -23,6 +23,8 @@ const withParamDefaults = (params: WorldParams): WorldParams => ({
   season: typeof params.season === 'number' && isFinite(params.season) ? params.season : 0.5,
   // D5: pre-D5 saves lack starClass → default to Sun-like G (no-op).
   starClass: (['O', 'B', 'A', 'F', 'G', 'K', 'M'] as const).includes(params.starClass) ? params.starClass : 'G',
+  // D2: pre-D2 saves lack currentStrength → default to 1.0 (default-on).
+  currentStrength: typeof params.currentStrength === 'number' && isFinite(params.currentStrength) ? params.currentStrength : 1.0,
 });
 
 // Matches the options offered in the Export tab. 16K+ exceeded browser
@@ -478,6 +480,7 @@ export const validateWorldParams = (params: unknown): params is Record<string, u
         moistureTransport: [0, 1],
         temperatureVariance: [0, 20],
         season: [0, 1],
+        currentStrength: [0, 2],
         numFactions: [2, 20],
         numCultures: [2, 8],
         capitalSpacing: [0, 1],
