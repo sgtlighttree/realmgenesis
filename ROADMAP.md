@@ -310,11 +310,23 @@ Can come *before or alongside* D6 with the roadmap in mind.
 # F2. 3D Mode Presentation  —  ⬜ TODO
 Part of redesign is figuring out how the planet is presented; overlays like borders, rivers and roads and routes and the lat/lon grid are also 3D objects, not 2D overlays simply composited over the 3D globe, which affects visibility and accuracy. Or maybe make the globe entirely smooth by default, instead of applying height per cell. Perhaps 3D mode should more like Google Earth Pro in this respect.
 
-- **Ocean-current visualization** (from D2): a currents view-mode / arrow or
-  streamline overlay drawing the `computeOceanCurrents` velocity field on the globe
-  and 2D map, with warm/cold tint from the SST anomaly. The data already exists per
-  cell at generation; this is a render-layer feature. Deferred from D2 (climate
-  coupling shipped first).
+- **Ocean-current visualization** (from D2): a currents overlay drawing the
+  `computeOceanCurrents` velocity field on the globe and 2D map, with warm/cold tint
+  from the SST anomaly. Static arrows for v1 (animated particle advection deferred —
+  thermals on the M1 Air). The velocity field is computed at generation but currently
+  discarded; F2 persists it optionally on `WorldData`.
+
+- **`ScreenOverlay` layer (the foundation).** Today every globe overlay (borders,
+  rivers, graticule, Dymaxion, rulers, selection) is a *physical R3F 3D object* —
+  which is exactly the "affects visibility and accuracy" problem above. F2 introduces
+  a generic screen-space overlay layer: a canvas sibling to the WebGL canvas that
+  projects visible cells (analytic horizon test, not depth-buffer readback) and draws
+  overlays in pure 2D, occluding the far hemisphere without physical geometry on the
+  globe. v1 lands **two tenants** to prove the abstraction generalizes: the currents
+  field **and the graticule** migrated off its 3D `lineSegments`.
+  **Future tenants to migrate onto `ScreenOverlay` (a documented queue, not drift):**
+  **roads/routes** and **contour lines** should become fully 2D as well, then borders,
+  rivers, and labels. Each is its own increment; do not migrate them all at once.
 
 # F3. True 2D vector map  —  ⬜ TODO
 Make it a true vector map like most web mapping apps, but keep it as optimized as possible
