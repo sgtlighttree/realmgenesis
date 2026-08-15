@@ -15,11 +15,25 @@ import { isVisible, ProjectedCells } from '../../utils/screenProject';
 // the globe's live world matrix + camera. Writes px into `out`; returns false
 // when the point is culled by the horizon. Tenants use it to project points
 // other than cell centers (velocity tips, graticule samples).
+//
+// RADIUS CONTRACT (load-bearing — F2 parallax/occlusion fix): the horizon test
+// uses the point's OWN |P| as the sphere radius, so callers MUST pass points at
+// their intended RENDERED radius, not unit radius. The terrain mesh puts each
+// cell at r = 1 + cell.height·0.05 (WorldViewer.tsx ~L898). A point passed at
+// r=1 is culled inside the true limb and drifts off the terrain on zoom. Cell
+// centers are pre-scaled here in ScreenOverlay; every other point a tenant
+// projects must be scaled by the tenant (cell radius for cell-bound points, or a
+// deliberate fixed radius e.g. sea level for the graticule). New tenants
+// migrated onto this seam (roads/routes, contours, borders, rivers, labels) MUST
+// honor this or they silently reintroduce the bug.
 export type LocalProjector = (x: number, y: number, z: number, out: [number, number]) => boolean;
 
 export interface OverlayTenant {
   id: string;
   visible: boolean;
+  // `proj` cell coords are pre-scaled to each cell's rendered radius. Any point
+  // a tenant projects itself via `project` must ALSO be at its rendered radius —
+  // see the LocalProjector radius contract above.
   draw(ctx: CanvasRenderingContext2D, proj: ProjectedCells, world: WorldData, project: LocalProjector): void;
 }
 
@@ -114,8 +128,14 @@ export const ScreenOverlay: React.FC<{ world: WorldData; tenants: OverlayTenant[
 
     camera.getWorldPosition(camPos);
     for (let i = 0; i < nCells; i++) {
-      const c = world.cells[i].center;
-      scratch.set(c.x, c.y, c.z);
+      const cell = world.cells[i];
+      const c = cell.center;
+      // Scale to the cell's rendered radius (matches the globe mesh exactly:
+      // WorldViewer refill uses hMult = 1 + cell.height·0.05). This is what
+      // pins the overlay to the terrain surface — no zoom parallax — and lets
+      // the per-point horizon test occlude at the true limb.
+      const r = 1 + cell.height * 0.05;
+      scratch.set(c.x * r, c.y * r, c.z * r);
       if (gm) scratch.applyMatrix4(gm); // local → world (tracks spin)
       if (!isVisible(scratch.x, scratch.y, scratch.z, camPos.x, camPos.y, camPos.z)) {
         proj.visible[i] = 0;

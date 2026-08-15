@@ -46,7 +46,10 @@ export function drawCurrentsTenant(
     const mag = CURRENT_ARC * Math.min(1, sp / CURRENT_SPEED_REF);
     const k = mag / sp;
     const c = cells[i].center;
-    if (!project(c.x + cur.vx[i] * k, c.y + cur.vy[i] * k, c.z + cur.vz[i] * k, tip)) continue;
+    // Lift the tip to the cell's rendered radius so it sits on the terrain
+    // surface exactly like the arrow base (see LocalProjector radius contract).
+    const r = 1 + cells[i].height * 0.05;
+    if (!project((c.x + cur.vx[i] * k) * r, (c.y + cur.vy[i] * k) * r, (c.z + cur.vz[i] * k) * r, tip)) continue;
     const color = currentTint(cur.sst[i]);
     ctx.strokeStyle = color;
     ctx.beginPath();
@@ -64,24 +67,32 @@ const D2R = Math.PI / 180;
 const GRAT_SEG = 96; // samples per line (smooth circles)
 
 // 10° graticule drawn in screen space: parallels −80..80°, meridians 0..350°,
-// each sampled on the unit sphere, projected via the horizon-culling projector.
+// each sampled on the sphere, projected via the horizon-culling projector.
 // The polyline breaks wherever a sample crosses behind the limb, so lines never
 // draw across the globe silhouette (the win over the old always-visible 3D grid).
+//
+// Radius: the grid is not cell-bound, so it needs a deliberate radius (see the
+// LocalProjector contract). We put it at the SEA-LEVEL rendered radius
+// (1 + seaLevel·0.05) — coastlines render right there, so the grid is
+// parallax-free at the edge the eye actually locks onto, and land peaks occlude
+// it (the Google-Earth read). Locking it above max relief (~1.055) instead would
+// float a visible halo off the ocean limb wherever there's no mountain.
 export function drawGraticuleTenant(
   ctx: CanvasRenderingContext2D,
   _proj: ProjectedCells,
-  _world: WorldData,
+  world: WorldData,
   project: LocalProjector,
 ): void {
   ctx.strokeStyle = 'rgba(255,255,255,0.28)';
   ctx.lineWidth = 1;
   const pt: [number, number] = [0, 0];
+  const R = 1 + world.params.seaLevel * 0.05;
 
   // parallels (constant latitude)
   for (let lat = -80; lat <= 80; lat += 10) {
     const la = lat * D2R;
-    const cy = Math.sin(la);
-    const cr = Math.cos(la);
+    const cy = Math.sin(la) * R;
+    const cr = Math.cos(la) * R;
     let drawing = false;
     ctx.beginPath();
     for (let s = 0; s <= GRAT_SEG; s++) {
@@ -105,8 +116,8 @@ export function drawGraticuleTenant(
     ctx.beginPath();
     for (let s = 0; s <= GRAT_SEG; s++) {
       const lat = (s / GRAT_SEG) * Math.PI - Math.PI / 2;
-      const cla = Math.cos(lat);
-      if (project(cla * cl, Math.sin(lat), cla * sl, pt)) {
+      const cla = Math.cos(lat) * R;
+      if (project(cla * cl, Math.sin(lat) * R, cla * sl, pt)) {
         if (drawing) ctx.lineTo(pt[0], pt[1]);
         else { ctx.moveTo(pt[0], pt[1]); drawing = true; }
       } else {
