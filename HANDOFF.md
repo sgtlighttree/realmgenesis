@@ -95,6 +95,54 @@ Spec: `docs/superpowers/specs/2026-08-15-f2-currents-overlay-design.md`; plan:
   labels. Intentional per spec §2.3; expect it as feedback when labels are on.
 - **NOT pushed / NOT merged** — Matt to decide (finishing-a-development-branch).
 
+### ⚠️ KNOWN ISSUE → NEXT SESSION: overlay projection accuracy (graticule + currents)
+
+Matt reviewed the shipped globe overlays and flagged two real accuracy problems
+(screenshots in session): (1) **occlusion happens too early** — the graticule/current
+arrows are culled well *inside* the visible terrain limb, so the grid stops short of
+the globe's silhouette; (2) **parallax on zoom** — the grid/arrows drift relative to
+the terrain surface as the camera dollies in, so they don't stay locked to the ground.
+Both affect the graticule AND the ocean-current arrows (shared code path). **Not a
+blocker for the tier that shipped, but it needs a polish pass before F2 is "done."**
+
+**Prompt for the next session (addressed to you, the picker-upper):**
+
+> The F2 screen-space overlay (`components/overlays/ScreenOverlay.tsx` + the
+> `currents`/`graticule` tenants in `tenants.ts`, horizon math in
+> `utils/screenProject.ts`) projects and horizon-tests every point at **unit radius
+> (r = 1.0)**. But the globe mesh renders each cell at **`r = 1 + cell.height * 0.05`**
+> (`components/WorldViewer.tsx:53`) — sea level r=1.0, mountains up to r≈1.05. That
+> single mismatch causes BOTH reported bugs:
+>
+> 1. **Occlusion too early.** `isVisible` (`utils/screenProject.ts`) uses `ε = 0.08`
+>    and tests the point at r=1.0. The exact perspective horizon for a point P is
+>    `dot(camPos − P, P) > 0` (i.e. `dot(camPos, P) > |P|²`), computed at P's *true*
+>    radius. Testing at r=1.0 with a fat +0.08 ε culls a visible band inside the true
+>    limb. **Fix:** scale P to its rendered radius before the test and drop ε toward 0
+>    (keep a hair, ~0.005–0.01, only to avoid limb flicker). Verify the grid now
+>    reaches the terrain silhouette.
+> 2. **Parallax on zoom.** Because the overlay projects at r=1.0 while terrain is at
+>    r=1+h·0.05, a grid line / arrow and the terrain feature at the same lon/lat
+>    project to different screen pixels under perspective, diverging as you zoom.
+>    **Fix:** project each point at its rendered surface radius. For the **currents**
+>    tenant this is exact — each ocean cell has a `height`, so project its center (and
+>    the velocity tip) at `1 + cell.height*0.05` (same as the mesh). For the
+>    **graticule** (not cell-bound) there's no per-point height, so decide the radius
+>    deliberately: either (a) lock it to sea level r=1.0 and accept that peaks poke
+>    over it, (b) lift it to ~1.055 like the retired 3D `LatLongGrid` (radius 1.06) so
+>    it floats consistently just above max relief — reintroduces a slight "halo" look
+>    but zero parallax vs the silhouette, or (c) sample terrain height along each grid
+>    line (most accurate, most work). Recommend starting with the currents fix (exact)
+>    + graticule option (b), then eyeball.
+>
+> Both fixes live entirely in `ScreenOverlay.tsx` (the projection loop + the
+> `project` LocalProjector closure) and `screenProject.ts` (`isVisible` signature —
+> it may need the point's radius, or callers pre-scale P). The tenants pass local-frame
+> points; `ScreenOverlay` applies the globe matrix — do the radius scaling there so
+> tenants stay radius-agnostic. Verify in-browser (Playwright, seed `realmgenesis`,
+> 5k): grid reaches the limb, and zooming keeps grid/arrows pinned to terrain. Watch
+> the redraw-gate matrix key still works and perf stays fine at 5k.
+
 ---
 
 ## Session 15 (2026-08-15) — DEFAULT_PARAMS single-source + D2 ocean currents
