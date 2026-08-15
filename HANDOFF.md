@@ -88,8 +88,12 @@ Semi-simulated gyres feeding **temperature + moisture** (both, Matt's call). Com
   8-pass accumulate-over-all-`dot>0`-neighbors / `count===0` fallback** (advisor:
   not a single-argmax pick — that reintroduces a tie-break).
 - **`currentStrength` (0–2, default-on 1.0). 0 = early-return short-circuit** of the
-  whole stage (moisture seed stays literal `1.0`), NOT a ×0 — provable byte-identical
-  by the worldGen determinism test. First-class gen param: types, defaultParams,
+  whole stage (moisture seed stays literal `1.0`), NOT a ×0. **Verified byte-identical
+  to pre-D2 empirically** (advisor caught that the in-suite no-op test only compares
+  0-vs-0 = determinism, not 0-vs-pre-D2): a `git worktree` at `9e48c64` (pre-D2) vs
+  HEAD-at-`currentStrength:0`, same seed, produced an **identical 11190-byte
+  temperature|moisture|biome|height signature** (S8 house method). First-class gen
+  param: types, defaultParams,
   Controls (Climate tab, in regen deps), validate `[0,2]`, withParamDefaults `1.0`,
   paramLiveness (`currentStrength:0`), lore.
 - **D1 escape-hatch proof by entailment, not a fragile pixel match.** The advisor
@@ -117,6 +121,16 @@ Semi-simulated gyres feeding **temperature + moisture** (both, Matt's call). Com
   synthetic-`Select` harness quirk (S9/S14), not a product bug. Default constants
   (`DRAG/CORIOLIS_K/MIX/COAST_K/EVAP_K` in `currents.ts`) kept — clean, differentiated,
   error-free; slider covers 0–2 for taste.
+- **Gates:** typecheck 0, lint 0/29, **build OK** — worker chunk **86.83KB** (was
+  84KB S14; +2.8KB is the new `currents.ts` algorithm, NOT a THREE/d3 leak — THREE
+  alone is ~600KB; currents imports only `types`+`seasons`, both already in-worker).
+  Full suite **185/186** — the one fail is paramLiveness "terrain signature" at 190s,
+  the documented M1 parallel-load timeout (passes 8/8 isolated). 186 = 181 (S14) + 4
+  currents + 1 worldGen no-op.
+- **Known knob nuance** (not a bug): `EVAP_K` boosts the ocean moisture seed above
+  1.0, but the temperature loop ends with `moisture = clamp(moisture·rainfallMult, 0, 1)`
+  — so the wettest warm-current coasts saturate at the clamp, giving diminishing
+  moisture return as `currentStrength`→2. Temperature moderation is unaffected.
 
 ---
 
