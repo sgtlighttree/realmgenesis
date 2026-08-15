@@ -6,6 +6,7 @@ import { seasonalTemperatureDelta } from '../utils/seasons';
 import { insideTri, barycentric, normalizeVec, toLonLat, getDymaxionNetTransform, projectDymaxionPoint, Point2, Point3 } from '../utils/geo';
 import { collectLabels, drawMapLabels } from '../utils/labels';
 import { computeShadeMap, computeContourSegments, drawContourPaths } from '../utils/shading';
+import { drawCurrents2D } from './overlays/currents2D';
 import { computeScaleBar, niceScaleBarLength, drawScaleBar } from '../utils/measure';
 
 type Size = { width: number; height: number };
@@ -217,6 +218,7 @@ const Map2D: React.FC<{
   showRoutes?: boolean;
   showHillshade?: boolean;
   showContours?: boolean;
+  showCurrents?: boolean;
   labelVisibility?: LabelVisibility;
   editMode?: EditMode;
   onPaint?: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void;
@@ -225,7 +227,7 @@ const Map2D: React.FC<{
   religionColors?: Map<number, string>;
   brushSize?: number;
   rulerArc?: Point[] | null;
-}> = ({ world, viewMode, inspectMode, onInspect, highlightCellId = null, projectionType = 'mercator', dymaxionSettings, showGrid = false, showRivers = true, showRoutes = false, showHillshade = false, showContours = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, editMode = 'off', onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null }) => {
+}> = ({ world, viewMode, inspectMode, onInspect, highlightCellId = null, projectionType = 'mercator', dymaxionSettings, showGrid = false, showRivers = true, showRoutes = false, showHillshade = false, showContours = false, showCurrents = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, editMode = 'off', onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
@@ -676,6 +678,11 @@ const Map2D: React.FC<{
       ctx.globalAlpha = 1.0;
     }
 
+    // Draw ocean currents (F2) — arrows over ocean cells, warm/cold SST tint.
+    if (showCurrents && world.currents && projection) {
+      drawCurrents2D(ctx, world, projection, qualityDpr);
+    }
+
     // Ruler arc — same antimeridian-jump projection pattern as rivers above.
     if (rulerArc && rulerArc.length > 1) {
       ctx.strokeStyle = '#fbbf24';
@@ -765,6 +772,12 @@ const Map2D: React.FC<{
       );
       ctx.restore();
     }
+
+    // Signal the blit effect (deps include renderCount) to copy the freshly
+    // drawn offscreen to the visible canvas. The dymaxion path bumps this at
+    // line ~585; the mercator path must too, or overlay toggles (currents, grid,
+    // rivers, …) redraw the offscreen but never reach the screen until a pan/zoom.
+    setRenderCount(c => c + 1);
   }, [
     projection,
     size.width,
@@ -781,6 +794,7 @@ const Map2D: React.FC<{
     showGrid,
     showRivers,
     showRoutes,
+    showCurrents,
     factionBorders,
     mapLabels,
     labelVisibility,
