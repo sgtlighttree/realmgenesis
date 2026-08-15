@@ -43,6 +43,8 @@ interface ControlsProps {
   setShowHillshade: (b: boolean) => void;
   showContours: boolean;
   setShowContours: (b: boolean) => void;
+  showCurrents: boolean;
+  setShowCurrents: (b: boolean) => void;
   labelVisibility: LabelVisibility;
   setLabelVisibility: React.Dispatch<React.SetStateAction<LabelVisibility>>;
   dymaxionSettings: DymaxionSettings;
@@ -126,6 +128,8 @@ const Controls: React.FC<ControlsProps> = ({
   setShowHillshade,
   showContours,
   setShowContours,
+  showCurrents,
+  setShowCurrents,
   labelVisibility,
   setLabelVisibility,
   dymaxionSettings,
@@ -419,6 +423,7 @@ const Controls: React.FC<ControlsProps> = ({
     viewMode, setViewMode, displayMode, setDisplayMode,
     showGrid, setShowGrid, showRivers, setShowRivers, showRoutes, setShowRoutes,
     showHillshade, setShowHillshade, showContours, setShowContours,
+    showCurrents, setShowCurrents,
     labelVisibility, setLabelVisibility,
   };
   const layerToggles = buildLayerToggles(viewProps);

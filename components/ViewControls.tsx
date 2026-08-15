@@ -2,7 +2,7 @@ import React from 'react';
 import {
   Globe, Satellite, Mountain, Eye, Thermometer, Droplets, Layers, Flag,
   Landmark, Palette, Church, Users, Grid, Waves, Route, Sun, LineChart,
-  Pause, Play,
+  Pause, Play, Wind,
 } from 'lucide-react';
 
 import { ViewMode, DisplayMode, LabelVisibility } from '../types';
@@ -37,6 +37,8 @@ export interface ViewControlsProps {
   setShowHillshade: (b: boolean) => void;
   showContours: boolean;
   setShowContours: (b: boolean) => void;
+  showCurrents: boolean;
+  setShowCurrents: (b: boolean) => void;
   labelVisibility: LabelVisibility;
   setLabelVisibility: React.Dispatch<React.SetStateAction<LabelVisibility>>;
 }
@@ -97,6 +99,7 @@ export const buildLayerToggles = (p: ViewControlsProps): LayerToggle[] => [
   { key: 'routes', label: 'Roads & Routes', icon: Route, checked: p.showRoutes, onChange: p.setShowRoutes, accent: 'text-warn-soft' },
   { key: 'hillshade', label: 'Hillshading', icon: Sun, checked: p.showHillshade, onChange: p.setShowHillshade, accent: 'text-brand-soft' },
   { key: 'contours', label: 'Contour Lines', icon: LineChart, checked: p.showContours, onChange: p.setShowContours, accent: 'text-brand-soft' },
+  { key: 'currents', label: 'Ocean Currents', icon: Wind, checked: p.showCurrents, onChange: p.setShowCurrents, accent: 'text-brand-soft' },
 ];
 
 /* ------------------------------------------------------------------ *
