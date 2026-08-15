@@ -307,7 +307,8 @@ The UI has become a mess in an attempt to add more features, especially on mobil
 A full redesign and rearchitecture is warranted here.
 Can come *before or alongside* D6 with the roadmap in mind.
 
-# F2. 3D Mode Presentation  —  ⬜ TODO
+# F2. 3D Mode Presentation  —  🟡 PARTIAL
+> _ScreenOverlay foundation + ocean-current viz + graticule migration shipped Session 16; remaining overlay migrations (borders/rivers/roads/contours/labels) + smooth-globe option TODO_
 Part of redesign is figuring out how the planet is presented; overlays like borders, rivers and roads and routes and the lat/lon grid are also 3D objects, not 2D overlays simply composited over the 3D globe, which affects visibility and accuracy. Or maybe make the globe entirely smooth by default, instead of applying height per cell. Perhaps 3D mode should more like Google Earth Pro in this respect.
 
 - **Ocean-current visualization** (from D2): a currents overlay drawing the

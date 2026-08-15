@@ -31,6 +31,72 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## Session 16 (2026-08-15) — F2 screen-space overlay foundation + ocean-current viz
+
+On branch **`f2-currents-overlay`** (cut from `main` @ `7297908`, the S13–S15 stack
+now pushed), commits `218c625`..`e7281ea`. **Merged? see finish.** All gates green:
+typecheck 0, lint 0/29, **full suite 193/193** (28 files, no M1 flake), build OK
+(worker chunk 87.06KB, +0.23KB for the transfer field — no THREE leak; render code
+stays in the main chunk). fable-advisor final review = **SHIP**. Executed
+subagent-driven (ledger at `.superpowers/sdd/2026-08-15-f2-currents-overlay/`).
+
+### What shipped (ROADMAP F2 → 🟡 PARTIAL)
+
+A **screen-space 2D overlay layer** replacing the "overlays are physical 3D objects"
+pattern, with ocean currents as its first tenant + the graticule migrated onto it.
+Spec: `docs/superpowers/specs/2026-08-15-f2-currents-overlay-design.md`; plan:
+`docs/superpowers/plans/2026-08-15-f2-currents-overlay.md`.
+
+- **`WorldData.currents?`** — the D2 field (`vx/vy/vz/sst` Float32Arrays) is now
+  persisted (was computed then discarded), optional (absent at `currentStrength=0` =
+  byte-identical escape hatch), never serialized (save is whitelist-based).
+- **`ScreenOverlay`** (`components/overlays/ScreenOverlay.tsx`) — a Canvas2D sibling
+  to the WebGL canvas, projects cells each frame through the globe's live world matrix
+  (found by name `globe-mesh`, tracks the auto-spin) + an **analytic horizon test**
+  (`utils/screenProject.ts`, ε=0.08 — depth-buffer readback rejected as an M1 stall),
+  dispatching to tenant draw callbacks. Redraw gated on a quantized camera+globe matrix
+  key. Two tenants (`components/overlays/tenants.ts`): **currents** (arrows + warm/cold
+  SST tint) and the **graticule** (old 3D `LatLongGrid` removed).
+- **2D map currents** (`components/overlays/currents2D.ts`) in Map2D's Mercator pass.
+- **`showCurrents`** overlay toggle wired end-to-end (useWorldEngine → ShellApp/App →
+  Controls/ViewControls → WorldViewer + Map2D).
+
+### Two load-bearing bugs found & fixed (both were invisible to unit tests)
+
+1. **Worker transfer dropped `currents`.** `utils/worldTransfer.ts` is a hand-rolled
+   struct-of-arrays transfer (NOT structured clone) that cherry-picks fields, so
+   `world.currents` never reached the render thread. The persistence unit test passed
+   anyway because it calls `generateWorld` directly, bypassing the worker. Fixed
+   (`bcbd96a`): added the 4 arrays to the payload (auto-transferred) + a worldTransfer
+   round-trip test. **Rule: any new WorldData field that must reach the renderer needs
+   a worldTransfer entry + a round-trip test.**
+2. **Mercator blit never re-ran on toggles (pre-existing).** Map2D's mercator render
+   path drew to the offscreen canvas but never bumped `renderCount` (only the dymaxion
+   path did); the offscreen→visible blit is a separate effect keyed on `renderCount`,
+   so ANY mercator overlay toggle (currents — and pre-existing grid/rivers/routes/
+   contours) redrew offscreen but never reached the screen until a pan/zoom. Fixed
+   (`b555d95`) by bumping `renderCount` at the end of the mercator path.
+   **Debugging note:** Playwright reads of React fiber `memoizedProps` were STALE and
+   sent me chasing a phantom wiring bug; a runtime `console.log` at the call site was
+   the reliable instrument (proved showCurrents=true + 3623 arrows drawn to offscreen).
+
+### Process notes
+
+- **DeepSeek (`opencode-go/deepseek-v4-flash`) as a cross-model executor:** Task 1
+  (persistence, self-contained) succeeded fast + integrated clean. Task 6 (Map2D draw)
+  **timed out** (exit 12, no output) — 4-min stall on a ~40-line function; written
+  in-house instead. Verdict: good for small self-contained gen, net-negative vs
+  in-house when the spec is already complete (the round-trip cost dominates).
+- **Deferred (v1 scope, ROADMAP queue):** Dymaxion-2D currents; animated particle
+  flow; migrating borders/rivers/**roads/routes**/**contours**/labels onto ScreenOverlay
+  (Matt asked roads/routes + contours be flagged — done in ROADMAP).
+- **Advisor nit (non-blocking):** screen-space overlays draw above EVERYTHING on the
+  globe (old grid was depth-tested), so graticule/arrows overpaint city markers +
+  labels. Intentional per spec §2.3; expect it as feedback when labels are on.
+- **NOT pushed / NOT merged** — Matt to decide (finishing-a-development-branch).
+
+---
+
 ## Session 15 (2026-08-15) — DEFAULT_PARAMS single-source + D2 ocean currents
 
 On `main`, commits `a4d68ca`..(D2 stack), on top of the 14-commit unpushed S13/S14
