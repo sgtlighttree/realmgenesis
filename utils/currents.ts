@@ -1,5 +1,6 @@
 import { Cell, WorldParams } from '../types';
 import { annualMeanLatTemp } from './seasons';
+import { applyStarClass } from './planetary';
 
 // D2 ocean currents — a fixed-pass, fixed-order relaxation (no Poisson solve,
 // no RNG) so byte-identical reruns hold, matching the 8-pass moisture loop's
@@ -129,12 +130,12 @@ export function computeSstAnomaly(
   for (let i = 0; i < n; i++) {
     if (!isOcean(i)) continue;
     const phi = Math.asin(Math.max(-1, Math.min(1, cells[i].center.y)));
-    // Seed from the UN-scaled latitude curve on purpose: the anomaly is a
-    // frame-relative delta (advected temp − local base), and star-class scaling
-    // cancels in that difference. worldGen then adds the anomaly to a star-scaled
-    // temperature — a deliberate second-order approximation (exact at default G,
-    // ~2% off at M-class). Do NOT "fix" by star-scaling the seed; it shifts output.
-    base[i] = annualMeanLatTemp(phi, params);
+    // Seed in the SAME (star-scaled) frame worldGen adds the anomaly to, so the
+    // anomaly magnitude scales with insolation (a dimmer star → weaker currents
+    // in absolute °C). G-class is an exact 1.0 no-op, so default worlds are
+    // unaffected. (Earlier the seed was un-scaled — a ~2% frame mismatch at
+    // M-class; star-scaling the seed removes it.)
+    base[i] = applyStarClass(annualMeanLatTemp(phi, params), params.starClass);
     T[i] = base[i];
   }
   const scratch = new Float32Array(n);
