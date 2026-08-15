@@ -543,8 +543,13 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
       sstAnomaly = computeSstAnomaly(cells, currentField, params, params.seaLevel);
   }
 
+  // D2: ocean evaporation is SIGNED — warm currents wet downwind coasts, cold
+  // currents dry them (coastal-desert effect). The dry side has [0,1] headroom,
+  // so this differentiates coasts the old warm-only boost squashed at the clamp.
+  // Floored so a cold ocean stays a real (if weak) moisture source.
+  const oceanMoisture = (i: number) => sstAnomaly ? Math.max(0.3, 1.0 + EVAP_K * sstAnomaly[i]) : 1.0;
   cells.forEach((c, i) => {
-      if (c.height < params.seaLevel) c.moisture = sstAnomaly ? 1.0 + EVAP_K * Math.max(0, sstAnomaly[i]) : 1.0;
+      if (c.height < params.seaLevel) c.moisture = oceanMoisture(i);
       else c.moisture = 0.1 * params.rainfallMultiplier;
   });
   
@@ -554,7 +559,7 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
       const newMoisture = new Float32Array(cells.length);
       cells.forEach((c, i) => {
           if (c.height < params.seaLevel) {
-              newMoisture[i] = sstAnomaly ? 1.0 + EVAP_K * Math.max(0, sstAnomaly[i]) : 1.0;
+              newMoisture[i] = oceanMoisture(i);
               return;
           }
           let incomingMoisture = 0; 

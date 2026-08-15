@@ -123,14 +123,28 @@ moisture" toggle so the default stays cheap. Pairs naturally with D2 (ocean
 currents), which also feeds the moisture model.
 
 **D2 composability seam (read this before building seasonal moisture).** D2 (ocean
-currents, shipped S15) injects a warm-current **evaporation** term into the ocean
-moisture *seed* (`1.0 + EVAP_K·max(0, sstAnomaly)` in the `worldGen` 8-pass, from
-`utils/currents.ts`). This is the **annual** ocean-moisture baseline and introduces
-**no per-season field**, so D1/D3's free O(n) biome-at-season recompute is preserved.
-When seasonal moisture lands, it must **layer its per-season overlay on top of** this
-current-modified annual baseline — do **not** overwrite the ocean seed back to a bare
-`1.0`, or warm-current coasts silently lose their extra rainfall. The current field
-itself stays annual/steady-state (no seasonal gyre reversal) at this tier.
+currents, shipped S15) injects a **signed** evaporation term into the ocean moisture
+*seed* (`max(0.3, 1.0 + EVAP_K·sstAnomaly)` in the `worldGen` 8-pass, from
+`utils/currents.ts`): warm currents wet downwind coasts, cold currents dry them. This
+is the **annual** ocean-moisture baseline and introduces **no per-season field**, so
+D1/D3's free O(n) biome-at-season recompute is preserved. When seasonal moisture lands,
+it must **layer its per-season overlay on top of** this current-modified annual baseline
+— do **not** overwrite the ocean seed back to a bare `1.0`, or warm/cold-current coasts
+silently lose their rainfall signal. The current field itself stays annual/steady-state
+(no seasonal gyre reversal) at this tier.
+
+### D2 shelved levers — deferred with compute-budget note
+Two D2 upgrades were deliberately shelved (Matt's call, S15), not abandoned:
+1. **Seasonal current reversal (monsoon gyres).** Currents are annual/steady-state; the
+   real Indian-Ocean-style seasonal flip needs a per-season velocity solve. Pairs with
+   the seasonal-moisture work above. Deferred.
+2. **Divergence-free (incompressible) gyres.** The shipped tier is a fixed-pass
+   relaxation that forms *emergent* gyres without a Poisson/streamfunction projection.
+   The "proper" incompressible solve was rejected on the **browser compute budget** and,
+   more decisively, **determinism** — a convergence-threshold / variable-iteration solver
+   can't give the byte-identical reruns the whole test strategy rests on. Not recommended
+   at this budget; revisit only if the determinism constraint is relaxed. (Sverdrup
+   streamfunction was also rejected — no natural "west"/basin on the geodesic graph.)
 
 ### Sea-level coupling for ice — deferred from D3
 D3 (sea-ice) ships as a render overlay: cells below the seawater freeze point

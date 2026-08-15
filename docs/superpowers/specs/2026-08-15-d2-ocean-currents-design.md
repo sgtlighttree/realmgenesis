@@ -193,14 +193,19 @@ Today ocean cells are pinned to `moisture = 1.0` both at init and every pass. D2
 replaces the pin with an **evaporation-boosted seed**:
 
 ```
-ocean cell: moisture = 1.0 + EVAP_K · max(0, sstAnomaly_i)         // warm water evaporates more
+ocean cell: moisture = max(0.3, 1.0 + EVAP_K · sstAnomaly_i)       // SIGNED: warm wets, cold dries
 ```
 
-(Only positive anomalies boost; cold currents don't suppress evaporation below the
-`1.0` baseline — they cool the air, handled by the temperature term, and their
-drying effect emerges downwind from carrying less-elevated moisture.) The existing
-8-pass upwind transport then carries this elevated moisture onto downwind coasts →
-warm-current coasts wetter. `EVAP_K` tuned in §8.
+> **S15 update (implemented):** the evaporation term is **signed**, not
+> `max(0, ·)`. The warm-only boost saturated at the moisture `[0,1]` clamp — the
+> wettest coasts all pinned to 1.0, so the knob stopped differentiating them.
+> Signing it puts the differentiation on the **dry side**, where `[0,1]` has
+> headroom: cold currents dry downwind coasts (the coastal-desert / Atacama–Namib
+> effect) while warm currents keep them wet. Floored at `0.3` so a cold ocean stays
+> a real moisture source. More realistic *and* fixes the clamp saturation.
+
+The existing 8-pass upwind transport carries this seed onto downwind coasts →
+warm-current coasts wetter, cold-current coasts drier. `EVAP_K` tuned in §8.
 
 **Composability seam with deferred D1 seasonal-moisture / monsoons (advisor's
 flag).** This term modifies the **annual** ocean-moisture baseline. It introduces
