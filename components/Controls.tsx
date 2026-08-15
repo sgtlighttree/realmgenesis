@@ -35,6 +35,8 @@ interface ControlsProps {
   genProgress: number;
   showGrid: boolean;
   setShowGrid: (b: boolean) => void;
+  smoothGlobe: boolean;
+  setSmoothGlobe: (b: boolean) => void;
   showRivers: boolean;
   setShowRivers: (b: boolean) => void;
   showRoutes: boolean;
@@ -120,6 +122,8 @@ const Controls: React.FC<ControlsProps> = ({
   genProgress,
   showGrid,
   setShowGrid,
+  smoothGlobe,
+  setSmoothGlobe,
   showRivers,
   setShowRivers,
   showRoutes,
@@ -421,7 +425,7 @@ const Controls: React.FC<ControlsProps> = ({
   // host composing its own layout.
   const viewProps: ViewControlsProps = {
     viewMode, setViewMode, displayMode, setDisplayMode,
-    showGrid, setShowGrid, showRivers, setShowRivers, showRoutes, setShowRoutes,
+    showGrid, setShowGrid, smoothGlobe, setSmoothGlobe, showRivers, setShowRivers, showRoutes, setShowRoutes,
     showHillshade, setShowHillshade, showContours, setShowContours,
     showCurrents, setShowCurrents,
     labelVisibility, setLabelVisibility,

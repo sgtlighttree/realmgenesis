@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, MarkerData, RouteData } from '../types';
 import { getCellColor } from '../utils/colors';
 import { seasonalTemperatureDelta } from '../utils/seasons';
+import { displayRadius } from '../utils/displayRadius';
 import { computeShadeMap, computeContourSegments } from '../utils/shading';
 import { collectLabels, MapLabel } from '../utils/labels';
 import { ScreenOverlay, OverlayTenant } from './overlays/ScreenOverlay';
@@ -28,7 +29,7 @@ const Sprite = 'sprite' as unknown as R3FIntrinsic;
 const SpriteMaterial = 'spriteMaterial' as unknown as R3FIntrinsic;
 const OctahedronGeometry = 'octahedronGeometry' as unknown as R3FIntrinsic;
 
-const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ world, viewMode }) => {
+const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode; smoothGlobe?: boolean }> = ({ world, viewMode, smoothGlobe = false }) => {
     const capitalsRef = useRef<THREE.InstancedMesh>(null);
     const townsRef = useRef<THREE.InstancedMesh>(null);
     const dummy = useMemo(() => new THREE.Object3D(), []);
@@ -50,7 +51,7 @@ const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ world
         const updateMesh = (mesh: THREE.InstancedMesh, data: Cell[], heightBase: number) => {
             if (!mesh) return;
             data.forEach((cell, i) => {
-                const h = 1 + (cell.height * 0.05);
+                const h = displayRadius(cell.height, smoothGlobe);
                 pos.set(cell.center.x * h, cell.center.y * h, cell.center.z * h);
                 up.copy(pos).normalize();
                 dummy.position.copy(pos).addScaledVector(up, heightBase * 0.5);
@@ -63,7 +64,7 @@ const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode }> = ({ world
         };
         if (capitalsRef.current) updateMesh(capitalsRef.current, capitals, 0.08);
         if (townsRef.current) updateMesh(townsRef.current, towns, 0.04);
-    }, [world, capitals, towns, dummy]);
+    }, [world, capitals, towns, dummy, smoothGlobe]);
 
     return (
         <>
@@ -119,7 +120,7 @@ const MarkerPins: React.FC<{ markers: MarkerData[]; visible: boolean }> = ({ mar
     );
 };
 
-const RiverLines: React.FC<{ world: WorldData; visible: boolean }> = ({ world, visible }) => {
+const RiverLines: React.FC<{ world: WorldData; visible: boolean; smoothGlobe?: boolean }> = ({ world, visible, smoothGlobe = false }) => {
     // Keyed on world.rivers (stable across paint strokes), not world identity,
     // so painting never re-runs the CatmullRom smoothing or reallocates buffers
     const rivers = world.rivers;
@@ -127,14 +128,21 @@ const RiverLines: React.FC<{ world: WorldData; visible: boolean }> = ({ world, v
         if (!rivers || !visible) return null;
 
         const positions: number[] = [];
+        // Smooth globe: river points are baked at relief radius (1+h·0.05+0.005);
+        // drop each to the flat surface by normalizing to unit and re-lifting.
+        const RIVER_LIFT = 1.005;
 
         // Batch all river segments into a single LineSegments geometry for performance
         // Rendering thousands of individual <Line> components causes massive overhead/freezes
         rivers.forEach(path => {
             if (path.length < 2) return;
-            
+
             // Create Curve for smoothing
-            const vectors = path.map(p => new THREE.Vector3(p.x, p.y, p.z));
+            const vectors = path.map(p => {
+                const v = new THREE.Vector3(p.x, p.y, p.z);
+                if (smoothGlobe) v.normalize().multiplyScalar(RIVER_LIFT);
+                return v;
+            });
             const curve = new THREE.CatmullRomCurve3(vectors);
             
             // Adaptive sampling based on length, but simple count is safer for perf
@@ -151,7 +159,7 @@ const RiverLines: React.FC<{ world: WorldData; visible: boolean }> = ({ world, v
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
         return geo;
-    }, [rivers, visible]);
+    }, [rivers, visible, smoothGlobe]);
 
     useEffect(() => () => { geometry?.dispose(); }, [geometry]);
 
@@ -170,6 +178,7 @@ function buildRouteGeometry(
     routes: RouteData[] | undefined,
     kind: 'road' | 'searoute',
     visible: boolean,
+    smoothGlobe = false,
 ): THREE.BufferGeometry | null {
     if (!routes || !visible) return null;
     const positions: number[] = [];
@@ -177,7 +186,13 @@ function buildRouteGeometry(
     const LIFT = 1.008; // just above surface (rivers sit at r≈1.0)
     for (const r of routes) {
         if (r.kind !== kind || r.path.length < 2) continue;
-        const vectors = r.path.map(p => new THREE.Vector3(p.x, p.y, p.z).multiplyScalar(LIFT));
+        // Smooth globe: normalize each path point to unit before the lift so
+        // routes lie on the flat sphere instead of floating at relief radius.
+        const vectors = r.path.map(p => {
+            const v = new THREE.Vector3(p.x, p.y, p.z);
+            if (smoothGlobe) v.normalize();
+            return v.multiplyScalar(LIFT);
+        });
         const curve = new THREE.CatmullRomCurve3(vectors);
         const pts = curve.getPoints(Math.min(60, vectors.length * 4));
         let accum = 0; // reset per route so dashes run continuously along each route
@@ -197,10 +212,10 @@ function buildRouteGeometry(
     return geo;
 }
 
-const RouteLines: React.FC<{ world: WorldData; visible: boolean }> = ({ world, visible }) => {
+const RouteLines: React.FC<{ world: WorldData; visible: boolean; smoothGlobe?: boolean }> = ({ world, visible, smoothGlobe = false }) => {
     const routes = world.routes;
-    const road = useMemo(() => buildRouteGeometry(routes, 'road', visible), [routes, visible]);
-    const sea = useMemo(() => buildRouteGeometry(routes, 'searoute', visible), [routes, visible]);
+    const road = useMemo(() => buildRouteGeometry(routes, 'road', visible, smoothGlobe), [routes, visible, smoothGlobe]);
+    const sea = useMemo(() => buildRouteGeometry(routes, 'searoute', visible, smoothGlobe), [routes, visible, smoothGlobe]);
     useEffect(() => () => { road?.dispose(); }, [road]);
     useEffect(() => () => { sea?.dispose(); }, [sea]);
     if (!visible) return null;
@@ -515,7 +530,7 @@ const PointLabels: React.FC<{
   );
 };
 
-const FactionBorders: React.FC<{ world: WorldData; visible: boolean }> = ({ world, visible }) => {
+const FactionBorders: React.FC<{ world: WorldData; visible: boolean; smoothGlobe?: boolean }> = ({ world, visible, smoothGlobe = false }) => {
   const geometry = useMemo(() => {
       if (!visible || !world.civData) return null;
 
@@ -549,10 +564,10 @@ const FactionBorders: React.FC<{ world: WorldData; visible: boolean }> = ({ worl
                   }
                   
                   if (shared.length === 2) {
-                      const hA = 1 + (cellA.height * 0.05);
-                      const hB = 1 + (cellB.height * 0.05);
+                      const hA = displayRadius(cellA.height, smoothGlobe);
+                      const hB = displayRadius(cellB.height, smoothGlobe);
                       // Slight offset to prevent z-fighting with mesh
-                      const h = Math.max(hA, hB) + 0.002; 
+                      const h = Math.max(hA, hB) + 0.002;
                       
                       const p1 = shared[0];
                       const p2 = shared[1];
@@ -569,7 +584,7 @@ const FactionBorders: React.FC<{ world: WorldData; visible: boolean }> = ({ worl
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
       return geo;
-  }, [world, visible]);
+  }, [world, visible, smoothGlobe]);
 
   useEffect(() => () => { geometry?.dispose(); }, [geometry]);
 
@@ -588,7 +603,7 @@ const CONTOUR_INTERVAL = 0.1;
 // z-fighting range everywhere — chunky cell-edge lines, consistent with the aesthetic.
 const CONTOUR_RADIUS = 1.053;
 
-const ContourLines: React.FC<{ world: WorldData; visible: boolean }> = ({ world, visible }) => {
+const ContourLines: React.FC<{ world: WorldData; visible: boolean; smoothGlobe?: boolean }> = ({ world, visible, smoothGlobe = false }) => {
   // Keyed on world identity: heights mutate in place on paint and WorldData is
   // shallow-copied, so isolines must recompute per stroke.
   const geometry = useMemo(() => {
@@ -596,16 +611,18 @@ const ContourLines: React.FC<{ world: WorldData; visible: boolean }> = ({ world,
     const segments = computeContourSegments(world.cells, world.params.seaLevel, CONTOUR_INTERVAL);
     if (segments.length === 0) return null;
 
+    // Smooth globe: drop the isolines to just above the unit sphere.
+    const radius = smoothGlobe ? 1.001 : CONTOUR_RADIUS;
     const positions: number[] = [];
     segments.forEach(([p1, p2]) => {
-      positions.push(p1[0] * CONTOUR_RADIUS, p1[1] * CONTOUR_RADIUS, p1[2] * CONTOUR_RADIUS);
-      positions.push(p2[0] * CONTOUR_RADIUS, p2[1] * CONTOUR_RADIUS, p2[2] * CONTOUR_RADIUS);
+      positions.push(p1[0] * radius, p1[1] * radius, p1[2] * radius);
+      positions.push(p2[0] * radius, p2[1] * radius, p2[2] * radius);
     });
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     return geo;
-  }, [world, visible]);
+  }, [world, visible, smoothGlobe]);
 
   useEffect(() => () => { geometry?.dispose(); }, [geometry]);
 
@@ -689,9 +706,9 @@ const BrushRing: React.FC<{ center: [number, number, number]; radius: number }> 
   );
 };
 
-const CellSelectionOverlay: React.FC<{ cell: Cell }> = ({ cell }) => {
+const CellSelectionOverlay: React.FC<{ cell: Cell; smoothGlobe?: boolean }> = ({ cell, smoothGlobe = false }) => {
   const { fillGeometry, outlinePoints } = useMemo(() => {
-    const hMult = 1 + cell.height * 0.05 + 0.012;
+    const hMult = displayRadius(cell.height, smoothGlobe, 0.012);
     const center = new THREE.Vector3(cell.center.x * hMult, cell.center.y * hMult, cell.center.z * hMult);
     const positions: number[] = [];
     const outlinePoints = cell.vertices.map(v => new THREE.Vector3(v.x * hMult, v.y * hMult, v.z * hMult));
@@ -715,7 +732,7 @@ const CellSelectionOverlay: React.FC<{ cell: Cell }> = ({ cell }) => {
     return { fillGeometry, outlinePoints };
     // cell.height mutates in place during terrain painting
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cell, cell.height]);
+  }, [cell, cell.height, smoothGlobe]);
 
   useEffect(() => () => { fillGeometry.dispose(); }, [fillGeometry]);
 
@@ -747,20 +764,21 @@ const CellSelectionOverlay: React.FC<{ cell: Cell }> = ({ cell }) => {
 // the same offset intentionally, so the ruler line clears the highest peaks).
 const RULER_RADIUS = 1.062;
 
-const RulerArc: React.FC<{ points: Point[] }> = ({ points }) => {
+const RulerArc: React.FC<{ points: Point[]; smoothGlobe?: boolean }> = ({ points, smoothGlobe = false }) => {
   const geometry = useMemo(() => {
     if (points.length < 2) return null;
+    const radius = smoothGlobe ? 1.01 : RULER_RADIUS;
     const positions: number[] = [];
     for (let i = 0; i < points.length - 1; i++) {
       const p0 = points[i];
       const p1 = points[i + 1];
-      positions.push(p0.x * RULER_RADIUS, p0.y * RULER_RADIUS, p0.z * RULER_RADIUS);
-      positions.push(p1.x * RULER_RADIUS, p1.y * RULER_RADIUS, p1.z * RULER_RADIUS);
+      positions.push(p0.x * radius, p0.y * radius, p0.z * radius);
+      positions.push(p1.x * radius, p1.y * radius, p1.z * radius);
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     return geo;
-  }, [points]);
+  }, [points, smoothGlobe]);
 
   useEffect(() => () => { geometry?.dispose(); }, [geometry]);
 
@@ -768,17 +786,18 @@ const RulerArc: React.FC<{ points: Point[] }> = ({ points }) => {
 
   const start = points[0];
   const end = points[points.length - 1];
+  const markR = smoothGlobe ? 1.01 : RULER_RADIUS;
 
   return (
     <Group>
       <LineSegments geometry={geometry} renderOrder={9}>
         <LineBasicMaterial color="#fbbf24" opacity={0.9} transparent depthTest={false} />
       </LineSegments>
-      <Mesh position={[start.x * RULER_RADIUS, start.y * RULER_RADIUS, start.z * RULER_RADIUS]} renderOrder={10}>
+      <Mesh position={[start.x * markR, start.y * markR, start.z * markR]} renderOrder={10}>
         <IcosahedronGeometry args={[0.012, 1]} />
         <MeshBasicMaterial color="#fbbf24" depthTest={false} />
       </Mesh>
-      <Mesh position={[end.x * RULER_RADIUS, end.y * RULER_RADIUS, end.z * RULER_RADIUS]} renderOrder={10}>
+      <Mesh position={[end.x * markR, end.y * markR, end.z * markR]} renderOrder={10}>
         <IcosahedronGeometry args={[0.012, 1]} />
         <MeshBasicMaterial color="#fbbf24" depthTest={false} />
       </Mesh>
@@ -786,9 +805,9 @@ const RulerArc: React.FC<{ points: Point[] }> = ({ points }) => {
   );
 };
 
-const CellHighlightOutline: React.FC<{ cell: Cell }> = ({ cell }) => {
+const CellHighlightOutline: React.FC<{ cell: Cell; smoothGlobe?: boolean }> = ({ cell, smoothGlobe = false }) => {
   const geometry = useMemo(() => {
-    const hm = 1 + cell.height * 0.05 + 0.004;
+    const hm = displayRadius(cell.height, smoothGlobe, 0.004);
     const verts = cell.vertices;
     const pts: number[] = [];
     for (let i = 0; i < verts.length; i++) {
@@ -800,7 +819,7 @@ const CellHighlightOutline: React.FC<{ cell: Cell }> = ({ cell }) => {
     return geo;
     // cell.height mutates in place during terrain painting
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cell, cell.height]);
+  }, [cell, cell.height, smoothGlobe]);
   useEffect(() => () => { geometry.dispose(); }, [geometry]);
   return (
     <LineSegments geometry={geometry} renderOrder={9}>
@@ -815,6 +834,7 @@ const WorldMesh: React.FC<{
   onHover: (cell: Cell | null) => void,
   paused: boolean,
   showGrid: boolean,
+  smoothGlobe: boolean,
   showRivers: boolean,
   showRoutes: boolean,
   showHillshade: boolean,
@@ -832,7 +852,7 @@ const WorldMesh: React.FC<{
   selectedCellId?: number | null;
   labelVisibility: LabelVisibility;
   rulerArc?: Point[] | null;
-}> = ({ world, viewMode, onHover, paused, showGrid, showRivers, showRoutes, showHillshade, showContours, showCurrents, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize, selectedCellId = null, labelVisibility, rulerArc = null }) => {
+}> = ({ world, viewMode, onHover, paused, showGrid, smoothGlobe, showRivers, showRoutes, showHillshade, showContours, showCurrents, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize, selectedCellId = null, labelVisibility, rulerArc = null }) => {
   const spinRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const lastUpdate = useRef<number>(0);
@@ -895,7 +915,7 @@ const WorldMesh: React.FC<{
       // Multiply in relief shading only when toggled; the off path stays a
       // straight color copy so rendering is unchanged.
       if (showHillshade) c.multiplyScalar(shadeMap[cell.id]);
-      const hMult = 1 + (cell.height * 0.05);
+      const hMult = displayRadius(cell.height, smoothGlobe);
       const cx = cell.center.x * hMult; const cy = cell.center.y * hMult; const cz = cell.center.z * hMult;
       for (let i = 0; i < cell.vertices.length; i++) {
         const v1 = cell.vertices[i]; const v2 = cell.vertices[(i + 1) % cell.vertices.length];
@@ -910,7 +930,7 @@ const WorldMesh: React.FC<{
     }
     posAttr.needsUpdate = true;
     colAttr.needsUpdate = true;
-  }, [geometry, world, viewMode, factionColors, cultureColors, religionColors, showHillshade, shadeMap]);
+  }, [geometry, world, viewMode, factionColors, cultureColors, religionColors, showHillshade, shadeMap, smoothGlobe]);
 
   const faceMap = useMemo(() => {
      const map: number[] = [];
@@ -952,10 +972,10 @@ const WorldMesh: React.FC<{
   const showBrushCell = useCallback((cellId: number) => {
       const cell = world.cells[cellId];
       if (!cell) return;
-      const hMult = 1 + cell.height * 0.05 + 0.005;
+      const hMult = displayRadius(cell.height, smoothGlobe, 0.005);
       setBrushCenter([cell.center.x * hMult, cell.center.y * hMult, cell.center.z * hMult]);
       setHighlightCellId(cellId);
-  }, [world.cells]);
+  }, [world.cells, smoothGlobe]);
 
   useEffect(() => {
       if (tracksPointerMove) return;
@@ -1111,27 +1131,27 @@ const WorldMesh: React.FC<{
                 ) : (
                     <MeshStandardMaterial vertexColors roughness={0.8} metalness={0.1} flatShading side={THREE.FrontSide} />
                 )}
-                <CityMarkers world={world} viewMode={viewMode} />
+                <CityMarkers world={world} viewMode={viewMode} smoothGlobe={smoothGlobe} />
                 <MarkerPins markers={world.markers ?? []} visible={labelVisibility.markers} />
                 <React.Suspense fallback={null}>
                     <CountryLabels world={world} visible={labelVisibility.factions} />
                     <PointLabels labels={mapLabels} visibility={labelVisibility} />
                 </React.Suspense>
-                <FactionBorders world={world} visible={labelVisibility.borders} />
-                <RiverLines world={world} visible={showRivers} />
-                <RouteLines world={world} visible={showRoutes} />
-                <ContourLines world={world} visible={showContours} />
+                <FactionBorders world={world} visible={labelVisibility.borders} smoothGlobe={smoothGlobe} />
+                <RiverLines world={world} visible={showRivers} smoothGlobe={smoothGlobe} />
+                <RouteLines world={world} visible={showRoutes} smoothGlobe={smoothGlobe} />
+                <ContourLines world={world} visible={showContours} smoothGlobe={smoothGlobe} />
                 {/* Lat/long grid migrated to ScreenOverlay (F2 graticule tenant). */}
                 {showGrid && <TiltAxisLine radius={1.35} />}
                 {/* Cell highlight outline */}
                 {highlightCellId !== null && world.cells[highlightCellId] && (
-                    <CellHighlightOutline cell={world.cells[highlightCellId]} />
+                    <CellHighlightOutline cell={world.cells[highlightCellId]} smoothGlobe={smoothGlobe} />
                 )}
                 {selectedCellId !== null && (() => {
                     const selectedCell = world.cells[selectedCellId];
-                    return selectedCell ? <CellSelectionOverlay cell={selectedCell} /> : null;
+                    return selectedCell ? <CellSelectionOverlay cell={selectedCell} smoothGlobe={smoothGlobe} /> : null;
                 })()}
-                {rulerArc && rulerArc.length > 1 && <RulerArc points={rulerArc} />}
+                {rulerArc && rulerArc.length > 1 && <RulerArc points={rulerArc} smoothGlobe={smoothGlobe} />}
             </Mesh>
             {/* Brush size ring */}
             {isPaintMode && brushCenter && (
@@ -1143,12 +1163,12 @@ const WorldMesh: React.FC<{
                 <MeshBasicMaterial color="#000000" side={THREE.FrontSide} />
             </Mesh>
         </Group>
-        <ScreenOverlay world={world} tenants={overlayTenants} />
+        <ScreenOverlay world={world} tenants={overlayTenants} smoothGlobe={smoothGlobe} />
     </Group>
   );
 };
 
-const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean; showRoutes?: boolean; showHillshade?: boolean; showContours?: boolean; showCurrents?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; cultureColors?: Map<number, string>; religionColors?: Map<number, string>; brushSize?: number; rulerArc?: Point[] | null; overlayClassName?: string; paused?: boolean; onPausedChange?: (v: boolean) => void; showPauseControl?: boolean; }> = ({ world, viewMode, showGrid = false, showRivers = true, showRoutes = false, showHillshade = false, showContours = false, showCurrents = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null, overlayClassName = 'absolute top-4 right-4 z-overlay flex gap-2', paused: pausedProp, onPausedChange, showPauseControl = true }) => {
+const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; smoothGlobe?: boolean; showRivers?: boolean; showRoutes?: boolean; showHillshade?: boolean; showContours?: boolean; showCurrents?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; cultureColors?: Map<number, string>; religionColors?: Map<number, string>; brushSize?: number; rulerArc?: Point[] | null; overlayClassName?: string; paused?: boolean; onPausedChange?: (v: boolean) => void; showPauseControl?: boolean; }> = ({ world, viewMode, showGrid = false, smoothGlobe = false, showRivers = true, showRoutes = false, showHillshade = false, showContours = false, showCurrents = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null, overlayClassName = 'absolute top-4 right-4 z-overlay flex gap-2', paused: pausedProp, onPausedChange, showPauseControl = true }) => {
   const [hoveredCell, setHoveredCell] = useState<Cell | null>(null);
   // Rotation pause is controlled-OPTIONAL, the same contract as a native input:
   // pass `paused` + `onPausedChange` to own it from outside (the shell lifts it
@@ -1243,6 +1263,7 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
                onHover={setHoveredCell}
                paused={paused}
                showGrid={showGrid}
+               smoothGlobe={smoothGlobe}
                showRivers={showRivers}
                showRoutes={showRoutes}
                showHillshade={showHillshade}

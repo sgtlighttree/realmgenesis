@@ -2,7 +2,7 @@ import React from 'react';
 import {
   Globe, Satellite, Mountain, Eye, Thermometer, Droplets, Layers, Flag,
   Landmark, Palette, Church, Users, Grid, Waves, Route, Sun, LineChart,
-  Pause, Play, Wind,
+  Pause, Play, Wind, Circle,
 } from 'lucide-react';
 
 import { ViewMode, DisplayMode, LabelVisibility } from '../types';
@@ -29,6 +29,8 @@ export interface ViewControlsProps {
   setDisplayMode: (m: DisplayMode) => void;
   showGrid: boolean;
   setShowGrid: (b: boolean) => void;
+  smoothGlobe: boolean;
+  setSmoothGlobe: (b: boolean) => void;
   showRivers: boolean;
   setShowRivers: (b: boolean) => void;
   showRoutes: boolean;
@@ -95,6 +97,7 @@ export interface LayerToggle {
 /** The five overlay layers, bound to live state. Order matches the Sys tab. */
 export const buildLayerToggles = (p: ViewControlsProps): LayerToggle[] => [
   { key: 'grid', label: 'Lat/Long Grid', icon: Grid, checked: p.showGrid, onChange: p.setShowGrid, accent: 'text-brand-soft' },
+  { key: 'smooth', label: 'Smooth Globe', icon: Circle, checked: p.smoothGlobe, onChange: p.setSmoothGlobe, accent: 'text-brand-soft' },
   { key: 'rivers', label: 'River Network', icon: Waves, checked: p.showRivers, onChange: p.setShowRivers, accent: 'text-brand-soft' },
   { key: 'routes', label: 'Roads & Routes', icon: Route, checked: p.showRoutes, onChange: p.setShowRoutes, accent: 'text-warn-soft' },
   { key: 'hillshade', label: 'Hillshading', icon: Sun, checked: p.showHillshade, onChange: p.setShowHillshade, accent: 'text-brand-soft' },

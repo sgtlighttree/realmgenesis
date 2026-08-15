@@ -4,6 +4,7 @@
 
 import { WorldData } from '../../types';
 import { ProjectedCells } from '../../utils/screenProject';
+import { displayRadius } from '../../utils/displayRadius';
 import { LocalProjector } from './ScreenOverlay';
 
 // --- currents draw constants (single source; also consumed by Map2D, Task 6) ---
@@ -29,6 +30,7 @@ export function drawCurrentsTenant(
   proj: ProjectedCells,
   world: WorldData,
   project: LocalProjector,
+  smooth = false,
 ): void {
   const cur = world.currents;
   if (!cur) return;
@@ -48,7 +50,7 @@ export function drawCurrentsTenant(
     const c = cells[i].center;
     // Lift the tip to the cell's rendered radius so it sits on the terrain
     // surface exactly like the arrow base (see LocalProjector radius contract).
-    const r = 1 + cells[i].height * 0.05;
+    const r = displayRadius(cells[i].height, smooth);
     if (!project((c.x + cur.vx[i] * k) * r, (c.y + cur.vy[i] * k) * r, (c.z + cur.vz[i] * k) * r, tip)) continue;
     const color = currentTint(cur.sst[i]);
     ctx.strokeStyle = color;
@@ -82,11 +84,14 @@ export function drawGraticuleTenant(
   _proj: ProjectedCells,
   world: WorldData,
   project: LocalProjector,
+  smooth = false,
 ): void {
   ctx.strokeStyle = 'rgba(255,255,255,0.28)';
   ctx.lineWidth = 1;
   const pt: [number, number] = [0, 0];
-  const R = 1 + world.params.seaLevel * 0.05;
+  // Smooth globe: sit exactly on the unit sphere (zero parallax). Relief: sit at
+  // the sea-level rendered radius so the grid is parallax-free at coastlines.
+  const R = smooth ? 1 : 1 + world.params.seaLevel * 0.05;
 
   // parallels (constant latitude)
   for (let lat = -80; lat <= 80; lat += 10) {
