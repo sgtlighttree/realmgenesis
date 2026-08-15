@@ -47,7 +47,8 @@ export const generateWorldLore = async (world: WorldData): Promise<LoreData> => 
     - ${world.params.plates} tectonic plates.
     - Dominant biome: ${getDominantBiome(world)}.
     - Orbits a ${world.params.starClass ?? 'G'}-class star.
-    
+    - Ocean currents ${(world.params.currentStrength ?? 1.0) === 0 ? 'are absent (no coastal moderation)' : 'moderate coastal climate'}.
+
     Factions: ${JSON.stringify(factionSummaries)}
   `;
 
