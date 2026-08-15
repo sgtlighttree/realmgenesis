@@ -4,6 +4,7 @@ import * as THREE from 'three';
 
 import { WorldData } from '../../types';
 import { isVisible, ProjectedCells } from '../../utils/screenProject';
+import { displayRadius } from '../../utils/displayRadius';
 
 // F2 screen-space overlay layer. Mounted INSIDE the R3F <Canvas>; it owns a
 // sibling 2D <canvas> stacked over the WebGL canvas (pointer-events:none), and
@@ -33,8 +34,10 @@ export interface OverlayTenant {
   visible: boolean;
   // `proj` cell coords are pre-scaled to each cell's rendered radius. Any point
   // a tenant projects itself via `project` must ALSO be at its rendered radius —
-  // see the LocalProjector radius contract above.
-  draw(ctx: CanvasRenderingContext2D, proj: ProjectedCells, world: WorldData, project: LocalProjector): void;
+  // see the LocalProjector radius contract above. `smooth` is the smooth-globe
+  // flag: when true the globe is a unit sphere (r=1), so tenants must project
+  // their own points at r=1 too (use displayRadius).
+  draw(ctx: CanvasRenderingContext2D, proj: ProjectedCells, world: WorldData, project: LocalProjector, smooth: boolean): void;
 }
 
 // The globe mesh is auto-rotated via a parent group; we read its live world
@@ -50,7 +53,7 @@ function matrixKey(a: THREE.Matrix4, b: Float32Array | number[]): string {
   return s;
 }
 
-export const ScreenOverlay: React.FC<{ world: WorldData; tenants: OverlayTenant[] }> = ({ world, tenants }) => {
+export const ScreenOverlay: React.FC<{ world: WorldData; tenants: OverlayTenant[]; smoothGlobe?: boolean }> = ({ world, tenants, smoothGlobe = false }) => {
   const { gl, camera, scene } = useThree();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
@@ -118,7 +121,7 @@ export const ScreenOverlay: React.FC<{ world: WorldData; tenants: OverlayTenant[
     // projection (dolly-zoom via OrbitControls). If FOV/zoom is ever animated,
     // add camera.projectionMatrix to the key so it doesn't go stale.
     const active = tenants.filter((t) => t.visible);
-    const key = active.map((t) => t.id).join(',') + '|' + matrixKey(camera.matrixWorld, gm ? gm.elements : IDENT);
+    const key = (smoothGlobe ? 's|' : 'r|') + active.map((t) => t.id).join(',') + '|' + matrixKey(camera.matrixWorld, gm ? gm.elements : IDENT);
     if (key === lastKey.current) return;
     lastKey.current = key;
 
@@ -131,10 +134,11 @@ export const ScreenOverlay: React.FC<{ world: WorldData; tenants: OverlayTenant[
       const cell = world.cells[i];
       const c = cell.center;
       // Scale to the cell's rendered radius (matches the globe mesh exactly:
-      // WorldViewer refill uses hMult = 1 + cell.height·0.05). This is what
+      // WorldViewer refill uses displayRadius(height, smooth)). This is what
       // pins the overlay to the terrain surface — no zoom parallax — and lets
-      // the per-point horizon test occlude at the true limb.
-      const r = 1 + cell.height * 0.05;
+      // the per-point horizon test occlude at the true limb. When smooth, every
+      // cell collapses to r=1 so overlay + flat terrain share one sphere.
+      const r = displayRadius(cell.height, smoothGlobe);
       scratch.set(c.x * r, c.y * r, c.z * r);
       if (gm) scratch.applyMatrix4(gm); // local → world (tracks spin)
       if (!isVisible(scratch.x, scratch.y, scratch.z, camPos.x, camPos.y, camPos.z)) {
@@ -157,7 +161,7 @@ export const ScreenOverlay: React.FC<{ world: WorldData; tenants: OverlayTenant[
       return true;
     };
 
-    for (const t of active) t.draw(ctx, proj, world, project);
+    for (const t of active) t.draw(ctx, proj, world, project, smoothGlobe);
   });
 
   return null;

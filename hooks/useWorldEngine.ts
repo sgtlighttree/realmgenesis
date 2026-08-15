@@ -75,7 +75,15 @@ export function useWorldEngine() {
   const [logs, setLogs] = useState<string[]>([]);
   const [lore, setLore] = useState<LoreData | null>(null);
   const [isLoreLoading, setIsLoreLoading] = useState(false);
-  const [showGrid, setShowGrid] = useState(false);
+  const [showGrid, setShowGridBase] = useState(false);
+  // F2 smooth-globe: collapses the 3D globe to a single sphere so the graticule
+  // and current arrows can't parallax against relief. Default off (raised); the
+  // grid can't read cleanly on relief, so turning it ON auto-enables smooth.
+  const [smoothGlobe, setSmoothGlobe] = useState(false);
+  const setShowGrid = useCallback((b: boolean) => {
+    setShowGridBase(b);
+    if (b) setSmoothGlobe(true);
+  }, []);
   const [showRivers, setShowRivers] = useState(true);
   const [showRoutes, setShowRoutes] = useState(false);
   const [showHillshade, setShowHillshade] = useState(false);
@@ -653,7 +661,7 @@ export function useWorldEngine() {
     }
   }, [world]);
   return {
-    params, setParams, world, setWorld, viewMode, setViewMode, displayMode, setDisplayMode, inspectMode, setInspectMode, inspectorCollapsed, setInspectorCollapsed, inspectedCellId, setInspectedCellId, rulerActive, setRulerActive, rulerCells, setRulerCells, markerMode, setMarkerMode, selectedMarkerId, setSelectedMarkerId, isGenerating, setIsGenerating, genProgress, setGenProgress, logs, setLogs, lore, setLore, isLoreLoading, setIsLoreLoading, showGrid, setShowGrid, showRivers, setShowRivers, showRoutes, setShowRoutes, showHillshade, setShowHillshade, showContours, setShowContours, showCurrents, setShowCurrents, labelVisibility, setLabelVisibility, sidebarOpen, setSidebarOpen, dymaxionSettings, setDymaxionSettings, apiKey, setApiKey, editMode, setEditMode, paintStyle, setPaintStyle, brushSize, setBrushSize, paintStrength, setPaintStrength, paintFaction, setPaintFaction, paintBiome, setPaintBiome, sampleHeight, setSampleHeight, adaptiveBiomes, setAdaptiveBiomes, undoStack, setUndoStack, addLog, handleGenerate, requestGenerate, pendingGenerate, confirmGenerate, cancelGenerate, handleLoadWorld, handleCancel, handleUpdateCivs, handleUpdateProvinces, toggleInspectEnabled, toggleRuler, toggleMarkerMode, handleInspect, updateMarker, deleteMarker, rulerArc, rulerDistanceKm, handleGenerateLore, factionColors, cultureColors, religionColors, handlePaint, handleUndo, handleEditWorldData, handleEditFaction, handleMergeFactions, handleRenameProvince, handleRenameTown, handleRelocateCapital,
+    params, setParams, world, setWorld, viewMode, setViewMode, displayMode, setDisplayMode, inspectMode, setInspectMode, inspectorCollapsed, setInspectorCollapsed, inspectedCellId, setInspectedCellId, rulerActive, setRulerActive, rulerCells, setRulerCells, markerMode, setMarkerMode, selectedMarkerId, setSelectedMarkerId, isGenerating, setIsGenerating, genProgress, setGenProgress, logs, setLogs, lore, setLore, isLoreLoading, setIsLoreLoading, showGrid, setShowGrid, smoothGlobe, setSmoothGlobe, showRivers, setShowRivers, showRoutes, setShowRoutes, showHillshade, setShowHillshade, showContours, setShowContours, showCurrents, setShowCurrents, labelVisibility, setLabelVisibility, sidebarOpen, setSidebarOpen, dymaxionSettings, setDymaxionSettings, apiKey, setApiKey, editMode, setEditMode, paintStyle, setPaintStyle, brushSize, setBrushSize, paintStrength, setPaintStrength, paintFaction, setPaintFaction, paintBiome, setPaintBiome, sampleHeight, setSampleHeight, adaptiveBiomes, setAdaptiveBiomes, undoStack, setUndoStack, addLog, handleGenerate, requestGenerate, pendingGenerate, confirmGenerate, cancelGenerate, handleLoadWorld, handleCancel, handleUpdateCivs, handleUpdateProvinces, toggleInspectEnabled, toggleRuler, toggleMarkerMode, handleInspect, updateMarker, deleteMarker, rulerArc, rulerDistanceKm, handleGenerateLore, factionColors, cultureColors, religionColors, handlePaint, handleUndo, handleEditWorldData, handleEditFaction, handleMergeFactions, handleRenameProvince, handleRenameTown, handleRelocateCapital,
   };
 }
 

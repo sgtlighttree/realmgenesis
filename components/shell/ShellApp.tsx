@@ -47,7 +47,7 @@ const ShellApp: React.FC = () => {
     params, setParams, world, viewMode, setViewMode, displayMode, setDisplayMode,
     inspectMode, inspectedCellId, rulerActive, markerMode, selectedMarkerId,
     setSelectedMarkerId, isGenerating, genProgress, logs, lore, isLoreLoading,
-    showGrid, setShowGrid, showRivers, setShowRivers, showRoutes, setShowRoutes,
+    showGrid, setShowGrid, smoothGlobe, setSmoothGlobe, showRivers, setShowRivers, showRoutes, setShowRoutes,
     showHillshade, setShowHillshade, showContours, setShowContours,
     showCurrents, setShowCurrents,
     labelVisibility, setLabelVisibility, dymaxionSettings, setDymaxionSettings,
@@ -108,6 +108,7 @@ const ShellApp: React.FC = () => {
       lore={lore} generatingLore={isLoreLoading} onGenerateLore={handleGenerateLore}
       worldData={world}
       showGrid={showGrid} setShowGrid={setShowGrid}
+      smoothGlobe={smoothGlobe} setSmoothGlobe={setSmoothGlobe}
       showRivers={showRivers} setShowRivers={setShowRivers}
       showRoutes={showRoutes} setShowRoutes={setShowRoutes}
       showHillshade={showHillshade} setShowHillshade={setShowHillshade}
@@ -129,6 +130,7 @@ const ShellApp: React.FC = () => {
       viewMode={viewMode} setViewMode={setViewMode}
       displayMode={displayMode} setDisplayMode={setDisplayMode}
       showGrid={showGrid} setShowGrid={setShowGrid}
+      smoothGlobe={smoothGlobe} setSmoothGlobe={setSmoothGlobe}
       showRivers={showRivers} setShowRivers={setShowRivers}
       showRoutes={showRoutes} setShowRoutes={setShowRoutes}
       showHillshade={showHillshade} setShowHillshade={setShowHillshade}
@@ -221,6 +223,7 @@ const ShellApp: React.FC = () => {
           world={world}
           viewMode={viewMode}
           showGrid={showGrid}
+          smoothGlobe={smoothGlobe}
           showRivers={showRivers}
           showRoutes={showRoutes}
           showHillshade={showHillshade}
