@@ -129,6 +129,11 @@ export function computeSstAnomaly(
   for (let i = 0; i < n; i++) {
     if (!isOcean(i)) continue;
     const phi = Math.asin(Math.max(-1, Math.min(1, cells[i].center.y)));
+    // Seed from the UN-scaled latitude curve on purpose: the anomaly is a
+    // frame-relative delta (advected temp − local base), and star-class scaling
+    // cancels in that difference. worldGen then adds the anomaly to a star-scaled
+    // temperature — a deliberate second-order approximation (exact at default G,
+    // ~2% off at M-class). Do NOT "fix" by star-scaling the seed; it shifts output.
     base[i] = annualMeanLatTemp(phi, params);
     T[i] = base[i];
   }
