@@ -21,7 +21,7 @@ function makeIcosahedron(): { center: { x: number; y: number; z: number }; neigh
     return { x: x / len, y: y / len, z: z / len };
   });
 
-  const dots: number[][] = verts.map((a, i) => verts.map((b, j) => a.x * b.x + a.y * b.y + a.z * b.z));
+  const dots: number[][] = verts.map((a) => verts.map((b) => a.x * b.x + a.y * b.y + a.z * b.z));
 
   const neighbors: number[][] = verts.map((_, i) =>
     verts
