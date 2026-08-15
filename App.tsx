@@ -109,6 +109,7 @@ const App: React.FC = () => {
             showRoutes={showRoutes}
             showHillshade={showHillshade}
             showContours={showContours}
+            showCurrents={showCurrents}
             labelVisibility={labelVisibility}
             editMode={editMode}
             onPaint={handlePaint}
