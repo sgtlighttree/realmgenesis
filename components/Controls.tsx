@@ -918,13 +918,22 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
         {activeTab === 'climate' && (
            <div className="space-y-5">
               <div className="space-y-1">
-                <div className="flex justify-between text-xs text-ink-muted">
+                <div className="flex justify-between items-center text-xs text-ink-muted">
                   <label>Axial Tilt (Visual & Climatic)</label>
-                  <span>{params.axialTilt || 0}°</span>
+                  <input
+                    type="number" min="-90" max="90" step="0.5"
+                    value={params.axialTilt ?? 0}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      if (!Number.isNaN(v)) handleChange('axialTilt', Math.max(-90, Math.min(90, v)));
+                    }}
+                    className="w-16 bg-surface-raised border border-edge px-1 py-0.5 text-right text-ink-strong tabular-nums"
+                    aria-label="Axial tilt in degrees"
+                  />
                 </div>
                 <input
-                  type="range" min="-90" max="90" step="1"
-                  value={params.axialTilt || 0}
+                  type="range" min="-90" max="90" step="0.5"
+                  value={params.axialTilt ?? 0}
                   onChange={(e) => { handleChange('axialTilt', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
