@@ -8,6 +8,7 @@ import { seasonalTemperatureDelta } from '../utils/seasons';
 import { computeShadeMap, computeContourSegments } from '../utils/shading';
 import { collectLabels, MapLabel } from '../utils/labels';
 import { ScreenOverlay, OverlayTenant } from './overlays/ScreenOverlay';
+import { drawCurrentsTenant } from './overlays/tenants';
 
 const Mesh = 'mesh' as any;
 const Group = 'group' as any;
@@ -818,6 +819,7 @@ const WorldMesh: React.FC<{
   showRoutes: boolean,
   showHillshade: boolean,
   showContours: boolean,
+  showCurrents: boolean,
   inspectMode: InspectMode;
   onInspect: (cellId: number | null) => void;
   dymaxionSettings: DymaxionSettings;
@@ -830,7 +832,7 @@ const WorldMesh: React.FC<{
   selectedCellId?: number | null;
   labelVisibility: LabelVisibility;
   rulerArc?: Point[] | null;
-}> = ({ world, viewMode, onHover, paused, showGrid, showRivers, showRoutes, showHillshade, showContours, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize, selectedCellId = null, labelVisibility, rulerArc = null }) => {
+}> = ({ world, viewMode, onHover, paused, showGrid, showRivers, showRoutes, showHillshade, showContours, showCurrents, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize, selectedCellId = null, labelVisibility, rulerArc = null }) => {
   const spinRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const lastUpdate = useRef<number>(0);
@@ -1088,8 +1090,10 @@ const WorldMesh: React.FC<{
       if (inspectMode === 'hover' && !isPaintMode) onHover(null);
   }, [inspectMode, isPaintMode, onHover]);
 
-  // F2 screen-space overlay tenants (populated by later tasks).
-  const overlayTenants = useMemo<OverlayTenant[]>(() => [], []);
+  // F2 screen-space overlay tenants.
+  const overlayTenants = useMemo<OverlayTenant[]>(() => [
+    { id: 'currents', visible: showCurrents && !!world.currents, draw: drawCurrentsTenant },
+  ], [showCurrents, world.currents]);
 
   return (
     <Group>
@@ -1143,7 +1147,7 @@ const WorldMesh: React.FC<{
   );
 };
 
-const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean; showRoutes?: boolean; showHillshade?: boolean; showContours?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; cultureColors?: Map<number, string>; religionColors?: Map<number, string>; brushSize?: number; rulerArc?: Point[] | null; overlayClassName?: string; paused?: boolean; onPausedChange?: (v: boolean) => void; showPauseControl?: boolean; }> = ({ world, viewMode, showGrid = false, showRivers = true, showRoutes = false, showHillshade = false, showContours = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null, overlayClassName = 'absolute top-4 right-4 z-overlay flex gap-2', paused: pausedProp, onPausedChange, showPauseControl = true }) => {
+const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; showRivers?: boolean; showRoutes?: boolean; showHillshade?: boolean; showContours?: boolean; showCurrents?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; cultureColors?: Map<number, string>; religionColors?: Map<number, string>; brushSize?: number; rulerArc?: Point[] | null; overlayClassName?: string; paused?: boolean; onPausedChange?: (v: boolean) => void; showPauseControl?: boolean; }> = ({ world, viewMode, showGrid = false, showRivers = true, showRoutes = false, showHillshade = false, showContours = false, showCurrents = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null, overlayClassName = 'absolute top-4 right-4 z-overlay flex gap-2', paused: pausedProp, onPausedChange, showPauseControl = true }) => {
   const [hoveredCell, setHoveredCell] = useState<Cell | null>(null);
   // Rotation pause is controlled-OPTIONAL, the same contract as a native input:
   // pass `paused` + `onPausedChange` to own it from outside (the shell lifts it
@@ -1242,6 +1246,7 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
                showRoutes={showRoutes}
                showHillshade={showHillshade}
                showContours={showContours}
+               showCurrents={showCurrents}
                labelVisibility={labelVisibility}
                inspectMode={inspectMode}
                onInspect={onInspect}

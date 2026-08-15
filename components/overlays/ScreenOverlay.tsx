@@ -11,10 +11,16 @@ import { isVisible, ProjectedCells } from '../../utils/screenProject';
 // draw callbacks. This is the foundation that replaces physical 3D overlay
 // objects (graticule/borders/…) — see spec §2.2/§3.2.
 
+// Projects a LOCAL-frame point (globe's own coords) to screen pixels, applying
+// the globe's live world matrix + camera. Writes px into `out`; returns false
+// when the point is culled by the horizon. Tenants use it to project points
+// other than cell centers (velocity tips, graticule samples).
+export type LocalProjector = (x: number, y: number, z: number, out: [number, number]) => boolean;
+
 export interface OverlayTenant {
   id: string;
   visible: boolean;
-  draw(ctx: CanvasRenderingContext2D, proj: ProjectedCells, world: WorldData): void;
+  draw(ctx: CanvasRenderingContext2D, proj: ProjectedCells, world: WorldData, project: LocalProjector): void;
 }
 
 // The globe mesh is auto-rotated via a parent group; we read its live world
@@ -39,6 +45,7 @@ export const ScreenOverlay: React.FC<{ world: WorldData; tenants: OverlayTenant[
   const lastKey = useRef<string>('');
 
   const scratch = useMemo(() => new THREE.Vector3(), []);
+  const projScratch = useMemo(() => new THREE.Vector3(), []);
   const camPos = useMemo(() => new THREE.Vector3(), []);
 
   // Create the sibling 2D canvas over the WebGL canvas.
@@ -117,7 +124,17 @@ export const ScreenOverlay: React.FC<{ world: WorldData; tenants: OverlayTenant[
       proj.visible[i] = 1;
     }
 
-    for (const t of active) t.draw(ctx, proj, world);
+    const project: LocalProjector = (x, y, z, out) => {
+      projScratch.set(x, y, z);
+      if (gm) projScratch.applyMatrix4(gm);
+      if (!isVisible(projScratch.x, projScratch.y, projScratch.z, camPos.x, camPos.y, camPos.z)) return false;
+      projScratch.project(camera);
+      out[0] = (projScratch.x + 1) / 2 * cssW;
+      out[1] = (1 - (projScratch.y + 1) / 2) * cssH;
+      return true;
+    };
+
+    for (const t of active) t.draw(ctx, proj, world, project);
   });
 
   return null;

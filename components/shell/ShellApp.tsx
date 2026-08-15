@@ -49,6 +49,7 @@ const ShellApp: React.FC = () => {
     setSelectedMarkerId, isGenerating, genProgress, logs, lore, isLoreLoading,
     showGrid, setShowGrid, showRivers, setShowRivers, showRoutes, setShowRoutes,
     showHillshade, setShowHillshade, showContours, setShowContours,
+    showCurrents, setShowCurrents,
     labelVisibility, setLabelVisibility, dymaxionSettings, setDymaxionSettings,
     apiKey, setApiKey, editMode, setEditMode, paintStyle, setPaintStyle,
     brushSize, setBrushSize, paintStrength, setPaintStrength, paintFaction,
@@ -111,6 +112,7 @@ const ShellApp: React.FC = () => {
       showRoutes={showRoutes} setShowRoutes={setShowRoutes}
       showHillshade={showHillshade} setShowHillshade={setShowHillshade}
       showContours={showContours} setShowContours={setShowContours}
+      showCurrents={showCurrents} setShowCurrents={setShowCurrents}
       labelVisibility={labelVisibility} setLabelVisibility={setLabelVisibility}
       dymaxionSettings={dymaxionSettings}
       onDymaxionChange={setDymaxionSettings}
@@ -131,6 +133,7 @@ const ShellApp: React.FC = () => {
       showRoutes={showRoutes} setShowRoutes={setShowRoutes}
       showHillshade={showHillshade} setShowHillshade={setShowHillshade}
       showContours={showContours} setShowContours={setShowContours}
+      showCurrents={showCurrents} setShowCurrents={setShowCurrents}
       labelVisibility={labelVisibility} setLabelVisibility={setLabelVisibility}
       // Only the wide strip adopts the rotation control; the narrow fold's View
       // sheet is behind a tab, and its canvas is unshifted, so the viewer's own
@@ -222,6 +225,7 @@ const ShellApp: React.FC = () => {
           showRoutes={showRoutes}
           showHillshade={showHillshade}
           showContours={showContours}
+          showCurrents={showCurrents}
           labelVisibility={labelVisibility}
           inspectMode={inspectMode}
           onInspect={handleInspect}
