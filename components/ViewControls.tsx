@@ -96,6 +96,28 @@ export interface LayerToggle {
   accent: string;
 }
 
+/**
+ * Faction borders as a LayerToggle, so the strip can offer it as a chip.
+ *
+ * Deliberately NOT inside `buildLayerToggles`: that list feeds the Sys tab's
+ * stacked rows as well as the strip, and the Sys tab already renders borders in
+ * the Map Overlays group (`OVERLAY_KEYS`). Adding it there would put the same
+ * checkbox on screen twice. The strip has no such group — its chips are the only
+ * quick access to any overlay — so it composes this one in on its own.
+ *
+ * The state also differs in kind: every `buildLayerToggles` entry is its own
+ * boolean prop, while borders is one key of the `labelVisibility` record, hence
+ * the functional updater rather than a bare setter.
+ */
+export const buildBordersToggle = (p: ViewControlsProps): LayerToggle => ({
+  key: 'borders',
+  label: 'Faction Borders',
+  icon: Flag, // matches the Map Overlays group header in the Sys tab
+  checked: p.labelVisibility.borders,
+  onChange: (b) => { p.setLabelVisibility(prev => ({ ...prev, borders: b })); },
+  accent: 'text-brand-soft',
+});
+
 /** The overlay layers, bound to live state. Order matches the Sys tab. */
 export const buildLayerToggles = (p: ViewControlsProps): LayerToggle[] => [
   { key: 'grid', label: 'Lat/Long Grid', icon: Grid, checked: p.showGrid, onChange: p.setShowGrid, accent: 'text-brand-soft' },
@@ -319,7 +341,14 @@ export interface RotationControl {
  * 12-button grid does not fit a strip), and the layer toggles as chips.
  */
 export const ViewStrip: React.FC<ViewControlsProps & { rotation?: RotationControl }> = ({ rotation, ...p }) => {
-  const toggles = buildLayerToggles(p);
+  // Borders sits next to Roads & Routes rather than at the end: both are
+  // cell-bound line overlays, and a trailing chip is the first thing lost when
+  // the row starts scrolling. The strip order therefore diverges from the Sys
+  // tab's on purpose — see buildBordersToggle for why it is composed in here.
+  const layers = buildLayerToggles(p);
+  const routeAt = layers.findIndex(t => t.key === 'routes');
+  const at = routeAt < 0 ? layers.length : routeAt + 1;
+  const toggles = [...layers.slice(0, at), buildBordersToggle(p), ...layers.slice(at)];
   const { containerRef, chipsRef, mirrorRef, compact } = useCompactStrip();
 
   // `flex-1` on the root is load-bearing for the compact measurement, not
