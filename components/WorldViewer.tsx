@@ -28,6 +28,27 @@ const Sprite = 'sprite' as unknown as R3FIntrinsic;
 const SpriteMaterial = 'spriteMaterial' as unknown as R3FIntrinsic;
 const OctahedronGeometry = 'octahedronGeometry' as unknown as R3FIntrinsic;
 
+// Idle globe spin rate, radians per second.
+const SPIN_RATE = 0.05;
+
+// The idle spin lives in its own component for one reason: ORDERING. R3F runs
+// useFrame callbacks in subscription order, and React subscribes a child's
+// effects before its parent's. While this lived in the parent that also renders
+// <ScreenOverlay/>, the overlay's callback ran FIRST — projecting a rotation the
+// spin had not yet advanced, one frame behind what WebGL then drew. Mounted as a
+// sibling AHEAD of <ScreenOverlay/>, it subscribes first and runs first.
+//
+// The other half of that fix is in ScreenOverlay, which must also force the world
+// matrices current (Three only recomputes them inside render()). Both are needed;
+// either alone still leaves the overlay one frame behind the terrain.
+const GlobeSpin: React.FC<{ target: React.RefObject<THREE.Group | null>; paused: boolean }> = ({ target, paused }) => {
+  useFrame((_state, delta) => {
+    if (paused || !target.current) return;
+    target.current.rotation.y += delta * SPIN_RATE;
+  });
+  return null;
+};
+
 // Contour band spacing in normalized height. Shared with the 2D pipelines,
 // which pass the same 0.1 literal (utils/export.ts, components/Map2D.tsx).
 const CONTOUR_INTERVAL = 0.1;
@@ -768,11 +789,6 @@ const WorldMesh: React.FC<{
   const [brushCenter, setBrushCenter] = useState<[number, number, number] | null>(null);
   const [highlightCellId, setHighlightCellId] = useState<number | null>(null);
   
-  useFrame((state, delta) => {
-    if (!paused) {
-        if (spinRef.current) spinRef.current.rotation.y += delta * 0.05;
-    }
-  });
 
   // The world geometry is allocated once per world structure (cells array
   // identity is stable across paint strokes — App mutates cells in place and
@@ -1035,6 +1051,7 @@ const WorldMesh: React.FC<{
 
   return (
     <Group>
+        <GlobeSpin target={spinRef} paused={paused} />
         <Group ref={spinRef}>
             <Mesh
             ref={meshRef}
