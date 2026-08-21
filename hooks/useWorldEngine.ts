@@ -75,15 +75,18 @@ export function useWorldEngine() {
   const [logs, setLogs] = useState<string[]>([]);
   const [lore, setLore] = useState<LoreData | null>(null);
   const [isLoreLoading, setIsLoreLoading] = useState(false);
-  const [showGrid, setShowGridBase] = useState(false);
-  // F2 smooth-globe: collapses the 3D globe to a single sphere so the graticule
-  // and current arrows can't parallax against relief. Default off (raised); the
-  // grid can't read cleanly on relief, so turning it ON auto-enables smooth.
+  const [showGrid, setShowGrid] = useState(false);
+  // F2 smooth-globe: collapses the 3D globe to a single sphere. It exists as an
+  // option, not a safety net.
+  //
+  // S17 coupled it to the grid — turning the graticule on force-enabled smooth —
+  // because overlays visibly slid against relief and flattening was the only
+  // fix available. That was a workaround for a bug, and the bug is now fixed:
+  // S19 removed a sea-level clamp that floated the grid over every ocean cell,
+  // and S19b found the real culprit, a one-frame lag between the overlay and the
+  // renderer. Matt confirmed the parallax gone, so the coupling is dropped and
+  // the raised, draped globe is the default with the grid on.
   const [smoothGlobe, setSmoothGlobe] = useState(false);
-  const setShowGrid = useCallback((b: boolean) => {
-    setShowGridBase(b);
-    if (b) setSmoothGlobe(true);
-  }, []);
   const [showRivers, setShowRivers] = useState(true);
   const [showRoutes, setShowRoutes] = useState(false);
   const [showHillshade, setShowHillshade] = useState(false);
