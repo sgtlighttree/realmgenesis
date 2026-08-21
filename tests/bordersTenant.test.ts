@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { computeBorderSegments } from '../utils/borders';
 import { drawBordersTenant, BORDER_LIFT } from '../components/overlays/tenants';
+import { generateWorld } from '../utils/worldGen';
 import { Cell, Point } from '../types';
+import { makeParams } from './helpers';
 import { makeFakeCtx, makeProjector } from './helpers/overlayCanvas';
 
 const v = (x: number, y: number, z: number): Point => ({ x, y, z });
@@ -106,4 +108,47 @@ describe('borders overlay tenant', () => {
     drawBordersTenant(ctx, [], makeProjector().project, false);
     expect(ctx.ops).toHaveLength(0);
   });
+});
+
+// The loop the 3D `FactionBorders` in WorldViewer.tsx used before the S20
+// migration, transcribed verbatim as an oracle. `computeBorderSegments` rewrote
+// the shared-vertex scan from a `Point[]` accumulator to two scalars, and those
+// are equivalent only while at most two corners match within the tolerance. The
+// two-cell fixture above cannot tell the two loops apart — a real Voronoi mesh,
+// where cells carry 5-7 vertices, can.
+function legacyBorderCount(cells: Cell[]): number {
+  let count = 0;
+  const threshold = 0.000001;
+  cells.forEach((cellA) => {
+    cellA.neighbors.forEach((nId) => {
+      const cellB = cells[nId];
+      if (!cellB || cellA.id >= cellB.id) return;
+      if (cellA.regionId === cellB.regionId) return;
+      const shared: Point[] = [];
+      for (const vA of cellA.vertices) {
+        for (const vB of cellB.vertices) {
+          const d =
+            (vA.x - vB.x) ** 2 + (vA.y - vB.y) ** 2 + (vA.z - vB.z) ** 2;
+          if (d < threshold) {
+            shared.push(vA);
+            break;
+          }
+        }
+        if (shared.length === 2) break;
+      }
+      if (shared.length === 2) count++;
+    });
+  });
+  return count;
+}
+
+describe('computeBorderSegments on real generated geometry', () => {
+  it('matches the pre-migration 3D extraction edge for edge', async () => {
+    const world = await generateWorld(makeParams());
+    const segments = computeBorderSegments(world.cells);
+
+    // A guard on the guard: a world with no borders would pass trivially.
+    expect(segments.length).toBeGreaterThan(0);
+    expect(segments.length).toBe(legacyBorderCount(world.cells));
+  }, 30000);
 });

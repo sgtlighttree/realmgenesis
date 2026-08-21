@@ -1068,10 +1068,10 @@ const WorldMesh: React.FC<{
     // Routes above the current field so dashed sea routes read over the arrows.
     { id: 'routes', visible: showRoutes && !!world.routes, draw: drawRoutesTenant },
     // Borders above the routes they cut across, below the reference grid.
-    { id: 'borders', visible: borderSegments.length > 0,
+    { id: 'borders', visible: labelVisibility.borders && borderSegments.length > 0,
       draw: (ctx, _proj, _world, project, smooth) => drawBordersTenant(ctx, borderSegments, project, smooth) },
     { id: 'graticule', visible: showGrid, draw: drawGraticuleTenant },
-  ], [showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, borderSegments, showGrid]);
+  ], [showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, labelVisibility.borders, borderSegments, showGrid]);
 
   return (
     <Group>
