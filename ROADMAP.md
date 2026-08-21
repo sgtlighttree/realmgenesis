@@ -297,6 +297,10 @@ tooling with zero fudging — worth advertising.
 Project an Azgaar flat map onto the sphere (equirectangular assumption,
 re-tessellate onto the cell graph). Lossy by nature; stretch goal.
 
+### E4. Blender-accurate UV mapping support for Dymaxion (added by Matt/maintainer)
+
+I do need to check this myself since I recall importing Blender Icosphere model data to tune the Dymaxion export UVs, but the current 2D dymaxion probably isn't exact to what Blender shows on the UV editor.
+
 ---
 
 ## F. Frontend/Rendering/UI Overhaul
