@@ -31,6 +31,88 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## Session 19c (2026-08-21) — cell seams are a mesh gap; one-row view strip
+
+Continues on **`f2-drape-graticule`** (still **NOT merged / NOT pushed**).
+Commits `ef1f9a5` (seam fix + Cell Edges toggle), `5a0f758` (one-row strip).
+Gates green: typecheck 0, lint 0/29, build OK (worker chunk unchanged 87.06KB),
+**224/224, 34 files**.
+
+### ✅ Parallax CONFIRMED FIXED by Matt
+
+Closes the thread opened in S17. The only residual he can see is a draped
+graticule line being **occluded by a taller neighbouring cell** when the model
+moves — which is the drape working correctly, not a defect. Treat that as
+expected behaviour, not a bug report.
+
+The grid→smooth coupling decision is now unblocked but still **Matt's call**.
+
+### ⚠️ "Cell outlines" are a GAP in the terrain mesh, not a drawn line
+
+Matt asked for a toggle to hide the per-cell outlines while evaluating contours.
+There is no outline: **nothing in the codebase draws one.**
+
+Each cell renders as a flat triangle-fan plate at its own radius (`v * hMult`),
+so two neighbours at different heights **never share an edge** — the seam is open
+and shows the black inner sphere (r = 0.99) through it. **Proved, not inferred:**
+recolouring that inner sphere red turned every "outline" red (`s19-22` in
+`.playwright-mcp/`). It follows that the seams vanish on the smooth globe, where
+every radius is 1.
+
+**Fix — overhang.** Each plate is widened 3% about its own centre so neighbours
+overlap and the taller overhangs the shorter, which is what a cliff looks like.
+Only the rim moves: the centre and `hMult` are untouched, so **the drape
+invariant (overlay radius == cell radius) is unaffected** — this was the deciding
+constraint.
+
+**Rejected:**
+- *Wall quads between neighbours* — physically correct, but roughly doubles
+  triangle count at the 200k cap on the M1.
+- *Welding edges to an averaged radius* — cheapest visually, but it **breaks the
+  drape invariant**: surface height at a cell edge would no longer equal the cell
+  height, which is exactly what every ScreenOverlay tenant projects against.
+  Do not revisit this one without re-solving the overlay contract first.
+
+**Default is seams closed.** `Cell Edges` ON restores the old look exactly
+(`inflate = 1`). Not passed to Map2D — a raster 2D map has no plates.
+
+### One-row view strip (F1)
+
+Full labels when they fit, icon-only when they do not, never wrapping. The
+decision is **content-driven** (a hidden full-label mirror measured against the
+live container), not a pixel breakpoint, because the toggle list keeps growing —
+it gained Cell Edges this session and any threshold would rot on the next one.
+
+**Two non-obvious traps, both cost a debugging round:**
+1. **`flex-1` on the strip root is load-bearing, not cosmetic.** Without it the
+   root sizes to its own CONTENT, so `clientWidth` reports content width instead
+   of available width and the full-label branch can never win. It measured
+   **614px at both a 1700px and a 2560px viewport** before this was added.
+2. **The non-chip width must be summed explicitly**, not derived from
+   `container.scrollWidth`: the mirror is absolutely positioned but still counts
+   toward `scrollWidth`, which forced compact mode at every width.
+
+**Measured behaviour:** at **1440px (Matt's MacBook Air)** the strip gets 785px →
+icon-only, all 8 chips visible, one row, no scrolling. Full labels need ~1255px
+of strip, so they appear at roughly a **1900px+ viewport**. Below ~500px of strip
+width even icons overflow, so the chip row scrolls horizontally rather than
+wrapping or being clipped unreachable.
+
+**Known limitation:** at awkward middle widths (~1150px viewport) only about half
+the chips are visible without scrolling. An overflow "More" popover would be the
+better answer; not built, because it was not asked for.
+
+### Open / next
+
+- **NOT merged / NOT pushed.** Branch carries S18 + S19 + S19b + S19c.
+- Grid→smooth coupling: Matt's call, now unblocked.
+- Remaining `ScreenOverlay` tenant migrations: **borders, rivers, labels.**
+- Overflow "More" popover for the strip at middle widths, if the scroll annoys.
+- Matt added **ROADMAP E4** (Blender-accurate Dymaxion UVs) — his note, carried
+  in `5a0f758`.
+
+---
+
 ## Session 19b (2026-08-21) — contours tenant + the parallax ROOT CAUSE (it was timing)
 
 Continues S19 on **`f2-drape-graticule`** (still **NOT merged / NOT pushed**).
