@@ -20,9 +20,9 @@ that each feature would build on.
 
 **Status key:** ✅ DONE · 🟡 PARTIAL (see note under the item) · ⬜ TODO.
 
-As of 2026-08-21 (Sessions 18–19e, branch `f2-drape-graticule`, unmerged): the
+As of 2026-08-21 (Sessions 18–20, merged to `main`): the
 F2 ScreenOverlay migration now covers the **graticule, ocean currents,
-roads/routes, and contours**; borders, rivers, and labels remain. Overlay
+roads/routes, contours, and faction borders**; rivers and labels remain. Overlay
 parallax is fixed and confirmed — the residual cause turned out to be a
 one-frame lag in the render loop, not geometry. **D8 World Datum** was added and
 scoped after auditing where heights are actually consumed.
@@ -383,7 +383,7 @@ A full redesign and rearchitecture is warranted here.
 Can come *before or alongside* D6 with the roadmap in mind.
 
 # F2. 3D Mode Presentation  —  🟡 PARTIAL
-> _ScreenOverlay foundation + ocean-current viz + graticule migration shipped Session 16; smooth-globe + graticule drape Sessions 17-18; roads/routes migrated + draped Session 19; contours migrated + index-contour restyle Session 19b. Remaining overlay migrations (borders/rivers/labels) TODO_
+> _ScreenOverlay foundation + ocean-current viz + graticule migration shipped Session 16; smooth-globe + graticule drape Sessions 17-18; roads/routes migrated + draped Session 19; contours migrated + index-contour restyle Session 19b; faction borders migrated Session 20. Remaining overlay migrations (rivers/labels) TODO_
 Part of redesign is figuring out how the planet is presented; overlays like borders, rivers and roads and routes and the lat/lon grid are also 3D objects, not 2D overlays simply composited over the 3D globe, which affects visibility and accuracy. Or maybe make the globe entirely smooth by default, instead of applying height per cell. Perhaps 3D mode should more like Google Earth Pro in this respect.
 
 - **Ocean-current visualization** (from D2): a currents overlay drawing the
@@ -401,8 +401,9 @@ Part of redesign is figuring out how the planet is presented; overlays like bord
   globe. v1 lands **two tenants** to prove the abstraction generalizes: the currents
   field **and the graticule** migrated off its 3D `lineSegments`.
   **Future tenants to migrate onto `ScreenOverlay` (a documented queue, not drift):**
-  **borders**, then rivers and labels. Each is its own increment; do not migrate them
-  all at once. Roads/routes landed in Session 19, contours in Session 19b.
+  **rivers**, then labels. Each is its own increment; do not migrate them all at
+  once. Roads/routes landed in Session 19, contours in Session 19b, faction
+  borders in Session 20.
 
   Every tenant must render correctly in BOTH globe modes, keyed off `smoothGlobe`:
   flat on the unit sphere when smooth, draped over relief when raised. A tenant's

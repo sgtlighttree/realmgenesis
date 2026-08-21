@@ -41,8 +41,8 @@ Matt's call, he has not asked for it. Working tree clean, branch ref kept.
 ### Gate state
 
 typecheck 0 · lint 0 errors / 29 warnings (the ratchet) · build OK, worker chunk
-unchanged at 87.06KB (all session work is render-side) · **230 tests / 34 files**,
-verified on the merged `main`.
+unchanged at 87.06KB (all session work is render-side) · **241 tests / 35 files**
+after S20 (was 230/34 at the end of S19f).
 
 **`tests/paramLiveness.test.ts` is a LOAD CANARY, not a flaky test.** It timed out
 three times this session and passed isolated every time (~160s for the file). If
@@ -94,11 +94,11 @@ zero assertion failures means the machine, not a regression.
 
 ### Open, in the order I'd pick them up
 
-1. **Push `main` when Matt says so.** 28 commits are sitting locally.
-2. **Next `ScreenOverlay` tenant: borders.** Cell-bound like routes, so the drape
-   is nearly free — follow `drawRoutesTenant` as the template. Then rivers, then
-   labels. Labels will hit the known overpaint nit (screen-space tenants paint
-   above the 3D city markers).
+1. **Push `main` when Matt says so.** 30 commits are sitting locally.
+2. **Next `ScreenOverlay` tenant: rivers, then labels.** Borders landed in S20;
+   follow `drawBordersTenant` (precomputed segments) or `drawRoutesTenant`
+   (polylines) depending on which shape the tenant has. Labels will hit the known
+   overpaint nit (screen-space tenants paint above the 3D city markers).
 3. **D8 World Datum** — fully scoped in ROADMAP D8 into D8a (presentation, no seed
    changes) and D8b (simulation coupling, changes generation output). Matt asked
    for the analysis, not the implementation; the sequencing call is his.
@@ -110,6 +110,67 @@ zero assertion failures means the machine, not a regression.
    built because it was not asked for.
 
 ---
+
+## Session 20 (2026-08-21) — faction borders migrated to ScreenOverlay
+
+Commit `83433ca`. Sixth item off the F2 tenant queue; rivers and labels remain.
+
+**The migration was NOT a parallax fix, and the next session should not look for
+one.** The 3D `FactionBorders` already computed
+`max(displayRadius(hA), displayRadius(hB)) + 0.002` from RAW heights keyed off
+`smoothGlobe` — it was the one overlay that got the radius right the first time.
+Written down because every other tenant in this queue moved *because of* the S18
+parallax bug, and a reader pattern-matching on that will invent a defect here.
+
+Three real reasons it moved:
+
+1. **Horizon culling.** It relied on `depthTest` against the mesh rather than the
+   analytic limb test, which bleeds at grazing angles and across the S19f 3%
+   plate overhang.
+2. **`LineBasicMaterial.linewidth` is a no-op in WebGL on every platform.** The
+   old borders were locked at 1px no matter what the prop said. Canvas2D gives
+   real width (now 1.4) and dash control if borders ever need a style.
+3. One paint order with the other tenants instead of a 3D object interleaved
+   among 2D ones. Borders paint above routes, below the graticule.
+
+**Decisions:**
+
+- **Extraction lives in a new `utils/borders.ts`, not in `utils/exportVector.ts`.**
+  That file already has `computeBoundarySegments(world, predicate)`, but it
+  returns bare point pairs with no heights, and extending it would drag SVG and
+  GeoJSON export — plus `tests/exportVector.test.ts` — into a render-side change.
+  Blast radius stayed at render. The mild cost is a second shared-vertex scan in
+  the repo; if a third appears, unify then.
+- **`BorderSegment { a, b, height }` mirrors `ContourSegment` on purpose.** Both
+  are precomputed edge lists drawn at a per-segment radius; keeping the shapes
+  identical keeps the two tenants readable side by side.
+- **Storing the scalar `max(hA, hB)` is equivalent to `max(displayRadius(hA),
+  displayRadius(hB))`** — `displayRadius` is affine and monotonic in height
+  (`(smooth ? 1 : 1 + h·0.05) + offset`), so max-then-map equals map-then-max.
+  Verified before writing, not assumed.
+- **Precompute + memoize, never per-redraw.** Extraction is
+  O(cells × neighbors × vertices²); at 200k cells it is nowhere near a frame
+  budget. Memoized on world identity in `WorldViewer` and closed over by the
+  tenant, exactly as contours are. Region ids mutate in place on a civ edit and
+  `WorldData` is shallow-copied, so the memo recomputes per edit — same reasoning
+  as the contour memo and heights.
+- **Faction borders only.** The extraction now makes province borders cheap; they
+  were not asked for and were not added. `labelVisibility.borders` stays the only
+  toggle, and coastlines stay where they are.
+
+**Test fixture note:** `makeRingWorld` could NOT be reused. Its cells carry no
+`vertices`, and the shared-vertex scan is the whole of the extraction.
+`tests/bordersTenant.test.ts` builds a purpose-made two-cell pair instead, rather
+than extending the shared helper and risking the routes/graticule suites.
+
+Gates on this commit: typecheck 0 · lint 0/29 · build OK, worker chunk unchanged
+at 87.06KB · **241 tests / 35 files**, full suite green in one run (paramLiveness
+included, load average 5).
+
+**Not verified in the browser.** The change is covered by unit tests asserting
+the radius per `smooth` value and the horizon drop, but nobody has looked at the
+globe. Worth one Playwright pass before the next tenant — and kill the chromium
+tree afterward (see the trap list above).
 
 ## Session 19f (2026-08-21) — coupling dropped; branch merged to main
 
