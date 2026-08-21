@@ -1156,36 +1156,69 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
         1 / Math.min(2, Math.max(0.25, 1 + (civRng.next() * 2 - 1) * sizeVariance))
     );
 
-    const pq = new MinHeap<{id: number, cost: number, region: number}>(x => x.cost);
+    // `wsteps` = consecutive OCEAN cells crossed since the last land cell on this
+    // path. It rations territorial waters; see maxWaterSteps below.
+    const pq = new MinHeap<{id: number, cost: number, region: number, wsteps: number}>(x => x.cost);
     const costs = new Map<number, number>();
 
     capitals.forEach((capId, idx) => {
-        pq.push({ id: capId, cost: 0, region: idx });
+        pq.push({ id: capId, cost: 0, region: idx, wsteps: 0 });
         costs.set(capId, 0);
     });
 
+    // Cost of one ocean step. Still scales how hard water is to contest — it no
+    // longer decides whether water is reachable at all.
     const waterCost = (params.waterCrossingCost || 0.5) * 50;
-    const territorialRange = (params.territorialWaters || 0.2) * 50;
 
+    // Territorial waters are measured in OCEAN STEPS FROM THE COAST, not in
+    // cumulative Dijkstra cost.
+    //
+    // The old test was `cost + waterCost > territorialWaters * 50`, comparing a
+    // CUMULATIVE land+water cost against a water budget. At default params that
+    // is a single 40-cost step against a 7.5 budget, so no ocean cell was ever
+    // claimable — from any capital, at any distance. `territorialWaters` did
+    // nothing at all unless it was pushed near 1.0 while `waterCrossingCost` was
+    // near 0.1, which is the only region where 50·t exceeds 50·w. The two
+    // parameters were on incompatible scales.
+    //
+    // A step count is the quantity the slider was always describing: how far a
+    // realm's claim reaches off its own coast. 0 = no territorial waters at all,
+    // which the 0.01 slider floor can now actually express.
+    const maxWaterSteps = Math.round((params.territorialWaters ?? 0.2) * 12);
+
+    // NOTE: the old `if (cost > 200) continue` frontier cap is GONE. It claimed a
+    // cell and then refused to expand from it, so expansion died partway across
+    // large landmasses — worst on mountains, where landTerrainStepCost adds
+    // |Δheight|·20 per step (and ×4 ice / ×5 volcanic) and so burns the budget
+    // fastest. That left exactly the unclaimed high peaks Matt reported. Real
+    // states leave no stone unturned, so land expansion now runs until the
+    // frontier is exhausted; competition between capitals still decides borders,
+    // and Dijkstra terminates on its own because `costs` only ever decreases.
     while(pq.size() > 0) {
-        const { id, cost, region } = pq.pop()!;
+        const { id, cost, region, wsteps } = pq.pop()!;
         if (world.cells[id].regionId !== undefined && world.cells[id].regionId !== region) continue;
         world.cells[id].regionId = region;
-        if (cost > 200) continue;
         const currCell = world.cells[id];
         for(const nId of currCell.neighbors) {
             const nCell = world.cells[nId];
-            let moveCost = landTerrainStepCost(currCell, nCell);
-            const isWater = nCell.height < params.seaLevel || isLakeCell(nCell);
-            if (isWater) moveCost = waterCost;
+            // LAKES COUNT AS LAND. A lake enclosed by a realm is that realm's,
+            // and it must never act as a wall. The old code folded lakes into
+            // `isWater`, so every lake was both unclaimable AND impassable, and
+            // expansion routed around inland water instead of over it. Only true
+            // ocean is rationed.
+            const isOcean = nCell.height < params.seaLevel && !isLakeCell(nCell);
+            let moveCost = isOcean ? waterCost : landTerrainStepCost(currCell, nCell);
             moveCost *= (1 + (civRng.next() * params.borderRoughness));
             moveCost *= costMult[region];
+            // Reaching land resets the allowance, so a realm may island-hop, but
+            // only ever maxWaterSteps of open water at a time.
+            const nextSteps = isOcean ? wsteps + 1 : 0;
+            if (isOcean && nextSteps > maxWaterSteps) continue;
             const newCost = cost + moveCost;
-            if (isWater && newCost > territorialRange) continue;
             if (!costs.has(nId) || newCost < costs.get(nId)!) {
                 costs.set(nId, newCost);
                 if (world.cells[nId].regionId === undefined) {
-                     pq.push({ id: nId, cost: newCost, region });
+                     pq.push({ id: nId, cost: newCost, region, wsteps: nextSteps });
                 }
             }
         }

@@ -31,6 +31,8 @@ As of 2026-08-12: the "Map identity" milestone (A1/A2/B1/B3), A4/A5, C1–C4,
 E1/E2, and the D6 terrain overhaul are shipped. D7 part 1 (connected plates)
 landed Session 9; the F1 shell is now the default route.
 
+Note from Matt: While the ROADMAP isn't finished apart from UI stuff, don't be afraid to break "backwards compatibility" with existing seeds, no one else is using this project, and far from production ready anyway."
+
 ---
 
 ## A. Cartographic presentation
