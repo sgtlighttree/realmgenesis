@@ -31,6 +31,91 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## Session 19d (2026-08-21) — contours were starved of levels; labels had no 3D declutter
+
+Continues on **`f2-drape-graticule`** (still **NOT merged / NOT pushed**).
+Commits `ff61678` (contours), `1465f4e` (labels), `283ec43` (ROADMAP D8).
+Gates: typecheck 0, lint 0/29, build OK (worker chunk unchanged 87.06KB),
+**231 tests / 34 files** — paramLiveness timed out under load again and passed
+isolated (see the load-canary note in S19b).
+
+Both reports came from Matt at **200,000 cells**, which is where each latent
+scaling bug finally bit.
+
+### Contours carried no elevation information — the interval was starved
+
+Not a styling problem. **`seaLevel` defaults to 0.55** and heights are normalized
+0–1, so land spans only ~0.45. At the hardcoded `interval = 0.1` that is **four
+possible levels**, and since most terrain sits between 0.55 and 0.70, most of the
+map got **one or two lines**. Hence "blobby outlines that tell me nothing".
+
+S19b's `CONTOUR_INDEX_EVERY = 2` was a symptom-level patch on this same shortage
+— it was chosen precisely *because* there were too few levels to bold every 5th.
+**The interval was the real bug**, and with it fixed the constant returns to the
+standard 5.
+
+- **Interval now adapts to actual relief** (`contourInterval`), targeting ~20
+  levels, snapped to a "nice" step so label values read cleanly (2%, 2.5%) and
+  spacing stays roughly comparable between worlds. Matt's call over a fixed
+  constant or a user slider: a fixed value cannot serve both a flat world and an
+  alpine one.
+- Replaces a `0.1` literal that was **duplicated in four places** (export.ts ×2,
+  Map2D, WorldViewer).
+- **Index contours are labelled** with their elevation, thinned by a minimum
+  screen gap and capped — a contour you cannot read a value off is decoration.
+
+**⚠️ The readout is a PERCENTAGE ("68%"), not metres.** The project has no
+real-world elevation datum; the Inspector also shows `height * 100`. Matt flagged
+this as exposing a genuine gap → **ROADMAP D8 (World Datum)** added.
+`utils/shading.ts` `contourLabel()` is the single place the readout changes.
+
+**Scope limit, deliberate:** elevation labels are drawn in the **globe tenant
+only**. The 2D path takes a d3 *path generator*, not a projection, so it cannot
+place point text without widening that signature. Line styling stays shared, so
+the two views agree on everything except the labels.
+
+### The label flood was NOT town names
+
+Matt said town names; **Town Names was unchecked in his screenshot**. The flood
+was **Geographic Names** — 355 lakes detected at 200k cells, every one labelled.
+Two independent causes, both fixed:
+
+1. **The 3D sprite path had no decluttering at all.** `drawMapLabels` (2D) has
+   done greedy collision rejection since A1; `PointLabels` only ever culled by
+   hemisphere and camera distance, so every surviving label drew regardless of
+   overlap. **This was the actual bug** — it simply never showed at 5k cells.
+   Now projects in priority order and rejects boxes that hit a placed one, gated
+   on a quantized camera/globe key so the O(kept²) pass is not per-frame.
+2. **`collectLabels` ignored `GeoFeature.size`**, which the detection pass had
+   already computed — so a three-cell pond competed with an inland sea for a
+   slot. Features are now ranked by size within kind and capped per kind.
+
+**The generalisable shape:** feature COUNT scales with cell count while the map's
+label BUDGET is fixed by screen area. Anything that emits one label per detected
+thing needs both a cap and a declutter, or it works at 5k and drowns at 200k.
+
+### Verified
+
+In-browser at **200,000 cells** (generation 27s), seed `1unb61l`: elevation
+readouts appear on index contours, geographic labels are a readable handful
+rather than a wall, 0 console errors. Screenshots `s19-28`..`s19-32` in
+`.playwright-mcp/`. Town labels remain distance-gated (`camDist > 2`), so they
+do not appear at globe zoom by design.
+
+**Not tuned with Matt's eyes:** `LABEL_MIN_GAP` (110px) and `LABEL_MAX` (40) for
+contour labels are first-guess values. Easy knobs if the density still reads
+busy.
+
+### Open / next
+
+- **NOT merged / NOT pushed.** Branch carries S18 + S19 + S19b + S19c + S19d.
+- Grid→smooth coupling: still Matt's call.
+- Remaining `ScreenOverlay` tenant migrations: **borders, rivers, labels.**
+- **D8 World Datum** — would turn "68%" into "1,200 m" everywhere heights surface.
+- 2D/export contour labels, if the globe-only split proves annoying.
+
+---
+
 ## Session 19c (2026-08-21) — cell seams are a mesh gap; one-row view strip
 
 Continues on **`f2-drape-graticule`** (still **NOT merged / NOT pushed**).
