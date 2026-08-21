@@ -41,8 +41,8 @@ and **`main` is PUSHED** — `cca4c7b..daa617d`, 35 commits, at Matt's word on
 ### Gate state
 
 typecheck 0 · lint 0 errors / 29 warnings (the ratchet) · build OK, worker chunk
-unchanged at 87.06KB (all session work is render-side) · **241 tests / 35 files**
-after S20 (was 230/34 at the end of S19f).
+unchanged at 87.06KB (all session work is render-side) · **250 tests / 36 files**
+after S21 (242/35 after S20, 230/34 at the end of S19f).
 
 **`tests/paramLiveness.test.ts` is a LOAD CANARY, not a flaky test.** It timed out
 three times this session and passed isolated every time (~160s for the file). If
@@ -94,10 +94,12 @@ zero assertion failures means the machine, not a regression.
 
 ### Open, in the order I'd pick them up
 
-1. **Next `ScreenOverlay` tenant: rivers, then labels.** Borders landed in S20;
-   follow `drawBordersTenant` (precomputed segments) or `drawRoutesTenant`
-   (polylines) depending on which shape the tenant has. Labels will hit the known
-   overpaint nit (screen-space tenants paint above the 3D city markers).
+1. **LABELS — the last `ScreenOverlay` tenant.** Rivers landed in S21, so labels
+   are the only overlay still rendering as 3D objects. This one is NOT a
+   mechanical port like the previous five: it has an unsolved design problem
+   (screen-space tenants paint above the 3D city markers) and it is the tenant
+   most likely to need a real decision rather than a template. Scope it
+   deliberately; do not start it as an afterthought at the end of a session.
 2. **D8 World Datum** — fully scoped in ROADMAP D8 into D8a (presentation, no seed
    changes) and D8b (simulation coupling, changes generation output). Matt asked
    for the analysis, not the implementation; the sequencing call is his.
@@ -109,6 +111,83 @@ zero assertion failures means the machine, not a regression.
    built because it was not asked for.
 
 ---
+
+## Session 21 (2026-08-21) — rivers migrated to ScreenOverlay
+
+Commit `5b7b754`. Sixth tenant. **Labels are now the only overlay still drawn as
+3D objects.** Implemented by a `sonnet-medium` subagent from a written brief;
+reviewed and corrected here.
+
+**Not a parallax fix.** Same as borders: `RiverLines` already had the radius
+right. It moved for horizon culling by the analytic limb test, real stroke width
+(`linewidth` is a WebGL no-op), and one paint order.
+
+### The trap, unique to rivers — read this before touching river code
+
+**`world.rivers` points are NOT unit directions.** `getRenderPoint`
+(`utils/worldGen.ts` ~L310) pre-scales every river point at generation time to
+`r = 1 + height·0.05 + 0.005`. Every other tenant receives unit directions and
+applies `displayRadius` itself.
+
+So `drawRiversTenant` projects river points **as-is** on the raised globe and
+normalizes only on the smooth globe. **Applying `displayRadius` to a river point
+double-scales it** and floats every river off the globe. `tests/riversTenant.test.ts`
+has an explicit regression guard named for this.
+
+That baked `0.005` duplicates `displayRadius(h, false, 0.005)` and can drift from
+it. **Left alone on purpose:** it is a generation-stage constant, so changing it
+alters the worker chunk and every saved world's render. Noted, not fixed.
+
+### Decisions
+
+- **`RIVER_LIFT` changed meaning.** The old constant in `RiverLines` was `1.005`,
+  an ABSOLUTE radius used as `normalize().multiplyScalar(RIVER_LIFT)`. It is now
+  `0.005`, an OFFSET, so it means the same thing as `ROUTE_LIFT` (0.008),
+  `CONTOUR_LIFT` and `BORDER_LIFT` (0.002). The smooth-globe radius is unchanged
+  at 1.005. **A first draft of the brief wrote `1 + RIVER_LIFT` against the old
+  1.005** — i.e. 2.005 — and the test assertion inherited the same error, so the
+  test would have enforced the bug. Caught by the advisor before delegation.
+- **Smoothing runs ONCE at the baked radius** (`utils/riverPaths.ts`), so the
+  memo keys on `world.rivers` alone and toggling Smooth Globe does not re-run
+  CatmullRom over ~1741 paths. The smooth-globe collapse moved into the tenant,
+  where it is two multiplies per point.
+- That reorders smooth-vs-normalize relative to `RiverLines`, which normalized
+  control points BEFORE smoothing. **Measured, not assumed:** worst case over 48
+  synthetic paths (n = 2..30, heights 0.05..0.95) is **0.000171 rad = 0.07px on
+  an 800px-diameter globe.** Sub-pixel. Do not re-derive it.
+- **Rivers paint FIRST**, under every other tenant, preserving what
+  `ROUTE_LIFT`'s comment asserts about routes sitting over rivers.
+- `Map2D` consumes `world.rivers` directly and shares no helper with
+  `RiverLines` — verified before deleting the component, so the 2D path is
+  untouched.
+
+### Two defects the subagent missed, found in review
+
+1. **Rivers got ~25% more prominent.** The old `LineBasicMaterial` was
+   `opacity={0.8} transparent`; the tenant stroked solid `#38bdf8`. Now
+   `rgba(56,189,248,0.8)`. **Porting a 3D overlay to Canvas2D must carry the
+   material's ALPHA across, not just its colour** — worth checking when labels
+   migrate.
+2. **The horizon test passed for the wrong reason.** It culled on a threshold
+   over a scaled coordinate and claimed to hide two points; it actually hid one,
+   because the third fell below the lower bound. It still produced 2 `moveTo`s,
+   so it went green while not testing its own description. Rewritten to key on
+   the SIGN of z, like the routes suite, and `bakedPoint` now normalizes its
+   direction argument so the helper's name stops lying.
+
+Generalising (2): **a fixture that lies passes for the wrong reason.** The borders
+oracle test in S20 guarded the same shape of risk on the production side. When a
+delegated tenant lands, read the fixture arithmetic, not just the green tick.
+
+### Gates
+
+typecheck 0 · lint 0/29 · **250 tests / 36 files** (242/35 → +8 tests, +1 file).
+`paramLiveness` timed out in the full run and passed isolated at 125s under a
+load average of **9.95** on an 8-core M1 — **fifth firing of the load canary**.
+Checking `uptime` first, per the trap list, avoided a false investigation.
+
+**Not verified in the browser.** Rivers are on screen in every frame of every
+world, so this is worth a look before labels — more so than borders was.
 
 ## Session 20 (2026-08-21) — faction borders migrated to ScreenOverlay
 
