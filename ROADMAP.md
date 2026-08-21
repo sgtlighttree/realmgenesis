@@ -257,22 +257,67 @@ and get rid of seam lines on plate boundaries, and more detailed heightmap
 rendering and calculation without increasing cell count
 
 ### D8. World datum (units)  —  ⬜ TODO
-> _surfaced Session 19d: contour labels can only read "68%" because no datum exists_
+> _surfaced Session 19d; scoped Session 19e after auditing where heights are actually consumed_
 
-Heights are a normalized 0–1 field with no real-world meaning. The Inspector
-shows `height * 100` as a percentage, and the contour elevation labels added in
-Session 19d had to do the same — a contour that reads "68%" is honest but not
-useful the way "1,200 m" is.
+Heights are a normalized 0–1 field with no real-world meaning, while horizontal
+distance is already genuine (A5 measures great-circle **kilometres** from
+`planetRadius`). **The app therefore measures horizontally in real units and
+vertically in percent** — that inconsistency is the core argument, not DEM export.
 
-A datum would define maximum elevation (and ocean depth) in metres, derived from
-`mountainHeight` / `seafloorDepth` and consistent everywhere heights surface:
-Inspector, contour labels, lore, GeoJSON/SVG export, and the depthmap/DEM export
-Matt has already noted. It is deliberately a *presentation* layer over the
-existing normalized field — the simulation should keep working in 0–1 so no
-seed changes.
+It splits into two tiers with very different costs.
 
-`utils/shading.ts` `contourLabel()` is the single place the contour readout
-changes when this lands.
+#### D8a — presentation datum (cheap, no seed changes)
+
+A `maxElevationM` param (fixed, e.g. 9000) that `mountainHeight` shapes *within*
+rather than defines, plus one formatter. Nothing in generation reads it.
+
+- Inspector `Elev: 70%` → `3,140 m`.
+- Contour labels (pulled in S19d) become metres — `utils/shading.ts`
+  `contourLabel()` is the single change point.
+- **GeoJSON export currently writes `height: cell.height` as a raw 0–1 number**
+  (`utils/exportVector.ts:334`). Geometry is genuinely geodesic lon/lat, so the
+  export is half-real: correct kilometres horizontally, unitless vertically.
+  QGIS and Blender users expect metres.
+- Lore prompts can say "a 4,200 m massif" instead of "high terrain".
+
+**Caveat that decides the design:** if the datum is *derived* from
+`mountainHeight`, the same cell reports a different altitude when that slider
+moves, so values are not comparable between worlds. It must be a fixed maximum
+that `mountainHeight` distributes terrain within.
+
+#### D8b — simulation coupling (powerful, breaks determinism)
+
+The larger payoff, because several tuned magic constants are really physical
+quantities wearing normalized clothes:
+
+- **Lapse rate.** `utils/worldGen.ts` does `temp -= elevation * 60`. That is a
+  lapse rate with an invented 60. In metres it is ~6.5 °C/km — grounded, and it
+  stops fighting `mountainHeight` (raise peaks today and you also silently
+  refrigerate them by an unrelated amount).
+- **Orographic precipitation.** The 8-pass moisture transport uses
+  `heightDiff > 0.02 → carry *= 1.5`, `< -0.02 → *= 0.2`. Rain shadow strength
+  physically depends on barrier height and air temperature, both of which a
+  datum supplies.
+- **Snow line.** `determineBiome` decides ice and tundra from temperature alone,
+  and volcanic from `landH > 0.85`. A real snow line is an *altitude* that
+  varies with latitude.
+- **Unblocks D5 gravity**, which was deferred precisely because it "would be a
+  relief fudge duplicating `mountainHeight`". With a datum it gets a principled
+  hook: isostasy caps how high mountains can stand (roughly ∝ 1/g), so gravity
+  shapes maximum elevation instead of duplicating a slider.
+- **Unblocks D3 sea-level coupling**, deferred as a generation-stage change —
+  "the caps melting raises sea level N metres" is only expressible with a datum.
+
+**Cost:** every item above is a generation input, so it changes output for
+existing seeds. The project has treated that as a hard line before (D2 ships
+`currentStrength = 0` as a byte-identical escape hatch; D5's G-class star is an
+exact no-op). D8b should follow the same discipline or it invalidates saved
+worlds.
+
+**Verdict:** D8a is close to free and fixes a real internal inconsistency. D8b is
+a genuine simulation feature whose benefit is grounding three tuned constants and
+unblocking two deferred items — worth doing, but scoped and escape-hatched, not
+folded into D8a.
 
 ### D7. More realistic tectonic plates  —  ✅ DONE (heuristic tier); Cortial rebuild = deliberate NO-GO
 > _part 1 (connected plates) Session 9; part 2 (seafloor age→bathymetry + microplates) Session 10; part 3 (plate-shape polish) Session 12. The Cortial boundary-curve rebuild was evaluated and declined — see below._
