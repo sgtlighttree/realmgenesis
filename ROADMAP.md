@@ -176,6 +176,17 @@ notes, persisted in the JSON save; optional Gemini lore per marker.
 Already tracked in `HANDOFF.md` next tasks: merge/split factions, province
 management, bulk rename, town/capital relocation.
 
+### C5b. Territorial waters are dead at default params  —  ⬜ TODO (BUG)
+> _found 2026-08-22; full diagnosis in HANDOFF "The merge gate"_
+
+`recalculateCivs` charges **40** for one water step against a total
+territorial-water budget of **7.5**, so no water cell is ever claimed at default
+params and `territorialWaters` does nothing. Interior lakes are folded into the
+same test, making them impassable walls rather than claimable territory — high
+mountains starve separately against the `cost > 200` cap. Fixing it moves civ
+geometry for every existing seed, so it needs the same escape-hatch discipline as
+D2/D5.
+
 ### C6. Diplomacy & relations (later)  —  ⬜ TODO
 
 Inter-faction relations, vassals, alliances, war status — mostly flavor and

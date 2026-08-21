@@ -10,6 +10,10 @@ workflow/style rules.
 
 IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED 2026-08-07 — back to classic npm.** The `packageManager: pnpm` pin was removed from `package.json`; `pnpm-lock.yaml` and pnpm's symlinked `node_modules` are gone; `npm install` regenerates a plain `package-lock.json` with a self-contained `node_modules`. The global pnpm store (`~/Library/pnpm`) is being dismantled. Any `pnpm ...` commands in this repo's docs are stale — use `npm ...` equivalents. Check that everything runs smoothly before proceeding with anything else.
 
+- [ ] **Unclaimed high mountains + interior lakes.** States should leave no stone
+      unturned. *Diagnosed 2026-08-22 — see "The merge gate" below. Interior lakes
+      are impassable AND unclaimable because one water step costs 40 against a
+      7.5 budget; `territorialWaters` is dead at defaults. Not fixed.*
 - [ ] Make a true vector 2D mode instead of raster, but keep it optimized
 - [~] V3 of terrain generation algorithm. Goal is to make plate boundaries far more realistic, make part of Milestone D. — *V3 shipped & live; D7 part 1 (enclaves/exclaves killed, connected plates) done Session 9. D7 part 2 (grounded geophysics, non-Voronoi boundaries) still open.*
 - [ ] Major UI/frontend/rendering overhaul (Milestone F), use skill `/impeccable` for visual UI review
@@ -37,11 +41,12 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 `daa617d` (2026-08-21); `c3bf856` and the S21 rivers work are committed locally
 and NOT yet pushed — pushing is Matt's call.
 
-**One thing IS half-finished, deliberately: branch `f2-labels-tenant`
-(`63f34ef`).** It holds a `sonnet-medium` subagent's point-labels migration,
-committed as a checkpoint and **explicitly marked unreviewed**. Read
-"S22 — labels, unfinished" below before touching it. Do not merge it on the
-strength of its green fast gates.
+**Branch `f2-labels-tenant` (`c81ef2b`) is COMPLETE AND VERIFIED but
+DELIBERATELY NOT MERGED.** The labels tenant is reviewed, the full suite is green
+(260/37), and the browser pass is done with 0 console errors. It is unmerged
+because Matt gated the merge on the unclaimed-mountains/lakes issue, which is a
+CIV-EXPANSION bug in a different subsystem and is NOT fixed. See
+"The merge gate" below — the diagnosis is done, the fix is not.
 
 ### Gate state
 
@@ -99,10 +104,10 @@ zero assertion failures means the machine, not a regression.
 
 ### Open, in the order I'd pick them up
 
-1. **Finish `f2-labels-tenant` — review it, then run the FULL suite.** See the
-   S22 entry. The two design questions are already resolved and written down; the
-   remaining work is the review pass, which found real defects in both prior
-   delegated tenants.
+1. **Fix the territorial-water bug, then merge `f2-labels-tenant`.** The
+   diagnosis is complete and sits in "The merge gate" below — it is a two-number
+   inconsistency in `recalculateCivs`, not a research problem. The labels branch
+   itself needs nothing further.
 2. **A3 — map style system.** My pick for the next roadmap item once F2 closes.
    Reasoning in the S22 entry.
 3. **D8 World Datum** — fully scoped in ROADMAP D8 into D8a (presentation, no seed
@@ -117,21 +122,84 @@ zero assertion failures means the machine, not a regression.
 
 ---
 
-## Session 22 (2026-08-22) — labels, UNFINISHED on a branch
+## The merge gate — territorial waters can NEVER be claimed (found 2026-08-22)
 
-**Branch `f2-labels-tenant`, commit `63f34ef`, deliberately not merged.**
+**Matt's observation:** "the highest mountains or internal lakes being unclaimed
+land — in reality states leave no stone unturned, even in medieval times of
+blurry borders." He gated merging `f2-labels-tenant` on this.
+
+**Confirmed, with a mechanism.** This is not a tuning nit; it is an arithmetic
+contradiction in `recalculateCivs` (`utils/worldGen.ts` ~L1170).
+
+```js
+const waterCost       = (params.waterCrossingCost || 0.5) * 50;  // 0.8*50 = 40
+const territorialRange= (params.territorialWaters  || 0.2) * 50;  // 0.15*50 = 7.5
+...
+if (isWater) moveCost = waterCost;                   // one water step costs >= 40
+if (isWater && newCost > territorialRange) continue;  // budget is 7.5
+```
+
+A single water step costs **40** against a total territorial-water budget of
+**7.5** — and `newCost` is cumulative from the capital, so it only grows. **No
+water cell can ever be claimed at default params, from any capital, at any
+distance.** `territorialWaters` is effectively dead: it would need
+`waterCrossingCost <= territorialWaters` to do anything, i.e. 0.8 <= 0.15.
+
+`isLakeCell(nCell)` is folded into `isWater`, so **interior lakes are not just
+unclaimed — they are impassable walls** that expansion routes around. That is
+exactly what Matt saw.
+
+**Mountains are a separate, milder cause:** `landTerrainStepCost`
+(`utils/pathfinding.ts:80`) adds `|Δheight| * 20` per step and multiplies
+volcanic by 5 and ice by 4, while the loop hard-stops at `if (cost > 200)`. High
+peaks are reachable in principle but starve near the cap.
+
+**Do NOT paper over this by raising `territorialWaters`.** The two params are on
+incompatible scales; whoever fixes it should decide what the pair is supposed to
+mean and make the units agree. Suggested shape, not prescribed:
+
+- Land-locked lakes should be claimed by the surrounding faction outright — a
+  lake fully enclosed by one region is that region's, and it should never block
+  expansion.
+- Territorial waters should be measured in **water steps from a coast**, not in
+  a cost budget that a single step already blows.
+
+**This changes civ layout for every existing seed.** The project has treated that
+as a hard line (D2 ships `currentStrength = 0` byte-identical; D5's G-class star
+is an exact no-op). It needs the same discipline — or an explicit decision from
+Matt that civ geometry is allowed to move.
+
+## Session 22 (2026-08-22) — labels DONE and verified; branch held back
+
+**Branch `f2-labels-tenant`, `63f34ef` (work) + `c81ef2b` (verification).**
 A `sonnet-medium` subagent implemented the point-labels tenant from a written
-brief. It is checkpointed so nothing is lost, **not** because it is done.
+brief; reviewed here.
 
-Verified: typecheck 0 · lint 0/29 · `tests/labelsTenant.test.ts` 10/10.
-**Not verified: the diff itself, and the full suite.** The agent also modified
-`tests/helpers/overlayCanvas.ts`, which every other tenant suite shares — that
-makes the full run the gate that matters, and it has not been run.
+**F2's rendering work is finished.** Every overlay that was going to migrate has
+migrated. The branch is held back only by the civ-expansion bug above, which is
+a different subsystem — see "The merge gate".
 
-**Do not merge on the strength of the fast gates.** The review pass found real
-defects in BOTH previous delegated tenants: a dropped material alpha (S21) and a
-horizon test that passed for the wrong reason (S21). Fast gates were green in
-both cases.
+Gates: typecheck 0 · lint 0/29 · **260 tests / 37 files** (250/36 + 10 new).
+`paramLiveness` passed in the full run this time (load average 2.6 — the canary
+is load, not code, for the fifth and sixth time now).
+
+Browser pass, 5k cells, 1680x1000, **0 console errors**: point labels draw flat
+and anchored on their features; faction labels remain curved 3D meshes; water
+labels keep the italic blued styling; toggling Capital Names clears them
+immediately.
+
+### The bug the subagent found that the brief missed — worth understanding
+
+`ScreenOverlay` gates redraws on a key of **active tenant ids + camera/globe
+matrix**. It cannot see what a tenant's `draw` closure reads. Every other tenant
+maps ONE boolean to `visible`, so toggling it changes the active id set and the
+key changes with it. Labels multiplexes **five** toggles
+(capitals/towns/provinces/geography/markers) through `labelVisibility` INSIDE the
+draw body — invisible to the key — so a toggle silently no-opped until some
+unrelated redraw. The fix folds the five flags into the tenant id.
+
+**Generalises to any future many-flag tenant on this seam.** If a tenant's output
+depends on state the id does not encode, the redraw gate will not fire.
 
 The full brief, with the measurements behind both design decisions, is at
 `scratchpad/plan-labels.md`. Copy it into `docs/superpowers/specs/` if that
@@ -183,6 +251,28 @@ not build a depth-aware overlay for it.**
 Rivers are on screen in every frame of every world, and labels moving off fixed
 radii is a visible change by design. One pass should cover both. Kill the
 chromium tree afterward (trap list above).
+
+### INSTRUCTIONS FOR THE NEXT AGENT — start here
+
+1. **Read "The merge gate" above.** It is the only thing between this branch and
+   `main`. The diagnosis is complete; do not re-derive it.
+2. **Decide the determinism question with Matt before writing code.** Fixing the
+   water cost changes civ layout for every existing seed. Ask whether that is
+   allowed, or whether it needs an escape hatch like `currentStrength = 0`. Do
+   not just pick one.
+3. **Then merge `f2-labels-tenant` into `main` with `--no-ff`** and close F2.
+   The branch needs no further work of its own.
+4. **`main` is NOT pushed.** It is ahead of `origin/main` by the S21/S22 commits.
+   Pushing is Matt's call; he asked for the last push explicitly.
+5. **After F2 closes, A3 (map style system) is the recommended next roadmap
+   item.** Reasoning: it is the last unstarted item in section A, ROADMAP calls
+   it what makes output "pinboard-worthy rather than diagnostic," and it styles
+   the overlay layer F2 just spent six sessions unifying. Doing it earlier would
+   have meant styling a mix of 3D objects and canvas tenants.
+6. **Do not start F3 (true vector 2D) next**, tempting as it is on Matt's own
+   list. It is a large rendering rewrite, and it would follow a six-session
+   rendering migration with no consolidation between them. `tenants.ts` is now
+   ~520 lines across seven tenants and has never been reorganised.
 
 ### Delegation notes (peak-hours cost discipline, Matt's ask)
 
