@@ -31,12 +31,12 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## ▶ START HERE — pickup for a fresh session (written 2026-08-21, end of S19f)
+## ▶ START HERE — pickup for a fresh session (written 2026-08-21, end of S20)
 
-**`f2-drape-graticule` is MERGED into `main`** (merge commit `ef08460`, no-ff).
-`main` is **28 commits ahead of `origin/main` and NOT PUSHED** — pushing is
-Matt's call, he has not asked for it. Working tree clean, branch ref kept.
-`main` now carries Sessions 18 through 19f; nothing is half-finished.
+**`f2-drape-graticule` is MERGED into `main`** (merge commit `ef08460`, no-ff)
+and **`main` is PUSHED** — `cca4c7b..daa617d`, 35 commits, at Matt's word on
+2026-08-21. `origin/main` matches local. Working tree clean, branch ref kept.
+`main` carries Sessions 18 through 20; nothing is half-finished.
 
 ### Gate state
 
@@ -94,18 +94,17 @@ zero assertion failures means the machine, not a regression.
 
 ### Open, in the order I'd pick them up
 
-1. **Push `main` when Matt says so.** 30 commits are sitting locally.
-2. **Next `ScreenOverlay` tenant: rivers, then labels.** Borders landed in S20;
+1. **Next `ScreenOverlay` tenant: rivers, then labels.** Borders landed in S20;
    follow `drawBordersTenant` (precomputed segments) or `drawRoutesTenant`
    (polylines) depending on which shape the tenant has. Labels will hit the known
    overpaint nit (screen-space tenants paint above the 3D city markers).
-3. **D8 World Datum** — fully scoped in ROADMAP D8 into D8a (presentation, no seed
+2. **D8 World Datum** — fully scoped in ROADMAP D8 into D8a (presentation, no seed
    changes) and D8b (simulation coupling, changes generation output). Matt asked
    for the analysis, not the implementation; the sequencing call is his.
-4. **Contour index/intermediate differentiation** — Matt said hold off. If resumed:
+3. **Contour index/intermediate differentiation** — Matt said hold off. If resumed:
    the weight gap (2px @ .75 vs 1px @ .38) is likely too subtle at globe zoom;
    tinting index contours a different hue would beat weight alone.
-5. **The view strip at middle widths** (~1150px viewport): the chip row scrolls
+4. **The view strip at middle widths** (~1150px viewport): the chip row scrolls
    because even icons overflow. An overflow "More" popover would be better; not
    built because it was not asked for.
 
