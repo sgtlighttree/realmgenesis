@@ -10,10 +10,11 @@ workflow/style rules.
 
 IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED 2026-08-07 — back to classic npm.** The `packageManager: pnpm` pin was removed from `package.json`; `pnpm-lock.yaml` and pnpm's symlinked `node_modules` are gone; `npm install` regenerates a plain `package-lock.json` with a self-contained `node_modules`. The global pnpm store (`~/Library/pnpm`) is being dismantled. Any `pnpm ...` commands in this repo's docs are stale — use `npm ...` equivalents. Check that everything runs smoothly before proceeding with anything else.
 
-- [ ] **Unclaimed high mountains + interior lakes.** States should leave no stone
-      unturned. *Diagnosed 2026-08-22 — see "The merge gate" below. Interior lakes
-      are impassable AND unclaimable because one water step costs 40 against a
-      7.5 budget; `territorialWaters` is dead at defaults. Not fixed.*
+- [x] ~~**Unclaimed high mountains + interior lakes.** States should leave no stone
+      unturned.~~ **FIXED 2026-08-22** (`c9b70b7`) — territorial waters now count
+      ocean steps from the coast, lakes count as land, and the expansion cost cap
+      is gone. Lakes 100% → 0% unclaimed, ocean 0% → 9.8% claimed. **Caveat: the
+      unclaimed-PEAKS half never reproduced at 3k or 30k cells — check it at 200k.**
 - [ ] Make a true vector 2D mode instead of raster, but keep it optimized
 - [~] V3 of terrain generation algorithm. Goal is to make plate boundaries far more realistic, make part of Milestone D. — *V3 shipped & live; D7 part 1 (enclaves/exclaves killed, connected plates) done Session 9. D7 part 2 (grounded geophysics, non-Voronoi boundaries) still open.*
 - [ ] Major UI/frontend/rendering overhaul (Milestone F), use skill `/impeccable` for visual UI review
@@ -110,10 +111,13 @@ zero assertion failures means the machine, not a regression.
 
 ### Open, in the order I'd pick them up
 
-1. **Fix the territorial-water bug, then merge `f2-labels-tenant`.** The
-   diagnosis is complete and sits in "The merge gate" below — it is a two-number
-   inconsistency in `recalculateCivs`, not a research problem. The labels branch
-   itself needs nothing further.
+1. **Merge `f2-labels-tenant` — it is verified and its blocker is cleared.**
+   `git merge --no-ff f2-labels-tenant`. The territorial-water bug that gated it
+   is FIXED (`c9b70b7`). It was left unmerged only because Matt's "don't merge
+   yet" was never explicitly retracted and the session ended; the branch itself
+   needs no further work. Re-run `npm test` after merging — the branch was
+   verified at 260/37 BEFORE the civ fix landed on `main`, so the two have not
+   been tested together.
 2. **Finish F2 properly: Dymaxion, rulers, selection.** See "F2's real remaining
    scope" below. Dymaxion is the strongest candidate (a fixed r = 1.12 overlay
    floating over all terrain); the selection ring is the one worth arguing about.
@@ -172,7 +176,41 @@ a side effect. Worth a deliberate decision, not silent inclusion.
 writing the way faction labels were.** "Declined in writing" means a paragraph in
 ROADMAP saying what would be lost — the faction-label entry is the template.
 
-## The merge gate — territorial waters can NEVER be claimed (found 2026-08-22)
+## FIXED 2026-08-22 (`c9b70b7`) — territorial waters, lakes, and land coverage
+
+The bug diagnosed below is **fixed**. Kept in place because the diagnosis is the
+useful part and a future session may hit the same shape.
+
+**What changed in `recalculateCivs`:**
+- **Territorial waters are now counted in OCEAN STEPS FROM THE COAST**
+  (`maxWaterSteps = round(territorialWaters * 12)`, 2 at defaults), not in
+  cumulative Dijkstra cost. Reaching land resets the allowance, so a realm may
+  island-hop one strait at a time. `waterCrossingCost` still prices a water step
+  — it no longer decides reachability.
+- **Lakes count as LAND.** `isOcean = height < seaLevel && !isLakeCell(cell)`.
+  An enclosed lake belongs to the realm around it, and stops being a wall.
+- **The `cost > 200` frontier cap is gone.** It claimed a cell then refused to
+  expand from it, stranding land partway across big masses.
+
+**Measured, 3000 points, before → after:** lakes 100% → 0% unclaimed; ocean
+0% → 9.8% claimed. At 30000 points unclaimed land went 17 → 2 cells, and the
+remaining 2 are isolated islands beyond the step allowance, which SHOULD stay
+unclaimed.
+
+**Honest gap: unclaimed peaks never reproduced** at 3000 or 30000 points (0% both
+before and after). Matt saw them at 200k. The cap removal is a reasoned fix for
+that half, not a verified one. If peaks are still unclaimed at 200k, the cap was
+not the cause and the next suspect is `landTerrainStepCost`'s `|Δheight| * 20`
+losing frontier races outright rather than any budget.
+
+**Seed compatibility is broken deliberately** — Matt authorised it in ROADMAP.
+
+Guarded by `tests/civClaim.test.ts` (4 cases, including that
+`territorialWaters` at its 0.01 floor claims no ocean at all).
+
+---
+
+## The original diagnosis — territorial waters could NEVER be claimed (2026-08-22)
 
 **Matt's observation:** "the highest mountains or internal lakes being unclaimed
 land — in reality states leave no stone unturned, even in medieval times of
