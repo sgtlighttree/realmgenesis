@@ -78,11 +78,19 @@ const GRAT_SEG = 96; // samples per line (smooth circles)
 // LocalProjector contract). On the SMOOTH globe every cell is r=1, so the grid
 // sits on the unit sphere (zero parallax). On the RAISED globe it DRAPES: each
 // sample is projected at the terrain radius at its lat/lon (nearest cell height,
-// clamped to sea level) so the line rides relief and meets terrain at coastlines,
+// RAW — see below) so the line rides relief and meets terrain at coastlines,
 // with zero parallax at any zoom (the Google-Earth read). The nearest cell is
 // found by a greedy Voronoi hill-climb (utils/nearestCell) seeded by the previous
 // sample — 1–3 hops along a polyline — so the whole grid costs one O(n) brute
 // seed + ~5100 short walks per (gated) redraw.
+//
+// The height is RAW, never clamped to sea level. S18 shipped a
+// `max(height, seaLevel)` clamp, reasoning the grid should ride the water
+// surface; there is no water surface — the mesh renders ocean cells at their
+// true seafloor radius (`displayRadius(cell.height, smooth)`, WorldViewer
+// refill) and merely colours them blue. The clamp therefore floated the grid
+// above every ocean cell by `(seaLevel − height)·0.05` — most of the globe, and
+// the residual parallax Matt reported after S18. Clamping again reintroduces it.
 export function drawGraticuleTenant(
   ctx: CanvasRenderingContext2D,
   _proj: ProjectedCells,
@@ -94,7 +102,6 @@ export function drawGraticuleTenant(
   ctx.lineWidth = 1;
   const pt: [number, number] = [0, 0];
   const cells = world.cells;
-  const sea = world.params.seaLevel;
   // Running nearest-cell id carried across the whole draw; -1 = seed via brute
   // scan on the first sample, then hill-climb from the previous sample.
   let startId = -1;
@@ -103,8 +110,7 @@ export function drawGraticuleTenant(
   const projSample = (x: number, y: number, z: number): boolean => {
     if (smooth || cells.length === 0) return project(x, y, z, pt); // unit sphere
     startId = startId < 0 ? nearestCellBrute(cells, x, y, z) : nearestCellWalk(cells, x, y, z, startId);
-    const h = Math.max(cells[startId].height, sea);
-    const r = 1 + h * 0.05;
+    const r = displayRadius(cells[startId].height, false);
     return project(x * r, y * r, z * r, pt);
   };
 
