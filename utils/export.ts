@@ -6,7 +6,7 @@ import { seasonalTemperatureDelta } from './seasons';
 import { buildDymaxionNet } from './dymaxion';
 import { insideTri, barycentric, normalizeVec, toLonLat, projectToDymaxionNet, Point2 } from './geo';
 import { collectLabels, drawMapLabels } from './labels';
-import { computeShadeMap, computeContourSegments, drawContourPaths } from './shading';
+import { computeShadeMap, computeContourSegments, drawContourPaths, contourInterval } from './shading';
 import { computeScaleBar, niceScaleBarLength, drawScaleBar } from './measure';
 import { NAME_STYLES, NameStyle } from './namegen';
 
@@ -113,7 +113,7 @@ const renderEquirectangular = (
   });
 
   if (showContours) {
-    drawContourPaths(ctx, pathGenerator, computeContourSegments(world.cells, world.params.seaLevel, 0.1), Math.max(1, width / 2048));
+    drawContourPaths(ctx, pathGenerator, computeContourSegments(world.cells, world.params.seaLevel, contourInterval(world.cells, world.params.seaLevel)), Math.max(1, width / 2048));
   }
 
   if (showRoutes) {
@@ -370,7 +370,7 @@ export const exportMap = async (
   });
 
   if (showContours) {
-    drawContourPaths(ctx, pathGenerator, computeContourSegments(world.cells, world.params.seaLevel, 0.1), Math.max(1, width / 2048));
+    drawContourPaths(ctx, pathGenerator, computeContourSegments(world.cells, world.params.seaLevel, contourInterval(world.cells, world.params.seaLevel)), Math.max(1, width / 2048));
   }
 
   if (showRoutes) {

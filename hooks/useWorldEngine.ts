@@ -75,20 +75,29 @@ export function useWorldEngine() {
   const [logs, setLogs] = useState<string[]>([]);
   const [lore, setLore] = useState<LoreData | null>(null);
   const [isLoreLoading, setIsLoreLoading] = useState(false);
-  const [showGrid, setShowGridBase] = useState(false);
-  // F2 smooth-globe: collapses the 3D globe to a single sphere so the graticule
-  // and current arrows can't parallax against relief. Default off (raised); the
-  // grid can't read cleanly on relief, so turning it ON auto-enables smooth.
+  const [showGrid, setShowGrid] = useState(false);
+  // F2 smooth-globe: collapses the 3D globe to a single sphere. It exists as an
+  // option, not a safety net.
+  //
+  // S17 coupled it to the grid — turning the graticule on force-enabled smooth —
+  // because overlays visibly slid against relief and flattening was the only
+  // fix available. That was a workaround for a bug, and the bug is now fixed:
+  // S19 removed a sea-level clamp that floated the grid over every ocean cell,
+  // and S19b found the real culprit, a one-frame lag between the overlay and the
+  // renderer. Matt confirmed the parallax gone, so the coupling is dropped and
+  // the raised, draped globe is the default with the grid on.
   const [smoothGlobe, setSmoothGlobe] = useState(false);
-  const setShowGrid = useCallback((b: boolean) => {
-    setShowGridBase(b);
-    if (b) setSmoothGlobe(true);
-  }, []);
   const [showRivers, setShowRivers] = useState(true);
   const [showRoutes, setShowRoutes] = useState(false);
   const [showHillshade, setShowHillshade] = useState(false);
   const [showContours, setShowContours] = useState(false);
   const [showCurrents, setShowCurrents] = useState(false);
+  // Cell edges are not drawn — they are GAPS. Each cell renders as a flat plate
+  // at its own radius, so two neighbours at different heights do not share an
+  // edge and the open seam shows the black inner sphere through it (proved by
+  // recolouring that sphere: every "outline" changed with it). ON reproduces
+  // that look exactly; OFF (the default) closes the seams by overhang.
+  const [showCellEdges, setShowCellEdges] = useState(false);
   const [labelVisibility, setLabelVisibility] = useState<LabelVisibility>(DEFAULT_LABEL_VISIBILITY);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [dymaxionSettings, setDymaxionSettings] = useState<DymaxionSettings>({
@@ -661,7 +670,7 @@ export function useWorldEngine() {
     }
   }, [world]);
   return {
-    params, setParams, world, setWorld, viewMode, setViewMode, displayMode, setDisplayMode, inspectMode, setInspectMode, inspectorCollapsed, setInspectorCollapsed, inspectedCellId, setInspectedCellId, rulerActive, setRulerActive, rulerCells, setRulerCells, markerMode, setMarkerMode, selectedMarkerId, setSelectedMarkerId, isGenerating, setIsGenerating, genProgress, setGenProgress, logs, setLogs, lore, setLore, isLoreLoading, setIsLoreLoading, showGrid, setShowGrid, smoothGlobe, setSmoothGlobe, showRivers, setShowRivers, showRoutes, setShowRoutes, showHillshade, setShowHillshade, showContours, setShowContours, showCurrents, setShowCurrents, labelVisibility, setLabelVisibility, sidebarOpen, setSidebarOpen, dymaxionSettings, setDymaxionSettings, apiKey, setApiKey, editMode, setEditMode, paintStyle, setPaintStyle, brushSize, setBrushSize, paintStrength, setPaintStrength, paintFaction, setPaintFaction, paintBiome, setPaintBiome, sampleHeight, setSampleHeight, adaptiveBiomes, setAdaptiveBiomes, undoStack, setUndoStack, addLog, handleGenerate, requestGenerate, pendingGenerate, confirmGenerate, cancelGenerate, handleLoadWorld, handleCancel, handleUpdateCivs, handleUpdateProvinces, toggleInspectEnabled, toggleRuler, toggleMarkerMode, handleInspect, updateMarker, deleteMarker, rulerArc, rulerDistanceKm, handleGenerateLore, factionColors, cultureColors, religionColors, handlePaint, handleUndo, handleEditWorldData, handleEditFaction, handleMergeFactions, handleRenameProvince, handleRenameTown, handleRelocateCapital,
+    params, setParams, world, setWorld, viewMode, setViewMode, displayMode, setDisplayMode, inspectMode, setInspectMode, inspectorCollapsed, setInspectorCollapsed, inspectedCellId, setInspectedCellId, rulerActive, setRulerActive, rulerCells, setRulerCells, markerMode, setMarkerMode, selectedMarkerId, setSelectedMarkerId, isGenerating, setIsGenerating, genProgress, setGenProgress, logs, setLogs, lore, setLore, isLoreLoading, setIsLoreLoading, showGrid, setShowGrid, smoothGlobe, setSmoothGlobe, showRivers, setShowRivers, showRoutes, setShowRoutes, showHillshade, setShowHillshade, showContours, setShowContours, showCurrents, setShowCurrents, showCellEdges, setShowCellEdges, labelVisibility, setLabelVisibility, sidebarOpen, setSidebarOpen, dymaxionSettings, setDymaxionSettings, apiKey, setApiKey, editMode, setEditMode, paintStyle, setPaintStyle, brushSize, setBrushSize, paintStrength, setPaintStrength, paintFaction, setPaintFaction, paintBiome, setPaintBiome, sampleHeight, setSampleHeight, adaptiveBiomes, setAdaptiveBiomes, undoStack, setUndoStack, addLog, handleGenerate, requestGenerate, pendingGenerate, confirmGenerate, cancelGenerate, handleLoadWorld, handleCancel, handleUpdateCivs, handleUpdateProvinces, toggleInspectEnabled, toggleRuler, toggleMarkerMode, handleInspect, updateMarker, deleteMarker, rulerArc, rulerDistanceKm, handleGenerateLore, factionColors, cultureColors, religionColors, handlePaint, handleUndo, handleEditWorldData, handleEditFaction, handleMergeFactions, handleRenameProvince, handleRenameTown, handleRelocateCapital,
   };
 }
 

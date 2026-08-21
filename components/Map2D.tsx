@@ -5,7 +5,7 @@ import { getCellColor } from '../utils/colors';
 import { seasonalTemperatureDelta } from '../utils/seasons';
 import { insideTri, barycentric, normalizeVec, toLonLat, getDymaxionNetTransform, projectDymaxionPoint, Point2, Point3 } from '../utils/geo';
 import { collectLabels, drawMapLabels } from '../utils/labels';
-import { computeShadeMap, computeContourSegments, drawContourPaths } from '../utils/shading';
+import { computeShadeMap, computeContourSegments, drawContourPaths, contourInterval } from '../utils/shading';
 import { drawCurrents2D } from './overlays/currents2D';
 import { computeScaleBar, niceScaleBarLength, drawScaleBar } from '../utils/measure';
 
@@ -262,7 +262,7 @@ const Map2D: React.FC<{
     [world, showHillshade],
   );
   const contourSegments = useMemo(
-    () => (world && showContours ? computeContourSegments(world.cells, world.params.seaLevel, 0.1) : []),
+    () => (world && showContours ? computeContourSegments(world.cells, world.params.seaLevel, contourInterval(world.cells, world.params.seaLevel)) : []),
     [world, showContours],
   );
 

@@ -2,14 +2,14 @@ import React, { useMemo, useRef, useEffect, useLayoutEffect, useState, useCallba
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Stars, Line } from '@react-three/drei';
 import * as THREE from 'three';
-import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, MarkerData, RouteData } from '../types';
+import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, MarkerData } from '../types';
 import { getCellColor } from '../utils/colors';
 import { seasonalTemperatureDelta } from '../utils/seasons';
 import { displayRadius } from '../utils/displayRadius';
-import { computeShadeMap, computeContourSegments } from '../utils/shading';
+import { computeShadeMap, computeContourSegments, contourInterval } from '../utils/shading';
 import { collectLabels, MapLabel } from '../utils/labels';
 import { ScreenOverlay, OverlayTenant } from './overlays/ScreenOverlay';
-import { drawCurrentsTenant, drawGraticuleTenant } from './overlays/tenants';
+import { drawCurrentsTenant, drawGraticuleTenant, drawRoutesTenant, drawContoursTenant } from './overlays/tenants';
 
 const Mesh = 'mesh' as any;
 const Group = 'group' as any;
@@ -22,12 +22,36 @@ const CylinderGeometry = 'cylinderGeometry' as any;
 const MeshBasicMaterial = 'meshBasicMaterial' as any;
 const LineSegments = 'lineSegments' as any;
 const LineBasicMaterial = 'lineBasicMaterial' as any;
-const LineDashedMaterial = 'lineDashedMaterial' as typeof LineSegments;
 const IcosahedronGeometry = 'icosahedronGeometry' as any;
 type R3FIntrinsic = React.FC<{ children?: React.ReactNode } & Record<string, unknown>>;
 const Sprite = 'sprite' as unknown as R3FIntrinsic;
 const SpriteMaterial = 'spriteMaterial' as unknown as R3FIntrinsic;
 const OctahedronGeometry = 'octahedronGeometry' as unknown as R3FIntrinsic;
+
+// Idle globe spin rate, radians per second.
+const SPIN_RATE = 0.05;
+
+// The idle spin lives in its own component for one reason: ORDERING. R3F runs
+// useFrame callbacks in subscription order, and React subscribes a child's
+// effects before its parent's. While this lived in the parent that also renders
+// <ScreenOverlay/>, the overlay's callback ran FIRST — projecting a rotation the
+// spin had not yet advanced, one frame behind what WebGL then drew. Mounted as a
+// sibling AHEAD of <ScreenOverlay/>, it subscribes first and runs first.
+//
+// The other half of that fix is in ScreenOverlay, which must also force the world
+// matrices current (Three only recomputes them inside render()). Both are needed;
+// either alone still leaves the overlay one frame behind the terrain.
+const GlobeSpin: React.FC<{ target: React.RefObject<THREE.Group | null>; paused: boolean }> = ({ target, paused }) => {
+  useFrame((_state, delta) => {
+    if (paused || !target.current) return;
+    target.current.rotation.y += delta * SPIN_RATE;
+  });
+  return null;
+};
+
+// Plate widening used to close the seams between cells of differing height.
+// 1 = untouched (seams visible, the pre-existing look).
+const CELL_OVERHANG = 1.03;
 
 const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode; smoothGlobe?: boolean }> = ({ world, viewMode, smoothGlobe = false }) => {
     const capitalsRef = useRef<THREE.InstancedMesh>(null);
@@ -171,69 +195,6 @@ const RiverLines: React.FC<{ world: WorldData; visible: boolean; smoothGlobe?: b
         </LineSegments>
     );
 }
-
-// C3: batch all routes of one kind into a single smoothed LineSegments geometry,
-// lifted just off the surface so they sit above rivers/terrain.
-function buildRouteGeometry(
-    routes: RouteData[] | undefined,
-    kind: 'road' | 'searoute',
-    visible: boolean,
-    smoothGlobe = false,
-): THREE.BufferGeometry | null {
-    if (!routes || !visible) return null;
-    const positions: number[] = [];
-    const distances: number[] = []; // per-vertex cumulative length, for LineDashedMaterial
-    const LIFT = 1.008; // just above surface (rivers sit at r≈1.0)
-    for (const r of routes) {
-        if (r.kind !== kind || r.path.length < 2) continue;
-        // Smooth globe: normalize each path point to unit before the lift so
-        // routes lie on the flat sphere instead of floating at relief radius.
-        const vectors = r.path.map(p => {
-            const v = new THREE.Vector3(p.x, p.y, p.z);
-            if (smoothGlobe) v.normalize();
-            return v.multiplyScalar(LIFT);
-        });
-        const curve = new THREE.CatmullRomCurve3(vectors);
-        const pts = curve.getPoints(Math.min(60, vectors.length * 4));
-        let accum = 0; // reset per route so dashes run continuously along each route
-        for (let i = 0; i < pts.length - 1; i++) {
-            const segLen = pts[i].distanceTo(pts[i + 1]);
-            positions.push(pts[i].x, pts[i].y, pts[i].z, pts[i + 1].x, pts[i + 1].y, pts[i + 1].z);
-            distances.push(accum, accum + segLen);
-            accum += segLen;
-        }
-    }
-    if (positions.length === 0) return null;
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    // LineDashedMaterial reads the 'lineDistance' attribute (LineSegments.computeLineDistances
-    // is unavailable through the R3F string-element path, so we build it directly).
-    if (kind === 'searoute') geo.setAttribute('lineDistance', new THREE.Float32BufferAttribute(distances, 1));
-    return geo;
-}
-
-const RouteLines: React.FC<{ world: WorldData; visible: boolean; smoothGlobe?: boolean }> = ({ world, visible, smoothGlobe = false }) => {
-    const routes = world.routes;
-    const road = useMemo(() => buildRouteGeometry(routes, 'road', visible, smoothGlobe), [routes, visible, smoothGlobe]);
-    const sea = useMemo(() => buildRouteGeometry(routes, 'searoute', visible, smoothGlobe), [routes, visible, smoothGlobe]);
-    useEffect(() => () => { road?.dispose(); }, [road]);
-    useEffect(() => () => { sea?.dispose(); }, [sea]);
-    if (!visible) return null;
-    return (
-        <>
-            {road && (
-                <LineSegments geometry={road}>
-                    <LineBasicMaterial color="#c8a25a" opacity={0.9} transparent linewidth={1.5} />
-                </LineSegments>
-            )}
-            {sea && (
-                <LineSegments geometry={sea}>
-                    <LineDashedMaterial color="#5eb8c8" opacity={0.9} transparent dashSize={0.02} gapSize={0.012} />
-                </LineSegments>
-            )}
-        </>
-    );
-};
 
 const CurvedFactionLabel: React.FC<{ name: string; position: THREE.Vector3 }> = ({ name, position }) => {
     const { texture, scale } = useMemo(() => {
@@ -423,6 +384,9 @@ const PointLabels: React.FC<{
   const { camera } = useThree();
   const worldPos = useMemo(() => new THREE.Vector3(), []);
   const camDir = useMemo(() => new THREE.Vector3(), []);
+  const projScratch = useMemo(() => new THREE.Vector3(), []);
+  const placedRef = useRef<{ x: number; y: number; w: number; h: number }[]>([]);
+  const lastDeclutterKey = useRef<number>(Number.NaN);
 
   const filteredLabels = useMemo(() =>
     labels.filter(l => {
@@ -484,18 +448,54 @@ const PointLabels: React.FC<{
     sprites.forEach(s => s.texture.dispose());
   }, [sprites]);
 
+  // World-unit sprite extents, indexed like `filteredLabels`, so the declutter
+  // pass can size a screen box without touching the Three objects each frame.
+  const spriteBoxes = useMemo(
+    () => sprites.map(sp => ({ w: sp.scale[0], h: sp.scale[1] })),
+    [sprites],
+  );
+
+  // Declutter order: highest priority first, so the greedy pass below keeps the
+  // important label when two collide. Indices into `filteredLabels`, computed
+  // once per label set rather than per frame.
+  const drawOrder = useMemo(() => {
+    const idx = filteredLabels.map((_, i) => i);
+    idx.sort((a, b) => filteredLabels[a].priority - filteredLabels[b].priority);
+    return idx;
+  }, [filteredLabels]);
+
   useFrame(() => {
     if (!groupRef.current) return;
     camDir.copy(camera.position).normalize();
     const camDist = camera.position.length();
+    const children = groupRef.current.children;
 
-    groupRef.current.children.forEach((child, i) => {
+    // Redraw gating: decluttering is O(kept^2) in screen rectangles, far too
+    // costly to redo every frame at 200k cells. The result only changes when the
+    // camera pose or the globe's spin changes, so quantize both and skip
+    // identical frames — same trick as ScreenOverlay's matrix key.
+    const gm = groupRef.current.matrixWorld.elements;
+    let key = (camDist * 100) | 0;
+    for (let i = 0; i < 16; i += 5) key = (key * 31 + ((gm[i] * 200) | 0)) | 0;
+    key = (key * 31 + ((camDir.x * 200) | 0)) | 0;
+    key = (key * 31 + ((camDir.y * 200) | 0)) | 0;
+    key = (key * 31 + ((camDir.z * 200) | 0)) | 0;
+    if (key === lastDeclutterKey.current) return;
+    lastDeclutterKey.current = key;
+
+    const placed = placedRef.current;
+    placed.length = 0;
+
+    for (const i of drawOrder) {
       const label = filteredLabels[i];
-      if (!label) return;
+      const child = children[i];
+      if (!label || !child) continue;
+
       // Labels live inside the spinning globe group — cull against the
       // sprite's world-space direction, not its unrotated data position.
-      child.getWorldPosition(worldPos).normalize();
-      let visible = worldPos.dot(camDir) > -0.1;
+      child.getWorldPosition(worldPos);
+      const dir = worldPos.clone().normalize();
+      let visible = dir.dot(camDir) > -0.1;
 
       if (visible) {
         if (label.kind === 'town' && camDist > 2) visible = false;
@@ -506,8 +506,34 @@ const PointLabels: React.FC<{
         else if (GEO_MID_KINDS.has(label.kind) && camDist > 3.5) visible = false;
       }
 
+      if (visible) {
+        // Greedy screen-space declutter — the piece this path never had. The 2D
+        // renderer has done this since A1 (drawMapLabels); the sprite path only
+        // ever culled by hemisphere and distance, so every surviving label drew
+        // regardless of overlap. That is what floods the globe once feature
+        // counts scale with cell count.
+        const sprite = spriteBoxes[i];
+        projScratch.copy(worldPos).project(camera);
+        const sx = (projScratch.x + 1) / 2;
+        const sy = (1 - (projScratch.y + 1) / 2);
+        // Sprite scale is world units; convert to an approximate screen box via
+        // the same perspective divide the renderer applies.
+        const halfW = sprite.w / Math.max(0.001, camDist) * 0.5;
+        const halfH = sprite.h / Math.max(0.001, camDist) * 0.5;
+        const box = { x: sx - halfW, y: sy - halfH, w: halfW * 2, h: halfH * 2 };
+
+        for (let p = 0; p < placed.length; p++) {
+          const o = placed[p];
+          if (box.x < o.x + o.w && box.x + box.w > o.x && box.y < o.y + o.h && box.y + box.h > o.y) {
+            visible = false;
+            break;
+          }
+        }
+        if (visible) placed.push(box);
+      }
+
       child.visible = visible;
-    });
+    }
   });
 
   if (sprites.length === 0) return null;
@@ -593,44 +619,6 @@ const FactionBorders: React.FC<{ world: WorldData; visible: boolean; smoothGlobe
   return (
     <LineSegments geometry={geometry}>
       <LineBasicMaterial color="white" linewidth={1} opacity={0.8} transparent depthTest={true} />
-    </LineSegments>
-  );
-};
-
-const CONTOUR_INTERVAL = 0.1;
-// Isolines float just above the tallest terrain (max hMult = 1 + 1*0.05 = 1.05).
-// Segments carry no per-level height, so a single fixed radius keeps them out of
-// z-fighting range everywhere — chunky cell-edge lines, consistent with the aesthetic.
-const CONTOUR_RADIUS = 1.053;
-
-const ContourLines: React.FC<{ world: WorldData; visible: boolean; smoothGlobe?: boolean }> = ({ world, visible, smoothGlobe = false }) => {
-  // Keyed on world identity: heights mutate in place on paint and WorldData is
-  // shallow-copied, so isolines must recompute per stroke.
-  const geometry = useMemo(() => {
-    if (!visible) return null;
-    const segments = computeContourSegments(world.cells, world.params.seaLevel, CONTOUR_INTERVAL);
-    if (segments.length === 0) return null;
-
-    // Smooth globe: drop the isolines to just above the unit sphere.
-    const radius = smoothGlobe ? 1.001 : CONTOUR_RADIUS;
-    const positions: number[] = [];
-    segments.forEach(([p1, p2]) => {
-      positions.push(p1[0] * radius, p1[1] * radius, p1[2] * radius);
-      positions.push(p2[0] * radius, p2[1] * radius, p2[2] * radius);
-    });
-
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    return geo;
-  }, [world, visible, smoothGlobe]);
-
-  useEffect(() => () => { geometry?.dispose(); }, [geometry]);
-
-  if (!geometry) return null;
-
-  return (
-    <LineSegments geometry={geometry} renderOrder={4}>
-      <LineBasicMaterial color="#3a2a1a" linewidth={1} opacity={0.35} transparent depthTest={true} />
     </LineSegments>
   );
 };
@@ -840,6 +828,7 @@ const WorldMesh: React.FC<{
   showHillshade: boolean,
   showContours: boolean,
   showCurrents: boolean,
+  showCellEdges: boolean,
   inspectMode: InspectMode;
   onInspect: (cellId: number | null) => void;
   dymaxionSettings: DymaxionSettings;
@@ -852,7 +841,7 @@ const WorldMesh: React.FC<{
   selectedCellId?: number | null;
   labelVisibility: LabelVisibility;
   rulerArc?: Point[] | null;
-}> = ({ world, viewMode, onHover, paused, showGrid, smoothGlobe, showRivers, showRoutes, showHillshade, showContours, showCurrents, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize, selectedCellId = null, labelVisibility, rulerArc = null }) => {
+}> = ({ world, viewMode, onHover, paused, showGrid, smoothGlobe, showRivers, showRoutes, showHillshade, showContours, showCurrents, showCellEdges, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize, selectedCellId = null, labelVisibility, rulerArc = null }) => {
   const spinRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const lastUpdate = useRef<number>(0);
@@ -866,11 +855,6 @@ const WorldMesh: React.FC<{
   const [brushCenter, setBrushCenter] = useState<[number, number, number] | null>(null);
   const [highlightCellId, setHighlightCellId] = useState<number | null>(null);
   
-  useFrame((state, delta) => {
-    if (!paused) {
-        if (spinRef.current) spinRef.current.rotation.y += delta * 0.05;
-    }
-  });
 
   // The world geometry is allocated once per world structure (cells array
   // identity is stable across paint strokes — App mutates cells in place and
@@ -909,6 +893,13 @@ const WorldMesh: React.FC<{
     const colAttr = geometry.getAttribute('color') as THREE.BufferAttribute;
     const pos = posAttr.array as Float32Array;
     const col = colAttr.array as Float32Array;
+    // Cell "outlines" are open seams, not lines: neighbours at different radii
+    // do not share an edge, so the inner sphere shows through the gap. Widening
+    // each plate about its own centre makes neighbours overlap, so the taller
+    // one overhangs the shorter — which is what a cliff looks like. Only the
+    // rim moves; the centre and hMult are untouched, so the drape invariant
+    // (overlay radius == cell radius) is unaffected.
+    const inflate = showCellEdges ? 1 : CELL_OVERHANG;
     let o = 0;
     for (const cell of world.cells) {
       const c = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors, seasonalTemperatureDelta(cell, world.params));
@@ -916,12 +907,17 @@ const WorldMesh: React.FC<{
       // straight color copy so rendering is unchanged.
       if (showHillshade) c.multiplyScalar(shadeMap[cell.id]);
       const hMult = displayRadius(cell.height, smoothGlobe);
-      const cx = cell.center.x * hMult; const cy = cell.center.y * hMult; const cz = cell.center.z * hMult;
+      const uc = cell.center;
+      const cx = uc.x * hMult; const cy = uc.y * hMult; const cz = uc.z * hMult;
       for (let i = 0; i < cell.vertices.length; i++) {
         const v1 = cell.vertices[i]; const v2 = cell.vertices[(i + 1) % cell.vertices.length];
         pos[o] = cx; pos[o + 1] = cy; pos[o + 2] = cz;
-        pos[o + 3] = v1.x * hMult; pos[o + 4] = v1.y * hMult; pos[o + 5] = v1.z * hMult;
-        pos[o + 6] = v2.x * hMult; pos[o + 7] = v2.y * hMult; pos[o + 8] = v2.z * hMult;
+        pos[o + 3] = (uc.x + (v1.x - uc.x) * inflate) * hMult;
+        pos[o + 4] = (uc.y + (v1.y - uc.y) * inflate) * hMult;
+        pos[o + 5] = (uc.z + (v1.z - uc.z) * inflate) * hMult;
+        pos[o + 6] = (uc.x + (v2.x - uc.x) * inflate) * hMult;
+        pos[o + 7] = (uc.y + (v2.y - uc.y) * inflate) * hMult;
+        pos[o + 8] = (uc.z + (v2.z - uc.z) * inflate) * hMult;
         col[o] = c.r; col[o + 1] = c.g; col[o + 2] = c.b;
         col[o + 3] = c.r; col[o + 4] = c.g; col[o + 5] = c.b;
         col[o + 6] = c.r; col[o + 7] = c.g; col[o + 8] = c.b;
@@ -930,7 +926,7 @@ const WorldMesh: React.FC<{
     }
     posAttr.needsUpdate = true;
     colAttr.needsUpdate = true;
-  }, [geometry, world, viewMode, factionColors, cultureColors, religionColors, showHillshade, shadeMap, smoothGlobe]);
+  }, [geometry, world, viewMode, factionColors, cultureColors, religionColors, showHillshade, shadeMap, smoothGlobe, showCellEdges]);
 
   const faceMap = useMemo(() => {
      const map: number[] = [];
@@ -1110,14 +1106,30 @@ const WorldMesh: React.FC<{
       if (inspectMode === 'hover' && !isPaintMode) onHover(null);
   }, [inspectMode, isPaintMode, onHover]);
 
-  // F2 screen-space overlay tenants.
+  // Isolines are an O(cells x neighbors) sweep, so they are memoized here and
+  // closed over by the tenant rather than recomputed on every overlay redraw.
+  // Keyed on world identity: heights mutate in place on paint and WorldData is
+  // shallow-copied, so isolines must recompute per stroke.
+  const contourSegments = useMemo(
+    () => (showContours ? computeContourSegments(world.cells, world.params.seaLevel, contourInterval(world.cells, world.params.seaLevel)) : []),
+    [world, showContours],
+  );
+
+  // F2 screen-space overlay tenants. Painting order is array order: contours sit
+  // under everything (they are terrain annotation), then currents, then routes,
+  // with the graticule last so the reference grid is never occluded.
   const overlayTenants = useMemo<OverlayTenant[]>(() => [
+    { id: 'contours', visible: showContours && contourSegments.length > 0,
+      draw: (ctx, _proj, _world, project, smooth) => drawContoursTenant(ctx, contourSegments, project, smooth) },
     { id: 'currents', visible: showCurrents && !!world.currents, draw: drawCurrentsTenant },
+    // Routes above the current field so dashed sea routes read over the arrows.
+    { id: 'routes', visible: showRoutes && !!world.routes, draw: drawRoutesTenant },
     { id: 'graticule', visible: showGrid, draw: drawGraticuleTenant },
-  ], [showCurrents, world.currents, showGrid]);
+  ], [showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, showGrid]);
 
   return (
     <Group>
+        <GlobeSpin target={spinRef} paused={paused} />
         <Group ref={spinRef}>
             <Mesh
             ref={meshRef}
@@ -1139,8 +1151,8 @@ const WorldMesh: React.FC<{
                 </React.Suspense>
                 <FactionBorders world={world} visible={labelVisibility.borders} smoothGlobe={smoothGlobe} />
                 <RiverLines world={world} visible={showRivers} smoothGlobe={smoothGlobe} />
-                <RouteLines world={world} visible={showRoutes} smoothGlobe={smoothGlobe} />
-                <ContourLines world={world} visible={showContours} smoothGlobe={smoothGlobe} />
+                {/* Roads & sea routes migrated to ScreenOverlay (F2 routes tenant). */}
+                {/* Contour lines migrated to ScreenOverlay (F2 contours tenant). */}
                 {/* Lat/long grid migrated to ScreenOverlay (F2 graticule tenant). */}
                 {showGrid && <TiltAxisLine radius={1.35} />}
                 {/* Cell highlight outline */}
@@ -1168,7 +1180,7 @@ const WorldMesh: React.FC<{
   );
 };
 
-const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; smoothGlobe?: boolean; showRivers?: boolean; showRoutes?: boolean; showHillshade?: boolean; showContours?: boolean; showCurrents?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; cultureColors?: Map<number, string>; religionColors?: Map<number, string>; brushSize?: number; rulerArc?: Point[] | null; overlayClassName?: string; paused?: boolean; onPausedChange?: (v: boolean) => void; showPauseControl?: boolean; }> = ({ world, viewMode, showGrid = false, smoothGlobe = false, showRivers = true, showRoutes = false, showHillshade = false, showContours = false, showCurrents = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null, overlayClassName = 'absolute top-4 right-4 z-overlay flex gap-2', paused: pausedProp, onPausedChange, showPauseControl = true }) => {
+const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; smoothGlobe?: boolean; showRivers?: boolean; showRoutes?: boolean; showHillshade?: boolean; showContours?: boolean; showCurrents?: boolean; showCellEdges?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; cultureColors?: Map<number, string>; religionColors?: Map<number, string>; brushSize?: number; rulerArc?: Point[] | null; overlayClassName?: string; paused?: boolean; onPausedChange?: (v: boolean) => void; showPauseControl?: boolean; }> = ({ world, viewMode, showGrid = false, smoothGlobe = false, showRivers = true, showRoutes = false, showHillshade = false, showContours = false, showCurrents = false, showCellEdges = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null, overlayClassName = 'absolute top-4 right-4 z-overlay flex gap-2', paused: pausedProp, onPausedChange, showPauseControl = true }) => {
   const [hoveredCell, setHoveredCell] = useState<Cell | null>(null);
   // Rotation pause is controlled-OPTIONAL, the same contract as a native input:
   // pass `paused` + `onPausedChange` to own it from outside (the shell lifts it
@@ -1269,6 +1281,7 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
                showHillshade={showHillshade}
                showContours={showContours}
                showCurrents={showCurrents}
+               showCellEdges={showCellEdges}
                labelVisibility={labelVisibility}
                inspectMode={inspectMode}
                onInspect={onInspect}

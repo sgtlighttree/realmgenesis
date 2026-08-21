@@ -113,41 +113,124 @@ const sharedEdge = (a: Cell, b: Cell): [Point3, Point3] | null => {
   return shared.length === 2 ? [shared[0], shared[1]] : null;
 };
 
-// Elevation isolines as chunky cell-edge segments. For each pair of neighboring
-// LAND cells whose heights fall in different contour bands, emit their shared
-// Voronoi edge. Bands are seaLevel + k*interval (k>=1), so any band difference
-// between two land cells implies a crossed contour level above seaLevel.
-// Draws contour segments through a projection-bound d3 path generator with the
-// shared subdued stroke used by every 2D pipeline (Map2D + PNG export).
+// One elevation isoline: the shared Voronoi edge between two land cells that
+// fall in different contour bands.
+export interface ContourSegment {
+  a: Point3;
+  b: Point3;
+  // Height of the HIGHER of the two cells. The globe mesh renders a cell
+  // boundary as a vertical step, so drawing the isoline at the taller cell's
+  // radius crowns that step instead of cutting into it or floating over it.
+  // Unit-sphere consumers (Map2D, PNG export) ignore this.
+  height: number;
+  // Index contour: every CONTOUR_INDEX_EVERY-th level, drawn thick and bright
+  // so elevation can be counted by eye (standard topographic convention).
+  index: boolean;
+  // Normalized height of the contour LINE itself (seaLevel + level*interval) —
+  // not either cell's height. This is what an elevation label must read out.
+  elevation: number;
+}
+
+// Every Nth contour level is an index contour — the standard cartographic 5th,
+// which is only meaningful because the interval now adapts to give ~20 levels.
+// (It was briefly 2, to salvage a hardcoded 0.1 interval that yielded four
+// possible levels on a default world. The interval was the real bug.)
+export const CONTOUR_INDEX_EVERY = 5;
+
+// Contour levels to aim for between sea level and the highest land.
+export const CONTOUR_TARGET_LEVELS = 20;
+
+// Preferred intervals, in normalized height. Snapping to one of these keeps
+// label values readable (2%, 5%) and spacing roughly comparable between worlds,
+// while still adapting: a fixed interval cannot serve both a flat world and an
+// alpine one. Default params put sea level at 0.55, so land spans only ~0.45 —
+// the old fixed 0.1 gave four levels, and most terrain saw one or two lines.
+const NICE_INTERVALS = [0.002, 0.005, 0.01, 0.02, 0.025, 0.05, 0.1];
+
+/**
+ * Interval for `computeContourSegments`, derived from the world's actual
+ * relief. Returns 0 when there is no land above sea level, which
+ * computeContourSegments treats as "no contours".
+ *
+ * O(cells) — memoize per world alongside the segments themselves.
+ */
+export const contourInterval = (
+  cells: Cell[],
+  seaLevel: number,
+  targetLevels: number = CONTOUR_TARGET_LEVELS,
+): number => {
+  let max = seaLevel;
+  for (const c of cells) if (c.height > max) max = c.height;
+  const range = max - seaLevel;
+  if (range <= 0 || targetLevels <= 0) return 0;
+
+  const ideal = range / targetLevels;
+  let best = NICE_INTERVALS[0];
+  let bestErr = Infinity;
+  for (const step of NICE_INTERVALS) {
+    const err = Math.abs(Math.log(step / ideal)); // ratio distance, not absolute
+    if (err < bestErr) { bestErr = err; best = step; }
+  }
+  return best;
+};
+
+const CONTOUR_INK = '255, 244, 224'; // warm off-white, legible on land and ice
+const CONTOUR_ALPHA = 0.38;
+const CONTOUR_INDEX_ALPHA = 0.75;
+const CONTOUR_INDEX_WIDTH = 2; // multiplier on the caller's base line width
+
+export const contourStroke = (index: boolean): string =>
+  `rgba(${CONTOUR_INK}, ${index ? CONTOUR_INDEX_ALPHA : CONTOUR_ALPHA})`;
+
+/**
+ * Elevation readout for an index contour.
+ *
+ * Percent of the normalized height field, because the project has NO real-world
+ * elevation datum — the Inspector shows `height * 100` as a percentage too, so
+ * this at least agrees with the rest of the app. A proper datum (metres derived
+ * from a defined maximum) is tracked as D8 World Datum on the ROADMAP; when it
+ * lands, this is the single place the readout changes.
+ */
+export const contourLabel = (elevation: number): string =>
+  `${Math.round(elevation * 100)}%`;
+
+// Draws contour segments through a projection-bound d3 path generator. Two
+// passes so index contours land on top of the intermediates they cross.
 export const drawContourPaths = (
   ctx: CanvasRenderingContext2D,
   pathGenerator: GeoPathLike,
-  segments: Array<[Point3, Point3]>,
+  segments: ContourSegment[],
   lineWidth: number,
 ): void => {
   if (segments.length === 0) return;
   ctx.save();
-  ctx.strokeStyle = 'rgba(58, 42, 26, 0.4)';
-  ctx.lineWidth = lineWidth;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  segments.forEach(([a, b]) => {
-    ctx.beginPath();
-    pathGenerator({
-      type: 'LineString',
-      coordinates: [toLonLat(a), toLonLat(b)],
-    });
-    ctx.stroke();
-  });
+  for (const indexPass of [false, true]) {
+    ctx.strokeStyle = contourStroke(indexPass);
+    ctx.lineWidth = indexPass ? lineWidth * CONTOUR_INDEX_WIDTH : lineWidth;
+    for (const seg of segments) {
+      if (seg.index !== indexPass) continue;
+      ctx.beginPath();
+      pathGenerator({
+        type: 'LineString',
+        coordinates: [toLonLat(seg.a), toLonLat(seg.b)],
+      });
+      ctx.stroke();
+    }
+  }
   ctx.restore();
 };
 
+// For each pair of neighboring LAND cells whose heights fall in different
+// contour bands, emit their shared Voronoi edge. Bands are seaLevel + k*interval
+// (k>=1), so any band difference between two land cells implies a crossed level.
 export const computeContourSegments = (
   cells: Cell[],
   seaLevel: number,
   interval: number,
-): Array<[Point3, Point3]> => {
-  const segments: Array<[Point3, Point3]> = [];
+): ContourSegment[] => {
+  const segments: ContourSegment[] = [];
   if (interval <= 0) return segments;
 
   for (const a of cells) {
@@ -160,7 +243,16 @@ export const computeContourSegments = (
       const bandB = Math.floor((b.height - seaLevel) / interval);
       if (bandA === bandB) continue; // no contour level between them
       const edge = sharedEdge(a, b);
-      if (edge) segments.push(edge);
+      if (!edge) continue;
+      // Lowest level crossed between the two bands identifies the isoline.
+      const level = Math.min(bandA, bandB) + 1;
+      segments.push({
+        a: edge[0],
+        b: edge[1],
+        height: Math.max(a.height, b.height),
+        index: level % CONTOUR_INDEX_EVERY === 0,
+        elevation: seaLevel + level * interval,
+      });
     }
   }
 

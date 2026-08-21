@@ -1,4 +1,4 @@
-import { WorldData, Cell, LabelVisibility } from '../types';
+import { WorldData, Cell, LabelVisibility, GeoFeature } from '../types';
 import { normalizeVec, Point3 } from './geo';
 
 export type LabelKind =
@@ -92,12 +92,51 @@ const GEO_PRIORITY: Record<string, number> = {
   lake: 3.5,
 };
 
+// Cap on how many features of one kind may produce labels, as a fraction of
+// total cells. Feature COUNT scales with cell count — a 200k-cell world detects
+// ~355 lakes where a 5k one finds a dozen — so a fixed cap would starve small
+// worlds and a fixed fraction floods large ones. This keeps the map's label
+// budget roughly constant while letting big worlds surface their big features.
+const GEO_LABEL_CAP: Record<string, number> = {
+  ocean: 8,
+  sea: 12,
+  range: 16,
+  desert: 12,
+  forest: 16,
+  island: 12,
+  lake: 16,
+};
+
+/**
+ * Keeps only the largest features of each kind. `GeoFeature.size` (member cell
+ * count) was already computed by the detection pass and previously ignored, so
+ * a three-cell pond competed with an inland sea for the same label slot — the
+ * visible cause of label flooding at high cell counts.
+ *
+ * Ranking is by size within kind, so relative importance is preserved no matter
+ * what the absolute sizes are at a given resolution.
+ */
+const rankGeoFeatures = (features: GeoFeature[]): GeoFeature[] => {
+  const byKind = new Map<string, GeoFeature[]>();
+  for (const f of features) {
+    const list = byKind.get(f.kind);
+    if (list) list.push(f);
+    else byKind.set(f.kind, [f]);
+  }
+  const kept: GeoFeature[] = [];
+  for (const [kind, list] of byKind) {
+    list.sort((a, b) => b.size - a.size);
+    kept.push(...list.slice(0, GEO_LABEL_CAP[kind] ?? 12));
+  }
+  return kept;
+};
+
 export const collectLabels = (world: WorldData): MapLabel[] => {
   const labels: MapLabel[] = [];
   const seaLevel = world.params.seaLevel;
 
   // Geographic labels are terrain-derived — emitted even when civData is absent.
-  for (const feature of world.features ?? []) {
+  for (const feature of rankGeoFeatures(world.features ?? [])) {
     labels.push({
       kind: feature.kind,
       name: feature.name,
