@@ -31,16 +31,18 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## ▶ START HERE — pickup for a fresh session (written 2026-08-21, end of S19e)
+## ▶ START HERE — pickup for a fresh session (written 2026-08-21, end of S19f)
 
-**Branch `f2-drape-graticule`, 25 commits ahead of `main`, NOT merged, NOT
-pushed, working tree clean.** It carries Sessions 18, 19, 19b, 19c, 19d, 19e.
-Everything below is already committed; nothing is half-finished.
+**`f2-drape-graticule` is MERGED into `main`** (merge commit `ef08460`, no-ff).
+`main` is **28 commits ahead of `origin/main` and NOT PUSHED** — pushing is
+Matt's call, he has not asked for it. Working tree clean, branch ref kept.
+`main` now carries Sessions 18 through 19f; nothing is half-finished.
 
 ### Gate state
 
 typecheck 0 · lint 0 errors / 29 warnings (the ratchet) · build OK, worker chunk
-unchanged at 87.06KB (all session work is render-side) · **230 tests / 34 files**.
+unchanged at 87.06KB (all session work is render-side) · **230 tests / 34 files**,
+verified on the merged `main`.
 
 **`tests/paramLiveness.test.ts` is a LOAD CANARY, not a flaky test.** It timed out
 three times this session and passed isolated every time (~160s for the file). If
@@ -85,25 +87,63 @@ zero assertion failures means the machine, not a regression.
 - Contour interval **adapts to relief**; `CONTOUR_INDEX_EVERY` is the standard 5.
 - Contour elevation labels are **deliberately absent** — see S19e for why and what
   reviving them requires.
+- **The grid→smooth coupling is GONE** (S19f). Raised terrain with a draped grid
+  is the default; Smooth Globe is an option, not a safety net. Do not reintroduce
+  the coupling to hide an overlay defect — that is what it was, and it masked the
+  real bug for three sessions.
 
 ### Open, in the order I'd pick them up
 
-1. **Grid→smooth coupling — Matt's call, unblocked.** Parallax is confirmed fixed,
-   so the reason the coupling was kept (S17/S19) no longer holds. Dropping it is a
-   one-line change in `useWorldEngine`'s coupled `setShowGrid` (remove
-   `if (b) setSmoothGlobe(true)`), which makes raised+draped the default.
-2. **Finish the branch.** 25 commits is a lot to carry; consider merging before
-   starting new work (`superpowers:finishing-a-development-branch`).
-3. **Next `ScreenOverlay` tenant: borders.** Cell-bound like routes, so the drape
-   is nearly free — follow the routes tenant as the template. Then rivers, then
+1. **Push `main` when Matt says so.** 28 commits are sitting locally.
+2. **Next `ScreenOverlay` tenant: borders.** Cell-bound like routes, so the drape
+   is nearly free — follow `drawRoutesTenant` as the template. Then rivers, then
    labels. Labels will hit the known overpaint nit (screen-space tenants paint
    above the 3D city markers).
-4. **D8 World Datum** — fully scoped in ROADMAP D8 into D8a (presentation, no seed
+3. **D8 World Datum** — fully scoped in ROADMAP D8 into D8a (presentation, no seed
    changes) and D8b (simulation coupling, changes generation output). Matt asked
    for the analysis, not the implementation; the sequencing call is his.
-5. **Contour index/intermediate differentiation** — Matt said hold off. If resumed:
+4. **Contour index/intermediate differentiation** — Matt said hold off. If resumed:
    the weight gap (2px @ .75 vs 1px @ .38) is likely too subtle at globe zoom;
    tinting index contours a different hue would beat weight alone.
+5. **The view strip at middle widths** (~1150px viewport): the chip row scrolls
+   because even icons overflow. An overflow "More" popover would be better; not
+   built because it was not asked for.
+
+---
+
+## Session 19f (2026-08-21) — coupling dropped; branch merged to main
+
+Final session of the run. Commit `adac67c` (decoupling) + merge `ef08460`.
+Gates verified **on merged `main`**: typecheck 0, lint 0/29, build OK, worker
+chunk unchanged, 230/34 (paramLiveness timed out under a load average of **20**
+and passed isolated — fourth time; it is a load canary, see S19b).
+
+### Grid→smooth coupling removed
+
+Matt's call, and the last thing the S17 workaround was propping up. Turning the
+graticule on no longer force-flattens the globe; **raised terrain with a draped
+grid is now the default.**
+
+The coupling existed because overlays visibly slid against relief and flattening
+was the only fix available in S17. It was a workaround for a bug that has since
+been fixed twice over — the sea-level clamp (S19) and the one-frame lag (S19b).
+`smoothGlobe` remains as a deliberate option.
+
+**Worth remembering:** the coupling hid the real defect for three sessions. A
+toggle that suppresses a symptom is a debt, not a fix, and should be labelled as
+one when added.
+
+### Merged
+
+`f2-drape-graticule` → `main`, no-ff, 27 commits plus the merge. **Not pushed** —
+Matt has not asked. Branch ref kept rather than deleted.
+
+### Session run in one line
+
+Migrated routes and contours onto ScreenOverlay; found and fixed the real
+parallax cause (a one-frame lag, not geometry); discovered per-cell "outlines"
+were mesh seams; fixed contours being starved of levels and labels flooding at
+200k cells; made the view strip one row; scoped D8.
 
 ---
 
