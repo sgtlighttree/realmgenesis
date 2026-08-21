@@ -31,6 +31,78 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## Session 19e (2026-08-21) — contour labels pulled; D8 scoped against the real code
+
+Continues on **`f2-drape-graticule`** (still **NOT merged / NOT pushed**).
+Commits `c078b28` (revert labels), `f2d4f79` (D8 scoping). Gates: typecheck 0,
+lint 0/29, build OK, **230 tests / 34 files** — paramLiveness timed out under a
+load average of **16** and passed isolated, third time this session (see the
+load-canary note in S19b).
+
+### Contour elevation labels PULLED — they wandered
+
+Matt: the percentages "jitter and move around chaotically when the model is
+moving". **Cause:** anchors were picked from segment midpoints *in array order*
+and thinned greedily **on every redraw**, so a different subset survived each
+frame. Segments dropping out at the limb shifted the ordering too, compounding
+it. The labels were never attached to anywhere on the terrain — they were
+re-chosen constantly.
+
+**The fix, when this returns:** choose anchors ONCE in world space — fixed
+segments per contour level — then per frame merely project and hide on
+collision, **never re-select**. `ContourSegment.elevation` and `contourLabel()`
+are kept as that seam, and a test asserts no text is drawn so the path cannot
+quietly come back without the world-space fix.
+
+**Kept:** the adaptive interval and index hierarchy from S19d. Matt confirmed
+those helped ("shows a lot more contours").
+
+**Still open, not addressed on Matt's instruction to hold off:** "not a ton of
+differentiation" between index and intermediate contours. Likely the contrast
+(2px @ .75 alpha vs 1px @ .38) is too subtle at globe zoom, and his screenshot
+was the **Rain** view, whose flat grey gives the worst possible background for
+cream lines. Cheap levers if resumed: widen the alpha gap, or tint index
+contours differently rather than only heavier.
+
+### D8 scoped — answering "does it help beyond DEM export?"
+
+Audited where heights are actually consumed rather than assuming. **Yes, and the
+headline argument is not DEM.** A5 already measures horizontal distance in real
+kilometres from `planetRadius`, so **the app measures horizontally in real units
+and vertically in percent.** ROADMAP D8 now splits:
+
+- **D8a presentation** (no seed changes): a FIXED `maxElevationM` that
+  `mountainHeight` shapes *within* rather than defines — if the datum is derived
+  from that slider, the same cell reports different altitudes per world and the
+  numbers mean nothing. Covers Inspector, contour labels, lore, and the GeoJSON
+  export, which currently writes `height: cell.height` as a raw 0–1 while its
+  geometry is genuinely geodesic (`utils/exportVector.ts:334`).
+- **D8b simulation coupling** (changes generation output): three tuned constants
+  are physical quantities in disguise — `temp -= elevation * 60` is a lapse rate
+  (~6.5 °C/km in reality), the orographic `0.02 / 1.5 / 0.2` moisture thresholds
+  are barrier-height physics, and `determineBiome` has no snow line, only
+  temperature. It also **unblocks two deferred items**: D5 gravity (was rejected
+  as "a relief fudge duplicating mountainHeight"; isostasy gives it a real hook
+  — max mountain height ∝ 1/g) and D3 sea-level coupling.
+
+**The cost is determinism**: every D8b item is a generation input, so existing
+seeds change. Precedent says escape-hatch it (D2 ships `currentStrength = 0` as
+byte-identical; D5's G-class is an exact no-op).
+
+**Verdict recorded:** D8a is close to free and fixes a genuine inconsistency;
+D8b is a real feature worth doing, but scoped and escape-hatched separately —
+not folded into D8a.
+
+### Open / next
+
+- **NOT merged / NOT pushed.** Branch carries S18 + S19 + S19b–e.
+- Grid→smooth coupling: still Matt's call.
+- Remaining `ScreenOverlay` tenant migrations: **borders, rivers, labels.**
+- Contour index/intermediate differentiation, if contours resume.
+- D8a vs D8b sequencing — Matt's call.
+
+---
+
 ## Session 19d (2026-08-21) — contours were starved of levels; labels had no 3D declutter
 
 Continues on **`f2-drape-graticule`** (still **NOT merged / NOT pushed**).
