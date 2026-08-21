@@ -33,6 +33,7 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
       **DONE Session 13** — full `docs/` suite (11 topic docs + index) rebuilt from code,
       three-doc rule established (`docs/`=settled · HANDOFF=live · ROADMAP=future). Stale
       `ARCHITECTURE.md`/`AUDIT.md` archived; CLAUDE/README/AGENTS repointed. See `docs/README.md`.
+- [ ] Observation 2026-08-22: HIGHEST PRIORITY Generated habitable terrain tends to concentrate on one part of the map after the tectonic plate improvements, tends to generate pangea and supercontinents and superoceans even as I tweak the other settings
 
 ---
 
@@ -42,12 +43,11 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 `daa617d` (2026-08-21); `c3bf856` and the S21 rivers work are committed locally
 and NOT yet pushed — pushing is Matt's call.
 
-**Branch `f2-labels-tenant` (`c81ef2b`) is COMPLETE AND VERIFIED but
-DELIBERATELY NOT MERGED.** The labels tenant is reviewed, the full suite is green
-(260/37), and the browser pass is done with 0 console errors. It is unmerged
-because Matt gated the merge on the unclaimed-mountains/lakes issue, which is a
-CIV-EXPANSION bug in a different subsystem and is NOT fixed. See
-"The merge gate" below — the diagnosis is done, the fix is not.
+**`f2-labels-tenant` is MERGED into `main`** (no-ff) and **`main` is PUSHED**.
+The territorial-water bug that gated it is fixed (`c9b70b7`). Gates on the merged
+`main`: typecheck 0 · lint 0/29 · **264 tests / 38 files** (`paramLiveness` timed
+out in the full run and passed isolated at 112s — **sixth** firing of the load
+canary; check `uptime` before suspecting code).
 
 **F2 IS NOT FINISHED, whatever an earlier note in this file implied.** Three of
 the six overlays the ROADMAP F2 paragraph names are still physical 3D objects:
@@ -111,13 +111,16 @@ zero assertion failures means the machine, not a regression.
 
 ### Open, in the order I'd pick them up
 
-1. **Merge `f2-labels-tenant` — it is verified and its blocker is cleared.**
-   `git merge --no-ff f2-labels-tenant`. The territorial-water bug that gated it
-   is FIXED (`c9b70b7`). It was left unmerged only because Matt's "don't merge
-   yet" was never explicitly retracted and the session ended; the branch itself
-   needs no further work. Re-run `npm test` after merging — the branch was
-   verified at 260/37 BEFORE the civ fix landed on `main`, so the two have not
-   been tested together.
+1. **Matt's HIGHEST-PRIORITY observation (2026-08-22): terrain concentrates into
+   pangea / supercontinents + superoceans** since the tectonic-plate work, and
+   tweaking the other settings does not break it up. Nothing has been
+   investigated yet — this is his note, not a diagnosis. Likely suspects, in the
+   order I would check them: plate seeding (`plateJitter`, `plateElongation`,
+   band/chain seeding from S12), the continental-vs-oceanic plate ratio, and
+   whether the V3 macro-sim's uplift concentrates because plate count is low
+   relative to sphere area. Start in `utils/tectonicsV3.ts`.
+   **Do not confuse this with a param bug** — every relevant slider was already
+   tried by Matt.
 2. **Finish F2 properly: Dymaxion, rulers, selection.** See "F2's real remaining
    scope" below. Dymaxion is the strongest candidate (a fixed r = 1.12 overlay
    floating over all terrain); the selection ring is the one worth arguing about.

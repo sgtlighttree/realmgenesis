@@ -277,6 +277,17 @@ Another overhaul of terrain generaton algorithm to make it more realistic
 and get rid of seam lines on plate boundaries, and more detailed heightmap
 rendering and calculation without increasing cell count
 
+### D9. Pangea bias — terrain concentrates into supercontinents  —  ⬜ TODO (Matt: HIGHEST PRIORITY)
+> _observed 2026-08-22, post-D7; not yet investigated_
+
+Since the tectonic-plate improvements, generated habitable terrain tends to
+gather into one part of the sphere — pangea and supercontinents against
+superoceans — and the existing sliders do not break it up. Matt has already tried
+tuning the other settings, so treat this as a model bias rather than a parameter
+bug. First places to look: plate seeding (`plateJitter`, `plateElongation`, the
+S12 band/chain seeding), the continental-to-oceanic plate ratio, and whether
+uplift concentrates because plate count is low relative to sphere area.
+
 ### D8. World datum (units)  —  ⬜ TODO
 > _surfaced Session 19d; scoped Session 19e after auditing where heights are actually consumed_
 
