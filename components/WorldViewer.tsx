@@ -7,9 +7,10 @@ import { getCellColor } from '../utils/colors';
 import { seasonalTemperatureDelta } from '../utils/seasons';
 import { displayRadius } from '../utils/displayRadius';
 import { computeShadeMap, computeContourSegments, contourInterval } from '../utils/shading';
+import { computeBorderSegments } from '../utils/borders';
 import { collectLabels, MapLabel } from '../utils/labels';
 import { ScreenOverlay, OverlayTenant } from './overlays/ScreenOverlay';
-import { drawCurrentsTenant, drawGraticuleTenant, drawRoutesTenant, drawContoursTenant } from './overlays/tenants';
+import { drawCurrentsTenant, drawGraticuleTenant, drawRoutesTenant, drawContoursTenant, drawBordersTenant } from './overlays/tenants';
 
 const Mesh = 'mesh' as any;
 const Group = 'group' as any;
@@ -556,73 +557,6 @@ const PointLabels: React.FC<{
   );
 };
 
-const FactionBorders: React.FC<{ world: WorldData; visible: boolean; smoothGlobe?: boolean }> = ({ world, visible, smoothGlobe = false }) => {
-  const geometry = useMemo(() => {
-      if (!visible || !world.civData) return null;
-
-      const positions: number[] = [];
-      const threshold = 0.000001; 
-
-      // Iterate unique pairs of neighbors to find borders
-      world.cells.forEach(cellA => {
-          cellA.neighbors.forEach(nId => {
-              const cellB = world.cells[nId];
-              if (!cellB || cellA.id >= cellB.id) return; // Process pair once
-              
-              const rA = cellA.regionId;
-              const rB = cellB.regionId;
-              
-              // Draw border if regions are different
-              // This includes border between Faction A and Faction B
-              // AND border between Faction A and Unclaimed (International Waters)
-              if (rA !== rB) {
-                  // Find shared vertices between cellA and cellB to define the edge
-                  const shared: Point[] = [];
-                  for (const vA of cellA.vertices) {
-                      for (const vB of cellB.vertices) {
-                          const distSq = (vA.x - vB.x)**2 + (vA.y - vB.y)**2 + (vA.z - vB.z)**2;
-                          if (distSq < threshold) {
-                              shared.push(vA);
-                              break; 
-                          }
-                      }
-                      if (shared.length === 2) break;
-                  }
-                  
-                  if (shared.length === 2) {
-                      const hA = displayRadius(cellA.height, smoothGlobe);
-                      const hB = displayRadius(cellB.height, smoothGlobe);
-                      // Slight offset to prevent z-fighting with mesh
-                      const h = Math.max(hA, hB) + 0.002;
-                      
-                      const p1 = shared[0];
-                      const p2 = shared[1];
-                      
-                      positions.push(p1.x * h, p1.y * h, p1.z * h);
-                      positions.push(p2.x * h, p2.y * h, p2.z * h);
-                  }
-              }
-          });
-      });
-      
-      if (positions.length === 0) return null;
-      
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-      return geo;
-  }, [world, visible, smoothGlobe]);
-
-  useEffect(() => () => { geometry?.dispose(); }, [geometry]);
-
-  if (!geometry) return null;
-
-  return (
-    <LineSegments geometry={geometry}>
-      <LineBasicMaterial color="white" linewidth={1} opacity={0.8} transparent depthTest={true} />
-    </LineSegments>
-  );
-};
-
 const DymaxionOverlay: React.FC<{ settings: DymaxionSettings }> = ({ settings }) => {
   const { faceGeometry, edgeGeometry } = useMemo(() => {
     const faceGeometry = new THREE.IcosahedronGeometry(1.12, 0);
@@ -1115,6 +1049,15 @@ const WorldMesh: React.FC<{
     [world, showContours],
   );
 
+  // Faction border edges. Same deal as contour segments: the extraction is
+  // O(cells x neighbors x vertices^2), so it is memoized on world identity and
+  // closed over by the tenant. Regions mutate in place on a civ edit and
+  // WorldData is shallow-copied, so borders recompute per edit.
+  const borderSegments = useMemo(
+    () => (labelVisibility.borders && world.civData ? computeBorderSegments(world.cells) : []),
+    [world, labelVisibility.borders],
+  );
+
   // F2 screen-space overlay tenants. Painting order is array order: contours sit
   // under everything (they are terrain annotation), then currents, then routes,
   // with the graticule last so the reference grid is never occluded.
@@ -1124,8 +1067,11 @@ const WorldMesh: React.FC<{
     { id: 'currents', visible: showCurrents && !!world.currents, draw: drawCurrentsTenant },
     // Routes above the current field so dashed sea routes read over the arrows.
     { id: 'routes', visible: showRoutes && !!world.routes, draw: drawRoutesTenant },
+    // Borders above the routes they cut across, below the reference grid.
+    { id: 'borders', visible: borderSegments.length > 0,
+      draw: (ctx, _proj, _world, project, smooth) => drawBordersTenant(ctx, borderSegments, project, smooth) },
     { id: 'graticule', visible: showGrid, draw: drawGraticuleTenant },
-  ], [showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, showGrid]);
+  ], [showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, borderSegments, showGrid]);
 
   return (
     <Group>
@@ -1149,7 +1095,7 @@ const WorldMesh: React.FC<{
                     <CountryLabels world={world} visible={labelVisibility.factions} />
                     <PointLabels labels={mapLabels} visibility={labelVisibility} />
                 </React.Suspense>
-                <FactionBorders world={world} visible={labelVisibility.borders} smoothGlobe={smoothGlobe} />
+                {/* Faction borders migrated to ScreenOverlay (F2 borders tenant). */}
                 <RiverLines world={world} visible={showRivers} smoothGlobe={smoothGlobe} />
                 {/* Roads & sea routes migrated to ScreenOverlay (F2 routes tenant). */}
                 {/* Contour lines migrated to ScreenOverlay (F2 contours tenant). */}
