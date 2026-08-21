@@ -31,6 +31,121 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## Session 19b (2026-08-21) — contours tenant + the parallax ROOT CAUSE (it was timing)
+
+Continues S19 on **`f2-drape-graticule`** (still **NOT merged / NOT pushed**).
+Commits `e1bcd71` (contours), `0769fef` (frame-lag fix). Gates: typecheck 0,
+lint 0/29, build OK, **221 tests / 33 files** — see the paramLiveness caveat below.
+
+### ⚠️ The parallax was NOT geometry. It was a one-frame lag.
+
+Matt reported parallax persisting after the S19 clamp fix — "a tiny bit even at
+far zoom", improved but not gone — and guessed float precision. **Float precision
+was not it** (float32 on a unit sphere is ~1e-7 relative, orders below a pixel).
+
+**Root cause, two compounding faults, both now fixed in `0769fef`:**
+
+1. **Stale world matrices.** Three recomputes `matrixWorld` inside `render()`,
+   which runs AFTER every `useFrame` callback. `ScreenOverlay` read
+   `globe.matrixWorld` in its own callback, so it projected the PREVIOUS frame's
+   transform while WebGL was about to draw the current one. `.project()` reads
+   `matrixWorldInverse`, so refreshing `matrixWorld` alone is not enough — both
+   are now forced current.
+2. **Spin ran after the overlay.** R3F runs `useFrame` callbacks in subscription
+   order, and React subscribes a **child's** effects before its **parent's**. The
+   idle spin lived in the parent that also renders `<ScreenOverlay/>`, so the
+   overlay ran first and read a rotation the spin had not yet advanced. It now
+   lives in `<GlobeSpin/>`, mounted as a sibling **ahead of** the overlay.
+
+**Either fault alone leaves the overlay one frame behind.** The error is
+*angular*, so it is sub-pixel zoomed out and grows with zoom — which is exactly
+why it survived S17's radius work, S18's drape, and S19's clamp fix, and why it
+kept reading as "parallax". **Three sessions of geometry fixes chased a symptom
+whose cause was in the frame loop.** The geometry fixes were all real bugs; none
+of them was this one.
+
+**Generalisable:** when an overlay and its 3D content disagree, ask whether they
+are reading the same *frame* before asking whether they are at the same *radius*.
+
+**Verification:** the mechanism is removed in code. Empirically, spin was
+temporarily raised 20x (`SPIN_RATE` 0.05 -> 1.0, reverted; tree clean) so a
+surviving frame of lag would displace the grid by ~13px at the test zoom — the
+grid still met the coastline and sat on the surface (`s19-17` in
+`.playwright-mcp/`). **Supporting, not conclusive — Matt is the verifier**, as
+in S19. If any offset remains after this, the next suspect is graticule
+under-sampling: `GRAT_SEG = 96` gives 3.75 deg per segment while cells are ~1.6
+deg at 5000 cells, so each drawn segment chords across two or more cells.
+
+### Contours migrated + made visible (`e1bcd71`)
+
+- **`drawContoursTenant`** replaces `ContourLines`. The old isolines drew at a
+  single fixed **r = 1.053 — above ALL terrain**, making them the worst parallax
+  offender left. Each segment now carries the height of the **taller** of its two
+  cells and draws at that radius, crowning the step a cell boundary renders as.
+- **This tenant takes its segments as an argument**, unlike the others: the
+  computation is an O(cells x neighbors) sweep, far too costly per redraw, so
+  `WorldViewer` memoizes on world identity and closes over it. Any future
+  expensive tenant should follow this shape.
+- **Index contours.** Every `CONTOUR_INDEX_EVERY`-th level draws thick and
+  bright against thin intermediates, in warm off-white instead of the old
+  near-invisible dark brown at 0.35 alpha. Band index was already computed, so
+  the information was free.
+- **`CONTOUR_INDEX_EVERY = 2`, not the conventional 5** — at the shipped
+  interval of 0.1 there are only ~5 levels above sea level, so every 5th would
+  embolden at most one line on a whole map. Revisit if the interval ever drops.
+- Style lives in `utils/shading.ts` and is shared with `drawContourPaths`, so
+  globe, Map2D, and PNG export stay one look. **Exported PNGs do change.**
+- `computeContourSegments` now returns `ContourSegment` objects rather than
+  `[Point3, Point3]` tuples. All 2D callers pass the array straight through, so
+  only `drawContourPaths` and the tenant needed to know.
+
+### Decisions (Matt's)
+
+- Flat vs drape **follows `smoothGlobe`** — no new toggle, no per-tenant modes.
+- Contour style: **index contours**, applied **everywhere** (globe + 2D + export)
+  rather than globe-only, to keep one source of truth.
+
+### ⚠️ Operational trap that cost this session real time
+
+**The Playwright MCP browser survives `browser_close` and keeps rendering.**
+`browser_close` closes the *page*; the MCP keeps the browser process warm. Since
+the globe **auto-rotates**, that headless Chromium sat at **100%+ CPU
+indefinitely**, and with an unrelated `opencode` session also running, load
+average hit **45 on an 8-core M1**. Three separate full-suite runs failed with 1,
+8, and 15 failures — **every one a timeout, zero assertion failures.** After
+killing the browser tree, the same suite went 220/221.
+
+**Rules for next session:**
+- After browser verification, **kill the chromium tree**, do not rely on
+  `browser_close`. Check with `pgrep -f 'ms-playwright/chromium'`.
+- **Never run `npm test` with the browser open** — the M1 cannot carry both.
+- **Check `uptime` before trusting a red suite.** A wall of timeouts with no
+  assertion failures means machine load, not a regression.
+- Do not pipe a background `npm test` through `tail` — it discards the failure
+  detail you will need. Redirect the whole log to a file.
+
+### paramLiveness is genuinely fragile, not merely flaky
+
+`tests/paramLiveness.test.ts > terrain params change the terrain signature` sits
+right at the **120s cap**: ~155s for the file isolated on a quiet machine, and it
+tipped over **three times** this session under any competition. It passes
+isolated every time. This is not a regression (all session changes are
+render-side) but it is a standing hazard — consider raising its timeout or
+shrinking its fixture rather than re-litigating it every session.
+
+### Open / next
+
+- **NOT merged / NOT pushed.** Branch carries S18 + S19 + S19b.
+- **Matt to confirm the parallax is finally gone**, then decide the grid->smooth
+  coupling.
+- Remaining `ScreenOverlay` tenant migrations: **borders, rivers, labels**
+  (contours and roads/routes are done). Borders and rivers are cell-bound like
+  routes; labels will hit the overpaint nit below.
+- Advisor's overpaint nit still open: screen-space tenants paint above the 3D
+  city markers. Reads fine at medium zoom; never stress-tested close up.
+
+---
+
 ## Session 19 (2026-08-21) — F2 routes tenant + the real parallax cause
 
 On branch **`f2-drape-graticule`** (continues S18; still **NOT merged / NOT
