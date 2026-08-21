@@ -2,7 +2,7 @@ import React from 'react';
 import {
   Globe, Satellite, Mountain, Eye, Thermometer, Droplets, Layers, Flag,
   Landmark, Palette, Church, Users, Grid, Waves, Route, Sun, LineChart,
-  Pause, Play, Wind, Circle,
+  Pause, Play, Wind, Circle, Hexagon,
 } from 'lucide-react';
 
 import { ViewMode, DisplayMode, LabelVisibility } from '../types';
@@ -41,6 +41,8 @@ export interface ViewControlsProps {
   setShowContours: (b: boolean) => void;
   showCurrents: boolean;
   setShowCurrents: (b: boolean) => void;
+  showCellEdges: boolean;
+  setShowCellEdges: (b: boolean) => void;
   labelVisibility: LabelVisibility;
   setLabelVisibility: React.Dispatch<React.SetStateAction<LabelVisibility>>;
 }
@@ -94,7 +96,7 @@ export interface LayerToggle {
   accent: string;
 }
 
-/** The five overlay layers, bound to live state. Order matches the Sys tab. */
+/** The overlay layers, bound to live state. Order matches the Sys tab. */
 export const buildLayerToggles = (p: ViewControlsProps): LayerToggle[] => [
   { key: 'grid', label: 'Lat/Long Grid', icon: Grid, checked: p.showGrid, onChange: p.setShowGrid, accent: 'text-brand-soft' },
   { key: 'smooth', label: 'Smooth Globe', icon: Circle, checked: p.smoothGlobe, onChange: p.setSmoothGlobe, accent: 'text-brand-soft' },
@@ -103,6 +105,7 @@ export const buildLayerToggles = (p: ViewControlsProps): LayerToggle[] => [
   { key: 'hillshade', label: 'Hillshading', icon: Sun, checked: p.showHillshade, onChange: p.setShowHillshade, accent: 'text-brand-soft' },
   { key: 'contours', label: 'Contour Lines', icon: LineChart, checked: p.showContours, onChange: p.setShowContours, accent: 'text-brand-soft' },
   { key: 'currents', label: 'Ocean Currents', icon: Wind, checked: p.showCurrents, onChange: p.setShowCurrents, accent: 'text-brand-soft' },
+  { key: 'celledges', label: 'Cell Edges', icon: Hexagon, checked: p.showCellEdges, onChange: p.setShowCellEdges, accent: 'text-brand-soft' },
 ];
 
 /* ------------------------------------------------------------------ *
@@ -212,22 +215,91 @@ export const ViewLayerGrid: React.FC<Pick<ViewControlsProps, 'viewMode' | 'setVi
 
 const CHIP_BASE = 'inline-flex items-center gap-1 text-[10px] px-2 py-1 border whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70';
 
-/** Compact chip form of a layer toggle — the strip shape. */
-const LayerChip: React.FC<{ toggle: LayerToggle }> = ({ toggle }) => {
+/**
+ * Compact chip form of a layer toggle — the strip shape.
+ *
+ * `compact` drops the label to icon-only. The name still reaches the user two
+ * ways: `title` (hover tooltip) and `aria-label` (screen readers, which cannot
+ * read a tooltip). Both are set in BOTH modes, so the accessible name never
+ * depends on available width.
+ */
+const LayerChip: React.FC<{ toggle: LayerToggle; compact?: boolean }> = ({ toggle, compact = false }) => {
   const Icon = toggle.icon;
   return (
     <button
       onClick={() => { toggle.onChange(!toggle.checked); }}
       aria-pressed={toggle.checked}
+      aria-label={toggle.label}
       title={toggle.label}
-      className={`${CHIP_BASE} ${toggle.checked
+      className={`${CHIP_BASE} ${compact ? 'px-1.5' : ''} ${toggle.checked
         ? 'border-brand bg-brand-strong text-ink-strong'
         : 'border-edge bg-surface-raised text-ink-muted hover:border-edge-strong hover:text-ink-strong'}`}
     >
-      <Icon size={11} /> {toggle.label}
+      <Icon size={11} />{compact ? null : <> {toggle.label}</>}
     </button>
   );
 };
+
+/**
+ * Collapses the strip to icon-only chips when the full-label form would not fit
+ * on ONE row, which is the constraint: the strip must never wrap.
+ *
+ * The decision is content-driven, not a hard breakpoint, because the toggle list
+ * grows (it gained Cell Edges this session) and any pixel threshold would rot
+ * the next time one is added. A hidden mirror of the full-label row is measured
+ * against the live container: the mirror never changes with `compact`, so the
+ * measurement cannot oscillate the way `scrollWidth` on the live row would.
+ */
+function useCompactStrip(): {
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  chipsRef: React.RefObject<HTMLDivElement | null>;
+  mirrorRef: React.RefObject<HTMLDivElement | null>;
+  compact: boolean;
+} {
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const chipsRef = React.useRef<HTMLDivElement | null>(null);
+  const mirrorRef = React.useRef<HTMLDivElement | null>(null);
+  const [compact, setCompact] = React.useState(false);
+
+  React.useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const measure = (): void => {
+      const chips = chipsRef.current;
+      const mirror = mirrorRef.current;
+      if (!chips || !mirror) return;
+
+      // Sum the strip's other children explicitly — render-mode buttons,
+      // rotation, the view-layer select. Deriving this by subtracting the chip
+      // row from container.scrollWidth does NOT work: the mirror is absolutely
+      // positioned but still counts toward scrollWidth, which inflated the
+      // result enough to force compact mode at any width.
+      const gap = parseFloat(getComputedStyle(container).columnGap) || 0;
+      let others = 0;
+      let laidOut = 0;
+      for (const el of Array.from(container.children) as HTMLElement[]) {
+        if (el === mirror) continue; // out of flow — never occupies a row slot
+        laidOut++;
+        if (el === chips) continue;
+        others += el.offsetWidth;
+      }
+
+      // What one row would cost with every label shown. The mirror never
+      // reflows with `compact`, so this total is invariant and cannot oscillate.
+      const needed = others + mirror.scrollWidth + gap * Math.max(0, laidOut - 1);
+      setCompact(needed > container.clientWidth + 1); // 1px absorbs rounding
+    };
+
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(container);
+    if (mirrorRef.current) ro.observe(mirrorRef.current);
+    return () => { ro.disconnect(); };
+  }, []);
+
+  return { containerRef, chipsRef, mirrorRef, compact };
+}
 
 /**
  * Rotation control for the strip. Scoped to `ViewStrip` rather than added to
@@ -246,8 +318,16 @@ export interface RotationControl {
  * Render mode as a segmented control, the 12 view layers as a select (a
  * 12-button grid does not fit a strip), and the layer toggles as chips.
  */
-export const ViewStrip: React.FC<ViewControlsProps & { rotation?: RotationControl }> = ({ rotation, ...p }) => (
-  <div className="flex flex-wrap items-center gap-2 min-w-0">
+export const ViewStrip: React.FC<ViewControlsProps & { rotation?: RotationControl }> = ({ rotation, ...p }) => {
+  const toggles = buildLayerToggles(p);
+  const { containerRef, chipsRef, mirrorRef, compact } = useCompactStrip();
+
+  // `flex-1` on the root is load-bearing for the compact measurement, not
+  // cosmetic: without it the root sizes to its own CONTENT, so clientWidth
+  // reported the content width rather than the space available and the
+  // full-label branch could never win. `min-w-0` keeps it able to shrink.
+  return (
+  <div ref={containerRef} className="relative flex flex-1 flex-nowrap items-center gap-2 min-w-0 overflow-hidden">
     <div className="inline-flex overflow-hidden border border-edge shrink-0">
       {DISPLAY_MODES.map(m => (
         <button
@@ -298,8 +378,25 @@ export const ViewStrip: React.FC<ViewControlsProps & { rotation?: RotationContro
       triggerClassName="min-w-[7.5rem] justify-between"
     />
 
-    <div className="flex flex-wrap items-center gap-1 min-w-0">
-      {buildLayerToggles(p).map(t => <LayerChip key={t.key} toggle={t} />)}
+    {/* Hidden full-label mirror: the yardstick useCompactStrip measures against.
+        Never reflows with `compact`, so the measurement cannot oscillate.
+        aria-hidden + inert keeps it out of the a11y tree and tab order. */}
+    <div
+      ref={mirrorRef}
+      aria-hidden="true"
+      inert
+      className="pointer-events-none invisible absolute left-0 top-0 -z-10 flex flex-nowrap items-center gap-1"
+    >
+      {toggles.map(t => <LayerChip key={t.key} toggle={t} />)}
+    </div>
+
+    {/* Below ~500px of strip width even icon-only chips exceed the row (the wide
+        shell runs down to 768px viewport). The constraint is ONE row, so the
+        chips scroll horizontally rather than wrapping or being clipped
+        unreachable. overflow-x-auto shows no scrollbar until it is needed. */}
+    <div ref={chipsRef} className="flex flex-nowrap items-center gap-1 min-w-0 overflow-x-auto">
+      {toggles.map(t => <LayerChip key={t.key} toggle={t} compact={compact} />)}
     </div>
   </div>
-);
+  );
+};
