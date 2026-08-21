@@ -7,6 +7,7 @@ import { ProjectedCells } from '../../utils/screenProject';
 import { displayRadius } from '../../utils/displayRadius';
 import { nearestCellWalk, nearestCellBrute } from '../../utils/nearestCell';
 import { ContourSegment, contourStroke } from '../../utils/shading';
+import { BorderSegment } from '../../utils/borders';
 import { LocalProjector } from './ScreenOverlay';
 
 // --- currents draw constants (single source; also consumed by Map2D, Task 6) ---
@@ -283,3 +284,57 @@ export function drawContoursTenant(
   }
 }
 
+
+// --- faction borders, migrated off 3D LineSegments ---
+
+export const BORDER_LIFT = 0.002; // clears the terrain step it crowns
+const BORDER_COLOR = 'rgba(255,255,255,0.85)';
+const BORDER_WIDTH = 1.4;
+
+// Faction borders drawn in screen space.
+//
+// NOT a parallax fix. The 3D `FactionBorders` this replaces already used
+// `max(displayRadius(hA), displayRadius(hB)) + 0.002` with RAW heights keyed off
+// `smoothGlobe`, so its radius was correct — do not "fix" something here that
+// was never broken. The migration buys three other things:
+//
+//  1. Horizon culling by the analytic limb test, instead of leaning on
+//     `depthTest` against the mesh, which bleeds at grazing angles and across
+//     the S19f plate overhang.
+//  2. Real stroke width. `LineBasicMaterial.linewidth` is a no-op in WebGL on
+//     every platform, so the old borders were locked at 1px whatever it said.
+//  3. One paint order with the other overlays instead of a 3D object
+//     interleaved among 2D tenants.
+//
+// Like contours, this takes precomputed segments: the extraction is
+// O(cells x neighbors x vertices^2) (utils/borders.ts) and is memoized on world
+// identity by WorldViewer, not recomputed per redraw.
+//
+// Radius (LocalProjector contract): each segment rides the TALLER of its two
+// cells, so the line crowns the vertical step the mesh draws at a cell boundary.
+// The height is RAW, never clamped to sea level — see drawGraticuleTenant for
+// what that clamp cost in S18.
+export function drawBordersTenant(
+  ctx: CanvasRenderingContext2D,
+  segments: BorderSegment[],
+  project: LocalProjector,
+  smooth: boolean,
+): void {
+  if (segments.length === 0) return;
+  const p1: [number, number] = [0, 0];
+  const p2: [number, number] = [0, 0];
+  ctx.strokeStyle = BORDER_COLOR;
+  ctx.lineWidth = BORDER_WIDTH;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  for (const seg of segments) {
+    const r = displayRadius(seg.height, smooth, BORDER_LIFT);
+    // Both ends must be on the near hemisphere; a segment is one cell edge,
+    // far too short to be worth clipping against the limb.
+    if (!project(seg.a.x * r, seg.a.y * r, seg.a.z * r, p1)) continue;
+    if (!project(seg.b.x * r, seg.b.y * r, seg.b.z * r, p2)) continue;
+    ctx.moveTo(p1[0], p1[1]);
+    ctx.lineTo(p2[0], p2[1]);
+  }
+  ctx.stroke();
+}
