@@ -58,6 +58,21 @@ asserted the construction — that the tenant's radius equals the mesh's radius 
 in a test. Every tenant now has that assertion, per `smooth` value. **Any new
 tenant needs one; "by construction" is not evidence.**
 
+**Cause vs. cure — keep these separate.** The *cause* is confirmed in code: the
+mesh formula at `WorldViewer.tsx` ~L918 was read directly, and the S18 clamp
+provably disagreed with it over ocean. The *cure* is evidenced by (a) a
+discriminating unit test pinning the tenant radius to the mesh formula for
+ocean, land, and smooth — the exact equality S18 violated with no test to catch
+it — and (b) visual confirmation at high zoom that the grid and the sea route
+sit on the ocean surface rather than floating.
+
+**The cure is NOT yet confirmed by the person who reported the symptom.** A
+dolly A/B over ocean was run (`s19-09` / `s19-10` in `.playwright-mcp/`) and the
+pair is consistent, but matching cells by eye across a zoom is precisely the
+weak method that let S18 ship — S18 also A/B'd a dolly, over LAND, and missed an
+ocean bug. **Matt should confirm the parallax is actually gone**, and only then
+revisit the grid→smooth coupling.
+
 ### What shipped
 
 - **Graticule** drapes at raw terrain radius (`617f25d`).
@@ -93,6 +108,14 @@ surface; the graticule reaches the limb with no far-side bleed; **0 console
 errors**. Test doubles for the tenant seam live in `tests/helpers/overlayCanvas.ts`
 (recording 2D context + recording projector).
 
+**Settled, so the queued tenants inherit the answer: no export captures the 3D
+globe view.** Both PNG paths in `utils/export.ts` (L294, L422) build their own
+offscreen Canvas2D from world data — Dymaxion and projected — and neither reads
+back the WebGL canvas (`grep` for `toDataURL|readPixels|preserveDrawingBuffer`
+finds only those two). So moving an overlay to the sibling DOM canvas costs
+nothing in export: roads did not vanish from any export this session, and the
+graticule did not vanish back in S16. Export was never showing them.
+
 **Not verified:** the advisor's overpaint nit — screen-space tenants paint above
 the 3D city markers, and every road terminates on a town. Checked only at medium
 zoom, where it reads fine; **not stress-tested close up**. If it reads badly,
@@ -108,8 +131,14 @@ them in one `evaluate` would have raced.
 ### Open / next
 
 - **NOT merged / NOT pushed.** Branch carries S18 + S19.
+- **Matt to confirm the parallax is gone** (see cause vs. cure above), then
+  decide whether the grid→smooth coupling can finally be dropped.
 - Remaining `ScreenOverlay` tenant migrations: contours, borders, rivers,
   labels. Contours are the smallest and, like routes, are cell-bound.
+- Coastline kink: with the clamp gone, the grid now steps from seafloor radius
+  to land radius at a shore, because the mesh genuinely has a vertical wall
+  there. Reads as a kink, not a break, in `s19-09`. Correct, but expect it as a
+  question.
 - `paramLiveness` timed out once (188s vs the 120s cap) under concurrent
   browser + build load, then passed isolated. Known M1 flake class, not a
   regression — the change is render-side.
