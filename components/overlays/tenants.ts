@@ -169,11 +169,17 @@ const KINDS = ['road', 'searoute'] as const;
 // into any terrain above that (mountains reach 1.05).
 //
 // Radius (LocalProjector contract): on the SMOOTH globe every cell is r=1, so
-// routes sit on the unit sphere plus ROUTE_LIFT. On the RAISED globe this is
-// phase 1 — a single flat radius at sea level plus the lift, matching the old
-// 3D behaviour. Phase 2 drapes per cell; routes are already cell-bound (paths
-// are built from cell centers in utils/routes.ts) so that needs the cell ids,
-// not a nearestCell walk.
+// routes sit on the unit sphere plus ROUTE_LIFT. On the RAISED globe each point
+// DRAPES at its own cell's terrain radius, so a road climbs a mountain range
+// instead of tunnelling through it. Routes are already cell-bound — paths are
+// built from cell centers in utils/routes.ts and RouteData carries the parallel
+// cellIds — so this needs no nearestCell walk, unlike the graticule.
+//
+// The height is RAW, never clamped to sea level: sea routes run over ocean, and
+// the mesh renders ocean cells at their true seafloor radius. Clamping would
+// float them, which is the S18 graticule bug (see drawGraticuleTenant).
+//
+// Fallback: a route without usable cellIds draws flat at the sea-level radius.
 //
 // No curve smoothing: cell centers are dense enough at any cell count, and
 // resampling a spline would have to re-derive the horizon breaks.
@@ -186,9 +192,11 @@ export function drawRoutesTenant(
 ): void {
   const routes = world.routes;
   if (!routes || routes.length === 0) return;
+  const cells = world.cells;
   const pt: [number, number] = [0, 0];
-  // Phase 1: one flat radius for the whole layer.
-  const rad = displayRadius(smooth ? 0 : world.params.seaLevel, smooth, ROUTE_LIFT);
+  // Flat radius: used on the smooth globe, and as the fallback for a route
+  // whose cellIds are missing or out of step with its path.
+  const flat = displayRadius(smooth ? 0 : world.params.seaLevel, smooth, ROUTE_LIFT);
 
   ctx.lineWidth = 1.5;
   for (const kind of KINDS) {
@@ -196,9 +204,14 @@ export function drawRoutesTenant(
     ctx.setLineDash(kind === 'road' ? [] : SEAROUTE_DASH);
     for (const route of routes) {
       if (route.kind !== kind || route.path.length < 2) continue;
+      const ids = route.cellIds;
+      const drape = !smooth && !!ids && ids.length === route.path.length;
       let drawing = false;
       ctx.beginPath();
-      for (const p of route.path) {
+      for (let k = 0; k < route.path.length; k++) {
+        const p = route.path[k];
+        const cell = drape ? cells[ids[k]] : undefined;
+        const rad = cell ? displayRadius(cell.height, false, ROUTE_LIFT) : flat;
         if (project(p.x * rad, p.y * rad, p.z * rad, pt)) {
           if (drawing) ctx.lineTo(pt[0], pt[1]);
           else { ctx.moveTo(pt[0], pt[1]); drawing = true; }
