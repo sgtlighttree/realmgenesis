@@ -400,11 +400,15 @@ Part of redesign is figuring out how the planet is presented; overlays like bord
   overlays in pure 2D, occluding the far hemisphere without physical geometry on the
   globe. v1 lands **two tenants** to prove the abstraction generalizes: the currents
   field **and the graticule** migrated off its 3D `lineSegments`.
-  **The queue is down to its last tenant: labels.** Roads/routes landed in
-  Session 19, contours in Session 19b, faction borders in Session 20, rivers in
-  Session 21. Labels is not a mechanical port like the other five — screen-space
-  tenants paint above the 3D city markers, and that needs a decision, not a
-  template.
+  **The queue is down to its last tenant: labels** (in progress on branch
+  `f2-labels-tenant`, unreviewed). Roads/routes landed in Session 19, contours in
+  Session 19b, faction borders in Session 20, rivers in Session 21.
+
+  **The queue does NOT empty.** Faction labels stay 3D permanently:
+  `CurvedFactionLabel` renders curved textured meshes following the sphere's
+  curvature, which Canvas2D cannot reproduce without the per-glyph curved text A1
+  deferred. Flattening them is a downgrade, not a migration — do not "finish the
+  job" by removing them.
 
   Every tenant must render correctly in BOTH globe modes, keyed off `smoothGlobe`:
   flat on the unit sphere when smooth, draped over relief when raised. A tenant's

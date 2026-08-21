@@ -31,12 +31,17 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## ▶ START HERE — pickup for a fresh session (written 2026-08-21, end of S20)
+## ▶ START HERE — pickup for a fresh session (written 2026-08-22, end of S22)
 
-**`f2-drape-graticule` is MERGED into `main`** (merge commit `ef08460`, no-ff)
-and **`main` is PUSHED** — `cca4c7b..daa617d`, 35 commits, at Matt's word on
-2026-08-21. `origin/main` matches local. Working tree clean, branch ref kept.
-`main` carries Sessions 18 through 20; nothing is half-finished.
+**`main` is clean and carries Sessions 18 through 21.** Last pushed at
+`daa617d` (2026-08-21); `c3bf856` and the S21 rivers work are committed locally
+and NOT yet pushed — pushing is Matt's call.
+
+**One thing IS half-finished, deliberately: branch `f2-labels-tenant`
+(`63f34ef`).** It holds a `sonnet-medium` subagent's point-labels migration,
+committed as a checkpoint and **explicitly marked unreviewed**. Read
+"S22 — labels, unfinished" below before touching it. Do not merge it on the
+strength of its green fast gates.
 
 ### Gate state
 
@@ -94,23 +99,102 @@ zero assertion failures means the machine, not a regression.
 
 ### Open, in the order I'd pick them up
 
-1. **LABELS — the last `ScreenOverlay` tenant.** Rivers landed in S21, so labels
-   are the only overlay still rendering as 3D objects. This one is NOT a
-   mechanical port like the previous five: it has an unsolved design problem
-   (screen-space tenants paint above the 3D city markers) and it is the tenant
-   most likely to need a real decision rather than a template. Scope it
-   deliberately; do not start it as an afterthought at the end of a session.
-2. **D8 World Datum** — fully scoped in ROADMAP D8 into D8a (presentation, no seed
+1. **Finish `f2-labels-tenant` — review it, then run the FULL suite.** See the
+   S22 entry. The two design questions are already resolved and written down; the
+   remaining work is the review pass, which found real defects in both prior
+   delegated tenants.
+2. **A3 — map style system.** My pick for the next roadmap item once F2 closes.
+   Reasoning in the S22 entry.
+3. **D8 World Datum** — fully scoped in ROADMAP D8 into D8a (presentation, no seed
    changes) and D8b (simulation coupling, changes generation output). Matt asked
    for the analysis, not the implementation; the sequencing call is his.
-3. **Contour index/intermediate differentiation** — Matt said hold off. If resumed:
+4. **Contour index/intermediate differentiation** — Matt said hold off. If resumed:
    the weight gap (2px @ .75 vs 1px @ .38) is likely too subtle at globe zoom;
    tinting index contours a different hue would beat weight alone.
-4. **The view strip at middle widths** (~1150px viewport): the chip row scrolls
+5. **The view strip at middle widths** (~1150px viewport): the chip row scrolls
    because even icons overflow. An overflow "More" popover would be better; not
    built because it was not asked for.
 
 ---
+
+## Session 22 (2026-08-22) — labels, UNFINISHED on a branch
+
+**Branch `f2-labels-tenant`, commit `63f34ef`, deliberately not merged.**
+A `sonnet-medium` subagent implemented the point-labels tenant from a written
+brief. It is checkpointed so nothing is lost, **not** because it is done.
+
+Verified: typecheck 0 · lint 0/29 · `tests/labelsTenant.test.ts` 10/10.
+**Not verified: the diff itself, and the full suite.** The agent also modified
+`tests/helpers/overlayCanvas.ts`, which every other tenant suite shares — that
+makes the full run the gate that matters, and it has not been run.
+
+**Do not merge on the strength of the fast gates.** The review pass found real
+defects in BOTH previous delegated tenants: a dropped material alpha (S21) and a
+horizon test that passed for the wrong reason (S21). Fast gates were green in
+both cases.
+
+The full brief, with the measurements behind both design decisions, is at
+`scratchpad/plan-labels.md`. Copy it into `docs/superpowers/specs/` if that
+scratchpad is gone — the reasoning below is the short version.
+
+### Decisions already made — implement them, do not re-open them
+
+- **Faction labels DO NOT migrate.** `CountryLabels`/`CurvedFactionLabel` render
+  curved textured meshes following the sphere's curvature; Canvas2D cannot do
+  that without per-glyph text, which ROADMAP A1 deferred. **So the F2 queue never
+  fully empties — one 3D overlay remains by design.** A future session that
+  "finishes the job" will silently lose the curved effect.
+- **Labels drape at terrain radius. This one IS a parallax fix**, unlike borders
+  and rivers. `POINT_LABEL_CONFIG` pinned every sprite at a fixed 1.08–1.10 —
+  correct for a billboard, wrong for a screen-space label. Measured displacement
+  of a label from its feature (fov 45, 1000px viewport, fixed 1.08 vs terrain 1.02):
+
+  | camDist | 30° off centre | 60° | 80° |
+  |---|---|---|---|
+  | 1.5 | 156px | 99px | 62px |
+  | 2.5 (default) | 36px | 40px | 33px |
+  | 6.0 | 8px | 13px | 13px |
+
+  Dead centre is exact, which is why it was never obvious. Draping also improves
+  on the old 3D behaviour — those billboards visibly floated off their features
+  near the limb.
+- **Reuse `drawMapLabels` for style + declutter; keep the globe's own camDist
+  LOD.** Reuse kills two style tables that had already drifted (`LABEL_CONFIG` vs
+  `POINT_LABEL_CONFIG`) and two declutter implementations. Unifying the LOD was
+  REJECTED: it needs an invented `camDist → scale` constant, and every value
+  changes which labels appear at which globe zoom. Nobody asked for globe LOD to
+  match Mercator LOD. Verified in source: `fontScale` and `scale` are independent
+  parameters, so the shared LOD can be defeated without doubling type size.
+- **No per-redraw nearest-cell walk.** Labels are sorted by PRIORITY, so
+  consecutive labels jump across the sphere and a walk restarts cold each time —
+  ~20M distance tests per redraw at 200k cells. Heights are precomputed once per
+  label set instead, mirroring `ContourSegment.height` / `BorderSegment.height`.
+
+### Known nit, accepted — do not build around it
+
+The overlay canvas is a sibling stacked above the WebGL canvas, so screen-space
+tenants paint over 3D objects unconditionally. A `MarkerPin` or city dot standing
+in front of a label near the limb is overpainted instead of occluding it. Small,
+because the old sprites already sat above the pins at almost every angle. **Do
+not build a depth-aware overlay for it.**
+
+### Neither rivers nor labels has been seen in a browser
+
+Rivers are on screen in every frame of every world, and labels moving off fixed
+radii is a visible change by design. One pass should cover both. Kill the
+chromium tree afterward (trap list above).
+
+### Delegation notes (peak-hours cost discipline, Matt's ask)
+
+The loop used this session: write a brief → advisor review → revise → delegate to
+`sonnet-medium` → verify. It worked, with one consistent failure mode worth
+knowing: **both subagents stopped without reporting their gates**, having handed
+off to a background test monitor. The working tree was correct both times; the
+report was not. Check the tree yourself rather than waiting for the summary.
+
+The advisor pass earned its keep twice — it caught a `1 + RIVER_LIFT` error that
+would have shipped a 2.005 radius WITH a test enforcing it (S21), and the
+nearest-cell performance trap above.
 
 ## Session 21 (2026-08-21) — rivers migrated to ScreenOverlay
 
