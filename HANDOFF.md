@@ -34,8 +34,10 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 ## Session 19b (2026-08-21) — contours tenant + the parallax ROOT CAUSE (it was timing)
 
 Continues S19 on **`f2-drape-graticule`** (still **NOT merged / NOT pushed**).
-Commits `e1bcd71` (contours), `0769fef` (frame-lag fix). Gates: typecheck 0,
-lint 0/29, build OK, **221 tests / 33 files** — see the paramLiveness caveat below.
+Commits `e1bcd71` (contours), `0769fef` (frame-lag fix), `b285b6f` (ordering
+guard). Gates all green on a quiet machine: typecheck 0, lint 0/29, build OK
+(worker chunk unchanged 87.06KB — all render-side), **full suite 224/224, 34
+files, 160s, zero failures**.
 
 ### ⚠️ The parallax was NOT geometry. It was a one-frame lag.
 
@@ -124,14 +126,14 @@ killing the browser tree, the same suite went 220/221.
 - Do not pipe a background `npm test` through `tail` — it discards the failure
   detail you will need. Redirect the whole log to a file.
 
-### paramLiveness is genuinely fragile, not merely flaky
+### paramLiveness: load-sensitive, but NOT fragile on its own
 
-`tests/paramLiveness.test.ts > terrain params change the terrain signature` sits
-right at the **120s cap**: ~155s for the file isolated on a quiet machine, and it
-tipped over **three times** this session under any competition. It passes
-isolated every time. This is not a regression (all session changes are
-render-side) but it is a standing hazard — consider raising its timeout or
-shrinking its fixture rather than re-litigating it every session.
+Corrected after the final clean run. `tests/paramLiveness.test.ts > terrain
+params change the terrain signature` timed out **three times** this session and
+looked like a standing hazard near the 120s cap. On a quiet machine it passes
+**inside the full suite** (224/224 in 160s), so the cap has real headroom and no
+change is warranted. It is a load canary, not a fragile test: **if it times out,
+suspect the machine before the code.**
 
 ### Open / next
 
@@ -143,6 +145,15 @@ shrinking its fixture rather than re-litigating it every session.
   routes; labels will hit the overpaint nit below.
 - Advisor's overpaint nit still open: screen-space tenants paint above the 3D
   city markers. Reads fine at medium zoom; never stress-tested close up.
+- **Frame ordering is now guarded** by `tests/overlayFrameOrder.test.ts`, which
+  asserts `<GlobeSpin/>` mounts before `<ScreenOverlay/>` in the source text —
+  the invariant has no runtime signature, so this is the only place it can be
+  caught. Do not delete it when migrating the remaining tenants.
+- Checked while fixing: drei registers `OrbitControls`' update at **priority -1**
+  and R3F runs callbacks in ascending priority, so camera drag/dolly was always
+  ordered ahead of the overlay. Only the spin was mis-ordered. Camera motion
+  still benefited from the forced matrix update (it was reading a stale
+  `matrixWorld` like everything else).
 
 ---
 
