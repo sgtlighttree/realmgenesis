@@ -49,6 +49,10 @@ const GlobeSpin: React.FC<{ target: React.RefObject<THREE.Group | null>; paused:
   return null;
 };
 
+// Plate widening used to close the seams between cells of differing height.
+// 1 = untouched (seams visible, the pre-existing look).
+const CELL_OVERHANG = 1.03;
+
 // Contour band spacing in normalized height. Shared with the 2D pipelines,
 // which pass the same 0.1 literal (utils/export.ts, components/Map2D.tsx).
 const CONTOUR_INTERVAL = 0.1;
@@ -763,6 +767,7 @@ const WorldMesh: React.FC<{
   showHillshade: boolean,
   showContours: boolean,
   showCurrents: boolean,
+  showCellEdges: boolean,
   inspectMode: InspectMode;
   onInspect: (cellId: number | null) => void;
   dymaxionSettings: DymaxionSettings;
@@ -775,7 +780,7 @@ const WorldMesh: React.FC<{
   selectedCellId?: number | null;
   labelVisibility: LabelVisibility;
   rulerArc?: Point[] | null;
-}> = ({ world, viewMode, onHover, paused, showGrid, smoothGlobe, showRivers, showRoutes, showHillshade, showContours, showCurrents, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize, selectedCellId = null, labelVisibility, rulerArc = null }) => {
+}> = ({ world, viewMode, onHover, paused, showGrid, smoothGlobe, showRivers, showRoutes, showHillshade, showContours, showCurrents, showCellEdges, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize, selectedCellId = null, labelVisibility, rulerArc = null }) => {
   const spinRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const lastUpdate = useRef<number>(0);
@@ -827,6 +832,13 @@ const WorldMesh: React.FC<{
     const colAttr = geometry.getAttribute('color') as THREE.BufferAttribute;
     const pos = posAttr.array as Float32Array;
     const col = colAttr.array as Float32Array;
+    // Cell "outlines" are open seams, not lines: neighbours at different radii
+    // do not share an edge, so the inner sphere shows through the gap. Widening
+    // each plate about its own centre makes neighbours overlap, so the taller
+    // one overhangs the shorter — which is what a cliff looks like. Only the
+    // rim moves; the centre and hMult are untouched, so the drape invariant
+    // (overlay radius == cell radius) is unaffected.
+    const inflate = showCellEdges ? 1 : CELL_OVERHANG;
     let o = 0;
     for (const cell of world.cells) {
       const c = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors, seasonalTemperatureDelta(cell, world.params));
@@ -834,12 +846,17 @@ const WorldMesh: React.FC<{
       // straight color copy so rendering is unchanged.
       if (showHillshade) c.multiplyScalar(shadeMap[cell.id]);
       const hMult = displayRadius(cell.height, smoothGlobe);
-      const cx = cell.center.x * hMult; const cy = cell.center.y * hMult; const cz = cell.center.z * hMult;
+      const uc = cell.center;
+      const cx = uc.x * hMult; const cy = uc.y * hMult; const cz = uc.z * hMult;
       for (let i = 0; i < cell.vertices.length; i++) {
         const v1 = cell.vertices[i]; const v2 = cell.vertices[(i + 1) % cell.vertices.length];
         pos[o] = cx; pos[o + 1] = cy; pos[o + 2] = cz;
-        pos[o + 3] = v1.x * hMult; pos[o + 4] = v1.y * hMult; pos[o + 5] = v1.z * hMult;
-        pos[o + 6] = v2.x * hMult; pos[o + 7] = v2.y * hMult; pos[o + 8] = v2.z * hMult;
+        pos[o + 3] = (uc.x + (v1.x - uc.x) * inflate) * hMult;
+        pos[o + 4] = (uc.y + (v1.y - uc.y) * inflate) * hMult;
+        pos[o + 5] = (uc.z + (v1.z - uc.z) * inflate) * hMult;
+        pos[o + 6] = (uc.x + (v2.x - uc.x) * inflate) * hMult;
+        pos[o + 7] = (uc.y + (v2.y - uc.y) * inflate) * hMult;
+        pos[o + 8] = (uc.z + (v2.z - uc.z) * inflate) * hMult;
         col[o] = c.r; col[o + 1] = c.g; col[o + 2] = c.b;
         col[o + 3] = c.r; col[o + 4] = c.g; col[o + 5] = c.b;
         col[o + 6] = c.r; col[o + 7] = c.g; col[o + 8] = c.b;
@@ -848,7 +865,7 @@ const WorldMesh: React.FC<{
     }
     posAttr.needsUpdate = true;
     colAttr.needsUpdate = true;
-  }, [geometry, world, viewMode, factionColors, cultureColors, religionColors, showHillshade, shadeMap, smoothGlobe]);
+  }, [geometry, world, viewMode, factionColors, cultureColors, religionColors, showHillshade, shadeMap, smoothGlobe, showCellEdges]);
 
   const faceMap = useMemo(() => {
      const map: number[] = [];
@@ -1102,7 +1119,7 @@ const WorldMesh: React.FC<{
   );
 };
 
-const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; smoothGlobe?: boolean; showRivers?: boolean; showRoutes?: boolean; showHillshade?: boolean; showContours?: boolean; showCurrents?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; cultureColors?: Map<number, string>; religionColors?: Map<number, string>; brushSize?: number; rulerArc?: Point[] | null; overlayClassName?: string; paused?: boolean; onPausedChange?: (v: boolean) => void; showPauseControl?: boolean; }> = ({ world, viewMode, showGrid = false, smoothGlobe = false, showRivers = true, showRoutes = false, showHillshade = false, showContours = false, showCurrents = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null, overlayClassName = 'absolute top-4 right-4 z-overlay flex gap-2', paused: pausedProp, onPausedChange, showPauseControl = true }) => {
+const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; smoothGlobe?: boolean; showRivers?: boolean; showRoutes?: boolean; showHillshade?: boolean; showContours?: boolean; showCurrents?: boolean; showCellEdges?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; cultureColors?: Map<number, string>; religionColors?: Map<number, string>; brushSize?: number; rulerArc?: Point[] | null; overlayClassName?: string; paused?: boolean; onPausedChange?: (v: boolean) => void; showPauseControl?: boolean; }> = ({ world, viewMode, showGrid = false, smoothGlobe = false, showRivers = true, showRoutes = false, showHillshade = false, showContours = false, showCurrents = false, showCellEdges = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null, overlayClassName = 'absolute top-4 right-4 z-overlay flex gap-2', paused: pausedProp, onPausedChange, showPauseControl = true }) => {
   const [hoveredCell, setHoveredCell] = useState<Cell | null>(null);
   // Rotation pause is controlled-OPTIONAL, the same contract as a native input:
   // pass `paused` + `onPausedChange` to own it from outside (the shell lifts it
@@ -1203,6 +1220,7 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
                showHillshade={showHillshade}
                showContours={showContours}
                showCurrents={showCurrents}
+               showCellEdges={showCellEdges}
                labelVisibility={labelVisibility}
                inspectMode={inspectMode}
                onInspect={onInspect}

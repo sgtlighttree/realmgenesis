@@ -50,6 +50,7 @@ const ShellApp: React.FC = () => {
     showGrid, setShowGrid, smoothGlobe, setSmoothGlobe, showRivers, setShowRivers, showRoutes, setShowRoutes,
     showHillshade, setShowHillshade, showContours, setShowContours,
     showCurrents, setShowCurrents,
+    showCellEdges, setShowCellEdges,
     labelVisibility, setLabelVisibility, dymaxionSettings, setDymaxionSettings,
     apiKey, setApiKey, editMode, setEditMode, paintStyle, setPaintStyle,
     brushSize, setBrushSize, paintStrength, setPaintStrength, paintFaction,
@@ -114,6 +115,7 @@ const ShellApp: React.FC = () => {
       showHillshade={showHillshade} setShowHillshade={setShowHillshade}
       showContours={showContours} setShowContours={setShowContours}
       showCurrents={showCurrents} setShowCurrents={setShowCurrents}
+      showCellEdges={showCellEdges} setShowCellEdges={setShowCellEdges}
       labelVisibility={labelVisibility} setLabelVisibility={setLabelVisibility}
       dymaxionSettings={dymaxionSettings}
       onDymaxionChange={setDymaxionSettings}
@@ -136,6 +138,7 @@ const ShellApp: React.FC = () => {
       showHillshade={showHillshade} setShowHillshade={setShowHillshade}
       showContours={showContours} setShowContours={setShowContours}
       showCurrents={showCurrents} setShowCurrents={setShowCurrents}
+      showCellEdges={showCellEdges} setShowCellEdges={setShowCellEdges}
       labelVisibility={labelVisibility} setLabelVisibility={setLabelVisibility}
       // Only the wide strip adopts the rotation control; the narrow fold's View
       // sheet is behind a tab, and its canvas is unshifted, so the viewer's own
@@ -229,6 +232,7 @@ const ShellApp: React.FC = () => {
           showHillshade={showHillshade}
           showContours={showContours}
           showCurrents={showCurrents}
+          showCellEdges={showCellEdges}
           labelVisibility={labelVisibility}
           inspectMode={inspectMode}
           onInspect={handleInspect}

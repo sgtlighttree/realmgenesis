@@ -12,7 +12,7 @@ import { useWorldEngine } from './hooks/useWorldEngine';
 
 const App: React.FC = () => {
   const {
-    params, setParams, world, viewMode, setViewMode, displayMode, setDisplayMode, inspectMode, inspectorCollapsed, setInspectorCollapsed, inspectedCellId, rulerActive, markerMode, selectedMarkerId, setSelectedMarkerId, isGenerating, genProgress, logs, lore, isLoreLoading, showGrid, setShowGrid, smoothGlobe, setSmoothGlobe, showRivers, setShowRivers, showRoutes, setShowRoutes, showHillshade, setShowHillshade, showContours, setShowContours, showCurrents, setShowCurrents, labelVisibility, setLabelVisibility, sidebarOpen, setSidebarOpen, dymaxionSettings, setDymaxionSettings, apiKey, setApiKey, editMode, setEditMode, paintStyle, setPaintStyle, brushSize, setBrushSize, paintStrength, setPaintStrength, paintFaction, setPaintFaction, paintBiome, setPaintBiome, sampleHeight, adaptiveBiomes, setAdaptiveBiomes, undoStack, requestGenerate, pendingGenerate, confirmGenerate, cancelGenerate, handleLoadWorld, handleCancel, handleUpdateCivs, handleUpdateProvinces, toggleInspectEnabled, toggleRuler, toggleMarkerMode, handleInspect, updateMarker, deleteMarker, rulerArc, rulerDistanceKm, handleGenerateLore, factionColors, cultureColors, religionColors, handlePaint, handleUndo, handleEditWorldData, handleEditFaction, handleMergeFactions, handleRenameProvince, handleRenameTown, handleRelocateCapital,
+    params, setParams, world, viewMode, setViewMode, displayMode, setDisplayMode, inspectMode, inspectorCollapsed, setInspectorCollapsed, inspectedCellId, rulerActive, markerMode, selectedMarkerId, setSelectedMarkerId, isGenerating, genProgress, logs, lore, isLoreLoading, showGrid, setShowGrid, smoothGlobe, setSmoothGlobe, showRivers, setShowRivers, showRoutes, setShowRoutes, showHillshade, setShowHillshade, showContours, setShowContours, showCurrents, setShowCurrents, showCellEdges, setShowCellEdges, labelVisibility, setLabelVisibility, sidebarOpen, setSidebarOpen, dymaxionSettings, setDymaxionSettings, apiKey, setApiKey, editMode, setEditMode, paintStyle, setPaintStyle, brushSize, setBrushSize, paintStrength, setPaintStrength, paintFaction, setPaintFaction, paintBiome, setPaintBiome, sampleHeight, adaptiveBiomes, setAdaptiveBiomes, undoStack, requestGenerate, pendingGenerate, confirmGenerate, cancelGenerate, handleLoadWorld, handleCancel, handleUpdateCivs, handleUpdateProvinces, toggleInspectEnabled, toggleRuler, toggleMarkerMode, handleInspect, updateMarker, deleteMarker, rulerArc, rulerDistanceKm, handleGenerateLore, factionColors, cultureColors, religionColors, handlePaint, handleUndo, handleEditWorldData, handleEditFaction, handleMergeFactions, handleRenameProvince, handleRenameTown, handleRelocateCapital,
   } = useWorldEngine();
 
   return (
@@ -40,6 +40,7 @@ const App: React.FC = () => {
           showHillshade={showHillshade} setShowHillshade={setShowHillshade}
           showContours={showContours} setShowContours={setShowContours}
           showCurrents={showCurrents} setShowCurrents={setShowCurrents}
+          showCellEdges={showCellEdges} setShowCellEdges={setShowCellEdges}
           labelVisibility={labelVisibility} setLabelVisibility={setLabelVisibility}
           dymaxionSettings={dymaxionSettings}
           onDymaxionChange={setDymaxionSettings}
@@ -83,6 +84,7 @@ const App: React.FC = () => {
             showHillshade={showHillshade}
             showContours={showContours}
             showCurrents={showCurrents}
+            showCellEdges={showCellEdges}
             labelVisibility={labelVisibility}
             inspectMode={inspectMode}
             onInspect={handleInspect}
