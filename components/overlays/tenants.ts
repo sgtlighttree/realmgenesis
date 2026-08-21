@@ -2,7 +2,7 @@
 // ScreenOverlay. Each receives the projected cell screen coords, the world, and
 // a projector for arbitrary local-frame points.
 
-import { WorldData } from '../../types';
+import { WorldData, Point } from '../../types';
 import { ProjectedCells } from '../../utils/screenProject';
 import { displayRadius } from '../../utils/displayRadius';
 import { nearestCellWalk, nearestCellBrute } from '../../utils/nearestCell';
@@ -335,6 +335,74 @@ export function drawBordersTenant(
     if (!project(seg.b.x * r, seg.b.y * r, seg.b.z * r, p2)) continue;
     ctx.moveTo(p1[0], p1[1]);
     ctx.lineTo(p2[0], p2[1]);
+  }
+  ctx.stroke();
+}
+
+// --- rivers, migrated off 3D LineSegments ---
+
+// Offset, like ROUTE_LIFT/CONTOUR_LIFT/BORDER_LIFT — NOT the old `RIVER_LIFT`
+// that lived in `RiverLines`, which was 1.005, an ABSOLUTE radius. Smooth-globe
+// radius here is `1 + RIVER_LIFT` (displayRadius(0, true, RIVER_LIFT)), i.e.
+// 1.005 — the same number as before. Do not write `1 + 1.005`.
+export const RIVER_LIFT = 0.005;
+// Matches the old LineBasicMaterial in RiverLines, INCLUDING its alpha: that
+// material was `opacity={0.8} transparent`, so a solid stroke here would make
+// every river ~25% more prominent than before the migration.
+const RIVER_COLOR = 'rgba(56,189,248,0.8)'; // #38bdf8 @ 0.8
+const RIVER_WIDTH = 1.2;
+
+// River polylines drawn in screen space. `polylines` is precomputed by
+// `computeRiverPolylines` (utils/riverPaths.ts) and closed over by the tenant,
+// same deal as contours/borders: CatmullRom smoothing over ~1741 paths is far
+// too costly to redo on every redraw, so WorldViewer memoizes it on
+// `world.rivers` alone (rivers are stable across paint strokes).
+//
+// THE TRAP this tenant exists to avoid: `world.rivers` points are NOT unit
+// directions. `getRenderPoint` (utils/worldGen.ts ~L310) pre-scales each river
+// point at generation time to `r = 1 + cell.height·0.05 + 0.005` — the same
+// baked radius the terrain mesh itself uses for that cell, plus a small lift.
+// Every other tenant receives unit directions and applies `displayRadius`
+// itself; a river point has ALREADY been scaled. Applying `displayRadius` to it
+// again would double-scale it and float every river off the globe. So on the
+// RAISED globe this projects each point AS-IS — no radius math — and only on
+// the SMOOTH globe does it normalize to unit and re-lift by RIVER_LIFT, exactly
+// mirroring what the old `RiverLines` did when `smoothGlobe` was true.
+//
+// Horizon breaks exactly like drawRoutesTenant: `moveTo` on re-entry after a
+// culled point, never `lineTo` across the gap.
+export function drawRiversTenant(
+  ctx: CanvasRenderingContext2D,
+  polylines: Point[][],
+  project: LocalProjector,
+  smooth: boolean,
+): void {
+  if (polylines.length === 0) return;
+  const pt: [number, number] = [0, 0];
+  ctx.strokeStyle = RIVER_COLOR;
+  ctx.lineWidth = RIVER_WIDTH;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  for (const path of polylines) {
+    if (path.length < 2) continue;
+    let drawing = false;
+    for (const p of path) {
+      let ok: boolean;
+      if (smooth) {
+        const len = Math.hypot(p.x, p.y, p.z) || 1;
+        const r = (1 + RIVER_LIFT) / len;
+        ok = project(p.x * r, p.y * r, p.z * r, pt);
+      } else {
+        // Already baked at the correct relief radius — project as-is.
+        ok = project(p.x, p.y, p.z, pt);
+      }
+      if (ok) {
+        if (drawing) ctx.lineTo(pt[0], pt[1]);
+        else { ctx.moveTo(pt[0], pt[1]); drawing = true; }
+      } else {
+        drawing = false;
+      }
+    }
   }
   ctx.stroke();
 }

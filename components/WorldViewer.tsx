@@ -10,7 +10,8 @@ import { computeShadeMap, computeContourSegments, contourInterval } from '../uti
 import { computeBorderSegments } from '../utils/borders';
 import { collectLabels, MapLabel } from '../utils/labels';
 import { ScreenOverlay, OverlayTenant } from './overlays/ScreenOverlay';
-import { drawCurrentsTenant, drawGraticuleTenant, drawRoutesTenant, drawContoursTenant, drawBordersTenant } from './overlays/tenants';
+import { drawCurrentsTenant, drawGraticuleTenant, drawRoutesTenant, drawContoursTenant, drawBordersTenant, drawRiversTenant } from './overlays/tenants';
+import { computeRiverPolylines } from '../utils/riverPaths';
 
 const Mesh = 'mesh' as any;
 const Group = 'group' as any;
@@ -144,58 +145,6 @@ const MarkerPins: React.FC<{ markers: MarkerData[]; visible: boolean }> = ({ mar
         </InstancedMesh>
     );
 };
-
-const RiverLines: React.FC<{ world: WorldData; visible: boolean; smoothGlobe?: boolean }> = ({ world, visible, smoothGlobe = false }) => {
-    // Keyed on world.rivers (stable across paint strokes), not world identity,
-    // so painting never re-runs the CatmullRom smoothing or reallocates buffers
-    const rivers = world.rivers;
-    const geometry = useMemo(() => {
-        if (!rivers || !visible) return null;
-
-        const positions: number[] = [];
-        // Smooth globe: river points are baked at relief radius (1+h·0.05+0.005);
-        // drop each to the flat surface by normalizing to unit and re-lifting.
-        const RIVER_LIFT = 1.005;
-
-        // Batch all river segments into a single LineSegments geometry for performance
-        // Rendering thousands of individual <Line> components causes massive overhead/freezes
-        rivers.forEach(path => {
-            if (path.length < 2) return;
-
-            // Create Curve for smoothing
-            const vectors = path.map(p => {
-                const v = new THREE.Vector3(p.x, p.y, p.z);
-                if (smoothGlobe) v.normalize().multiplyScalar(RIVER_LIFT);
-                return v;
-            });
-            const curve = new THREE.CatmullRomCurve3(vectors);
-            
-            // Adaptive sampling based on length, but simple count is safer for perf
-            const points = curve.getPoints(Math.min(50, vectors.length * 4));
-            
-            for (let i = 0; i < points.length - 1; i++) {
-                positions.push(points[i].x, points[i].y, points[i].z);
-                positions.push(points[i+1].x, points[i+1].y, points[i+1].z);
-            }
-        });
-
-        if (positions.length === 0) return null;
-
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-        return geo;
-    }, [rivers, visible, smoothGlobe]);
-
-    useEffect(() => () => { geometry?.dispose(); }, [geometry]);
-
-    if (!visible || !geometry) return null;
-
-    return (
-        <LineSegments geometry={geometry}>
-            <LineBasicMaterial color="#38bdf8" opacity={0.8} transparent linewidth={1.5} />
-        </LineSegments>
-    );
-}
 
 const CurvedFactionLabel: React.FC<{ name: string; position: THREE.Vector3 }> = ({ name, position }) => {
     const { texture, scale } = useMemo(() => {
@@ -1058,10 +1007,21 @@ const WorldMesh: React.FC<{
     [world, labelVisibility.borders],
   );
 
-  // F2 screen-space overlay tenants. Painting order is array order: contours sit
-  // under everything (they are terrain annotation), then currents, then routes,
-  // with the graticule last so the reference grid is never occluded.
+  // River polylines. Keyed on world.rivers (stable across paint strokes), NOT
+  // world identity — the CatmullRom smoothing in computeRiverPolylines must not
+  // re-run per paint stroke, same contract the old RiverLines kept.
+  const riverPolylines = useMemo(
+    () => (showRivers && world.rivers ? computeRiverPolylines(world.rivers) : []),
+    [world.rivers, showRivers],
+  );
+
+  // F2 screen-space overlay tenants. Painting order is array order: rivers sit
+  // under everything (ROUTE_LIFT's comment notes routes sit "over rivers"), then
+  // contours (terrain annotation), then currents, then routes, with the
+  // graticule last so the reference grid is never occluded.
   const overlayTenants = useMemo<OverlayTenant[]>(() => [
+    { id: 'rivers', visible: showRivers && riverPolylines.length > 0,
+      draw: (ctx, _proj, _world, project, smooth) => drawRiversTenant(ctx, riverPolylines, project, smooth) },
     { id: 'contours', visible: showContours && contourSegments.length > 0,
       draw: (ctx, _proj, _world, project, smooth) => drawContoursTenant(ctx, contourSegments, project, smooth) },
     { id: 'currents', visible: showCurrents && !!world.currents, draw: drawCurrentsTenant },
@@ -1071,7 +1031,7 @@ const WorldMesh: React.FC<{
     { id: 'borders', visible: labelVisibility.borders && borderSegments.length > 0,
       draw: (ctx, _proj, _world, project, smooth) => drawBordersTenant(ctx, borderSegments, project, smooth) },
     { id: 'graticule', visible: showGrid, draw: drawGraticuleTenant },
-  ], [showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, labelVisibility.borders, borderSegments, showGrid]);
+  ], [showRivers, riverPolylines, showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, labelVisibility.borders, borderSegments, showGrid]);
 
   return (
     <Group>
@@ -1096,7 +1056,7 @@ const WorldMesh: React.FC<{
                     <PointLabels labels={mapLabels} visibility={labelVisibility} />
                 </React.Suspense>
                 {/* Faction borders migrated to ScreenOverlay (F2 borders tenant). */}
-                <RiverLines world={world} visible={showRivers} smoothGlobe={smoothGlobe} />
+                {/* Rivers migrated to ScreenOverlay (F2 rivers tenant). */}
                 {/* Roads & sea routes migrated to ScreenOverlay (F2 routes tenant). */}
                 {/* Contour lines migrated to ScreenOverlay (F2 contours tenant). */}
                 {/* Lat/long grid migrated to ScreenOverlay (F2 graticule tenant). */}
