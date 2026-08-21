@@ -6,6 +6,7 @@ import { WorldData } from '../../types';
 import { ProjectedCells } from '../../utils/screenProject';
 import { displayRadius } from '../../utils/displayRadius';
 import { nearestCellWalk, nearestCellBrute } from '../../utils/nearestCell';
+import { ContourSegment, contourStroke } from '../../utils/shading';
 import { LocalProjector } from './ScreenOverlay';
 
 // --- currents draw constants (single source; also consumed by Map2D, Task 6) ---
@@ -224,4 +225,51 @@ export function drawRoutesTenant(
   }
   // The 2D context is shared across tenants — hand it back undashed.
   ctx.setLineDash([]);
+}
+
+// --- contour lines (A4 isolines), migrated off 3D LineSegments ---
+
+export const CONTOUR_LIFT = 0.002; // clears the terrain step it crowns
+const CONTOUR_BASE_WIDTH = 1;
+
+// Elevation isolines drawn in screen space. Unlike the other tenants this one
+// takes its segments as an argument: computeContourSegments is an O(cells x
+// neighbors) sweep, far too costly to redo on every redraw, so WorldViewer
+// memoizes it on world identity and closes over the result.
+//
+// Radius (LocalProjector contract): each segment carries the height of the
+// TALLER of its two cells. The globe mesh renders a cell boundary as a vertical
+// step, so riding the taller cell's radius crowns that step. This replaces a
+// fixed r = 1.053 that floated every isoline above all terrain — the worst
+// parallax offender of the remaining overlays.
+//
+// Two passes so index contours draw over the intermediates they cross, matching
+// drawContourPaths in utils/shading.ts (one style across globe, 2D, and export).
+export function drawContoursTenant(
+  ctx: CanvasRenderingContext2D,
+  segments: ContourSegment[],
+  project: LocalProjector,
+  smooth: boolean,
+): void {
+  if (segments.length === 0) return;
+  const p1: [number, number] = [0, 0];
+  const p2: [number, number] = [0, 0];
+  ctx.lineCap = 'round';
+
+  for (const indexPass of [false, true]) {
+    ctx.strokeStyle = contourStroke(indexPass);
+    ctx.lineWidth = indexPass ? CONTOUR_BASE_WIDTH * 2 : CONTOUR_BASE_WIDTH;
+    ctx.beginPath();
+    for (const seg of segments) {
+      if (seg.index !== indexPass) continue;
+      const r = displayRadius(seg.height, smooth, CONTOUR_LIFT);
+      // Both ends must be on the near hemisphere; a segment is one cell edge,
+      // far too short to be worth clipping against the limb.
+      if (!project(seg.a[0] * r, seg.a[1] * r, seg.a[2] * r, p1)) continue;
+      if (!project(seg.b[0] * r, seg.b[1] * r, seg.b[2] * r, p2)) continue;
+      ctx.moveTo(p1[0], p1[1]);
+      ctx.lineTo(p2[0], p2[1]);
+    }
+    ctx.stroke();
+  }
 }
