@@ -45,6 +45,10 @@ export function makeFakeCtx(): FakeCtx & CanvasRenderingContext2D {
     restore() { ops.push({ op: 'restore', args: [] }); },
     strokeText(t: string, x: number, y: number) { ops.push({ op: 'strokeText', args: [x, y], text: t }); },
     fillText(t: string, x: number, y: number) { ops.push({ op: 'fillText', args: [x, y], text: t }); },
+    // Deterministic stand-in for text metrics (jsdom's canvas has none). Only
+    // `.width` is read by drawMapLabels' declutter-rect sizing — a fixed
+    // per-character estimate is enough for tenants that draw text (labels).
+    measureText(t: string) { return { width: t.length * 6 } as TextMetrics; },
     font: '',
     textAlign: '' as CanvasTextAlign,
     textBaseline: '' as CanvasTextBaseline,
