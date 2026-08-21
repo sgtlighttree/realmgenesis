@@ -394,7 +394,7 @@ A full redesign and rearchitecture is warranted here.
 Can come *before or alongside* D6 with the roadmap in mind.
 
 # F2. 3D Mode Presentation  —  🟡 PARTIAL
-> _ScreenOverlay foundation + ocean-current viz + graticule migration shipped Session 16; smooth-globe + graticule drape Sessions 17-18; roads/routes migrated + draped Session 19; contours migrated + index-contour restyle Session 19b; faction borders Session 20; rivers Session 21. Only labels remain_
+> _ScreenOverlay foundation + ocean-current viz + graticule Session 16; smooth-globe + graticule drape Sessions 17-18; roads/routes Session 19; contours Session 19b; faction borders Session 20; rivers Session 21; point labels Session 22 (branch, unmerged). **STILL 3D: Dymaxion, rulers, selection** — all three named in the spec below_
 Part of redesign is figuring out how the planet is presented; overlays like borders, rivers and roads and routes and the lat/lon grid are also 3D objects, not 2D overlays simply composited over the 3D globe, which affects visibility and accuracy. Or maybe make the globe entirely smooth by default, instead of applying height per cell. Perhaps 3D mode should more like Google Earth Pro in this respect.
 
 - **Ocean-current visualization** (from D2): a currents overlay drawing the
@@ -411,11 +411,25 @@ Part of redesign is figuring out how the planet is presented; overlays like bord
   overlays in pure 2D, occluding the far hemisphere without physical geometry on the
   globe. v1 lands **two tenants** to prove the abstraction generalizes: the currents
   field **and the graticule** migrated off its 3D `lineSegments`.
-  **The queue is down to its last tenant: labels** (in progress on branch
-  `f2-labels-tenant`, unreviewed). Roads/routes landed in Session 19, contours in
-  Session 19b, faction borders in Session 20, rivers in Session 21.
+  **Migrated so far:** currents + graticule (S16), roads/routes (S19), contours
+  (S19b), faction borders (S20), rivers (S21), point labels (S22, on branch
+  `f2-labels-tenant`, verified but unmerged).
 
-  **The queue does NOT empty.** Faction labels stay 3D permanently:
+  **NOT migrated — three of the six overlays this paragraph names are still
+  physical 3D objects:**
+  - **`DymaxionOverlay`** (`components/WorldViewer.tsx` ~L509) — icosahedron
+    faces + edges at a fixed r = 1.12. It floats above all terrain by design, so
+    it has the parallax the tenant seam exists to remove.
+  - **`RulerArc`** (~L638) — the A5 great-circle measurement arc.
+  - **Cell highlight + selection ring** (~L1065/L1068) — hover and selected-cell
+    outlines.
+
+  A 2026-08-22 session claimed "F2's rendering work is finished" on the strength
+  of the borders/rivers/labels queue in HANDOFF. That queue was never the whole
+  list; this paragraph is. **Do not mark F2 done until these three land or are
+  explicitly declined in writing, the way faction labels were.**
+
+  **Even then the queue does NOT fully empty.** Faction labels stay 3D permanently:
   `CurvedFactionLabel` renders curved textured meshes following the sphere's
   curvature, which Canvas2D cannot reproduce without the per-glyph curved text A1
   deferred. Flattening them is a downgrade, not a migration — do not "finish the

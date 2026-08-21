@@ -48,6 +48,12 @@ because Matt gated the merge on the unclaimed-mountains/lakes issue, which is a
 CIV-EXPANSION bug in a different subsystem and is NOT fixed. See
 "The merge gate" below — the diagnosis is done, the fix is not.
 
+**F2 IS NOT FINISHED, whatever an earlier note in this file implied.** Three of
+the six overlays the ROADMAP F2 paragraph names are still physical 3D objects:
+**`DymaxionOverlay`** (`WorldViewer.tsx` ~L509), **`RulerArc`** (~L638), and the
+**cell highlight + selection ring** (~L1065/L1068). See "F2's real remaining
+scope" below.
+
 ### Gate state
 
 typecheck 0 · lint 0 errors / 29 warnings (the ratchet) · build OK, worker chunk
@@ -108,19 +114,63 @@ zero assertion failures means the machine, not a regression.
    diagnosis is complete and sits in "The merge gate" below — it is a two-number
    inconsistency in `recalculateCivs`, not a research problem. The labels branch
    itself needs nothing further.
-2. **A3 — map style system.** My pick for the next roadmap item once F2 closes.
+2. **Finish F2 properly: Dymaxion, rulers, selection.** See "F2's real remaining
+   scope" below. Dymaxion is the strongest candidate (a fixed r = 1.12 overlay
+   floating over all terrain); the selection ring is the one worth arguing about.
+3. **A3 — map style system.** My pick for the next roadmap item once F2 closes.
    Reasoning in the S22 entry.
-3. **D8 World Datum** — fully scoped in ROADMAP D8 into D8a (presentation, no seed
+4. **D8 World Datum** — fully scoped in ROADMAP D8 into D8a (presentation, no seed
    changes) and D8b (simulation coupling, changes generation output). Matt asked
    for the analysis, not the implementation; the sequencing call is his.
-4. **Contour index/intermediate differentiation** — Matt said hold off. If resumed:
+5. **Contour index/intermediate differentiation** — Matt said hold off. If resumed:
    the weight gap (2px @ .75 vs 1px @ .38) is likely too subtle at globe zoom;
    tinting index contours a different hue would beat weight alone.
-5. **The view strip at middle widths** (~1150px viewport): the chip row scrolls
+6. **The view strip at middle widths** (~1150px viewport): the chip row scrolls
    because even icons overflow. An overflow "More" popover would be better; not
    built because it was not asked for.
 
 ---
+
+## F2's real remaining scope (corrected 2026-08-22)
+
+**A correction, recorded rather than quietly fixed.** Late on 2026-08-22 this
+session reported "F2's rendering work is finished — every overlay that was going
+to migrate has migrated." **That was wrong**, and Matt caught it by asking what
+was left.
+
+**How the error happened, because the shape will recur:** HANDOFF carried a
+working queue — "borders, then rivers, then labels" — that had been true and
+useful for six sessions. It was never the full list. The ROADMAP F2 paragraph
+names **six** overlays as physical 3D objects: *borders, rivers, graticule,
+Dymaxion, rulers, selection*. The HANDOFF queue silently dropped the last three,
+and by S22 the queue had become the definition of done in this file. **A
+convenience list in HANDOFF outlived the spec it was derived from.** When the
+queue empties, re-read the source paragraph before declaring anything finished.
+
+### Still 3D, all three named in the F2 spec
+
+- **`DymaxionOverlay`** (`components/WorldViewer.tsx` ~L509) — icosahedron faces
+  + edges at a fixed **r = 1.12**, with `depthTest={false}` on the edges. It
+  floats above all terrain (max 1.05) deliberately, which is exactly the
+  parallax the tenant seam removes. The most defensible one to migrate.
+- **`RulerArc`** (~L638) — the A5 great-circle measurement arc.
+- **Cell highlight + selection ring** (~L1065 / ~L1068) — hover and selected-cell
+  outlines. Note these are EDIT-mode affordances, not map presentation; a
+  reasonable person might decline this one on the grounds that a selection ring
+  SHOULD read as attached to geometry.
+
+### Also 3D but NOT named in the spec — decide, don't drift
+
+`CityMarkers` (~L58), `MarkerPins` (~L117), `TiltAxisLine` (~L1239). These were
+never in scope. **They interact with the accepted overpaint nit**: screen-space
+tenants paint over them unconditionally, so migrating them would fix that nit as
+a side effect. Worth a deliberate decision, not silent inclusion.
+
+### The rule going forward
+
+**Do not mark F2 done until the three named overlays land, or are declined in
+writing the way faction labels were.** "Declined in writing" means a paragraph in
+ROADMAP saying what would be lost — the faction-label entry is the template.
 
 ## The merge gate — territorial waters can NEVER be claimed (found 2026-08-22)
 
@@ -260,8 +310,9 @@ chromium tree afterward (trap list above).
    water cost changes civ layout for every existing seed. Ask whether that is
    allowed, or whether it needs an escape hatch like `currentStrength = 0`. Do
    not just pick one.
-3. **Then merge `f2-labels-tenant` into `main` with `--no-ff`** and close F2.
-   The branch needs no further work of its own.
+3. **Then merge `f2-labels-tenant` into `main` with `--no-ff`.** The branch needs
+   no further work of its own. **This does NOT close F2** — see "F2's real
+   remaining scope"; three named overlays are still 3D.
 4. **`main` is NOT pushed.** It is ahead of `origin/main` by the S21/S22 commits.
    Pushing is Matt's call; he asked for the last push explicitly.
 5. **After F2 closes, A3 (map style system) is the recommended next roadmap
