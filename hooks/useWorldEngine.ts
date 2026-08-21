@@ -89,6 +89,12 @@ export function useWorldEngine() {
   const [showHillshade, setShowHillshade] = useState(false);
   const [showContours, setShowContours] = useState(false);
   const [showCurrents, setShowCurrents] = useState(false);
+  // Cell edges are not drawn — they are GAPS. Each cell renders as a flat plate
+  // at its own radius, so two neighbours at different heights do not share an
+  // edge and the open seam shows the black inner sphere through it (proved by
+  // recolouring that sphere: every "outline" changed with it). ON reproduces
+  // that look exactly; OFF (the default) closes the seams by overhang.
+  const [showCellEdges, setShowCellEdges] = useState(false);
   const [labelVisibility, setLabelVisibility] = useState<LabelVisibility>(DEFAULT_LABEL_VISIBILITY);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [dymaxionSettings, setDymaxionSettings] = useState<DymaxionSettings>({
@@ -661,7 +667,7 @@ export function useWorldEngine() {
     }
   }, [world]);
   return {
-    params, setParams, world, setWorld, viewMode, setViewMode, displayMode, setDisplayMode, inspectMode, setInspectMode, inspectorCollapsed, setInspectorCollapsed, inspectedCellId, setInspectedCellId, rulerActive, setRulerActive, rulerCells, setRulerCells, markerMode, setMarkerMode, selectedMarkerId, setSelectedMarkerId, isGenerating, setIsGenerating, genProgress, setGenProgress, logs, setLogs, lore, setLore, isLoreLoading, setIsLoreLoading, showGrid, setShowGrid, smoothGlobe, setSmoothGlobe, showRivers, setShowRivers, showRoutes, setShowRoutes, showHillshade, setShowHillshade, showContours, setShowContours, showCurrents, setShowCurrents, labelVisibility, setLabelVisibility, sidebarOpen, setSidebarOpen, dymaxionSettings, setDymaxionSettings, apiKey, setApiKey, editMode, setEditMode, paintStyle, setPaintStyle, brushSize, setBrushSize, paintStrength, setPaintStrength, paintFaction, setPaintFaction, paintBiome, setPaintBiome, sampleHeight, setSampleHeight, adaptiveBiomes, setAdaptiveBiomes, undoStack, setUndoStack, addLog, handleGenerate, requestGenerate, pendingGenerate, confirmGenerate, cancelGenerate, handleLoadWorld, handleCancel, handleUpdateCivs, handleUpdateProvinces, toggleInspectEnabled, toggleRuler, toggleMarkerMode, handleInspect, updateMarker, deleteMarker, rulerArc, rulerDistanceKm, handleGenerateLore, factionColors, cultureColors, religionColors, handlePaint, handleUndo, handleEditWorldData, handleEditFaction, handleMergeFactions, handleRenameProvince, handleRenameTown, handleRelocateCapital,
+    params, setParams, world, setWorld, viewMode, setViewMode, displayMode, setDisplayMode, inspectMode, setInspectMode, inspectorCollapsed, setInspectorCollapsed, inspectedCellId, setInspectedCellId, rulerActive, setRulerActive, rulerCells, setRulerCells, markerMode, setMarkerMode, selectedMarkerId, setSelectedMarkerId, isGenerating, setIsGenerating, genProgress, setGenProgress, logs, setLogs, lore, setLore, isLoreLoading, setIsLoreLoading, showGrid, setShowGrid, smoothGlobe, setSmoothGlobe, showRivers, setShowRivers, showRoutes, setShowRoutes, showHillshade, setShowHillshade, showContours, setShowContours, showCurrents, setShowCurrents, showCellEdges, setShowCellEdges, labelVisibility, setLabelVisibility, sidebarOpen, setSidebarOpen, dymaxionSettings, setDymaxionSettings, apiKey, setApiKey, editMode, setEditMode, paintStyle, setPaintStyle, brushSize, setBrushSize, paintStrength, setPaintStrength, paintFaction, setPaintFaction, paintBiome, setPaintBiome, sampleHeight, setSampleHeight, adaptiveBiomes, setAdaptiveBiomes, undoStack, setUndoStack, addLog, handleGenerate, requestGenerate, pendingGenerate, confirmGenerate, cancelGenerate, handleLoadWorld, handleCancel, handleUpdateCivs, handleUpdateProvinces, toggleInspectEnabled, toggleRuler, toggleMarkerMode, handleInspect, updateMarker, deleteMarker, rulerArc, rulerDistanceKm, handleGenerateLore, factionColors, cultureColors, religionColors, handlePaint, handleUndo, handleEditWorldData, handleEditFaction, handleMergeFactions, handleRenameProvince, handleRenameTown, handleRelocateCapital,
   };
 }
 
