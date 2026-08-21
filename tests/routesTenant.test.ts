@@ -12,6 +12,7 @@ const emptyProj: ProjectedCells = {
 function ringRoute(world: WorldData, ids: number[], kind: RouteData['kind']): RouteData {
   return {
     path: ids.map((i) => world.cells[i].center),
+    cellIds: [...ids],
     kind,
     fromCellId: ids[0],
     toCellId: ids[ids.length - 1],
@@ -96,9 +97,35 @@ describe('routes overlay tenant', () => {
     for (const r of p.radii) expect(r).toBeCloseTo(1 + ROUTE_LIFT, 6);
   });
 
-  it('projects at the sea-level radius plus lift on the raised globe (phase 1, flat)', () => {
-    const base = makeRingWorld(16, [1.0], 0.5);
+  it('drapes each point at its own cell radius on the raised globe', () => {
+    // Alternating seafloor (0) and peak (1.0) cells: a draped route must give a
+    // DIFFERENT radius per point. A flat layer would return one value for all.
+    const base = makeRingWorld(16, [0, 1.0], 0.5);
     const world = withRoutes(base, [ringRoute(base, [0, 1, 2], 'road')]);
+    const p = makeProjector();
+    drawRoutesTenant(makeFakeCtx(), emptyProj, world, p.project, false);
+
+    expect(p.radii).toHaveLength(3);
+    expect(p.radii[0]).toBeCloseTo(1 + ROUTE_LIFT, 6);
+    expect(p.radii[1]).toBeCloseTo(1.05 + ROUTE_LIFT, 6);
+    expect(p.radii[2]).toBeCloseTo(1 + ROUTE_LIFT, 6);
+  });
+
+  it('drapes sea routes at the RAW seafloor radius, never clamped to sea level', () => {
+    // The S18 graticule bug, guarded for routes: ocean cells render at their
+    // true seafloor radius, so clamping to seaLevel would float sea routes.
+    const base = makeRingWorld(16, [0], 0.5);
+    const world = withRoutes(base, [ringRoute(base, [0, 1, 2], 'searoute')]);
+    const p = makeProjector();
+    drawRoutesTenant(makeFakeCtx(), emptyProj, world, p.project, false);
+
+    for (const r of p.radii) expect(r).toBeCloseTo(1 + ROUTE_LIFT, 6);
+  });
+
+  it('falls back to the flat sea-level radius when cellIds do not match the path', () => {
+    const base = makeRingWorld(16, [0, 1.0], 0.5);
+    const route = ringRoute(base, [0, 1, 2], 'road');
+    const world = withRoutes(base, [{ ...route, cellIds: [0] }]); // out of step
     const p = makeProjector();
     drawRoutesTenant(makeFakeCtx(), emptyProj, world, p.project, false);
 
