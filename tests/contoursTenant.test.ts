@@ -155,29 +155,25 @@ describe('adaptive contour interval', () => {
   });
 });
 
-describe('contour elevation labels', () => {
-  it('reads out the line elevation as a percentage', () => {
+describe('contour elevation readout', () => {
+  it('formats an elevation as a percentage', () => {
+    // Kept as the seam for ROADMAP D8 (World Datum), which turns this into
+    // metres. The contour LABELS that used it were pulled — see below.
     expect(contourLabel(0.68)).toBe('68%');
     expect(contourLabel(SL)).toBe('55%');
   });
 
-  it('thins labels so they do not stack, and caps the total', () => {
-    // 200 index segments all projecting near the same spot: the min-gap rule
-    // must collapse them to a handful, not draw 200 overlapping readouts.
+  it('draws no text: elevation labels are deliberately not rendered', () => {
+    // They wandered across the terrain as the globe moved, because anchors were
+    // re-selected greedily from segment midpoints every redraw. Reviving them
+    // requires world-space anchors chosen once; this guards against the drawing
+    // path silently returning without that fix.
     const segs: ContourSegment[] = [];
-    for (let i = 0; i < 200; i++) segs.push(seg(0.8, true, SL + 0.1));
+    for (let i = 0; i < 50; i++) segs.push(seg(0.8, true, SL + 0.1));
     const ctx = makeFakeCtx();
     drawContoursTenant(ctx, segs, makeProjector().project, true);
 
-    const drawn = ctx.ops.filter(o => o.op === 'fillText');
-    expect(drawn.length).toBeGreaterThan(0);
-    expect(drawn.length).toBeLessThan(5); // all coincident -> essentially one
-    expect(drawn[0].text).toBe('65%');
-  });
-
-  it('labels only index contours', () => {
-    const ctx = makeFakeCtx();
-    drawContoursTenant(ctx, [seg(0.8, false, SL + 0.1)], makeProjector().project, true);
     expect(ctx.ops.filter(o => o.op === 'fillText')).toHaveLength(0);
+    expect(ctx.ops.filter(o => o.op === 'strokeText')).toHaveLength(0);
   });
 });
