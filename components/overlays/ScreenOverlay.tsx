@@ -120,14 +120,17 @@ export const ScreenOverlay: React.FC<{ world: WorldData; tenants: OverlayTenant[
     // therefore yields the PREVIOUS frame's transform while WebGL is about to
     // draw the current one — a permanent one-frame offset between the overlay
     // and the terrain, invisible when still and worse the further you zoom in,
-    // because the error is angular. `.project()` reads matrixWorldInverse, so
-    // that has to be refreshed too, not just matrixWorld.
+    // because the error is angular.
+    //
+    // Camera.updateMatrixWorld() also recomputes matrixWorldInverse (three's
+    // Camera overrides it to do exactly that), which is what `.project()` reads
+    // — so this one call covers both, and the renderer recomputes the same
+    // values from the same source moments later rather than fighting us.
     //
     // This is only half the fix: the globe's idle spin must also have advanced
     // before this callback runs, which is why it lives in <GlobeSpin/> mounted
     // ahead of this component (see WorldViewer).
     camera.updateMatrixWorld();
-    camera.matrixWorldInverse.copy(camera.matrixWorld).invert();
     if (globe) globe.updateWorldMatrix(true, false);
 
     const gm = globe ? globe.matrixWorld : null;
