@@ -182,17 +182,39 @@ one run (paramLiveness included, load average 5).
   where cells carry 5–7 vertices. Counts match — the rewrite is proven on real
   geometry, not just on the fixture.
 
-**Not verified in the browser.** The change is covered by unit tests asserting
-the radius per `smooth` value and the horizon drop, but nobody has looked at the
-globe. Worth one Playwright pass before the next tenant — and kill the chromium
-tree afterward (see the trap list above).
+**Browser pass done** (5k cells, biome view, 1680x1000): borders render as white
+outlines following cell edges, the toggle clears them, 0 console errors. Chromium
+tree killed afterward. Not checked at 200k cells or on the smooth globe.
 
-One thing to look at in that pass: borders now paint **above** routes, and the
+Still worth a look at some point: borders now paint **above** routes, and the
 screen-space version is culled only by the analytic limb, not by terrain. The old
 3D borders were depth-tested against the mesh, so a border crossing a ridge could
 disappear behind it. It no longer does. That is the intended consequence of the
 migration, but if it reads wrong the fix is **paint order, not radius** — the
 radius is covered by tests and was never the defect here.
+
+### Borders chip in the view strip (commit `1bc9471`)
+
+Matt: "I think borders should have a toggle too." It had one — the Sys tab's Map
+Overlays checkbox — but no chip in the view strip, so it was the only map overlay
+with no quick toggle.
+
+The cause is a state-shape split worth knowing about before adding another:
+every `buildLayerToggles` entry is its **own boolean prop** (`showGrid`,
+`showRoutes`, …), while borders is one **key of the `labelVisibility` record**.
+Only the boolean ones reached the strip.
+
+`buildBordersToggle` adapts it. It is deliberately NOT a `buildLayerToggles`
+entry: that list also feeds the Sys tab's stacked rows, which already render
+borders under Map Overlays, so adding it there would put the same checkbox on
+screen twice. `ViewStrip` composes it in by key lookup after `routes` — both are
+cell-bound line overlays, and a trailing chip is the first one lost when the row
+starts scrolling.
+
+**If a second `labelVisibility` key ever wants a chip** (faction names is the
+likely one), do NOT keep cloning this function. Generalise to something that
+takes a key, and make the Sys tab render `OVERLAY_KEYS` minus whatever the strip
+already shows — otherwise the duplicate-checkbox problem comes back.
 
 ## Session 19f (2026-08-21) — coupling dropped; branch merged to main
 
