@@ -2,12 +2,14 @@
 // ScreenOverlay. Each receives the projected cell screen coords, the world, and
 // a projector for arbitrary local-frame points.
 
-import { WorldData, Point } from '../../types';
+import { WorldData, Point, LabelVisibility } from '../../types';
 import { ProjectedCells } from '../../utils/screenProject';
 import { displayRadius } from '../../utils/displayRadius';
 import { nearestCellWalk, nearestCellBrute } from '../../utils/nearestCell';
 import { ContourSegment, contourStroke } from '../../utils/shading';
 import { BorderSegment } from '../../utils/borders';
+import { LabelAnchor } from '../../utils/labelAnchors';
+import { MapLabel, drawMapLabels } from '../../utils/labels';
 import { LocalProjector } from './ScreenOverlay';
 
 // --- currents draw constants (single source; also consumed by Map2D, Task 6) ---
@@ -405,4 +407,115 @@ export function drawRiversTenant(
     }
   }
   ctx.stroke();
+}
+
+// --- point labels (capitals/provinces/towns/geography/markers), migrated off
+// canvas-texture sprites (F2 S22, last tenant) ---
+
+// Above ROUTE_LIFT (0.008) so labels clear the overlays they sit on.
+export const LABEL_LIFT = 0.01;
+
+// `drawMapLabels`'s own LOD compares `scale` against `ZOOM_THRESHOLDS`, whose
+// max entry is 2.0. This tenant applies its OWN LOD first (the camDist cutoffs
+// below, kept verbatim from the old 3D `PointLabels` — see plan §3, "do not
+// unify the zoom LOD"), so `scale` must be pushed past every threshold to be a
+// no-op. Infinity is the most self-evident way to say "LOD off" at the call site.
+const LABEL_SCALE_LOD_OFF = Infinity;
+
+// Chosen to land close to the old 3D sprites' on-screen size at the plan's
+// measurement baseline (fov 45, 1000px-tall viewport, camDist 2.5 — the
+// "default" row of the §2 parallax table). At that baseline the old capital
+// sprite (world-space height 0.042, canvas padding baked in) rendered its
+// glyph at roughly 13px on screen; `LABEL_CONFIG.capital.baseFontSize` is 11,
+// so 11 * 1.2 ≈ 13.2 lands on the same target. `drawMapLabels` decouples
+// `fontScale` from `scale` (verified in plan §3), so this is a fixed on-screen
+// size — unlike the old sprites, whose size shrank with camera distance the
+// way any 3D billboard does. Nobody asked for that zoom-linked shrink to
+// survive the migration; the camDist LOD below keeps *which* labels show, not
+// *how big* they render.
+const LABEL_FONT_SCALE = 1.2;
+
+// Geographic LOD tiers, transcribed verbatim from the old 3D `PointLabels`
+// (GEO_SMALL_KINDS / GEO_MID_KINDS), which itself already mirrors the 2D
+// ZOOM_THRESHOLDS relationship inversely (camDist UP = zoomed OUT, so a
+// smaller camDist cutoff means the kind disappears sooner while zooming out).
+const LOD_SMALL_GEO_KINDS = new Set(['island', 'lake']);
+const LOD_MID_GEO_KINDS = new Set(['sea', 'range', 'desert', 'forest']);
+
+// True when `label` should be considered for this frame at `camDist`, before
+// declutter/visibility (drawMapLabels handles per-kind visibility and overlap
+// itself). Faction labels are excluded unconditionally: they stay 3D curved
+// meshes (CurvedFactionLabel/CountryLabels, untouched by F2 — plan §1), so this
+// tenant must never emit one, on pain of a duplicate flat label under the
+// curved one.
+function passesGlobeLod(label: MapLabel, camDist: number): boolean {
+  if (label.kind === 'faction') return false;
+  if (label.kind === 'town') return camDist <= 2;
+  if (label.kind === 'province') return camDist <= 3;
+  if (label.kind === 'capital') return camDist <= 4;
+  if (LOD_SMALL_GEO_KINDS.has(label.kind)) return camDist <= 2.5;
+  if (LOD_MID_GEO_KINDS.has(label.kind)) return camDist <= 3.5;
+  return true;
+}
+
+// Point labels drawn in screen space, reusing `drawMapLabels` (utils/labels.ts)
+// for style + declutter instead of duplicating them a third time — see plan
+// §3. `anchors` is precomputed by `computeLabelAnchors` (utils/labelAnchors.ts)
+// and closed over by WorldViewer like contours/borders/rivers: a per-redraw
+// nearest-cell scan is far too costly at 200k cells (plan §2).
+//
+// Radius (LocalProjector contract): each anchor carries the height of the cell
+// nearest the label's position, RAW, never clamped to sea level — an ocean
+// label rides the seafloor radius like every other tenant (see
+// drawGraticuleTenant for what that clamp cost in S18). `displayRadius` turns
+// that height into the drape radius per `smooth`, exactly mirroring
+// ContourSegment.height / BorderSegment.height.
+//
+// `camDist` cannot be read inside a tenant (no camera access), so WorldViewer
+// captures it (`camera.position.length()`, same as the old `PointLabels`) and
+// passes it in — a closed-over argument, the established pattern here (see
+// drawContoursTenant/drawBordersTenant taking precomputed segments).
+//
+// Declutter is a greedy first-wins pass over `anchors` in the order given —
+// this function does not sort. `collectLabels` (utils/labels.ts) already
+// emits labels ascending by `priority`, and `computeLabelAnchors` preserves
+// input order verbatim, so the array WorldViewer closes over is already
+// priority-sorted by construction. Passing an unsorted array here would let
+// the wrong label win a collision silently; there is no runtime guard for it.
+export function drawLabelsTenant(
+  ctx: CanvasRenderingContext2D,
+  anchors: LabelAnchor[],
+  project: LocalProjector,
+  smooth: boolean,
+  camDist: number,
+  visibility: LabelVisibility,
+): void {
+  if (anchors.length === 0) return;
+
+  const visibleAnchors = anchors.filter((a) => passesGlobeLod(a.label, camDist));
+  if (visibleAnchors.length === 0) return;
+
+  // `drawMapLabels` only sees `label.position`; it has no notion of `height`.
+  // Keyed by the position OBJECT (each label owns exactly one, reused verbatim
+  // through `anchors`), so the radius lookup below survives the trip through
+  // `drawMapLabels`'s generic `project(position)` callback.
+  const heightByPosition = new Map<MapLabel['position'], number>();
+  for (const a of visibleAnchors) heightByPosition.set(a.label.position, a.height);
+
+  const pt: [number, number] = [0, 0];
+  const projectLabel = (position: MapLabel['position']): [number, number] | null => {
+    const height = heightByPosition.get(position) ?? 0;
+    const r = displayRadius(height, smooth, LABEL_LIFT);
+    if (!project(position.x * r, position.y * r, position.z * r, pt)) return null;
+    return [pt[0], pt[1]];
+  };
+
+  drawMapLabels(
+    ctx,
+    visibleAnchors.map((a) => a.label),
+    projectLabel,
+    LABEL_SCALE_LOD_OFF,
+    visibility,
+    LABEL_FONT_SCALE,
+  );
 }

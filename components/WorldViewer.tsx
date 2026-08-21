@@ -8,9 +8,10 @@ import { seasonalTemperatureDelta } from '../utils/seasons';
 import { displayRadius } from '../utils/displayRadius';
 import { computeShadeMap, computeContourSegments, contourInterval } from '../utils/shading';
 import { computeBorderSegments } from '../utils/borders';
-import { collectLabels, MapLabel } from '../utils/labels';
+import { collectLabels } from '../utils/labels';
+import { computeLabelAnchors } from '../utils/labelAnchors';
 import { ScreenOverlay, OverlayTenant } from './overlays/ScreenOverlay';
-import { drawCurrentsTenant, drawGraticuleTenant, drawRoutesTenant, drawContoursTenant, drawBordersTenant, drawRiversTenant } from './overlays/tenants';
+import { drawCurrentsTenant, drawGraticuleTenant, drawRoutesTenant, drawContoursTenant, drawBordersTenant, drawRiversTenant, drawLabelsTenant } from './overlays/tenants';
 import { computeRiverPolylines } from '../utils/riverPaths';
 
 const Mesh = 'mesh' as any;
@@ -26,8 +27,6 @@ const LineSegments = 'lineSegments' as any;
 const LineBasicMaterial = 'lineBasicMaterial' as any;
 const IcosahedronGeometry = 'icosahedronGeometry' as any;
 type R3FIntrinsic = React.FC<{ children?: React.ReactNode } & Record<string, unknown>>;
-const Sprite = 'sprite' as unknown as R3FIntrinsic;
-const SpriteMaterial = 'spriteMaterial' as unknown as R3FIntrinsic;
 const OctahedronGeometry = 'octahedronGeometry' as unknown as R3FIntrinsic;
 
 // Idle globe spin rate, radians per second.
@@ -301,211 +300,6 @@ const CountryLabels: React.FC<{ world: WorldData; visible: boolean }> = ({ world
     );
 };
 
-const POINT_LABEL_CONFIG: Record<string, { height: number; fontWeight: number; alpha: number; offset: number; italic?: boolean; fill?: string }> = {
-  // Offsets sit above max terrain displacement (1 + height*0.05 = 1.05) and
-  // the city marker pins (~1.062) so sprites never get depth-clipped by relief.
-  capital: { height: 0.042, fontWeight: 700, alpha: 0.95, offset: 1.1 },
-  province: { height: 0.034, fontWeight: 400, alpha: 0.8, offset: 1.09 },
-  town: { height: 0.028, fontWeight: 400, alpha: 0.7, offset: 1.08 },
-  // Geographic features (B3). Water kinds italic + blued fill; all sit at 1.08.
-  ocean: { height: 0.04, fontWeight: 400, alpha: 0.9, offset: 1.08, italic: true, fill: '#dbeafe' },
-  sea: { height: 0.032, fontWeight: 400, alpha: 0.85, offset: 1.08, italic: true, fill: '#dbeafe' },
-  lake: { height: 0.026, fontWeight: 400, alpha: 0.8, offset: 1.08, italic: true, fill: '#dbeafe' },
-  range: { height: 0.032, fontWeight: 400, alpha: 0.85, offset: 1.08 },
-  desert: { height: 0.032, fontWeight: 400, alpha: 0.85, offset: 1.08 },
-  forest: { height: 0.032, fontWeight: 400, alpha: 0.85, offset: 1.08 },
-  island: { height: 0.026, fontWeight: 400, alpha: 0.8, offset: 1.08 },
-  // Sits just above the marker pin offset (1.055) so labels don't clip into pins.
-  marker: { height: 0.03, fontWeight: 600, alpha: 0.95, offset: 1.09, fill: '#fde68a' },
-};
-
-// Geographic label kinds by zoom tier, mirroring the 2D LOD in labels.ts.
-const GEO_MID_KINDS = new Set(['sea', 'range', 'desert', 'forest']);
-const GEO_SMALL_KINDS = new Set(['island', 'lake']);
-
-// Canvas-texture sprite labels (same recipe as CurvedFactionLabel). The strict
-// CSP (script-src/connect-src 'self') rules out SDF text libraries that spawn
-// blob workers or fetch glyph data from CDNs, so labels stay canvas-rendered.
-const PointLabels: React.FC<{
-  labels: MapLabel[];
-  visibility: LabelVisibility;
-}> = ({ labels, visibility }) => {
-  const groupRef = useRef<THREE.Group>(null);
-  const { camera } = useThree();
-  const worldPos = useMemo(() => new THREE.Vector3(), []);
-  const camDir = useMemo(() => new THREE.Vector3(), []);
-  const projScratch = useMemo(() => new THREE.Vector3(), []);
-  const placedRef = useRef<{ x: number; y: number; w: number; h: number }[]>([]);
-  const lastDeclutterKey = useRef<number>(Number.NaN);
-
-  const filteredLabels = useMemo(() =>
-    labels.filter(l => {
-      if (l.kind === 'faction') return false;
-      if (l.kind === 'capital' && !visibility.capitals) return false;
-      if (l.kind === 'province' && !visibility.provinces) return false;
-      if (l.kind === 'town' && !visibility.towns) return false;
-      if (l.kind === 'marker' && !visibility.markers) return false;
-      // Geographic kinds share a single toggle.
-      if ((GEO_MID_KINDS.has(l.kind) || GEO_SMALL_KINDS.has(l.kind) || l.kind === 'ocean') && !visibility.geography) return false;
-      return true;
-    }),
-    [labels, visibility],
-  );
-
-  const sprites = useMemo(() => {
-    const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
-    return filteredLabels.map((label) => {
-      const config = POINT_LABEL_CONFIG[label.kind] || POINT_LABEL_CONFIG.town;
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      const fontSize = 30 * pixelRatio;
-      const paddingX = 10 * pixelRatio;
-      const paddingY = 8 * pixelRatio;
-      const font = `${config.italic ? 'italic ' : ''}${config.fontWeight} ${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
-
-      if (ctx) {
-        ctx.font = font;
-        const textWidth = Math.ceil(ctx.measureText(label.name).width);
-        canvas.width = Math.max(1, textWidth + paddingX * 2);
-        canvas.height = Math.max(1, fontSize + paddingY * 2);
-        ctx.font = font;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.lineJoin = 'round';
-        ctx.lineWidth = Math.max(4, 5 * pixelRatio);
-        ctx.strokeStyle = '#020617';
-        ctx.fillStyle = config.fill ?? '#f8fafc';
-        ctx.strokeText(label.name, canvas.width / 2, canvas.height / 2);
-        ctx.fillText(label.name, canvas.width / 2, canvas.height / 2);
-      }
-
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.minFilter = THREE.LinearFilter;
-      texture.magFilter = THREE.LinearFilter;
-      texture.generateMipmaps = false;
-
-      const height = config.height;
-      const width = height * (canvas.width / canvas.height);
-      const position = new THREE.Vector3(label.position.x, label.position.y, label.position.z)
-        .normalize()
-        .multiplyScalar(config.offset);
-
-      return { texture, scale: [width, height, 1] as [number, number, number], position, alpha: config.alpha, kind: label.kind };
-    });
-  }, [filteredLabels]);
-
-  useEffect(() => () => {
-    sprites.forEach(s => s.texture.dispose());
-  }, [sprites]);
-
-  // World-unit sprite extents, indexed like `filteredLabels`, so the declutter
-  // pass can size a screen box without touching the Three objects each frame.
-  const spriteBoxes = useMemo(
-    () => sprites.map(sp => ({ w: sp.scale[0], h: sp.scale[1] })),
-    [sprites],
-  );
-
-  // Declutter order: highest priority first, so the greedy pass below keeps the
-  // important label when two collide. Indices into `filteredLabels`, computed
-  // once per label set rather than per frame.
-  const drawOrder = useMemo(() => {
-    const idx = filteredLabels.map((_, i) => i);
-    idx.sort((a, b) => filteredLabels[a].priority - filteredLabels[b].priority);
-    return idx;
-  }, [filteredLabels]);
-
-  useFrame(() => {
-    if (!groupRef.current) return;
-    camDir.copy(camera.position).normalize();
-    const camDist = camera.position.length();
-    const children = groupRef.current.children;
-
-    // Redraw gating: decluttering is O(kept^2) in screen rectangles, far too
-    // costly to redo every frame at 200k cells. The result only changes when the
-    // camera pose or the globe's spin changes, so quantize both and skip
-    // identical frames — same trick as ScreenOverlay's matrix key.
-    const gm = groupRef.current.matrixWorld.elements;
-    let key = (camDist * 100) | 0;
-    for (let i = 0; i < 16; i += 5) key = (key * 31 + ((gm[i] * 200) | 0)) | 0;
-    key = (key * 31 + ((camDir.x * 200) | 0)) | 0;
-    key = (key * 31 + ((camDir.y * 200) | 0)) | 0;
-    key = (key * 31 + ((camDir.z * 200) | 0)) | 0;
-    if (key === lastDeclutterKey.current) return;
-    lastDeclutterKey.current = key;
-
-    const placed = placedRef.current;
-    placed.length = 0;
-
-    for (const i of drawOrder) {
-      const label = filteredLabels[i];
-      const child = children[i];
-      if (!label || !child) continue;
-
-      // Labels live inside the spinning globe group — cull against the
-      // sprite's world-space direction, not its unrotated data position.
-      child.getWorldPosition(worldPos);
-      const dir = worldPos.clone().normalize();
-      let visible = dir.dot(camDir) > -0.1;
-
-      if (visible) {
-        if (label.kind === 'town' && camDist > 2) visible = false;
-        else if (label.kind === 'province' && camDist > 3) visible = false;
-        else if (label.kind === 'capital' && camDist > 4) visible = false;
-        // Geographic LOD: oceans always; mid kinds up close-ish; small kinds nearest.
-        else if (GEO_SMALL_KINDS.has(label.kind) && camDist > 2.5) visible = false;
-        else if (GEO_MID_KINDS.has(label.kind) && camDist > 3.5) visible = false;
-      }
-
-      if (visible) {
-        // Greedy screen-space declutter — the piece this path never had. The 2D
-        // renderer has done this since A1 (drawMapLabels); the sprite path only
-        // ever culled by hemisphere and distance, so every surviving label drew
-        // regardless of overlap. That is what floods the globe once feature
-        // counts scale with cell count.
-        const sprite = spriteBoxes[i];
-        projScratch.copy(worldPos).project(camera);
-        const sx = (projScratch.x + 1) / 2;
-        const sy = (1 - (projScratch.y + 1) / 2);
-        // Sprite scale is world units; convert to an approximate screen box via
-        // the same perspective divide the renderer applies.
-        const halfW = sprite.w / Math.max(0.001, camDist) * 0.5;
-        const halfH = sprite.h / Math.max(0.001, camDist) * 0.5;
-        const box = { x: sx - halfW, y: sy - halfH, w: halfW * 2, h: halfH * 2 };
-
-        for (let p = 0; p < placed.length; p++) {
-          const o = placed[p];
-          if (box.x < o.x + o.w && box.x + box.w > o.x && box.y < o.y + o.h && box.y + box.h > o.y) {
-            visible = false;
-            break;
-          }
-        }
-        if (visible) placed.push(box);
-      }
-
-      child.visible = visible;
-    }
-  });
-
-  if (sprites.length === 0) return null;
-
-  return (
-    <Group ref={groupRef}>
-      {sprites.map((sprite, i) => (
-        <Sprite key={i} position={sprite.position} scale={sprite.scale} renderOrder={8}>
-          <SpriteMaterial
-            map={sprite.texture}
-            transparent
-            opacity={sprite.alpha}
-            depthTest
-            depthWrite={false}
-            toneMapped={false}
-          />
-        </Sprite>
-      ))}
-    </Group>
-  );
-};
-
 const DymaxionOverlay: React.FC<{ settings: DymaxionSettings }> = ({ settings }) => {
   const { faceGeometry, edgeGeometry } = useMemo(() => {
     const faceGeometry = new THREE.IcosahedronGeometry(1.12, 0);
@@ -732,6 +526,13 @@ const WorldMesh: React.FC<{
   const paintPointerActive = useRef(false);
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const mapLabels = useMemo(() => collectLabels(world), [world]);
+  // Per-label terrain height for the F2 labels tenant (plan §2). Memoized on
+  // [mapLabels, world.cells] — NOT smoothGlobe, since height is
+  // radius-independent (displayRadius applies smooth/raised at draw time).
+  const labelAnchors = useMemo(
+    () => computeLabelAnchors(mapLabels, world.cells),
+    [mapLabels, world.cells],
+  );
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
   const pointer = useMemo(() => new THREE.Vector2(), []);
   const { camera, gl } = useThree();
@@ -1017,8 +818,9 @@ const WorldMesh: React.FC<{
 
   // F2 screen-space overlay tenants. Painting order is array order: rivers sit
   // under everything (ROUTE_LIFT's comment notes routes sit "over rivers"), then
-  // contours (terrain annotation), then currents, then routes, with the
-  // graticule last so the reference grid is never occluded.
+  // contours (terrain annotation), then currents, then routes, then borders,
+  // then the graticule, with LABELS LAST (plan §5) so they sit on top of every
+  // other overlay.
   const overlayTenants = useMemo<OverlayTenant[]>(() => [
     { id: 'rivers', visible: showRivers && riverPolylines.length > 0,
       draw: (ctx, _proj, _world, project, smooth) => drawRiversTenant(ctx, riverPolylines, project, smooth) },
@@ -1031,7 +833,26 @@ const WorldMesh: React.FC<{
     { id: 'borders', visible: labelVisibility.borders && borderSegments.length > 0,
       draw: (ctx, _proj, _world, project, smooth) => drawBordersTenant(ctx, borderSegments, project, smooth) },
     { id: 'graticule', visible: showGrid, draw: drawGraticuleTenant },
-  ], [showRivers, riverPolylines, showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, labelVisibility.borders, borderSegments, showGrid]);
+    // Labels last, on top of everything (plan §5). camDist is read live at
+    // draw time (camera is a stable reference from useThree, not a memo dep)
+    // so it never goes stale between redraws — same as the old PointLabels.
+    //
+    // ScreenOverlay's redraw gate is keyed on `active tenant ids + camera/globe
+    // matrix` (see ScreenOverlay.tsx) — it has no idea what a tenant's `draw`
+    // closure reads. Every OTHER visibility toggle in this array (borders,
+    // routes, contours...) is one boolean mapped straight to `visible`, so
+    // toggling it changes which ids are in `active` and the key changes with
+    // it. `drawLabelsTenant` instead multiplexes FIVE independent toggles
+    // (capitals/towns/provinces/geography/markers) through `labelVisibility`
+    // inside the draw body, which the key can't see — so a toggle silently
+    // no-ops until the next unrelated redraw (e.g. an orbit move). Folding the
+    // flags into the id is the id-based idiom this seam already uses, applied
+    // to a many-flags tenant instead of a one-flag tenant.
+    { id: `labels:${[labelVisibility.capitals, labelVisibility.towns, labelVisibility.provinces, labelVisibility.geography, labelVisibility.markers].map(Number).join('')}`,
+      visible: labelAnchors.length > 0,
+      draw: (ctx, _proj, _world, project, smooth) =>
+        drawLabelsTenant(ctx, labelAnchors, project, smooth, camera.position.length(), labelVisibility) },
+  ], [showRivers, riverPolylines, showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, labelVisibility, borderSegments, showGrid, labelAnchors, camera]);
 
   return (
     <Group>
@@ -1052,14 +873,17 @@ const WorldMesh: React.FC<{
                 <CityMarkers world={world} viewMode={viewMode} smoothGlobe={smoothGlobe} />
                 <MarkerPins markers={world.markers ?? []} visible={labelVisibility.markers} />
                 <React.Suspense fallback={null}>
+                    {/* CurvedFactionLabel stays 3D (curved textured meshes) — F2 does not
+                        flatten faction names to Canvas2D (plan §1). */}
                     <CountryLabels world={world} visible={labelVisibility.factions} />
-                    <PointLabels labels={mapLabels} visibility={labelVisibility} />
                 </React.Suspense>
                 {/* Faction borders migrated to ScreenOverlay (F2 borders tenant). */}
                 {/* Rivers migrated to ScreenOverlay (F2 rivers tenant). */}
                 {/* Roads & sea routes migrated to ScreenOverlay (F2 routes tenant). */}
                 {/* Contour lines migrated to ScreenOverlay (F2 contours tenant). */}
                 {/* Lat/long grid migrated to ScreenOverlay (F2 graticule tenant). */}
+                {/* Point labels (capitals/provinces/towns/geography/markers) migrated
+                    to ScreenOverlay (F2 labels tenant, S22 — last tenant). */}
                 {showGrid && <TiltAxisLine radius={1.35} />}
                 {/* Cell highlight outline */}
                 {highlightCellId !== null && world.cells[highlightCellId] && (
