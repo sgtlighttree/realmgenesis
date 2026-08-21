@@ -9,7 +9,7 @@ import { displayRadius } from '../utils/displayRadius';
 import { computeShadeMap, computeContourSegments } from '../utils/shading';
 import { collectLabels, MapLabel } from '../utils/labels';
 import { ScreenOverlay, OverlayTenant } from './overlays/ScreenOverlay';
-import { drawCurrentsTenant, drawGraticuleTenant, drawRoutesTenant } from './overlays/tenants';
+import { drawCurrentsTenant, drawGraticuleTenant, drawRoutesTenant, drawContoursTenant } from './overlays/tenants';
 
 const Mesh = 'mesh' as any;
 const Group = 'group' as any;
@@ -27,6 +27,10 @@ type R3FIntrinsic = React.FC<{ children?: React.ReactNode } & Record<string, unk
 const Sprite = 'sprite' as unknown as R3FIntrinsic;
 const SpriteMaterial = 'spriteMaterial' as unknown as R3FIntrinsic;
 const OctahedronGeometry = 'octahedronGeometry' as unknown as R3FIntrinsic;
+
+// Contour band spacing in normalized height. Shared with the 2D pipelines,
+// which pass the same 0.1 literal (utils/export.ts, components/Map2D.tsx).
+const CONTOUR_INTERVAL = 0.1;
 
 const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode; smoothGlobe?: boolean }> = ({ world, viewMode, smoothGlobe = false }) => {
     const capitalsRef = useRef<THREE.InstancedMesh>(null);
@@ -533,44 +537,6 @@ const FactionBorders: React.FC<{ world: WorldData; visible: boolean; smoothGlobe
   );
 };
 
-const CONTOUR_INTERVAL = 0.1;
-// Isolines float just above the tallest terrain (max hMult = 1 + 1*0.05 = 1.05).
-// Segments carry no per-level height, so a single fixed radius keeps them out of
-// z-fighting range everywhere — chunky cell-edge lines, consistent with the aesthetic.
-const CONTOUR_RADIUS = 1.053;
-
-const ContourLines: React.FC<{ world: WorldData; visible: boolean; smoothGlobe?: boolean }> = ({ world, visible, smoothGlobe = false }) => {
-  // Keyed on world identity: heights mutate in place on paint and WorldData is
-  // shallow-copied, so isolines must recompute per stroke.
-  const geometry = useMemo(() => {
-    if (!visible) return null;
-    const segments = computeContourSegments(world.cells, world.params.seaLevel, CONTOUR_INTERVAL);
-    if (segments.length === 0) return null;
-
-    // Smooth globe: drop the isolines to just above the unit sphere.
-    const radius = smoothGlobe ? 1.001 : CONTOUR_RADIUS;
-    const positions: number[] = [];
-    segments.forEach(([p1, p2]) => {
-      positions.push(p1[0] * radius, p1[1] * radius, p1[2] * radius);
-      positions.push(p2[0] * radius, p2[1] * radius, p2[2] * radius);
-    });
-
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    return geo;
-  }, [world, visible, smoothGlobe]);
-
-  useEffect(() => () => { geometry?.dispose(); }, [geometry]);
-
-  if (!geometry) return null;
-
-  return (
-    <LineSegments geometry={geometry} renderOrder={4}>
-      <LineBasicMaterial color="#3a2a1a" linewidth={1} opacity={0.35} transparent depthTest={true} />
-    </LineSegments>
-  );
-};
-
 const DymaxionOverlay: React.FC<{ settings: DymaxionSettings }> = ({ settings }) => {
   const { faceGeometry, edgeGeometry } = useMemo(() => {
     const faceGeometry = new THREE.IcosahedronGeometry(1.12, 0);
@@ -1046,13 +1012,26 @@ const WorldMesh: React.FC<{
       if (inspectMode === 'hover' && !isPaintMode) onHover(null);
   }, [inspectMode, isPaintMode, onHover]);
 
-  // F2 screen-space overlay tenants.
+  // Isolines are an O(cells x neighbors) sweep, so they are memoized here and
+  // closed over by the tenant rather than recomputed on every overlay redraw.
+  // Keyed on world identity: heights mutate in place on paint and WorldData is
+  // shallow-copied, so isolines must recompute per stroke.
+  const contourSegments = useMemo(
+    () => (showContours ? computeContourSegments(world.cells, world.params.seaLevel, CONTOUR_INTERVAL) : []),
+    [world, showContours],
+  );
+
+  // F2 screen-space overlay tenants. Painting order is array order: contours sit
+  // under everything (they are terrain annotation), then currents, then routes,
+  // with the graticule last so the reference grid is never occluded.
   const overlayTenants = useMemo<OverlayTenant[]>(() => [
+    { id: 'contours', visible: showContours && contourSegments.length > 0,
+      draw: (ctx, _proj, _world, project, smooth) => drawContoursTenant(ctx, contourSegments, project, smooth) },
     { id: 'currents', visible: showCurrents && !!world.currents, draw: drawCurrentsTenant },
     // Routes above the current field so dashed sea routes read over the arrows.
     { id: 'routes', visible: showRoutes && !!world.routes, draw: drawRoutesTenant },
     { id: 'graticule', visible: showGrid, draw: drawGraticuleTenant },
-  ], [showCurrents, world.currents, showRoutes, world.routes, showGrid]);
+  ], [showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, showGrid]);
 
   return (
     <Group>
@@ -1078,7 +1057,7 @@ const WorldMesh: React.FC<{
                 <FactionBorders world={world} visible={labelVisibility.borders} smoothGlobe={smoothGlobe} />
                 <RiverLines world={world} visible={showRivers} smoothGlobe={smoothGlobe} />
                 {/* Roads & sea routes migrated to ScreenOverlay (F2 routes tenant). */}
-                <ContourLines world={world} visible={showContours} smoothGlobe={smoothGlobe} />
+                {/* Contour lines migrated to ScreenOverlay (F2 contours tenant). */}
                 {/* Lat/long grid migrated to ScreenOverlay (F2 graticule tenant). */}
                 {showGrid && <TiltAxisLine radius={1.35} />}
                 {/* Cell highlight outline */}
