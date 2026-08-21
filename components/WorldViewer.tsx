@@ -6,7 +6,7 @@ import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMo
 import { getCellColor } from '../utils/colors';
 import { seasonalTemperatureDelta } from '../utils/seasons';
 import { displayRadius } from '../utils/displayRadius';
-import { computeShadeMap, computeContourSegments } from '../utils/shading';
+import { computeShadeMap, computeContourSegments, contourInterval } from '../utils/shading';
 import { collectLabels, MapLabel } from '../utils/labels';
 import { ScreenOverlay, OverlayTenant } from './overlays/ScreenOverlay';
 import { drawCurrentsTenant, drawGraticuleTenant, drawRoutesTenant, drawContoursTenant } from './overlays/tenants';
@@ -52,10 +52,6 @@ const GlobeSpin: React.FC<{ target: React.RefObject<THREE.Group | null>; paused:
 // Plate widening used to close the seams between cells of differing height.
 // 1 = untouched (seams visible, the pre-existing look).
 const CELL_OVERHANG = 1.03;
-
-// Contour band spacing in normalized height. Shared with the 2D pipelines,
-// which pass the same 0.1 literal (utils/export.ts, components/Map2D.tsx).
-const CONTOUR_INTERVAL = 0.1;
 
 const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode; smoothGlobe?: boolean }> = ({ world, viewMode, smoothGlobe = false }) => {
     const capitalsRef = useRef<THREE.InstancedMesh>(null);
@@ -388,6 +384,9 @@ const PointLabels: React.FC<{
   const { camera } = useThree();
   const worldPos = useMemo(() => new THREE.Vector3(), []);
   const camDir = useMemo(() => new THREE.Vector3(), []);
+  const projScratch = useMemo(() => new THREE.Vector3(), []);
+  const placedRef = useRef<{ x: number; y: number; w: number; h: number }[]>([]);
+  const lastDeclutterKey = useRef<number>(Number.NaN);
 
   const filteredLabels = useMemo(() =>
     labels.filter(l => {
@@ -449,18 +448,54 @@ const PointLabels: React.FC<{
     sprites.forEach(s => s.texture.dispose());
   }, [sprites]);
 
+  // World-unit sprite extents, indexed like `filteredLabels`, so the declutter
+  // pass can size a screen box without touching the Three objects each frame.
+  const spriteBoxes = useMemo(
+    () => sprites.map(sp => ({ w: sp.scale[0], h: sp.scale[1] })),
+    [sprites],
+  );
+
+  // Declutter order: highest priority first, so the greedy pass below keeps the
+  // important label when two collide. Indices into `filteredLabels`, computed
+  // once per label set rather than per frame.
+  const drawOrder = useMemo(() => {
+    const idx = filteredLabels.map((_, i) => i);
+    idx.sort((a, b) => filteredLabels[a].priority - filteredLabels[b].priority);
+    return idx;
+  }, [filteredLabels]);
+
   useFrame(() => {
     if (!groupRef.current) return;
     camDir.copy(camera.position).normalize();
     const camDist = camera.position.length();
+    const children = groupRef.current.children;
 
-    groupRef.current.children.forEach((child, i) => {
+    // Redraw gating: decluttering is O(kept^2) in screen rectangles, far too
+    // costly to redo every frame at 200k cells. The result only changes when the
+    // camera pose or the globe's spin changes, so quantize both and skip
+    // identical frames — same trick as ScreenOverlay's matrix key.
+    const gm = groupRef.current.matrixWorld.elements;
+    let key = (camDist * 100) | 0;
+    for (let i = 0; i < 16; i += 5) key = (key * 31 + ((gm[i] * 200) | 0)) | 0;
+    key = (key * 31 + ((camDir.x * 200) | 0)) | 0;
+    key = (key * 31 + ((camDir.y * 200) | 0)) | 0;
+    key = (key * 31 + ((camDir.z * 200) | 0)) | 0;
+    if (key === lastDeclutterKey.current) return;
+    lastDeclutterKey.current = key;
+
+    const placed = placedRef.current;
+    placed.length = 0;
+
+    for (const i of drawOrder) {
       const label = filteredLabels[i];
-      if (!label) return;
+      const child = children[i];
+      if (!label || !child) continue;
+
       // Labels live inside the spinning globe group — cull against the
       // sprite's world-space direction, not its unrotated data position.
-      child.getWorldPosition(worldPos).normalize();
-      let visible = worldPos.dot(camDir) > -0.1;
+      child.getWorldPosition(worldPos);
+      const dir = worldPos.clone().normalize();
+      let visible = dir.dot(camDir) > -0.1;
 
       if (visible) {
         if (label.kind === 'town' && camDist > 2) visible = false;
@@ -471,8 +506,34 @@ const PointLabels: React.FC<{
         else if (GEO_MID_KINDS.has(label.kind) && camDist > 3.5) visible = false;
       }
 
+      if (visible) {
+        // Greedy screen-space declutter — the piece this path never had. The 2D
+        // renderer has done this since A1 (drawMapLabels); the sprite path only
+        // ever culled by hemisphere and distance, so every surviving label drew
+        // regardless of overlap. That is what floods the globe once feature
+        // counts scale with cell count.
+        const sprite = spriteBoxes[i];
+        projScratch.copy(worldPos).project(camera);
+        const sx = (projScratch.x + 1) / 2;
+        const sy = (1 - (projScratch.y + 1) / 2);
+        // Sprite scale is world units; convert to an approximate screen box via
+        // the same perspective divide the renderer applies.
+        const halfW = sprite.w / Math.max(0.001, camDist) * 0.5;
+        const halfH = sprite.h / Math.max(0.001, camDist) * 0.5;
+        const box = { x: sx - halfW, y: sy - halfH, w: halfW * 2, h: halfH * 2 };
+
+        for (let p = 0; p < placed.length; p++) {
+          const o = placed[p];
+          if (box.x < o.x + o.w && box.x + box.w > o.x && box.y < o.y + o.h && box.y + box.h > o.y) {
+            visible = false;
+            break;
+          }
+        }
+        if (visible) placed.push(box);
+      }
+
       child.visible = visible;
-    });
+    }
   });
 
   if (sprites.length === 0) return null;
@@ -1050,7 +1111,7 @@ const WorldMesh: React.FC<{
   // Keyed on world identity: heights mutate in place on paint and WorldData is
   // shallow-copied, so isolines must recompute per stroke.
   const contourSegments = useMemo(
-    () => (showContours ? computeContourSegments(world.cells, world.params.seaLevel, CONTOUR_INTERVAL) : []),
+    () => (showContours ? computeContourSegments(world.cells, world.params.seaLevel, contourInterval(world.cells, world.params.seaLevel)) : []),
     [world, showContours],
   );
 

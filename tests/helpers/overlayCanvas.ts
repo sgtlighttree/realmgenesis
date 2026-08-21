@@ -5,8 +5,10 @@ import { Cell, WorldData } from '../../types';
 // be recorded without jsdom canvas support.
 
 export interface CanvasOp {
-  op: 'beginPath' | 'moveTo' | 'lineTo' | 'stroke' | 'fill' | 'arc' | 'setLineDash';
+  op: 'beginPath' | 'moveTo' | 'lineTo' | 'stroke' | 'fill' | 'arc' | 'setLineDash'
+    | 'save' | 'restore' | 'strokeText' | 'fillText';
   args: number[];
+  text?: string;
 }
 
 export interface FakeCtx {
@@ -39,6 +41,13 @@ export function makeFakeCtx(): FakeCtx & CanvasRenderingContext2D {
       dashHistory.push([...d]);
       ops.push({ op: 'setLineDash', args: [...d] });
     },
+    save() { ops.push({ op: 'save', args: [] }); },
+    restore() { ops.push({ op: 'restore', args: [] }); },
+    strokeText(t: string, x: number, y: number) { ops.push({ op: 'strokeText', args: [x, y], text: t }); },
+    fillText(t: string, x: number, y: number) { ops.push({ op: 'fillText', args: [x, y], text: t }); },
+    font: '',
+    textAlign: '' as CanvasTextAlign,
+    textBaseline: '' as CanvasTextBaseline,
   };
   return ctx as unknown as FakeCtx & CanvasRenderingContext2D;
 }
