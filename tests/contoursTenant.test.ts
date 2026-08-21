@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { drawContoursTenant, CONTOUR_LIFT } from '../components/overlays/tenants';
-import { computeContourSegments, ContourSegment, CONTOUR_INDEX_EVERY } from '../utils/shading';
+import {
+  computeContourSegments, ContourSegment, CONTOUR_INDEX_EVERY,
+  contourInterval, CONTOUR_TARGET_LEVELS, contourLabel,
+} from '../utils/shading';
 import { Cell, BiomeType } from '../types';
 import { makeFakeCtx, makeProjector } from './helpers/overlayCanvas';
 
@@ -27,8 +30,8 @@ const pair = (hA: number, hB: number): Cell[] => [
   makeCell(1, hB, [0], [{ ...v1 }, { ...v2 }, { ...far }]),
 ];
 
-const seg = (height: number, index: boolean): ContourSegment => ({
-  a: [0, 1, 0], b: [0, 0, 1], height, index,
+const seg = (height: number, index: boolean, elevation = SL + 0.1): ContourSegment => ({
+  a: [0, 1, 0], b: [0, 0, 1], height, index, elevation,
 });
 
 describe('contour segment metadata', () => {
@@ -46,13 +49,26 @@ describe('contour segment metadata', () => {
   });
 
   it('flags an index contour on every CONTOUR_INDEX_EVERY-th level', () => {
-    // bands 0 and 1 straddle level 1; bands 1 and 2 straddle level 2.
-    const lvl1 = computeContourSegments(pair(SL + 0.05, SL + 0.15), SL, 0.1);
-    const lvl2 = computeContourSegments(pair(SL + 0.15, SL + 0.25), SL, 0.1);
-    expect(lvl1[0].index).toBe(1 % CONTOUR_INDEX_EVERY === 0);
-    expect(lvl2[0].index).toBe(2 % CONTOUR_INDEX_EVERY === 0);
-    // With the shipped setting the two must differ — that IS the alternation.
-    expect(lvl1[0].index).not.toBe(lvl2[0].index);
+    // Asserts the RULE across levels rather than one constant's alternation:
+    // the previous form encoded CONTOUR_INDEX_EVERY === 2 and broke when the
+    // adaptive interval let the standard 5th be restored.
+    const interval = 0.02;
+    for (let level = 1; level <= 2 * CONTOUR_INDEX_EVERY; level++) {
+      // Two cells straddling exactly this level: band level-1 and band level.
+      const below = SL + (level - 1) * interval + interval / 2;
+      const above = SL + level * interval + interval / 2;
+      const segs = computeContourSegments(pair(below, above), SL, interval);
+      expect(segs).toHaveLength(1);
+      expect(segs[0].index).toBe(level % CONTOUR_INDEX_EVERY === 0);
+    }
+  });
+
+  it('carries the elevation of the contour LINE, not either cell height', () => {
+    const interval = 0.02;
+    const segs = computeContourSegments(pair(SL + 0.01, SL + 0.03), SL, interval);
+    // bands 0 and 1 straddle level 1 -> the line sits at seaLevel + 1*interval.
+    expect(segs[0].elevation).toBeCloseTo(SL + interval, 6);
+    expect(segs[0].elevation).not.toBeCloseTo(segs[0].height, 6);
   });
 });
 
@@ -105,5 +121,63 @@ describe('contours overlay tenant', () => {
     const ctx = makeFakeCtx();
     drawContoursTenant(ctx, [], makeProjector().project, false);
     expect(ctx.ops).toHaveLength(0);
+  });
+});
+
+describe('adaptive contour interval', () => {
+  const world = (heights: number[]): Cell[] =>
+    heights.map((h, i) => makeCell(i, h, [], [v1, v2, { ...far }]));
+
+  it('yields roughly CONTOUR_TARGET_LEVELS bands regardless of relief', () => {
+    // A flat world and an alpine one must both get a usable number of lines.
+    // The shipped fixed 0.1 gave four possible levels on a default world
+    // (seaLevel 0.55), which is what made contours read as blobby outlines.
+    for (const max of [0.6, 0.75, 1.0]) {
+      const interval = contourInterval(world([SL, max]), SL);
+      const levels = (max - SL) / interval;
+      expect(levels).toBeGreaterThan(CONTOUR_TARGET_LEVELS / 3);
+      expect(levels).toBeLessThan(CONTOUR_TARGET_LEVELS * 3);
+    }
+  });
+
+  it('beats the old fixed 0.1 on a default-relief world', () => {
+    const cells = world([SL, 0.75]);
+    const adaptive = (0.75 - SL) / contourInterval(cells, SL);
+    const fixed = (0.75 - SL) / 0.1;
+    expect(fixed).toBeLessThan(3);           // the bug: two lines of terrain
+    expect(adaptive).toBeGreaterThan(fixed); // the fix
+  });
+
+  it('returns 0 when there is no land above sea level', () => {
+    expect(contourInterval(world([0.1, 0.3, SL]), SL)).toBe(0);
+    // and computeContourSegments treats 0 as "no contours" rather than dividing
+    expect(computeContourSegments(world([0.1, 0.3]), SL, 0)).toHaveLength(0);
+  });
+});
+
+describe('contour elevation labels', () => {
+  it('reads out the line elevation as a percentage', () => {
+    expect(contourLabel(0.68)).toBe('68%');
+    expect(contourLabel(SL)).toBe('55%');
+  });
+
+  it('thins labels so they do not stack, and caps the total', () => {
+    // 200 index segments all projecting near the same spot: the min-gap rule
+    // must collapse them to a handful, not draw 200 overlapping readouts.
+    const segs: ContourSegment[] = [];
+    for (let i = 0; i < 200; i++) segs.push(seg(0.8, true, SL + 0.1));
+    const ctx = makeFakeCtx();
+    drawContoursTenant(ctx, segs, makeProjector().project, true);
+
+    const drawn = ctx.ops.filter(o => o.op === 'fillText');
+    expect(drawn.length).toBeGreaterThan(0);
+    expect(drawn.length).toBeLessThan(5); // all coincident -> essentially one
+    expect(drawn[0].text).toBe('65%');
+  });
+
+  it('labels only index contours', () => {
+    const ctx = makeFakeCtx();
+    drawContoursTenant(ctx, [seg(0.8, false, SL + 0.1)], makeProjector().project, true);
+    expect(ctx.ops.filter(o => o.op === 'fillText')).toHaveLength(0);
   });
 });

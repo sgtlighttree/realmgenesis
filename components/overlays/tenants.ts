@@ -6,7 +6,7 @@ import { WorldData } from '../../types';
 import { ProjectedCells } from '../../utils/screenProject';
 import { displayRadius } from '../../utils/displayRadius';
 import { nearestCellWalk, nearestCellBrute } from '../../utils/nearestCell';
-import { ContourSegment, contourStroke } from '../../utils/shading';
+import { ContourSegment, contourStroke, contourLabel } from '../../utils/shading';
 import { LocalProjector } from './ScreenOverlay';
 
 // --- currents draw constants (single source; also consumed by Map2D, Task 6) ---
@@ -256,6 +256,10 @@ export function drawContoursTenant(
   const p2: [number, number] = [0, 0];
   ctx.lineCap = 'round';
 
+  // Index-contour label anchors, collected during the index pass so the text can
+  // be drawn on top of every line rather than under later ones.
+  const anchors: { x: number; y: number; text: string }[] = [];
+
   for (const indexPass of [false, true]) {
     ctx.strokeStyle = contourStroke(indexPass);
     ctx.lineWidth = indexPass ? CONTOUR_BASE_WIDTH * 2 : CONTOUR_BASE_WIDTH;
@@ -269,7 +273,60 @@ export function drawContoursTenant(
       if (!project(seg.b[0] * r, seg.b[1] * r, seg.b[2] * r, p2)) continue;
       ctx.moveTo(p1[0], p1[1]);
       ctx.lineTo(p2[0], p2[1]);
+
+      if (indexPass) {
+        // A contour is only informative if you can read a value off it. Spacing
+        // is enforced below; collect every candidate midpoint here because
+        // segments arrive in cell order, not along-line order, so there is no
+        // cheap way to walk a contour and label it at intervals.
+        anchors.push({
+          x: (p1[0] + p2[0]) / 2,
+          y: (p1[1] + p2[1]) / 2,
+          text: contourLabel(seg.elevation),
+        });
+      }
     }
     ctx.stroke();
   }
+
+  drawContourLabels(ctx, anchors);
+}
+
+const LABEL_MIN_GAP = 110; // px between elevation labels
+const LABEL_MAX = 40;      // hard cap; beyond this the map is noise, not data
+
+// Greedy min-distance thinning of index-contour labels. Squared-distance
+// rejection against what is already placed — the same greedy shape the map
+// labels use, and cheap enough at the caps above.
+function drawContourLabels(
+  ctx: CanvasRenderingContext2D,
+  anchors: { x: number; y: number; text: string }[],
+): void {
+  if (anchors.length === 0) return;
+  const placed: { x: number; y: number }[] = [];
+  const minGapSq = LABEL_MIN_GAP * LABEL_MIN_GAP;
+
+  ctx.save();
+  ctx.font = '600 10px Inter, ui-sans-serif, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(2, 6, 23, 0.85)'; // halo, so text reads over terrain
+  ctx.fillStyle = contourStroke(true);
+
+  for (const a of anchors) {
+    if (placed.length >= LABEL_MAX) break;
+    let ok = true;
+    for (let i = 0; i < placed.length; i++) {
+      const dx = a.x - placed[i].x;
+      const dy = a.y - placed[i].y;
+      if (dx * dx + dy * dy < minGapSq) { ok = false; break; }
+    }
+    if (!ok) continue;
+    placed.push(a);
+    ctx.strokeText(a.text, a.x, a.y);
+    ctx.fillText(a.text, a.x, a.y);
+  }
+  ctx.restore();
 }
