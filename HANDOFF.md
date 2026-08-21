@@ -163,14 +163,36 @@ Three real reasons it moved:
 `tests/bordersTenant.test.ts` builds a purpose-made two-cell pair instead, rather
 than extending the shared helper and risking the routes/graticule suites.
 
-Gates on this commit: typecheck 0 · lint 0/29 · build OK, worker chunk unchanged
-at 87.06KB · **241 tests / 35 files**, full suite green in one run (paramLiveness
-included, load average 5).
+Gates: typecheck 0 · lint 0/29 · build OK, worker chunk unchanged at 87.06KB ·
+**242 tests / 35 files** (241 at `83433ca`, +1 at `033aa25`), full suite green in
+one run (paramLiveness included, load average 5).
+
+**Review fixes, commit `033aa25`:**
+
+- The tenant's `visible` flag read only `borderSegments.length > 0`. That worked
+  — the memo returns `[]` when the toggle is off — but diverged from all four
+  siblings and would hide the tenant on a world with `civData` and zero border
+  edges (one faction covering everything). Now reads `labelVisibility.borders`
+  directly, matching contours.
+- **The two-cell fixture could not prove the extraction.** The rewrite swapped a
+  `Point[]` accumulator for two scalars, and those differ only when a THIRD
+  corner falls within `SHARED_EPS_SQ`. A toy pair with one shared edge cannot
+  reach that case. `tests/bordersTenant.test.ts` now transcribes the
+  pre-migration loop as an oracle and compares edge counts on a generated world,
+  where cells carry 5–7 vertices. Counts match — the rewrite is proven on real
+  geometry, not just on the fixture.
 
 **Not verified in the browser.** The change is covered by unit tests asserting
 the radius per `smooth` value and the horizon drop, but nobody has looked at the
 globe. Worth one Playwright pass before the next tenant — and kill the chromium
 tree afterward (see the trap list above).
+
+One thing to look at in that pass: borders now paint **above** routes, and the
+screen-space version is culled only by the analytic limb, not by terrain. The old
+3D borders were depth-tested against the mesh, so a border crossing a ridge could
+disappear behind it. It no longer does. That is the intended consequence of the
+migration, but if it reads wrong the fix is **paint order, not radius** — the
+radius is covered by tests and was never the defect here.
 
 ## Session 19f (2026-08-21) — coupling dropped; branch merged to main
 
