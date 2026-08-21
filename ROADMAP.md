@@ -308,7 +308,7 @@ A full redesign and rearchitecture is warranted here.
 Can come *before or alongside* D6 with the roadmap in mind.
 
 # F2. 3D Mode Presentation  —  🟡 PARTIAL
-> _ScreenOverlay foundation + ocean-current viz + graticule migration shipped Session 16; remaining overlay migrations (borders/rivers/roads/contours/labels) + smooth-globe option TODO_
+> _ScreenOverlay foundation + ocean-current viz + graticule migration shipped Session 16; smooth-globe + graticule drape Sessions 17-18; roads/routes migrated + draped Session 19. Remaining overlay migrations (contours/borders/rivers/labels) TODO_
 Part of redesign is figuring out how the planet is presented; overlays like borders, rivers and roads and routes and the lat/lon grid are also 3D objects, not 2D overlays simply composited over the 3D globe, which affects visibility and accuracy. Or maybe make the globe entirely smooth by default, instead of applying height per cell. Perhaps 3D mode should more like Google Earth Pro in this respect.
 
 - **Ocean-current visualization** (from D2): a currents overlay drawing the
@@ -326,8 +326,14 @@ Part of redesign is figuring out how the planet is presented; overlays like bord
   globe. v1 lands **two tenants** to prove the abstraction generalizes: the currents
   field **and the graticule** migrated off its 3D `lineSegments`.
   **Future tenants to migrate onto `ScreenOverlay` (a documented queue, not drift):**
-  **roads/routes** and **contour lines** should become fully 2D as well, then borders,
-  rivers, and labels. Each is its own increment; do not migrate them all at once.
+  **contour lines** next, then borders, rivers, and labels. Each is its own increment;
+  do not migrate them all at once. Roads/routes landed in Session 19.
+
+  Every tenant must render correctly in BOTH globe modes, keyed off `smoothGlobe`:
+  flat on the unit sphere when smooth, draped over relief when raised. A tenant's
+  radius must equal the terrain mesh's — `displayRadius(cell.height, smooth)`, with
+  the height RAW — and must assert that equality in a test. "Parallax-free by
+  construction" without such a test is exactly how the S18 graticule bug shipped.
 
 # F3. True 2D vector map  —  ⬜ TODO
 Make it a true vector map like most web mapping apps, but keep it as optimized as possible

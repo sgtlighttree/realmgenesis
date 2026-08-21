@@ -31,6 +31,91 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## Session 19 (2026-08-21) — F2 routes tenant + the real parallax cause
+
+On branch **`f2-drape-graticule`** (continues S18; still **NOT merged / NOT
+pushed**). Commits `617f25d` (graticule clamp fix), `b51d79a` (routes migration),
+`be39bbd` (route drape). Gates: typecheck 0, lint 0/29, build OK (worker chunk
+unchanged 87.06KB — all render-side), suite 213 tests / 32 files.
+
+### ⚠️ S18's "parallax eliminated by construction" was WRONG — corrected
+
+**Matt's report refuted it:** the draped graticule still showed noticeable
+parallax. **Cause, confirmed in code (not inferred):** the terrain mesh renders
+every cell at `displayRadius(cell.height, smooth)` with **raw** height
+(`WorldViewer.tsx` refill, ~L918), but S18's drape used
+`1 + max(cell.height, seaLevel) * 0.05`. The clamp floated the grid above every
+**ocean** cell by `(seaLevel − height) · 0.05` — comparable to half the whole
+relief span, over most of the globe.
+
+S18's reasoning for the clamp was that the grid should ride the water surface.
+**There is no water surface.** Ocean cells render at their true seafloor radius
+and are merely coloured blue. S18's claim held **on land only**, which is why it
+survived a land-focused visual check.
+
+The generalisable lesson: S18 argued zero parallax "by construction" but never
+asserted the construction — that the tenant's radius equals the mesh's radius —
+in a test. Every tenant now has that assertion, per `smooth` value. **Any new
+tenant needs one; "by construction" is not evidence.**
+
+### What shipped
+
+- **Graticule** drapes at raw terrain radius (`617f25d`).
+- **Roads & sea routes migrated off 3D `LineSegments`** onto `ScreenOverlay`
+  (`b51d79a`), then draped per cell (`be39bbd`). `RouteLines` /
+  `buildRouteGeometry` deleted.
+- **`RouteData.cellIds`** (parallel to `path`) — routes are built by walking the
+  cell graph in `utils/routes.ts`, so the ids were already in hand and the drape
+  is a direct lookup. **No `nearestCellWalk` needed**, unlike the graticule.
+  Never serialized; routes regenerate.
+- Two behaviour wins over the 3D path: polylines now **break at the horizon**
+  (no chord across the silhouette), and line weight and dashes are **real** —
+  WebGL ignores `linewidth`, so the old roads were always 1px.
+- Fixed a live bug: 3D routes sat at a fixed `LIFT = 1.008` while mountains
+  reach 1.05, so roads sank into high terrain.
+- Fixed the `overlayTenants` memo, which omitted `showRoutes` / `world.routes`
+  from its dependency list.
+
+### Decisions (Matt's)
+
+- **Grid→smooth coupling KEPT.** Matt's call, made before the clamp cause was
+  found. Worth revisiting now that the ocean float is fixed — the reason for
+  keeping it may no longer hold.
+- **Flat vs drape follows `smoothGlobe`**, not a new toggle and not per-tenant.
+  Rejected: a separate "Drape overlays" switch (a third state to test) and
+  per-tenant modes (mixed modes on one globe read as a bug).
+
+### Verification
+
+In-browser (Playwright, seed `realmgenesis`, 5000 cells, raised globe, grid +
+roads on): roads track cell centers at high zoom; the sea route hugs the ocean
+surface; the graticule reaches the limb with no far-side bleed; **0 console
+errors**. Test doubles for the tenant seam live in `tests/helpers/overlayCanvas.ts`
+(recording 2D context + recording projector).
+
+**Not verified:** the advisor's overpaint nit — screen-space tenants paint above
+the 3D city markers, and every road terminates on a town. Checked only at medium
+zoom, where it reads fine; **not stress-tested close up**. If it reads badly,
+the cheap fix is trimming the last few pixels at each route endpoint, not
+migrating markers. Also unmeasured at the 200k cell cap (as in S18).
+
+### Trap confirmed again (recurring class)
+
+S18's React-batching note held: two coupled toggles need a render tick between
+clicks. Clicking grid then smooth as **separate tool calls** worked; batching
+them in one `evaluate` would have raced.
+
+### Open / next
+
+- **NOT merged / NOT pushed.** Branch carries S18 + S19.
+- Remaining `ScreenOverlay` tenant migrations: contours, borders, rivers,
+  labels. Contours are the smallest and, like routes, are cell-bound.
+- `paramLiveness` timed out once (188s vs the 120s cap) under concurrent
+  browser + build load, then passed isolated. Known M1 flake class, not a
+  regression — the change is render-side.
+
+---
+
 ## Session 18 (2026-08-16) — F2 draped graticule (grid follows relief)
 
 On branch **`f2-drape-graticule`** (cut from `main` after S17 was merged +
