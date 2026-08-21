@@ -19,6 +19,14 @@ by suggested implementation order. File references point at the current code
 that each feature would build on.
 
 **Status key:** ✅ DONE · 🟡 PARTIAL (see note under the item) · ⬜ TODO.
+
+As of 2026-08-21 (Sessions 18–19e, branch `f2-drape-graticule`, unmerged): the
+F2 ScreenOverlay migration now covers the **graticule, ocean currents,
+roads/routes, and contours**; borders, rivers, and labels remain. Overlay
+parallax is fixed and confirmed — the residual cause turned out to be a
+one-frame lag in the render loop, not geometry. **D8 World Datum** was added and
+scoped after auditing where heights are actually consumed.
+
 As of 2026-08-12: the "Map identity" milestone (A1/A2/B1/B3), A4/A5, C1–C4,
 E1/E2, and the D6 terrain overhaul are shipped. D7 part 1 (connected plates)
 landed Session 9; the F1 shell is now the default route.

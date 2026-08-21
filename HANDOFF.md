@@ -31,6 +31,82 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## ▶ START HERE — pickup for a fresh session (written 2026-08-21, end of S19e)
+
+**Branch `f2-drape-graticule`, 25 commits ahead of `main`, NOT merged, NOT
+pushed, working tree clean.** It carries Sessions 18, 19, 19b, 19c, 19d, 19e.
+Everything below is already committed; nothing is half-finished.
+
+### Gate state
+
+typecheck 0 · lint 0 errors / 29 warnings (the ratchet) · build OK, worker chunk
+unchanged at 87.06KB (all session work is render-side) · **230 tests / 34 files**.
+
+**`tests/paramLiveness.test.ts` is a LOAD CANARY, not a flaky test.** It timed out
+three times this session and passed isolated every time (~160s for the file). If
+you see it fail, run `uptime` BEFORE suspecting the code: a wall of timeouts with
+zero assertion failures means the machine, not a regression.
+
+### Traps that cost real time this session — read before touching the browser
+
+1. **The Playwright MCP browser survives `browser_close`.** It closes the *page*;
+   the process stays warm, and because the globe auto-rotates it sits at 100%+
+   CPU forever. That pushed load average to 45 on an 8-core M1 and produced three
+   red suites. After any browser verification:
+   `pgrep -f 'ms-playwright/chromium'` and kill the tree.
+2. **Never run `npm test` with the browser open.** The M1 cannot carry both.
+3. **Do not pipe a background `npm test` through `tail`** — you lose the failure
+   detail. Redirect the whole log to a file.
+4. **Coupled toggles need a render tick between clicks.** Two synchronous
+   `.click()`s race (S18). Use separate tool calls, never one `evaluate`.
+5. Generate randomizes the seed, so screenshots rarely use `realmgenesis`.
+
+### Invariants a new session can break without noticing
+
+- **Overlay radius must equal the mesh radius, with RAW height.** The mesh uses
+  `displayRadius(cell.height, smooth)` (WorldViewer refill). Any tenant that
+  clamps or invents a radius reintroduces the S18 parallax bug. Every tenant has
+  a test asserting this per `smooth` value — keep that up for new tenants.
+- **Overlay and renderer must read the SAME FRAME.** `ScreenOverlay` forces world
+  matrices current, and `<GlobeSpin/>` must stay mounted BEFORE `<ScreenOverlay/>`
+  (React subscribes child effects first, so a spin in the parent runs *after* the
+  overlay). Guarded by `tests/overlayFrameOrder.test.ts`, which reads the source
+  text because the invariant has no runtime signature. **Do not delete that test
+  when migrating the remaining tenants.**
+- **Anything that emits one label per detected feature needs BOTH a cap and a
+  declutter**, or it works at 5k cells and drowns at 200k (S19d).
+
+### Decisions already made — don't re-litigate
+
+- Flat vs drape for overlay tenants **follows `smoothGlobe`**; not a new toggle,
+  not per-tenant.
+- Cell seams are closed by **plate overhang** (3% widening about the cell centre).
+  Edge-welding was rejected because it breaks the radius invariant above.
+- Contour interval **adapts to relief**; `CONTOUR_INDEX_EVERY` is the standard 5.
+- Contour elevation labels are **deliberately absent** — see S19e for why and what
+  reviving them requires.
+
+### Open, in the order I'd pick them up
+
+1. **Grid→smooth coupling — Matt's call, unblocked.** Parallax is confirmed fixed,
+   so the reason the coupling was kept (S17/S19) no longer holds. Dropping it is a
+   one-line change in `useWorldEngine`'s coupled `setShowGrid` (remove
+   `if (b) setSmoothGlobe(true)`), which makes raised+draped the default.
+2. **Finish the branch.** 25 commits is a lot to carry; consider merging before
+   starting new work (`superpowers:finishing-a-development-branch`).
+3. **Next `ScreenOverlay` tenant: borders.** Cell-bound like routes, so the drape
+   is nearly free — follow the routes tenant as the template. Then rivers, then
+   labels. Labels will hit the known overpaint nit (screen-space tenants paint
+   above the 3D city markers).
+4. **D8 World Datum** — fully scoped in ROADMAP D8 into D8a (presentation, no seed
+   changes) and D8b (simulation coupling, changes generation output). Matt asked
+   for the analysis, not the implementation; the sequencing call is his.
+5. **Contour index/intermediate differentiation** — Matt said hold off. If resumed:
+   the weight gap (2px @ .75 vs 1px @ .38) is likely too subtle at globe zoom;
+   tinting index contours a different hue would beat weight alone.
+
+---
+
 ## Session 19e (2026-08-21) — contour labels pulled; D8 scoped against the real code
 
 Continues on **`f2-drape-graticule`** (still **NOT merged / NOT pushed**).
