@@ -256,6 +256,24 @@ Another overhaul of terrain generaton algorithm to make it more realistic
 and get rid of seam lines on plate boundaries, and more detailed heightmap
 rendering and calculation without increasing cell count
 
+### D8. World datum (units)  —  ⬜ TODO
+> _surfaced Session 19d: contour labels can only read "68%" because no datum exists_
+
+Heights are a normalized 0–1 field with no real-world meaning. The Inspector
+shows `height * 100` as a percentage, and the contour elevation labels added in
+Session 19d had to do the same — a contour that reads "68%" is honest but not
+useful the way "1,200 m" is.
+
+A datum would define maximum elevation (and ocean depth) in metres, derived from
+`mountainHeight` / `seafloorDepth` and consistent everywhere heights surface:
+Inspector, contour labels, lore, GeoJSON/SVG export, and the depthmap/DEM export
+Matt has already noted. It is deliberately a *presentation* layer over the
+existing normalized field — the simulation should keep working in 0–1 so no
+seed changes.
+
+`utils/shading.ts` `contourLabel()` is the single place the contour readout
+changes when this lands.
+
 ### D7. More realistic tectonic plates  —  ✅ DONE (heuristic tier); Cortial rebuild = deliberate NO-GO
 > _part 1 (connected plates) Session 9; part 2 (seafloor age→bathymetry + microplates) Session 10; part 3 (plate-shape polish) Session 12. The Cortial boundary-curve rebuild was evaluated and declined — see below._
 
