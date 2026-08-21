@@ -19,6 +19,14 @@ by suggested implementation order. File references point at the current code
 that each feature would build on.
 
 **Status key:** ✅ DONE · 🟡 PARTIAL (see note under the item) · ⬜ TODO.
+
+As of 2026-08-21 (Sessions 18–19e, branch `f2-drape-graticule`, unmerged): the
+F2 ScreenOverlay migration now covers the **graticule, ocean currents,
+roads/routes, and contours**; borders, rivers, and labels remain. Overlay
+parallax is fixed and confirmed — the residual cause turned out to be a
+one-frame lag in the render loop, not geometry. **D8 World Datum** was added and
+scoped after auditing where heights are actually consumed.
+
 As of 2026-08-12: the "Map identity" milestone (A1/A2/B1/B3), A4/A5, C1–C4,
 E1/E2, and the D6 terrain overhaul are shipped. D7 part 1 (connected plates)
 landed Session 9; the F1 shell is now the default route.
@@ -256,6 +264,69 @@ Another overhaul of terrain generaton algorithm to make it more realistic
 and get rid of seam lines on plate boundaries, and more detailed heightmap
 rendering and calculation without increasing cell count
 
+### D8. World datum (units)  —  ⬜ TODO
+> _surfaced Session 19d; scoped Session 19e after auditing where heights are actually consumed_
+
+Heights are a normalized 0–1 field with no real-world meaning, while horizontal
+distance is already genuine (A5 measures great-circle **kilometres** from
+`planetRadius`). **The app therefore measures horizontally in real units and
+vertically in percent** — that inconsistency is the core argument, not DEM export.
+
+It splits into two tiers with very different costs.
+
+#### D8a — presentation datum (cheap, no seed changes)
+
+A `maxElevationM` param (fixed, e.g. 9000) that `mountainHeight` shapes *within*
+rather than defines, plus one formatter. Nothing in generation reads it.
+
+- Inspector `Elev: 70%` → `3,140 m`.
+- Contour labels (pulled in S19d) become metres — `utils/shading.ts`
+  `contourLabel()` is the single change point.
+- **GeoJSON export currently writes `height: cell.height` as a raw 0–1 number**
+  (`utils/exportVector.ts:334`). Geometry is genuinely geodesic lon/lat, so the
+  export is half-real: correct kilometres horizontally, unitless vertically.
+  QGIS and Blender users expect metres.
+- Lore prompts can say "a 4,200 m massif" instead of "high terrain".
+
+**Caveat that decides the design:** if the datum is *derived* from
+`mountainHeight`, the same cell reports a different altitude when that slider
+moves, so values are not comparable between worlds. It must be a fixed maximum
+that `mountainHeight` distributes terrain within.
+
+#### D8b — simulation coupling (powerful, breaks determinism)
+
+The larger payoff, because several tuned magic constants are really physical
+quantities wearing normalized clothes:
+
+- **Lapse rate.** `utils/worldGen.ts` does `temp -= elevation * 60`. That is a
+  lapse rate with an invented 60. In metres it is ~6.5 °C/km — grounded, and it
+  stops fighting `mountainHeight` (raise peaks today and you also silently
+  refrigerate them by an unrelated amount).
+- **Orographic precipitation.** The 8-pass moisture transport uses
+  `heightDiff > 0.02 → carry *= 1.5`, `< -0.02 → *= 0.2`. Rain shadow strength
+  physically depends on barrier height and air temperature, both of which a
+  datum supplies.
+- **Snow line.** `determineBiome` decides ice and tundra from temperature alone,
+  and volcanic from `landH > 0.85`. A real snow line is an *altitude* that
+  varies with latitude.
+- **Unblocks D5 gravity**, which was deferred precisely because it "would be a
+  relief fudge duplicating `mountainHeight`". With a datum it gets a principled
+  hook: isostasy caps how high mountains can stand (roughly ∝ 1/g), so gravity
+  shapes maximum elevation instead of duplicating a slider.
+- **Unblocks D3 sea-level coupling**, deferred as a generation-stage change —
+  "the caps melting raises sea level N metres" is only expressible with a datum.
+
+**Cost:** every item above is a generation input, so it changes output for
+existing seeds. The project has treated that as a hard line before (D2 ships
+`currentStrength = 0` as a byte-identical escape hatch; D5's G-class star is an
+exact no-op). D8b should follow the same discipline or it invalidates saved
+worlds.
+
+**Verdict:** D8a is close to free and fixes a real internal inconsistency. D8b is
+a genuine simulation feature whose benefit is grounding three tuned constants and
+unblocking two deferred items — worth doing, but scoped and escape-hatched, not
+folded into D8a.
+
 ### D7. More realistic tectonic plates  —  ✅ DONE (heuristic tier); Cortial rebuild = deliberate NO-GO
 > _part 1 (connected plates) Session 9; part 2 (seafloor age→bathymetry + microplates) Session 10; part 3 (plate-shape polish) Session 12. The Cortial boundary-curve rebuild was evaluated and declined — see below._
 
@@ -297,6 +368,10 @@ tooling with zero fudging — worth advertising.
 Project an Azgaar flat map onto the sphere (equirectangular assumption,
 re-tessellate onto the cell graph). Lossy by nature; stretch goal.
 
+### E4. Blender-accurate UV mapping support for Dymaxion (added by Matt/maintainer)
+
+I do need to check this myself since I recall importing Blender Icosphere model data to tune the Dymaxion export UVs, but the current 2D dymaxion probably isn't exact to what Blender shows on the UV editor.
+
 ---
 
 ## F. Frontend/Rendering/UI Overhaul
@@ -308,7 +383,7 @@ A full redesign and rearchitecture is warranted here.
 Can come *before or alongside* D6 with the roadmap in mind.
 
 # F2. 3D Mode Presentation  —  🟡 PARTIAL
-> _ScreenOverlay foundation + ocean-current viz + graticule migration shipped Session 16; remaining overlay migrations (borders/rivers/roads/contours/labels) + smooth-globe option TODO_
+> _ScreenOverlay foundation + ocean-current viz + graticule migration shipped Session 16; smooth-globe + graticule drape Sessions 17-18; roads/routes migrated + draped Session 19; contours migrated + index-contour restyle Session 19b. Remaining overlay migrations (borders/rivers/labels) TODO_
 Part of redesign is figuring out how the planet is presented; overlays like borders, rivers and roads and routes and the lat/lon grid are also 3D objects, not 2D overlays simply composited over the 3D globe, which affects visibility and accuracy. Or maybe make the globe entirely smooth by default, instead of applying height per cell. Perhaps 3D mode should more like Google Earth Pro in this respect.
 
 - **Ocean-current visualization** (from D2): a currents overlay drawing the
@@ -326,8 +401,19 @@ Part of redesign is figuring out how the planet is presented; overlays like bord
   globe. v1 lands **two tenants** to prove the abstraction generalizes: the currents
   field **and the graticule** migrated off its 3D `lineSegments`.
   **Future tenants to migrate onto `ScreenOverlay` (a documented queue, not drift):**
-  **roads/routes** and **contour lines** should become fully 2D as well, then borders,
-  rivers, and labels. Each is its own increment; do not migrate them all at once.
+  **borders**, then rivers and labels. Each is its own increment; do not migrate them
+  all at once. Roads/routes landed in Session 19, contours in Session 19b.
+
+  Every tenant must render correctly in BOTH globe modes, keyed off `smoothGlobe`:
+  flat on the unit sphere when smooth, draped over relief when raised. A tenant's
+  radius must equal the terrain mesh's — `displayRadius(cell.height, smooth)`, with
+  the height RAW — and must assert that equality in a test. "Parallax-free by
+  construction" without such a test is exactly how the S18 graticule bug shipped.
+
+  Matching radii is necessary but NOT sufficient: the overlay must also read the
+  same FRAME as the renderer. See `ScreenOverlay`'s forced matrix update and
+  `<GlobeSpin/>`'s mount position — three sessions of radius fixes chased a
+  symptom whose real cause was a one-frame lag in the render loop.
 
 # F3. True 2D vector map  —  ⬜ TODO
 Make it a true vector map like most web mapping apps, but keep it as optimized as possible

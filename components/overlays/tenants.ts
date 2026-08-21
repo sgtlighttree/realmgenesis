@@ -5,6 +5,8 @@
 import { WorldData } from '../../types';
 import { ProjectedCells } from '../../utils/screenProject';
 import { displayRadius } from '../../utils/displayRadius';
+import { nearestCellWalk, nearestCellBrute } from '../../utils/nearestCell';
+import { ContourSegment, contourStroke } from '../../utils/shading';
 import { LocalProjector } from './ScreenOverlay';
 
 // --- currents draw constants (single source; also consumed by Map2D, Task 6) ---
@@ -74,11 +76,22 @@ const GRAT_SEG = 96; // samples per line (smooth circles)
 // draw across the globe silhouette (the win over the old always-visible 3D grid).
 //
 // Radius: the grid is not cell-bound, so it needs a deliberate radius (see the
-// LocalProjector contract). We put it at the SEA-LEVEL rendered radius
-// (1 + seaLevel·0.05) — coastlines render right there, so the grid is
-// parallax-free at the edge the eye actually locks onto, and land peaks occlude
-// it (the Google-Earth read). Locking it above max relief (~1.055) instead would
-// float a visible halo off the ocean limb wherever there's no mountain.
+// LocalProjector contract). On the SMOOTH globe every cell is r=1, so the grid
+// sits on the unit sphere (zero parallax). On the RAISED globe it DRAPES: each
+// sample is projected at the terrain radius at its lat/lon (nearest cell height,
+// RAW — see below) so the line rides relief and meets terrain at coastlines,
+// with zero parallax at any zoom (the Google-Earth read). The nearest cell is
+// found by a greedy Voronoi hill-climb (utils/nearestCell) seeded by the previous
+// sample — 1–3 hops along a polyline — so the whole grid costs one O(n) brute
+// seed + ~5100 short walks per (gated) redraw.
+//
+// The height is RAW, never clamped to sea level. S18 shipped a
+// `max(height, seaLevel)` clamp, reasoning the grid should ride the water
+// surface; there is no water surface — the mesh renders ocean cells at their
+// true seafloor radius (`displayRadius(cell.height, smooth)`, WorldViewer
+// refill) and merely colours them blue. The clamp therefore floated the grid
+// above every ocean cell by `(seaLevel − height)·0.05` — most of the globe, and
+// the residual parallax Matt reported after S18. Clamping again reintroduces it.
 export function drawGraticuleTenant(
   ctx: CanvasRenderingContext2D,
   _proj: ProjectedCells,
@@ -89,20 +102,29 @@ export function drawGraticuleTenant(
   ctx.strokeStyle = 'rgba(255,255,255,0.28)';
   ctx.lineWidth = 1;
   const pt: [number, number] = [0, 0];
-  // Smooth globe: sit exactly on the unit sphere (zero parallax). Relief: sit at
-  // the sea-level rendered radius so the grid is parallax-free at coastlines.
-  const R = smooth ? 1 : 1 + world.params.seaLevel * 0.05;
+  const cells = world.cells;
+  // Running nearest-cell id carried across the whole draw; -1 = seed via brute
+  // scan on the first sample, then hill-climb from the previous sample.
+  let startId = -1;
+
+  // Projects a UNIT direction, applying the drape radius on the raised globe.
+  const projSample = (x: number, y: number, z: number): boolean => {
+    if (smooth || cells.length === 0) return project(x, y, z, pt); // unit sphere
+    startId = startId < 0 ? nearestCellBrute(cells, x, y, z) : nearestCellWalk(cells, x, y, z, startId);
+    const r = displayRadius(cells[startId].height, false);
+    return project(x * r, y * r, z * r, pt);
+  };
 
   // parallels (constant latitude)
   for (let lat = -80; lat <= 80; lat += 10) {
     const la = lat * D2R;
-    const cy = Math.sin(la) * R;
-    const cr = Math.cos(la) * R;
+    const cy = Math.sin(la);
+    const cr = Math.cos(la);
     let drawing = false;
     ctx.beginPath();
     for (let s = 0; s <= GRAT_SEG; s++) {
       const lon = (s / GRAT_SEG) * Math.PI * 2;
-      if (project(cr * Math.cos(lon), cy, cr * Math.sin(lon), pt)) {
+      if (projSample(cr * Math.cos(lon), cy, cr * Math.sin(lon))) {
         if (drawing) ctx.lineTo(pt[0], pt[1]);
         else { ctx.moveTo(pt[0], pt[1]); drawing = true; }
       } else {
@@ -121,8 +143,8 @@ export function drawGraticuleTenant(
     ctx.beginPath();
     for (let s = 0; s <= GRAT_SEG; s++) {
       const lat = (s / GRAT_SEG) * Math.PI - Math.PI / 2;
-      const cla = Math.cos(lat) * R;
-      if (project(cla * cl, Math.sin(lat) * R, cla * sl, pt)) {
+      const cla = Math.cos(lat);
+      if (projSample(cla * cl, Math.sin(lat), cla * sl)) {
         if (drawing) ctx.lineTo(pt[0], pt[1]);
         else { ctx.moveTo(pt[0], pt[1]); drawing = true; }
       } else {
@@ -132,3 +154,132 @@ export function drawGraticuleTenant(
     ctx.stroke();
   }
 }
+
+// --- routes (C3 roads + sea trade routes), migrated off 3D LineSegments ---
+
+export const ROUTE_LIFT = 0.008; // sits just above the surface, over rivers
+const ROAD_COLOR = '#c8a25a';
+const SEAROUTE_COLOR = '#5eb8c8';
+const SEAROUTE_DASH = [4, 3];
+const KINDS = ['road', 'searoute'] as const;
+
+// Roads and sea routes drawn in screen space. Each route is a polyline over its
+// path of cell centers; the polyline BREAKS wherever a point falls past the
+// horizon, so a route never draws a chord across the globe silhouette — the win
+// over the old 3D LineSegments, which also drew at a fixed r = 1.008 and so sank
+// into any terrain above that (mountains reach 1.05).
+//
+// Radius (LocalProjector contract): on the SMOOTH globe every cell is r=1, so
+// routes sit on the unit sphere plus ROUTE_LIFT. On the RAISED globe each point
+// DRAPES at its own cell's terrain radius, so a road climbs a mountain range
+// instead of tunnelling through it. Routes are already cell-bound — paths are
+// built from cell centers in utils/routes.ts and RouteData carries the parallel
+// cellIds — so this needs no nearestCell walk, unlike the graticule.
+//
+// The height is RAW, never clamped to sea level: sea routes run over ocean, and
+// the mesh renders ocean cells at their true seafloor radius. Clamping would
+// float them, which is the S18 graticule bug (see drawGraticuleTenant).
+//
+// Fallback: a route without usable cellIds draws flat at the sea-level radius.
+//
+// No curve smoothing: cell centers are dense enough at any cell count, and
+// resampling a spline would have to re-derive the horizon breaks.
+export function drawRoutesTenant(
+  ctx: CanvasRenderingContext2D,
+  _proj: ProjectedCells,
+  world: WorldData,
+  project: LocalProjector,
+  smooth = false,
+): void {
+  const routes = world.routes;
+  if (!routes || routes.length === 0) return;
+  const cells = world.cells;
+  const pt: [number, number] = [0, 0];
+  // Flat radius: used on the smooth globe, and as the fallback for a route
+  // whose cellIds are missing or out of step with its path.
+  const flat = displayRadius(smooth ? 0 : world.params.seaLevel, smooth, ROUTE_LIFT);
+
+  ctx.lineWidth = 1.5;
+  for (const kind of KINDS) {
+    ctx.strokeStyle = kind === 'road' ? ROAD_COLOR : SEAROUTE_COLOR;
+    ctx.setLineDash(kind === 'road' ? [] : SEAROUTE_DASH);
+    for (const route of routes) {
+      if (route.kind !== kind || route.path.length < 2) continue;
+      const ids = route.cellIds;
+      const drape = !smooth && !!ids && ids.length === route.path.length;
+      let drawing = false;
+      ctx.beginPath();
+      for (let k = 0; k < route.path.length; k++) {
+        const p = route.path[k];
+        const cell = drape ? cells[ids[k]] : undefined;
+        const rad = cell ? displayRadius(cell.height, false, ROUTE_LIFT) : flat;
+        if (project(p.x * rad, p.y * rad, p.z * rad, pt)) {
+          if (drawing) ctx.lineTo(pt[0], pt[1]);
+          else { ctx.moveTo(pt[0], pt[1]); drawing = true; }
+        } else {
+          drawing = false;
+        }
+      }
+      ctx.stroke();
+    }
+  }
+  // The 2D context is shared across tenants — hand it back undashed.
+  ctx.setLineDash([]);
+}
+
+// --- contour lines (A4 isolines), migrated off 3D LineSegments ---
+
+export const CONTOUR_LIFT = 0.002; // clears the terrain step it crowns
+const CONTOUR_BASE_WIDTH = 1;
+
+// Elevation isolines drawn in screen space. Unlike the other tenants this one
+// takes its segments as an argument: computeContourSegments is an O(cells x
+// neighbors) sweep, far too costly to redo on every redraw, so WorldViewer
+// memoizes it on world identity and closes over the result.
+//
+// Radius (LocalProjector contract): each segment carries the height of the
+// TALLER of its two cells. The globe mesh renders a cell boundary as a vertical
+// step, so riding the taller cell's radius crowns that step. This replaces a
+// fixed r = 1.053 that floated every isoline above all terrain — the worst
+// parallax offender of the remaining overlays.
+//
+// Two passes so index contours draw over the intermediates they cross, matching
+// drawContourPaths in utils/shading.ts (one style across globe, 2D, and export).
+//
+// NO ELEVATION LABELS. They shipped briefly and were pulled: anchors were picked
+// from segment midpoints in array order and thinned greedily per redraw, so a
+// different subset survived every frame and the readouts wandered across the
+// terrain as the globe moved. Reviving them needs anchors chosen ONCE in world
+// space (fixed segments per level), projected each frame and merely hidden on
+// collision — never re-selected. `ContourSegment.elevation` and `contourLabel()`
+// are kept as the seam for that, and for ROADMAP D8 (World Datum), which would
+// make the readout metres instead of a percentage.
+export function drawContoursTenant(
+  ctx: CanvasRenderingContext2D,
+  segments: ContourSegment[],
+  project: LocalProjector,
+  smooth: boolean,
+): void {
+  if (segments.length === 0) return;
+  const p1: [number, number] = [0, 0];
+  const p2: [number, number] = [0, 0];
+  ctx.lineCap = 'round';
+
+  for (const indexPass of [false, true]) {
+    ctx.strokeStyle = contourStroke(indexPass);
+    ctx.lineWidth = indexPass ? CONTOUR_BASE_WIDTH * 2 : CONTOUR_BASE_WIDTH;
+    ctx.beginPath();
+    for (const seg of segments) {
+      if (seg.index !== indexPass) continue;
+      const r = displayRadius(seg.height, smooth, CONTOUR_LIFT);
+      // Both ends must be on the near hemisphere; a segment is one cell edge,
+      // far too short to be worth clipping against the limb.
+      if (!project(seg.a[0] * r, seg.a[1] * r, seg.a[2] * r, p1)) continue;
+      if (!project(seg.b[0] * r, seg.b[1] * r, seg.b[2] * r, p2)) continue;
+      ctx.moveTo(p1[0], p1[1]);
+      ctx.lineTo(p2[0], p2[1]);
+    }
+    ctx.stroke();
+  }
+}
+

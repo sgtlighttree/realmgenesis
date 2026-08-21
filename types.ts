@@ -286,6 +286,11 @@ export interface WorldData {
 // terrain, never serialized — regenerates deterministically like rivers.
 export interface RouteData {
   path: Point[];
+  // Cell id per path point, parallel to `path`. Routes are built by walking the
+  // cell graph, so every point IS a cell center — keeping the ids lets the F2
+  // overlay drape each point at its own terrain radius with no nearest-cell
+  // search. Never serialized (routes regenerate deterministically).
+  cellIds: number[];
   kind: 'road' | 'searoute';
   fromCellId: number;
   toCellId: number;

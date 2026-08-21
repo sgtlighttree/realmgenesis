@@ -31,6 +31,643 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## ▶ START HERE — pickup for a fresh session (written 2026-08-21, end of S19e)
+
+**Branch `f2-drape-graticule`, 25 commits ahead of `main`, NOT merged, NOT
+pushed, working tree clean.** It carries Sessions 18, 19, 19b, 19c, 19d, 19e.
+Everything below is already committed; nothing is half-finished.
+
+### Gate state
+
+typecheck 0 · lint 0 errors / 29 warnings (the ratchet) · build OK, worker chunk
+unchanged at 87.06KB (all session work is render-side) · **230 tests / 34 files**.
+
+**`tests/paramLiveness.test.ts` is a LOAD CANARY, not a flaky test.** It timed out
+three times this session and passed isolated every time (~160s for the file). If
+you see it fail, run `uptime` BEFORE suspecting the code: a wall of timeouts with
+zero assertion failures means the machine, not a regression.
+
+### Traps that cost real time this session — read before touching the browser
+
+1. **The Playwright MCP browser survives `browser_close`.** It closes the *page*;
+   the process stays warm, and because the globe auto-rotates it sits at 100%+
+   CPU forever. That pushed load average to 45 on an 8-core M1 and produced three
+   red suites. After any browser verification:
+   `pgrep -f 'ms-playwright/chromium'` and kill the tree.
+2. **Never run `npm test` with the browser open.** The M1 cannot carry both.
+3. **Do not pipe a background `npm test` through `tail`** — you lose the failure
+   detail. Redirect the whole log to a file.
+4. **Coupled toggles need a render tick between clicks.** Two synchronous
+   `.click()`s race (S18). Use separate tool calls, never one `evaluate`.
+5. Generate randomizes the seed, so screenshots rarely use `realmgenesis`.
+
+### Invariants a new session can break without noticing
+
+- **Overlay radius must equal the mesh radius, with RAW height.** The mesh uses
+  `displayRadius(cell.height, smooth)` (WorldViewer refill). Any tenant that
+  clamps or invents a radius reintroduces the S18 parallax bug. Every tenant has
+  a test asserting this per `smooth` value — keep that up for new tenants.
+- **Overlay and renderer must read the SAME FRAME.** `ScreenOverlay` forces world
+  matrices current, and `<GlobeSpin/>` must stay mounted BEFORE `<ScreenOverlay/>`
+  (React subscribes child effects first, so a spin in the parent runs *after* the
+  overlay). Guarded by `tests/overlayFrameOrder.test.ts`, which reads the source
+  text because the invariant has no runtime signature. **Do not delete that test
+  when migrating the remaining tenants.**
+- **Anything that emits one label per detected feature needs BOTH a cap and a
+  declutter**, or it works at 5k cells and drowns at 200k (S19d).
+
+### Decisions already made — don't re-litigate
+
+- Flat vs drape for overlay tenants **follows `smoothGlobe`**; not a new toggle,
+  not per-tenant.
+- Cell seams are closed by **plate overhang** (3% widening about the cell centre).
+  Edge-welding was rejected because it breaks the radius invariant above.
+- Contour interval **adapts to relief**; `CONTOUR_INDEX_EVERY` is the standard 5.
+- Contour elevation labels are **deliberately absent** — see S19e for why and what
+  reviving them requires.
+
+### Open, in the order I'd pick them up
+
+1. **Grid→smooth coupling — Matt's call, unblocked.** Parallax is confirmed fixed,
+   so the reason the coupling was kept (S17/S19) no longer holds. Dropping it is a
+   one-line change in `useWorldEngine`'s coupled `setShowGrid` (remove
+   `if (b) setSmoothGlobe(true)`), which makes raised+draped the default.
+2. **Finish the branch.** 25 commits is a lot to carry; consider merging before
+   starting new work (`superpowers:finishing-a-development-branch`).
+3. **Next `ScreenOverlay` tenant: borders.** Cell-bound like routes, so the drape
+   is nearly free — follow the routes tenant as the template. Then rivers, then
+   labels. Labels will hit the known overpaint nit (screen-space tenants paint
+   above the 3D city markers).
+4. **D8 World Datum** — fully scoped in ROADMAP D8 into D8a (presentation, no seed
+   changes) and D8b (simulation coupling, changes generation output). Matt asked
+   for the analysis, not the implementation; the sequencing call is his.
+5. **Contour index/intermediate differentiation** — Matt said hold off. If resumed:
+   the weight gap (2px @ .75 vs 1px @ .38) is likely too subtle at globe zoom;
+   tinting index contours a different hue would beat weight alone.
+
+---
+
+## Session 19e (2026-08-21) — contour labels pulled; D8 scoped against the real code
+
+Continues on **`f2-drape-graticule`** (still **NOT merged / NOT pushed**).
+Commits `c078b28` (revert labels), `f2d4f79` (D8 scoping). Gates: typecheck 0,
+lint 0/29, build OK, **230 tests / 34 files** — paramLiveness timed out under a
+load average of **16** and passed isolated, third time this session (see the
+load-canary note in S19b).
+
+### Contour elevation labels PULLED — they wandered
+
+Matt: the percentages "jitter and move around chaotically when the model is
+moving". **Cause:** anchors were picked from segment midpoints *in array order*
+and thinned greedily **on every redraw**, so a different subset survived each
+frame. Segments dropping out at the limb shifted the ordering too, compounding
+it. The labels were never attached to anywhere on the terrain — they were
+re-chosen constantly.
+
+**The fix, when this returns:** choose anchors ONCE in world space — fixed
+segments per contour level — then per frame merely project and hide on
+collision, **never re-select**. `ContourSegment.elevation` and `contourLabel()`
+are kept as that seam, and a test asserts no text is drawn so the path cannot
+quietly come back without the world-space fix.
+
+**Kept:** the adaptive interval and index hierarchy from S19d. Matt confirmed
+those helped ("shows a lot more contours").
+
+**Still open, not addressed on Matt's instruction to hold off:** "not a ton of
+differentiation" between index and intermediate contours. Likely the contrast
+(2px @ .75 alpha vs 1px @ .38) is too subtle at globe zoom, and his screenshot
+was the **Rain** view, whose flat grey gives the worst possible background for
+cream lines. Cheap levers if resumed: widen the alpha gap, or tint index
+contours differently rather than only heavier.
+
+### D8 scoped — answering "does it help beyond DEM export?"
+
+Audited where heights are actually consumed rather than assuming. **Yes, and the
+headline argument is not DEM.** A5 already measures horizontal distance in real
+kilometres from `planetRadius`, so **the app measures horizontally in real units
+and vertically in percent.** ROADMAP D8 now splits:
+
+- **D8a presentation** (no seed changes): a FIXED `maxElevationM` that
+  `mountainHeight` shapes *within* rather than defines — if the datum is derived
+  from that slider, the same cell reports different altitudes per world and the
+  numbers mean nothing. Covers Inspector, contour labels, lore, and the GeoJSON
+  export, which currently writes `height: cell.height` as a raw 0–1 while its
+  geometry is genuinely geodesic (`utils/exportVector.ts:334`).
+- **D8b simulation coupling** (changes generation output): three tuned constants
+  are physical quantities in disguise — `temp -= elevation * 60` is a lapse rate
+  (~6.5 °C/km in reality), the orographic `0.02 / 1.5 / 0.2` moisture thresholds
+  are barrier-height physics, and `determineBiome` has no snow line, only
+  temperature. It also **unblocks two deferred items**: D5 gravity (was rejected
+  as "a relief fudge duplicating mountainHeight"; isostasy gives it a real hook
+  — max mountain height ∝ 1/g) and D3 sea-level coupling.
+
+**The cost is determinism**: every D8b item is a generation input, so existing
+seeds change. Precedent says escape-hatch it (D2 ships `currentStrength = 0` as
+byte-identical; D5's G-class is an exact no-op).
+
+**Verdict recorded:** D8a is close to free and fixes a genuine inconsistency;
+D8b is a real feature worth doing, but scoped and escape-hatched separately —
+not folded into D8a.
+
+### Open / next
+
+- **NOT merged / NOT pushed.** Branch carries S18 + S19 + S19b–e.
+- Grid→smooth coupling: still Matt's call.
+- Remaining `ScreenOverlay` tenant migrations: **borders, rivers, labels.**
+- Contour index/intermediate differentiation, if contours resume.
+- D8a vs D8b sequencing — Matt's call.
+
+---
+
+## Session 19d (2026-08-21) — contours were starved of levels; labels had no 3D declutter
+
+Continues on **`f2-drape-graticule`** (still **NOT merged / NOT pushed**).
+Commits `ff61678` (contours), `1465f4e` (labels), `283ec43` (ROADMAP D8).
+Gates: typecheck 0, lint 0/29, build OK (worker chunk unchanged 87.06KB),
+**231 tests / 34 files** — paramLiveness timed out under load again and passed
+isolated (see the load-canary note in S19b).
+
+Both reports came from Matt at **200,000 cells**, which is where each latent
+scaling bug finally bit.
+
+### Contours carried no elevation information — the interval was starved
+
+Not a styling problem. **`seaLevel` defaults to 0.55** and heights are normalized
+0–1, so land spans only ~0.45. At the hardcoded `interval = 0.1` that is **four
+possible levels**, and since most terrain sits between 0.55 and 0.70, most of the
+map got **one or two lines**. Hence "blobby outlines that tell me nothing".
+
+S19b's `CONTOUR_INDEX_EVERY = 2` was a symptom-level patch on this same shortage
+— it was chosen precisely *because* there were too few levels to bold every 5th.
+**The interval was the real bug**, and with it fixed the constant returns to the
+standard 5.
+
+- **Interval now adapts to actual relief** (`contourInterval`), targeting ~20
+  levels, snapped to a "nice" step so label values read cleanly (2%, 2.5%) and
+  spacing stays roughly comparable between worlds. Matt's call over a fixed
+  constant or a user slider: a fixed value cannot serve both a flat world and an
+  alpine one.
+- Replaces a `0.1` literal that was **duplicated in four places** (export.ts ×2,
+  Map2D, WorldViewer).
+- **Index contours are labelled** with their elevation, thinned by a minimum
+  screen gap and capped — a contour you cannot read a value off is decoration.
+
+**⚠️ The readout is a PERCENTAGE ("68%"), not metres.** The project has no
+real-world elevation datum; the Inspector also shows `height * 100`. Matt flagged
+this as exposing a genuine gap → **ROADMAP D8 (World Datum)** added.
+`utils/shading.ts` `contourLabel()` is the single place the readout changes.
+
+**Scope limit, deliberate:** elevation labels are drawn in the **globe tenant
+only**. The 2D path takes a d3 *path generator*, not a projection, so it cannot
+place point text without widening that signature. Line styling stays shared, so
+the two views agree on everything except the labels.
+
+### The label flood was NOT town names
+
+Matt said town names; **Town Names was unchecked in his screenshot**. The flood
+was **Geographic Names** — 355 lakes detected at 200k cells, every one labelled.
+Two independent causes, both fixed:
+
+1. **The 3D sprite path had no decluttering at all.** `drawMapLabels` (2D) has
+   done greedy collision rejection since A1; `PointLabels` only ever culled by
+   hemisphere and camera distance, so every surviving label drew regardless of
+   overlap. **This was the actual bug** — it simply never showed at 5k cells.
+   Now projects in priority order and rejects boxes that hit a placed one, gated
+   on a quantized camera/globe key so the O(kept²) pass is not per-frame.
+2. **`collectLabels` ignored `GeoFeature.size`**, which the detection pass had
+   already computed — so a three-cell pond competed with an inland sea for a
+   slot. Features are now ranked by size within kind and capped per kind.
+
+**The generalisable shape:** feature COUNT scales with cell count while the map's
+label BUDGET is fixed by screen area. Anything that emits one label per detected
+thing needs both a cap and a declutter, or it works at 5k and drowns at 200k.
+
+### Verified
+
+In-browser at **200,000 cells** (generation 27s), seed `1unb61l`: elevation
+readouts appear on index contours, geographic labels are a readable handful
+rather than a wall, 0 console errors. Screenshots `s19-28`..`s19-32` in
+`.playwright-mcp/`. Town labels remain distance-gated (`camDist > 2`), so they
+do not appear at globe zoom by design.
+
+**Not tuned with Matt's eyes:** `LABEL_MIN_GAP` (110px) and `LABEL_MAX` (40) for
+contour labels are first-guess values. Easy knobs if the density still reads
+busy.
+
+### Open / next
+
+- **NOT merged / NOT pushed.** Branch carries S18 + S19 + S19b + S19c + S19d.
+- Grid→smooth coupling: still Matt's call.
+- Remaining `ScreenOverlay` tenant migrations: **borders, rivers, labels.**
+- **D8 World Datum** — would turn "68%" into "1,200 m" everywhere heights surface.
+- 2D/export contour labels, if the globe-only split proves annoying.
+
+---
+
+## Session 19c (2026-08-21) — cell seams are a mesh gap; one-row view strip
+
+Continues on **`f2-drape-graticule`** (still **NOT merged / NOT pushed**).
+Commits `ef1f9a5` (seam fix + Cell Edges toggle), `5a0f758` (one-row strip).
+Gates green: typecheck 0, lint 0/29, build OK (worker chunk unchanged 87.06KB),
+**224/224, 34 files**.
+
+### ✅ Parallax CONFIRMED FIXED by Matt
+
+Closes the thread opened in S17. The only residual he can see is a draped
+graticule line being **occluded by a taller neighbouring cell** when the model
+moves — which is the drape working correctly, not a defect. Treat that as
+expected behaviour, not a bug report.
+
+The grid→smooth coupling decision is now unblocked but still **Matt's call**.
+
+### ⚠️ "Cell outlines" are a GAP in the terrain mesh, not a drawn line
+
+Matt asked for a toggle to hide the per-cell outlines while evaluating contours.
+There is no outline: **nothing in the codebase draws one.**
+
+Each cell renders as a flat triangle-fan plate at its own radius (`v * hMult`),
+so two neighbours at different heights **never share an edge** — the seam is open
+and shows the black inner sphere (r = 0.99) through it. **Proved, not inferred:**
+recolouring that inner sphere red turned every "outline" red (`s19-22` in
+`.playwright-mcp/`). It follows that the seams vanish on the smooth globe, where
+every radius is 1.
+
+**Fix — overhang.** Each plate is widened 3% about its own centre so neighbours
+overlap and the taller overhangs the shorter, which is what a cliff looks like.
+Only the rim moves: the centre and `hMult` are untouched, so **the drape
+invariant (overlay radius == cell radius) is unaffected** — this was the deciding
+constraint.
+
+**Rejected:**
+- *Wall quads between neighbours* — physically correct, but roughly doubles
+  triangle count at the 200k cap on the M1.
+- *Welding edges to an averaged radius* — cheapest visually, but it **breaks the
+  drape invariant**: surface height at a cell edge would no longer equal the cell
+  height, which is exactly what every ScreenOverlay tenant projects against.
+  Do not revisit this one without re-solving the overlay contract first.
+
+**Default is seams closed.** `Cell Edges` ON restores the old look exactly
+(`inflate = 1`). Not passed to Map2D — a raster 2D map has no plates.
+
+### One-row view strip (F1)
+
+Full labels when they fit, icon-only when they do not, never wrapping. The
+decision is **content-driven** (a hidden full-label mirror measured against the
+live container), not a pixel breakpoint, because the toggle list keeps growing —
+it gained Cell Edges this session and any threshold would rot on the next one.
+
+**Two non-obvious traps, both cost a debugging round:**
+1. **`flex-1` on the strip root is load-bearing, not cosmetic.** Without it the
+   root sizes to its own CONTENT, so `clientWidth` reports content width instead
+   of available width and the full-label branch can never win. It measured
+   **614px at both a 1700px and a 2560px viewport** before this was added.
+2. **The non-chip width must be summed explicitly**, not derived from
+   `container.scrollWidth`: the mirror is absolutely positioned but still counts
+   toward `scrollWidth`, which forced compact mode at every width.
+
+**Measured behaviour:** at **1440px (Matt's MacBook Air)** the strip gets 785px →
+icon-only, all 8 chips visible, one row, no scrolling. Full labels need ~1255px
+of strip, so they appear at roughly a **1900px+ viewport**. Below ~500px of strip
+width even icons overflow, so the chip row scrolls horizontally rather than
+wrapping or being clipped unreachable.
+
+**Known limitation:** at awkward middle widths (~1150px viewport) only about half
+the chips are visible without scrolling. An overflow "More" popover would be the
+better answer; not built, because it was not asked for.
+
+### Open / next
+
+- **NOT merged / NOT pushed.** Branch carries S18 + S19 + S19b + S19c.
+- Grid→smooth coupling: Matt's call, now unblocked.
+- Remaining `ScreenOverlay` tenant migrations: **borders, rivers, labels.**
+- Overflow "More" popover for the strip at middle widths, if the scroll annoys.
+- Matt added **ROADMAP E4** (Blender-accurate Dymaxion UVs) — his note, carried
+  in `5a0f758`.
+
+---
+
+## Session 19b (2026-08-21) — contours tenant + the parallax ROOT CAUSE (it was timing)
+
+Continues S19 on **`f2-drape-graticule`** (still **NOT merged / NOT pushed**).
+Commits `e1bcd71` (contours), `0769fef` (frame-lag fix), `b285b6f` (ordering
+guard). Gates all green on a quiet machine: typecheck 0, lint 0/29, build OK
+(worker chunk unchanged 87.06KB — all render-side), **full suite 224/224, 34
+files, 160s, zero failures**.
+
+### ⚠️ The parallax was NOT geometry. It was a one-frame lag.
+
+Matt reported parallax persisting after the S19 clamp fix — "a tiny bit even at
+far zoom", improved but not gone — and guessed float precision. **Float precision
+was not it** (float32 on a unit sphere is ~1e-7 relative, orders below a pixel).
+
+**Root cause, two compounding faults, both now fixed in `0769fef`:**
+
+1. **Stale world matrices.** Three recomputes `matrixWorld` inside `render()`,
+   which runs AFTER every `useFrame` callback. `ScreenOverlay` read
+   `globe.matrixWorld` in its own callback, so it projected the PREVIOUS frame's
+   transform while WebGL was about to draw the current one. `.project()` reads
+   `matrixWorldInverse`, so refreshing `matrixWorld` alone is not enough — both
+   are now forced current.
+2. **Spin ran after the overlay.** R3F runs `useFrame` callbacks in subscription
+   order, and React subscribes a **child's** effects before its **parent's**. The
+   idle spin lived in the parent that also renders `<ScreenOverlay/>`, so the
+   overlay ran first and read a rotation the spin had not yet advanced. It now
+   lives in `<GlobeSpin/>`, mounted as a sibling **ahead of** the overlay.
+
+**Either fault alone leaves the overlay one frame behind.** The error is
+*angular*, so it is sub-pixel zoomed out and grows with zoom — which is exactly
+why it survived S17's radius work, S18's drape, and S19's clamp fix, and why it
+kept reading as "parallax". **Three sessions of geometry fixes chased a symptom
+whose cause was in the frame loop.** The geometry fixes were all real bugs; none
+of them was this one.
+
+**Generalisable:** when an overlay and its 3D content disagree, ask whether they
+are reading the same *frame* before asking whether they are at the same *radius*.
+
+**Verification:** the mechanism is removed in code. Empirically, spin was
+temporarily raised 20x (`SPIN_RATE` 0.05 -> 1.0, reverted; tree clean) so a
+surviving frame of lag would displace the grid by ~13px at the test zoom — the
+grid still met the coastline and sat on the surface (`s19-17` in
+`.playwright-mcp/`). **Supporting, not conclusive — Matt is the verifier**, as
+in S19. If any offset remains after this, the next suspect is graticule
+under-sampling: `GRAT_SEG = 96` gives 3.75 deg per segment while cells are ~1.6
+deg at 5000 cells, so each drawn segment chords across two or more cells.
+
+### Contours migrated + made visible (`e1bcd71`)
+
+- **`drawContoursTenant`** replaces `ContourLines`. The old isolines drew at a
+  single fixed **r = 1.053 — above ALL terrain**, making them the worst parallax
+  offender left. Each segment now carries the height of the **taller** of its two
+  cells and draws at that radius, crowning the step a cell boundary renders as.
+- **This tenant takes its segments as an argument**, unlike the others: the
+  computation is an O(cells x neighbors) sweep, far too costly per redraw, so
+  `WorldViewer` memoizes on world identity and closes over it. Any future
+  expensive tenant should follow this shape.
+- **Index contours.** Every `CONTOUR_INDEX_EVERY`-th level draws thick and
+  bright against thin intermediates, in warm off-white instead of the old
+  near-invisible dark brown at 0.35 alpha. Band index was already computed, so
+  the information was free.
+- **`CONTOUR_INDEX_EVERY = 2`, not the conventional 5** — at the shipped
+  interval of 0.1 there are only ~5 levels above sea level, so every 5th would
+  embolden at most one line on a whole map. Revisit if the interval ever drops.
+- Style lives in `utils/shading.ts` and is shared with `drawContourPaths`, so
+  globe, Map2D, and PNG export stay one look. **Exported PNGs do change.**
+- `computeContourSegments` now returns `ContourSegment` objects rather than
+  `[Point3, Point3]` tuples. All 2D callers pass the array straight through, so
+  only `drawContourPaths` and the tenant needed to know.
+
+### Decisions (Matt's)
+
+- Flat vs drape **follows `smoothGlobe`** — no new toggle, no per-tenant modes.
+- Contour style: **index contours**, applied **everywhere** (globe + 2D + export)
+  rather than globe-only, to keep one source of truth.
+
+### ⚠️ Operational trap that cost this session real time
+
+**The Playwright MCP browser survives `browser_close` and keeps rendering.**
+`browser_close` closes the *page*; the MCP keeps the browser process warm. Since
+the globe **auto-rotates**, that headless Chromium sat at **100%+ CPU
+indefinitely**, and with an unrelated `opencode` session also running, load
+average hit **45 on an 8-core M1**. Three separate full-suite runs failed with 1,
+8, and 15 failures — **every one a timeout, zero assertion failures.** After
+killing the browser tree, the same suite went 220/221.
+
+**Rules for next session:**
+- After browser verification, **kill the chromium tree**, do not rely on
+  `browser_close`. Check with `pgrep -f 'ms-playwright/chromium'`.
+- **Never run `npm test` with the browser open** — the M1 cannot carry both.
+- **Check `uptime` before trusting a red suite.** A wall of timeouts with no
+  assertion failures means machine load, not a regression.
+- Do not pipe a background `npm test` through `tail` — it discards the failure
+  detail you will need. Redirect the whole log to a file.
+
+### paramLiveness: load-sensitive, but NOT fragile on its own
+
+Corrected after the final clean run. `tests/paramLiveness.test.ts > terrain
+params change the terrain signature` timed out **three times** this session and
+looked like a standing hazard near the 120s cap. On a quiet machine it passes
+**inside the full suite** (224/224 in 160s), so the cap has real headroom and no
+change is warranted. It is a load canary, not a fragile test: **if it times out,
+suspect the machine before the code.**
+
+### Open / next
+
+- **NOT merged / NOT pushed.** Branch carries S18 + S19 + S19b.
+- **Matt to confirm the parallax is finally gone**, then decide the grid->smooth
+  coupling.
+- Remaining `ScreenOverlay` tenant migrations: **borders, rivers, labels**
+  (contours and roads/routes are done). Borders and rivers are cell-bound like
+  routes; labels will hit the overpaint nit below.
+- Advisor's overpaint nit still open: screen-space tenants paint above the 3D
+  city markers. Reads fine at medium zoom; never stress-tested close up.
+- **Frame ordering is now guarded** by `tests/overlayFrameOrder.test.ts`, which
+  asserts `<GlobeSpin/>` mounts before `<ScreenOverlay/>` in the source text —
+  the invariant has no runtime signature, so this is the only place it can be
+  caught. Do not delete it when migrating the remaining tenants.
+- Checked while fixing: drei registers `OrbitControls`' update at **priority -1**
+  and R3F runs callbacks in ascending priority, so camera drag/dolly was always
+  ordered ahead of the overlay. Only the spin was mis-ordered. Camera motion
+  still benefited from the forced matrix update (it was reading a stale
+  `matrixWorld` like everything else).
+
+---
+
+## Session 19 (2026-08-21) — F2 routes tenant + the real parallax cause
+
+On branch **`f2-drape-graticule`** (continues S18; still **NOT merged / NOT
+pushed**). Commits `617f25d` (graticule clamp fix), `b51d79a` (routes migration),
+`be39bbd` (route drape). Gates: typecheck 0, lint 0/29, build OK (worker chunk
+unchanged 87.06KB — all render-side), suite 213 tests / 32 files.
+
+### ⚠️ S18's "parallax eliminated by construction" was WRONG — corrected
+
+**Matt's report refuted it:** the draped graticule still showed noticeable
+parallax. **Cause, confirmed in code (not inferred):** the terrain mesh renders
+every cell at `displayRadius(cell.height, smooth)` with **raw** height
+(`WorldViewer.tsx` refill, ~L918), but S18's drape used
+`1 + max(cell.height, seaLevel) * 0.05`. The clamp floated the grid above every
+**ocean** cell by `(seaLevel − height) · 0.05` — comparable to half the whole
+relief span, over most of the globe.
+
+S18's reasoning for the clamp was that the grid should ride the water surface.
+**There is no water surface.** Ocean cells render at their true seafloor radius
+and are merely coloured blue. S18's claim held **on land only**, which is why it
+survived a land-focused visual check.
+
+The generalisable lesson: S18 argued zero parallax "by construction" but never
+asserted the construction — that the tenant's radius equals the mesh's radius —
+in a test. Every tenant now has that assertion, per `smooth` value. **Any new
+tenant needs one; "by construction" is not evidence.**
+
+**Cause vs. cure — keep these separate.** The *cause* is confirmed in code: the
+mesh formula at `WorldViewer.tsx` ~L918 was read directly, and the S18 clamp
+provably disagreed with it over ocean. The *cure* is evidenced by (a) a
+discriminating unit test pinning the tenant radius to the mesh formula for
+ocean, land, and smooth — the exact equality S18 violated with no test to catch
+it — and (b) visual confirmation at high zoom that the grid and the sea route
+sit on the ocean surface rather than floating.
+
+**The cure is NOT yet confirmed by the person who reported the symptom.** A
+dolly A/B over ocean was run (`s19-09` / `s19-10` in `.playwright-mcp/`) and the
+pair is consistent, but matching cells by eye across a zoom is precisely the
+weak method that let S18 ship — S18 also A/B'd a dolly, over LAND, and missed an
+ocean bug. **Matt should confirm the parallax is actually gone**, and only then
+revisit the grid→smooth coupling.
+
+### What shipped
+
+- **Graticule** drapes at raw terrain radius (`617f25d`).
+- **Roads & sea routes migrated off 3D `LineSegments`** onto `ScreenOverlay`
+  (`b51d79a`), then draped per cell (`be39bbd`). `RouteLines` /
+  `buildRouteGeometry` deleted.
+- **`RouteData.cellIds`** (parallel to `path`) — routes are built by walking the
+  cell graph in `utils/routes.ts`, so the ids were already in hand and the drape
+  is a direct lookup. **No `nearestCellWalk` needed**, unlike the graticule.
+  Never serialized; routes regenerate.
+- Two behaviour wins over the 3D path: polylines now **break at the horizon**
+  (no chord across the silhouette), and line weight and dashes are **real** —
+  WebGL ignores `linewidth`, so the old roads were always 1px.
+- Fixed a live bug: 3D routes sat at a fixed `LIFT = 1.008` while mountains
+  reach 1.05, so roads sank into high terrain.
+- Fixed the `overlayTenants` memo, which omitted `showRoutes` / `world.routes`
+  from its dependency list.
+
+### Decisions (Matt's)
+
+- **Grid→smooth coupling KEPT.** Matt's call, made before the clamp cause was
+  found. Worth revisiting now that the ocean float is fixed — the reason for
+  keeping it may no longer hold.
+- **Flat vs drape follows `smoothGlobe`**, not a new toggle and not per-tenant.
+  Rejected: a separate "Drape overlays" switch (a third state to test) and
+  per-tenant modes (mixed modes on one globe read as a bug).
+
+### Verification
+
+In-browser (Playwright, seed `realmgenesis`, 5000 cells, raised globe, grid +
+roads on): roads track cell centers at high zoom; the sea route hugs the ocean
+surface; the graticule reaches the limb with no far-side bleed; **0 console
+errors**. Test doubles for the tenant seam live in `tests/helpers/overlayCanvas.ts`
+(recording 2D context + recording projector).
+
+**Settled, so the queued tenants inherit the answer: no export captures the 3D
+globe view.** Both PNG paths in `utils/export.ts` (L294, L422) build their own
+offscreen Canvas2D from world data — Dymaxion and projected — and neither reads
+back the WebGL canvas (`grep` for `toDataURL|readPixels|preserveDrawingBuffer`
+finds only those two). So moving an overlay to the sibling DOM canvas costs
+nothing in export: roads did not vanish from any export this session, and the
+graticule did not vanish back in S16. Export was never showing them.
+
+**Not verified:** the advisor's overpaint nit — screen-space tenants paint above
+the 3D city markers, and every road terminates on a town. Checked only at medium
+zoom, where it reads fine; **not stress-tested close up**. If it reads badly,
+the cheap fix is trimming the last few pixels at each route endpoint, not
+migrating markers. Also unmeasured at the 200k cell cap (as in S18).
+
+### Trap confirmed again (recurring class)
+
+S18's React-batching note held: two coupled toggles need a render tick between
+clicks. Clicking grid then smooth as **separate tool calls** worked; batching
+them in one `evaluate` would have raced.
+
+### Open / next
+
+- **NOT merged / NOT pushed.** Branch carries S18 + S19.
+- **Matt to confirm the parallax is gone** (see cause vs. cure above), then
+  decide whether the grid→smooth coupling can finally be dropped.
+- Remaining `ScreenOverlay` tenant migrations: contours, borders, rivers,
+  labels. Contours are the smallest and, like routes, are cell-bound.
+- Coastline kink: with the clamp gone, the grid now steps from seafloor radius
+  to land radius at a shore, because the mesh genuinely has a vertical wall
+  there. Reads as a kink, not a break, in `s19-09`. Correct, but expect it as a
+  question.
+- `paramLiveness` timed out once (188s vs the 120s cap) under concurrent
+  browser + build load, then passed isolated. Known M1 flake class, not a
+  regression — the change is render-side.
+
+---
+
+## Session 18 (2026-08-16) — F2 draped graticule (grid follows relief)
+
+On branch **`f2-drape-graticule`** (cut from `main` after S17 was merged +
+**pushed** — `main` is now at `cca4c7b`, origin up to date). Commits: spec+plan,
+`nearestCell`, drape integration, lint fix. **NOT merged / NOT pushed.** Gates
+green: typecheck 0, lint 0/29, build OK (worker chunk unchanged — render-side),
+**full suite 201/201, 30 files, no M1 flake this run.** advisor final = SHIP.
+
+### What shipped
+
+The raised-globe graticule now **drapes over terrain** instead of sitting at one
+radius — the deferred "drape tier" from S17. Each grid sample projects at the
+terrain radius at its lat/lon (`1 + max(nearestCellHeight, seaLevel)·0.05`), so
+the line rides relief, meets terrain at coastlines, and has **zero parallax at any
+zoom without flattening**. Spec:
+`docs/superpowers/specs/2026-08-15-f2-drape-graticule-design.md`; plan:
+`docs/superpowers/plans/2026-08-15-f2-drape-graticule.md`.
+
+- **`utils/nearestCell.ts`** — `nearestCellWalk` (greedy `dot(dir, center)`
+  hill-climb over the **symmetric** Voronoi neighbor graph — verified symmetric at
+  `worldGen.ts:445-446` before committing to the walk) + `nearestCellBrute` seed.
+  Seeded by the previous sample → 1–3 hops/sample; one O(n) brute seed + ~5100
+  short walks per **gated** redraw. No spatial index, no cache.
+- **`drawGraticuleTenant`** (`components/overlays/tenants.ts`) — raised path drapes
+  via a running `startId`; smooth path unchanged (unit sphere). Currents untouched
+  (already cell-bound).
+
+### ⚠️ Drape is NOT reachable by default — read this
+
+**Turning on the Lat/Long grid still FLATTENS the globe** (the S17 grid→smooth
+coupling is intentionally kept — advisor's call: it's the safety net for the
+queued *non-draping* ScreenOverlay tenants — roads/routes, contours, borders,
+labels). **To see the drape: turn Smooth Globe OFF with the grid ON.** Dropping
+the coupling is a **one-line change** in `useWorldEngine`'s coupled `setShowGrid`
+(remove the `if (b) setSmoothGlobe(true)`), which would make raised+draped the
+default. **Deliberately left to Matt** — decide with eyes on screen whether the
+raised-draped grid should be the default now that parallax is fixed on relief.
+
+### Delegation (Matt's instruction: OpenCode first, then Sonnet)
+
+- **`nearestCell` → OpenCode/DeepSeek** (`opencode-go/deepseek-v4-flash`, scratch
+  dir). Attempt 1: **timed out at the 2-min cap, wrote nothing.** Attempt 2:
+  **succeeded** — wrote both files AND self-verified `walk===brute` over 100k
+  directions on an icosahedron graph. Output quality exceeded the plan draft
+  (empty-array guard, out-of-range clamp, richer test). **One real bug** (NaN
+  `startId` → `cells[NaN]` crash) caught by its own test; fixed with a
+  `Number.isFinite` guard. Verdict: net-positive here (self-contained pure module),
+  matching S16 (good for self-contained gen, not integration).
+- **Drape integration → in-house**, not a subagent (advisor-sanctioned): a ~20-line
+  edit to a file already in context — a subagent round-trip would cost more Opus
+  tokens than it saves, against the "keep usage low" intent.
+
+### Verification (raised globe, grid on / smooth off)
+
+Grid drapes over terrain cells at high zoom, meets coastlines, and **stays pinned
+to the same cells across a dolly** (A/B zoom pair, same view). Parallax
+elimination is **by construction** (per-sample radius == the mesh formula), and
+was confirmed visually + A/B'd across a dolly (not merely argued). 0 console
+errors. **Caveat:** drape screenshots used seed **`yg2fa9`** (Generate randomizes
+the seed), not `realmgenesis`. Per-sample walk cost is **unmeasured at the 200k
+cap** — reasoned cheap (1 O(n) seed + ~5100 short walks per gated redraw), verified
+only at 5k.
+
+### Trap for next session (recurring class)
+
+**React state batching:** two synchronous `.click()`s on coupled toggles race —
+grid's coupling set `smoothGlobe=true`, then the smooth button's `onChange(!checked)`
+read the *pre-coupling* `checked` and set it true again (net: no-op). Same class as
+the S16 stale-fiber-`memoizedProps` and S9/S14 synthetic-`Select` notes. **Coupled
+toggles need a render tick between clicks — never batch two coupled-state clicks in
+one `evaluate`.**
+
+### Open / next
+
+- **NOT merged / NOT pushed.** Branch `f2-drape-graticule` for Matt to finish.
+- Coupling decision (above) — Matt's call.
+- Remaining ScreenOverlay tenant migrations (roads/routes, contours, borders,
+  rivers, labels) still queued (ROADMAP F2); none drape yet — the coupling covers
+  them until they do.
+
+---
+
 ## Session 17 (2026-08-15) — F2 overlay parallax fix + smooth-globe mode
 
 On branch **`f2-currents-overlay`** (continues S16), commits `7b83387` (radius

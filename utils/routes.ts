@@ -104,7 +104,7 @@ export function computeRoutes(world: WorldData, params: WorldParams): RouteData[
       if (angle(cells[a].center, cells[b].center) > MAX_ROAD_ANGLE) continue;
       const path = aStar(cells, a, b, landStep, landHeuristic(cells, b, stepsPerRadian), MAX_ROAD_EXPANSIONS);
       if (path && path.length >= 2) {
-        routes.push({ path: path.map(id => cells[id].center), kind: 'road', fromCellId: a, toCellId: b });
+        routes.push({ path: path.map(id => cells[id].center), cellIds: [...path], kind: 'road', fromCellId: a, toCellId: b });
       }
     }
   }
@@ -119,7 +119,7 @@ export function computeRoutes(world: WorldData, params: WorldParams): RouteData[
       if (angle(cells[A.cellId].center, cells[B.cellId].center) > MAX_ROAD_ANGLE) continue;
       const path = aStar(cells, A.cellId, B.cellId, landStep, landHeuristic(cells, B.cellId, stepsPerRadian), MAX_ROAD_EXPANSIONS);
       if (path && path.length >= 2) {
-        routes.push({ path: path.map(id => cells[id].center), kind: 'road', fromCellId: A.cellId, toCellId: B.cellId });
+        routes.push({ path: path.map(id => cells[id].center), cellIds: [...path], kind: 'road', fromCellId: A.cellId, toCellId: B.cellId });
       }
     }
   }
@@ -157,7 +157,7 @@ export function computeRoutes(world: WorldData, params: WorldParams): RouteData[
           isWaterCell(cells[toId], params.seaLevel) ? SEA_STEP : (toId === goalId ? SEA_STEP : Infinity);
         const path = aStar(cells, p.cellId, goalId, seaStep, landHeuristic(cells, goalId, stepsPerRadian), MAX_SEA_EXPANSIONS);
         if (path && path.length >= 2) {
-          routes.push({ path: path.map(id => cells[id].center), kind: 'searoute', fromCellId: p.cellId, toCellId: goalId });
+          routes.push({ path: path.map(id => cells[id].center), cellIds: [...path], kind: 'searoute', fromCellId: p.cellId, toCellId: goalId });
         }
       }
     }
