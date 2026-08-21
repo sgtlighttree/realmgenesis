@@ -2,14 +2,14 @@ import React, { useMemo, useRef, useEffect, useLayoutEffect, useState, useCallba
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Stars, Line } from '@react-three/drei';
 import * as THREE from 'three';
-import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, MarkerData, RouteData } from '../types';
+import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, MarkerData } from '../types';
 import { getCellColor } from '../utils/colors';
 import { seasonalTemperatureDelta } from '../utils/seasons';
 import { displayRadius } from '../utils/displayRadius';
 import { computeShadeMap, computeContourSegments } from '../utils/shading';
 import { collectLabels, MapLabel } from '../utils/labels';
 import { ScreenOverlay, OverlayTenant } from './overlays/ScreenOverlay';
-import { drawCurrentsTenant, drawGraticuleTenant } from './overlays/tenants';
+import { drawCurrentsTenant, drawGraticuleTenant, drawRoutesTenant } from './overlays/tenants';
 
 const Mesh = 'mesh' as any;
 const Group = 'group' as any;
@@ -22,7 +22,6 @@ const CylinderGeometry = 'cylinderGeometry' as any;
 const MeshBasicMaterial = 'meshBasicMaterial' as any;
 const LineSegments = 'lineSegments' as any;
 const LineBasicMaterial = 'lineBasicMaterial' as any;
-const LineDashedMaterial = 'lineDashedMaterial' as typeof LineSegments;
 const IcosahedronGeometry = 'icosahedronGeometry' as any;
 type R3FIntrinsic = React.FC<{ children?: React.ReactNode } & Record<string, unknown>>;
 const Sprite = 'sprite' as unknown as R3FIntrinsic;
@@ -171,69 +170,6 @@ const RiverLines: React.FC<{ world: WorldData; visible: boolean; smoothGlobe?: b
         </LineSegments>
     );
 }
-
-// C3: batch all routes of one kind into a single smoothed LineSegments geometry,
-// lifted just off the surface so they sit above rivers/terrain.
-function buildRouteGeometry(
-    routes: RouteData[] | undefined,
-    kind: 'road' | 'searoute',
-    visible: boolean,
-    smoothGlobe = false,
-): THREE.BufferGeometry | null {
-    if (!routes || !visible) return null;
-    const positions: number[] = [];
-    const distances: number[] = []; // per-vertex cumulative length, for LineDashedMaterial
-    const LIFT = 1.008; // just above surface (rivers sit at r≈1.0)
-    for (const r of routes) {
-        if (r.kind !== kind || r.path.length < 2) continue;
-        // Smooth globe: normalize each path point to unit before the lift so
-        // routes lie on the flat sphere instead of floating at relief radius.
-        const vectors = r.path.map(p => {
-            const v = new THREE.Vector3(p.x, p.y, p.z);
-            if (smoothGlobe) v.normalize();
-            return v.multiplyScalar(LIFT);
-        });
-        const curve = new THREE.CatmullRomCurve3(vectors);
-        const pts = curve.getPoints(Math.min(60, vectors.length * 4));
-        let accum = 0; // reset per route so dashes run continuously along each route
-        for (let i = 0; i < pts.length - 1; i++) {
-            const segLen = pts[i].distanceTo(pts[i + 1]);
-            positions.push(pts[i].x, pts[i].y, pts[i].z, pts[i + 1].x, pts[i + 1].y, pts[i + 1].z);
-            distances.push(accum, accum + segLen);
-            accum += segLen;
-        }
-    }
-    if (positions.length === 0) return null;
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    // LineDashedMaterial reads the 'lineDistance' attribute (LineSegments.computeLineDistances
-    // is unavailable through the R3F string-element path, so we build it directly).
-    if (kind === 'searoute') geo.setAttribute('lineDistance', new THREE.Float32BufferAttribute(distances, 1));
-    return geo;
-}
-
-const RouteLines: React.FC<{ world: WorldData; visible: boolean; smoothGlobe?: boolean }> = ({ world, visible, smoothGlobe = false }) => {
-    const routes = world.routes;
-    const road = useMemo(() => buildRouteGeometry(routes, 'road', visible, smoothGlobe), [routes, visible, smoothGlobe]);
-    const sea = useMemo(() => buildRouteGeometry(routes, 'searoute', visible, smoothGlobe), [routes, visible, smoothGlobe]);
-    useEffect(() => () => { road?.dispose(); }, [road]);
-    useEffect(() => () => { sea?.dispose(); }, [sea]);
-    if (!visible) return null;
-    return (
-        <>
-            {road && (
-                <LineSegments geometry={road}>
-                    <LineBasicMaterial color="#c8a25a" opacity={0.9} transparent linewidth={1.5} />
-                </LineSegments>
-            )}
-            {sea && (
-                <LineSegments geometry={sea}>
-                    <LineDashedMaterial color="#5eb8c8" opacity={0.9} transparent dashSize={0.02} gapSize={0.012} />
-                </LineSegments>
-            )}
-        </>
-    );
-};
 
 const CurvedFactionLabel: React.FC<{ name: string; position: THREE.Vector3 }> = ({ name, position }) => {
     const { texture, scale } = useMemo(() => {
@@ -1113,8 +1049,10 @@ const WorldMesh: React.FC<{
   // F2 screen-space overlay tenants.
   const overlayTenants = useMemo<OverlayTenant[]>(() => [
     { id: 'currents', visible: showCurrents && !!world.currents, draw: drawCurrentsTenant },
+    // Routes above the current field so dashed sea routes read over the arrows.
+    { id: 'routes', visible: showRoutes && !!world.routes, draw: drawRoutesTenant },
     { id: 'graticule', visible: showGrid, draw: drawGraticuleTenant },
-  ], [showCurrents, world.currents, showGrid]);
+  ], [showCurrents, world.currents, showRoutes, world.routes, showGrid]);
 
   return (
     <Group>
@@ -1139,7 +1077,7 @@ const WorldMesh: React.FC<{
                 </React.Suspense>
                 <FactionBorders world={world} visible={labelVisibility.borders} smoothGlobe={smoothGlobe} />
                 <RiverLines world={world} visible={showRivers} smoothGlobe={smoothGlobe} />
-                <RouteLines world={world} visible={showRoutes} smoothGlobe={smoothGlobe} />
+                {/* Roads & sea routes migrated to ScreenOverlay (F2 routes tenant). */}
                 <ContourLines world={world} visible={showContours} smoothGlobe={smoothGlobe} />
                 {/* Lat/long grid migrated to ScreenOverlay (F2 graticule tenant). */}
                 {showGrid && <TiltAxisLine radius={1.35} />}

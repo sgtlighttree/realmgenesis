@@ -153,3 +153,62 @@ export function drawGraticuleTenant(
     ctx.stroke();
   }
 }
+
+// --- routes (C3 roads + sea trade routes), migrated off 3D LineSegments ---
+
+export const ROUTE_LIFT = 0.008; // sits just above the surface, over rivers
+const ROAD_COLOR = '#c8a25a';
+const SEAROUTE_COLOR = '#5eb8c8';
+const SEAROUTE_DASH = [4, 3];
+const KINDS = ['road', 'searoute'] as const;
+
+// Roads and sea routes drawn in screen space. Each route is a polyline over its
+// path of cell centers; the polyline BREAKS wherever a point falls past the
+// horizon, so a route never draws a chord across the globe silhouette — the win
+// over the old 3D LineSegments, which also drew at a fixed r = 1.008 and so sank
+// into any terrain above that (mountains reach 1.05).
+//
+// Radius (LocalProjector contract): on the SMOOTH globe every cell is r=1, so
+// routes sit on the unit sphere plus ROUTE_LIFT. On the RAISED globe this is
+// phase 1 — a single flat radius at sea level plus the lift, matching the old
+// 3D behaviour. Phase 2 drapes per cell; routes are already cell-bound (paths
+// are built from cell centers in utils/routes.ts) so that needs the cell ids,
+// not a nearestCell walk.
+//
+// No curve smoothing: cell centers are dense enough at any cell count, and
+// resampling a spline would have to re-derive the horizon breaks.
+export function drawRoutesTenant(
+  ctx: CanvasRenderingContext2D,
+  _proj: ProjectedCells,
+  world: WorldData,
+  project: LocalProjector,
+  smooth = false,
+): void {
+  const routes = world.routes;
+  if (!routes || routes.length === 0) return;
+  const pt: [number, number] = [0, 0];
+  // Phase 1: one flat radius for the whole layer.
+  const rad = displayRadius(smooth ? 0 : world.params.seaLevel, smooth, ROUTE_LIFT);
+
+  ctx.lineWidth = 1.5;
+  for (const kind of KINDS) {
+    ctx.strokeStyle = kind === 'road' ? ROAD_COLOR : SEAROUTE_COLOR;
+    ctx.setLineDash(kind === 'road' ? [] : SEAROUTE_DASH);
+    for (const route of routes) {
+      if (route.kind !== kind || route.path.length < 2) continue;
+      let drawing = false;
+      ctx.beginPath();
+      for (const p of route.path) {
+        if (project(p.x * rad, p.y * rad, p.z * rad, pt)) {
+          if (drawing) ctx.lineTo(pt[0], pt[1]);
+          else { ctx.moveTo(pt[0], pt[1]); drawing = true; }
+        } else {
+          drawing = false;
+        }
+      }
+      ctx.stroke();
+    }
+  }
+  // The 2D context is shared across tenants — hand it back undashed.
+  ctx.setLineDash([]);
+}
