@@ -1402,7 +1402,7 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                                     <input
                                         type="checkbox"
                                         checked={dymaxionSettings.showOverlay}
-                                        onChange={(e) => { updateDymaxion({ showOverlay: e.target.checked }); }}
+                                        onChange={(e) => { updateDymaxion({ showOverlay: e.target.checked, mode: e.target.checked ? 'overlay' : 'planet' }); }}
                                         className="accent-brand-soft"
                                     />
                                     Show Overlay
