@@ -33,7 +33,7 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
       **DONE Session 13** — full `docs/` suite (11 topic docs + index) rebuilt from code,
       three-doc rule established (`docs/`=settled · HANDOFF=live · ROADMAP=future). Stale
       `ARCHITECTURE.md`/`AUDIT.md` archived; CLAUDE/README/AGENTS repointed. See `docs/README.md`.
-- [ ] Observation 2026-08-22: HIGHEST PRIORITY Generated habitable terrain tends to concentrate on one part of the map after the tectonic plate improvements, tends to generate pangea and supercontinents and superoceans even as I tweak the other settings
+- [x] ~~Observation 2026-08-22: HIGHEST PRIORITY Generated habitable terrain tends to concentrate on one part of the map after the tectonic plate improvements, tends to generate pangea and supercontinents and superoceans even as I tweak the other settings~~ **FIXED 2026-08-22 (S23).** Cause was NOT the tectonic plates — it was `seedCrustField` thresholding a single low-freq (0.3) noise octave, which put the whole sphere in one noise lobe → one land cap. Now fractal, per-`landStyle`. Continents → ~7 masses spread over the globe; `Pangea` style preserved. See ROADMAP D9 + `tests/crustDistribution.test.ts`.
 
 ---
 
@@ -111,16 +111,11 @@ zero assertion failures means the machine, not a regression.
 
 ### Open, in the order I'd pick them up
 
-1. **Matt's HIGHEST-PRIORITY observation (2026-08-22): terrain concentrates into
-   pangea / supercontinents + superoceans** since the tectonic-plate work, and
-   tweaking the other settings does not break it up. Nothing has been
-   investigated yet — this is his note, not a diagnosis. Likely suspects, in the
-   order I would check them: plate seeding (`plateJitter`, `plateElongation`,
-   band/chain seeding from S12), the continental-vs-oceanic plate ratio, and
-   whether the V3 macro-sim's uplift concentrates because plate count is low
-   relative to sphere area. Start in `utils/tectonicsV3.ts`.
-   **Do not confuse this with a param bug** — every relevant slider was already
-   tried by Matt.
+1. ~~**Matt's HIGHEST-PRIORITY observation: pangea bias.**~~ **DONE (S23, D9).**
+   The plate-seeding suspects listed here were ALL wrong. It was `seedCrustField`
+   (`utils/crust.ts`), which is seeded independently of plates — a single 0.3-freq
+   noise octave put the whole sphere in one lobe. Now fractal + per-`landStyle`.
+   See the S23 entry below.
 2. **Finish F2 properly: Dymaxion, rulers, selection.** See "F2's real remaining
    scope" below. Dymaxion is the strongest candidate (a fixed r = 1.12 overlay
    floating over all terrain); the selection ring is the one worth arguing about.
@@ -259,6 +254,69 @@ mean and make the units agree. Suggested shape, not prescribed:
 as a hard line (D2 ships `currentStrength = 0` byte-identical; D5's G-class star
 is an exact no-op). It needs the same discipline — or an explicit decision from
 Matt that civ geometry is allowed to move.
+
+## Session 23 (2026-08-22) — D9 pangea bias root-caused and fixed
+
+**Result:** Matt's highest-priority observation is fixed. Default worlds now
+spread land into ~7 separate continents instead of one pangea. One file of
+generation logic changed (`utils/crust.ts`) plus a new regression test.
+
+### The cause was NOT tectonics — the ROADMAP/HANDOFF suspects were all wrong
+
+Every pre-session guess pointed at plate seeding (`plateJitter`,
+`plateElongation`, plate count, uplift concentration). All wrong. The crust field
+is seeded **independently of plates** (`tectonicsV3.ts:582` calls
+`seedCrustField` before any plate work), so no plate parameter could ever affect
+where continents land — which is exactly why Matt's slider-tuning never helped.
+
+The real cause: `seedCrustField` decided continental vs oceanic crust by
+thresholding a **single simplex octave at base frequency 0.3** on the unit
+sphere. Input coords land in ±0.3 — a sub-feature slice of the noise, i.e. a
+smooth gradient. Thresholding a gradient over a sphere gives one land cap + one
+ocean cap. **This is a textbook single-low-octave pangea.**
+
+### Evidence (measured on the REAL field, not a guess)
+
+Metric = size of the largest connected continental component (kNN=6 graph over
+10k macro points), mean of 5 seeds:
+
+- **Old field (0.3, 1 octave): largest component = 100% of land.** Literally one
+  continent, every seed. Mean-position clump metric 0.74.
+- New field (fBm ~1.0): ~7 masses, largest ~47%, land ~35% — Earth-like.
+
+### The fix
+
+`seedCrustField` now uses fBm at a per-`landStyle` base frequency/octaves/
+threshold (table in `utils/crust.ts` and ROADMAP D9). `Continents` (and `Custom`)
+= x1.0 / 3 oct / thr 0.10. `Pangea` is preserved as a deliberate choice (x0.4 /
+2 oct → one ~86% supercontinent). `Islands`/`Archipelago` go higher-frequency.
+
+No new `WorldParams` keys — `landStyle` already drove crust seeding, so
+`paramLiveness` and the Controls preset map are untouched. fBm is defined
+locally in `crust.ts`; importing worldGen's `fbm` would make an import cycle
+(worldGen → tectonicsV3 → crust).
+
+### No escape hatch — deliberate, don't "restore discipline" by adding one
+
+D2/D5 shipped byte-identical hatches because their prior output was fine. Here
+the prior output *is* the bug; a hatch would only reproduce the pangea. ROADMAP:34
+authorizes seed breakage. Every existing seed now looks different — that is the
+point, not a regression.
+
+### Gate state
+
+typecheck 0 · lint 0 errors / 29 warnings (ratchet held, no new warnings) ·
+`tests/crustDistribution.test.ts` 3/3 · `worldGen`+`biomes` 14/14 (pipeline
+intact). Did NOT drive Playwright: the dev server on :3000 is Matt's, and the
+documented M1/auto-rotate CPU trap is not worth it when the field is proven
+numerically per-seed. **Visual confirmation is Matt's to eyeball in his open
+browser** — Generate a few default worlds and check land is scattered, not one blob.
+
+### If it ever regresses
+
+`tests/crustDistribution.test.ts` asserts Continents largest-mass < 0.75 and
+Pangea > 0.7. A failure there means someone lowered the crust frequency or
+dropped fBm back to one octave.
 
 ## Session 22 (2026-08-22) — labels DONE and verified; branch held back
 

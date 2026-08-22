@@ -277,16 +277,40 @@ Another overhaul of terrain generaton algorithm to make it more realistic
 and get rid of seam lines on plate boundaries, and more detailed heightmap
 rendering and calculation without increasing cell count
 
-### D9. Pangea bias — terrain concentrates into supercontinents  —  ⬜ TODO (Matt: HIGHEST PRIORITY)
-> _observed 2026-08-22, post-D7; not yet investigated_
+### D9. Pangea bias — terrain concentrates into supercontinents  —  ✅ DONE
+> _root-caused + fixed 2026-08-22 (Session 23). Cause was NOT plate seeding._
 
-Since the tectonic-plate improvements, generated habitable terrain tends to
-gather into one part of the sphere — pangea and supercontinents against
-superoceans — and the existing sliders do not break it up. Matt has already tried
-tuning the other settings, so treat this as a model bias rather than a parameter
-bug. First places to look: plate seeding (`plateJitter`, `plateElongation`, the
-S12 band/chain seeding), the continental-to-oceanic plate ratio, and whether
-uplift concentrates because plate count is low relative to sphere area.
+Since the tectonic-plate improvements, generated habitable terrain gathered into
+one part of the sphere — pangea and superoceans — and the existing sliders did
+not break it up.
+
+**Root cause (the plate-seeding suspects were all wrong):** `seedCrustField`
+(`utils/crust.ts`) decided continental vs oceanic crust by thresholding a
+**single** simplex octave at base frequency **0.3** on the unit sphere. At that
+scale the whole planet sits inside one noise lobe, so the threshold split the
+sphere into one land cap and one ocean cap. Measured on the real field (10k macro
+points, 5 seeds): **one connected component holding 100% of land**, mean-position
+clump metric **0.74**. The crust field is seeded independently of plates
+(`tectonicsV3.ts:582`), so plate count / jitter / elongation never touched it.
+
+**Fix:** the field is now **fractal (fBm) at base frequency ~1.0**, with
+per-`landStyle` parameters, so continental crust breaks into several separate
+masses at continental scale. Measured (mean of 5 seeds):
+
+| landStyle | masses | largest mass | land frac |
+|-----------|--------|--------------|-----------|
+| Continents (default, + Custom) | ~7 | ~47% | ~35% |
+| Pangea (intentional) | 1 dominant + satellite | ~86% | ~31% |
+| Archipelago | ~21 | ~21% | ~35% |
+| Islands | ~27 | ~10% | ~34% |
+
+Continents now matches Earth (~6 masses, largest ~40–57%). `Pangea` is preserved
+as a deliberate user choice. Guarded by `tests/crustDistribution.test.ts`.
+
+**No escape hatch, deliberately.** Unlike D2/D5 (where prior output was fine and
+the feature was additive), here the prior output *is* the defect — a "reproduce
+pangea" hatch would only preserve the bug. ROADMAP:34 authorizes seed breakage.
+Rejected alternative: a `crustFractalOctaves=1` flag reproducing the old field.
 
 ### D8. World datum (units)  —  ⬜ TODO
 > _surfaced Session 19d; scoped Session 19e after auditing where heights are actually consumed_
