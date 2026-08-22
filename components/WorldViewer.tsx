@@ -11,7 +11,7 @@ import { computeBorderSegments } from '../utils/borders';
 import { collectLabels } from '../utils/labels';
 import { computeLabelAnchors } from '../utils/labelAnchors';
 import { ScreenOverlay, OverlayTenant } from './overlays/ScreenOverlay';
-import { drawCurrentsTenant, drawGraticuleTenant, drawRoutesTenant, drawContoursTenant, drawBordersTenant, drawRiversTenant, drawLabelsTenant } from './overlays/tenants';
+import { drawCurrentsTenant, drawGraticuleTenant, drawRoutesTenant, drawContoursTenant, drawBordersTenant, drawRiversTenant, drawLabelsTenant, drawRulerTenant } from './overlays/tenants';
 import { computeRiverPolylines } from '../utils/riverPaths';
 
 const Mesh = 'mesh' as any;
@@ -425,51 +425,6 @@ const CellSelectionOverlay: React.FC<{ cell: Cell; smoothGlobe?: boolean }> = ({
   );
 };
 
-// Sits above max terrain relief (1.05) and city marker pins (~1.062 shares
-// the same offset intentionally, so the ruler line clears the highest peaks).
-const RULER_RADIUS = 1.062;
-
-const RulerArc: React.FC<{ points: Point[]; smoothGlobe?: boolean }> = ({ points, smoothGlobe = false }) => {
-  const geometry = useMemo(() => {
-    if (points.length < 2) return null;
-    const radius = smoothGlobe ? 1.01 : RULER_RADIUS;
-    const positions: number[] = [];
-    for (let i = 0; i < points.length - 1; i++) {
-      const p0 = points[i];
-      const p1 = points[i + 1];
-      positions.push(p0.x * radius, p0.y * radius, p0.z * radius);
-      positions.push(p1.x * radius, p1.y * radius, p1.z * radius);
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    return geo;
-  }, [points, smoothGlobe]);
-
-  useEffect(() => () => { geometry?.dispose(); }, [geometry]);
-
-  if (!geometry || points.length < 2) return null;
-
-  const start = points[0];
-  const end = points[points.length - 1];
-  const markR = smoothGlobe ? 1.01 : RULER_RADIUS;
-
-  return (
-    <Group>
-      <LineSegments geometry={geometry} renderOrder={9}>
-        <LineBasicMaterial color="#fbbf24" opacity={0.9} transparent depthTest={false} />
-      </LineSegments>
-      <Mesh position={[start.x * markR, start.y * markR, start.z * markR]} renderOrder={10}>
-        <IcosahedronGeometry args={[0.012, 1]} />
-        <MeshBasicMaterial color="#fbbf24" depthTest={false} />
-      </Mesh>
-      <Mesh position={[end.x * markR, end.y * markR, end.z * markR]} renderOrder={10}>
-        <IcosahedronGeometry args={[0.012, 1]} />
-        <MeshBasicMaterial color="#fbbf24" depthTest={false} />
-      </Mesh>
-    </Group>
-  );
-};
-
 const CellHighlightOutline: React.FC<{ cell: Cell; smoothGlobe?: boolean }> = ({ cell, smoothGlobe = false }) => {
   const geometry = useMemo(() => {
     const hm = displayRadius(cell.height, smoothGlobe, 0.004);
@@ -852,7 +807,11 @@ const WorldMesh: React.FC<{
       visible: labelAnchors.length > 0,
       draw: (ctx, _proj, _world, project, smooth) =>
         drawLabelsTenant(ctx, labelAnchors, project, smooth, camera.position.length(), labelVisibility) },
-  ], [showRivers, riverPolylines, showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, labelVisibility, borderSegments, showGrid, labelAnchors, camera]);
+    // Ruler on top of everything — it is an active measurement affordance. Fixed
+    // radius (clears peaks), not draped; see drawRulerTenant.
+    { id: 'ruler', visible: !!rulerArc && rulerArc.length > 1,
+      draw: (ctx, _proj, _world, project, smooth) => drawRulerTenant(ctx, rulerArc!, project, smooth) },
+  ], [showRivers, riverPolylines, showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, labelVisibility, borderSegments, showGrid, labelAnchors, camera, rulerArc]);
 
   return (
     <Group>
@@ -893,7 +852,7 @@ const WorldMesh: React.FC<{
                     const selectedCell = world.cells[selectedCellId];
                     return selectedCell ? <CellSelectionOverlay cell={selectedCell} smoothGlobe={smoothGlobe} /> : null;
                 })()}
-                {rulerArc && rulerArc.length > 1 && <RulerArc points={rulerArc} smoothGlobe={smoothGlobe} />}
+                {/* Ruler arc migrated to ScreenOverlay (F2 ruler tenant). */}
             </Mesh>
             {/* Brush size ring */}
             {isPaintMode && brushCenter && (
