@@ -438,6 +438,24 @@ table). Cage frozen while dragging sliders with the globe paused → the tenant 
 stopped encoding lon/lat/roll (the S22 redraw-gate trap). Cage brighter than
 before → the 0.95 alpha was dropped from `DYMAXION_COLOR`.
 
+### S24 follow-ups — Dymaxion overlay UX (Matt, same session)
+
+Three fixes after the cage landed (commits `09a1d5f` drag, `c38e952` preview):
+
+- **2D live preview.** The shell "2D Projection" card now renders
+  `DymaxionPreview2D` (live, draggable net) instead of `MiniMapCanvas` when
+  `showOverlay` is on (`ShellApp.tsx`). Reuses the Export-tab preview.
+- **Drag did nothing.** Default `mode` is `planet`; the 3D globe drag only
+  rotates the cage in `overlay` mode, but the hint never said so. Checking
+  "Show Overlay" now auto-enters `overlay` mode (`Controls.tsx` ~L1405).
+- **Latitude drag inverted.** `handleOverlayPointerMove` did `lat + dy`; the 2D
+  preview does `lat - dy`. Flipped to match (`WorldViewer.tsx` ~L909). lon/roll
+  already matched.
+
+Not eyeballed in-browser (M1 trap) — Matt confirms in his `:3000`. If the drag
+still feels off on lon, the preview applies a horizontal flip the 3D globe does
+not; match the preview as the oracle.
+
 ## Session 23 (2026-08-22) — D9 pangea bias root-caused and fixed
 
 **Result:** Matt's highest-priority observation is fixed. Default worlds now
