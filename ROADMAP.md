@@ -447,8 +447,8 @@ The UI has become a mess in an attempt to add more features, especially on mobil
 A full redesign and rearchitecture is warranted here.
 Can come *before or alongside* D6 with the roadmap in mind.
 
-# F2. 3D Mode Presentation  —  🟡 PARTIAL
-> _ScreenOverlay foundation + ocean-current viz + graticule Session 16; smooth-globe + graticule drape Sessions 17-18; roads/routes Session 19; contours Session 19b; faction borders Session 20; rivers Session 21; point labels Session 22 (branch, unmerged). **STILL 3D: Dymaxion, rulers, selection** — all three named in the spec below_
+# F2. 3D Mode Presentation  —  ✅ DONE (overlay migration); permanent-3D items noted below
+> _ScreenOverlay foundation + ocean-current viz + graticule Session 16; smooth-globe + graticule drape Sessions 17-18; roads/routes Session 19; contours Session 19b; faction borders Session 20; rivers Session 21; point labels Session 22; ruler Session 23; **Dymaxion cage Session 24 (last named tenant)**. Selection/highlight rings declined in writing (S23). Faction labels stay 3D permanently by design. **The migration is complete.**_
 Part of redesign is figuring out how the planet is presented; overlays like borders, rivers and roads and routes and the lat/lon grid are also 3D objects, not 2D overlays simply composited over the 3D globe, which affects visibility and accuracy. Or maybe make the globe entirely smooth by default, instead of applying height per cell. Perhaps 3D mode should more like Google Earth Pro in this respect.
 
 - **Ocean-current visualization** (from D2): a currents overlay drawing the
@@ -480,17 +480,37 @@ Part of redesign is figuring out how the planet is presented; overlays like bord
     cell's geometry, not composited flat over it. Flattening them is a downgrade,
     the way `CurvedFactionLabel` is. Applies to `CellSelectionOverlay`,
     `CellHighlightOutline`, and `BrushRing` together. Leave them 3D.
-  - **`DymaxionOverlay`** (`components/WorldViewer.tsx` ~L303) — icosahedron cage
-    at fixed r = 1.12; still 3D. Deferred by Matt (S23) to after the E4 Dymaxion
-    work. When resumed: Matt chose **edges only, back hemisphere hidden, drop the
-    amber faces** (all 20 faces are one flat color the edges already delineate).
-    Note the ScreenOverlay projector culls behind-horizon points and returns no
-    coords, so "draw back edges faint" would need a non-culling projector variant;
-    edges-only-back-hidden needs no seam change.
+  - **`DymaxionOverlay`** — ✅ MIGRATED (S24). Now the `dymaxion` ScreenOverlay
+    tenant (`drawDymaxionTenant`), **edges only, amber faces dropped** as Matt
+    chose. Geometry (12 unit verts + 30 edges, exact `THREE.IcosahedronGeometry`
+    orientation) lives in `utils/dymaxionCage.ts`; `cageEdges(settings)` rotates
+    it by the same YXZ euler the old 3D cage used. Fixed r = 1.12 in both globe
+    modes (a reference frame, not draped). Guarded by
+    `tests/dymaxionTenant.test.ts`. The 3D `DymaxionOverlay` component + JSX are
+    deleted.
 
-  With the ruler migrated and the selection ring declined in writing, only the
-  Dymaxion cage remains — and it is deferred, not forgotten. **Still do not mark
-  F2 fully done until the Dymaxion cage lands or is declined in writing too.**
+    **Occlusion — the S23 endpoint-only plan was REVERSED (refuted).** The S23
+    brief said to cull each edge on its two r = 1.12 endpoints, reasoning that a
+    per-sample test would wrongly cull the chord's middle. That reasoning was
+    inverted: `isVisible` tests each point against a sphere of the point's OWN
+    radius, so the mid-chord (r ≈ 0.95) is MORE permissive than its endpoints,
+    not less. Endpoint-only culling drops most of the cage — measured 3.6 / 30
+    edges at camDist 2.5, 0.6 / 30 zoomed to 1.5 (the cage nearly vanishes). The
+    tenant instead samples each chord (16 pts) and breaks the polyline at the
+    horizon — the routes/ruler idiom — which clips edges at the limb (~13 / 30 at
+    2.5). Perspective preserves straight lines, so collinear samples still draw
+    the exact straight edge. "Back edges faint" stays out of scope (it needs a
+    non-culling projector variant on the seam).
+
+  **F2's overlay migration is COMPLETE.** Every named 3D overlay has migrated or
+  been declined in writing: currents, graticule, routes, contours, borders,
+  rivers, labels, ruler, and the Dymaxion cage are tenants; the selection/
+  highlight rings are declined (S23). Faction labels (`CurvedFactionLabel`) stay
+  3D permanently — Canvas2D cannot reproduce curved textured meshes without the
+  per-glyph text A1 deferred; flattening them is a downgrade, not a migration.
+  `CityMarkers`, `MarkerPins`, and `TiltAxisLine` were never in the F2 named
+  scope and stay 3D (migrating them would fix the accepted overpaint nit as a
+  side effect — a separate deliberate decision, not silent inclusion).
 
   **Even then the queue does NOT fully empty.** Faction labels stay 3D permanently:
   `CurvedFactionLabel` renders curved textured meshes following the sphere's

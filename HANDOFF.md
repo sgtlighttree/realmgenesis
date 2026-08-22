@@ -37,16 +37,27 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## ▶ START HERE — pickup for a fresh session (updated 2026-08-22, end of S23)
+## ▶ START HERE — pickup for a fresh session (updated 2026-08-22, end of S24)
 
-**`main` is clean and PUSHED at `2014efb`.** S23 shipped D9 (pangea fix), the
+**S24 shipped the F2 Dymaxion cage tenant — the LAST named F2 overlay. F2's
+overlay migration is COMPLETE.** Changes are committed locally, **NOT pushed**
+(pushing is Matt's call). Gates on the working tree: typecheck 0 · lint 0
+errors/29 warnings · `tests/dymaxionTenant.test.ts` 9/9 · overlay suite
+(dymaxion + ruler + frameOrder) 17/17 · build OK. See the **S24 entry below**.
+
+**Visual confirmation is Matt's to eyeball** (his :3000 dev server, the M1
+auto-rotate CPU trap makes a Claude-driven Playwright pass not worth it — same
+call as S23). What to check: Export tab → Dymaxion → Show Overlay. The amber
+cage should draw as **edges only** (no filled faces), clip cleanly at the limb,
+and track the lon/lat/roll sliders **even with the globe paused**.
+
+**F2 is done. Next roadmap item: A3 — map style system** (recommended in S22;
+it styles the overlay layer F2 just unified). D8 (World Datum, scoped in ROADMAP)
+is the other candidate — sequencing is Matt's call.
+
+_Prior state:_ **`main` was clean and PUSHED at `2014efb`** at end of S23; HEAD
+moved to `6f6d725` (a test repair after D9). S23 shipped D9 (pangea fix), the
 Continents-preset fix, the F2 ruler tenant, and E4 (Dymaxion default → blender).
-Gates: typecheck 0 · lint 0 errors/29 warnings · new tests
-(`crustDistribution`, `rulerTenant`, `dymaxionBlenderNet`) green. See the S23
-entry below and **"Next session: F2 Dymaxion cage" immediately below this block.**
-
-**The one open piece of F2 is the Dymaxion cage overlay — do NOT start coding it
-cold. Re-explore first (own section below).**
 
 _Older context (S18–S22):_ **`main` carried Sessions 18 through 21.** Historic
 push points: `daa617d` (2026-08-21). The S21 rivers work and `c3bf856` are in
@@ -144,7 +155,13 @@ zero assertion failures means the machine, not a regression.
 
 ---
 
-## Next session: F2 Dymaxion cage overlay (RE-EXPLORE before coding)
+## ✅ DONE (S24): F2 Dymaxion cage overlay — kept for its rationale
+
+**This brief was executed in Session 24 — see the S24 entry above.** One design
+point in it was REFUTED and reversed: the endpoint-only occlusion (design point
+3 below) was inverted; the tenant samples the chord and breaks at the horizon
+instead. The rest held. Kept intact below because the geometry/rotation/testing
+notes are accurate and the refuted point is worth not re-deriving.
 
 Matt deferred this to a fresh, well-planned session on purpose. **Phase 0 is
 re-exploration — do not trust the line numbers here, they drift.** Re-grep and
@@ -351,6 +368,75 @@ mean and make the units agree. Suggested shape, not prescribed:
 as a hard line (D2 ships `currentStrength = 0` byte-identical; D5's G-class star
 is an exact no-op). It needs the same discipline — or an explicit decision from
 Matt that civ geometry is allowed to move.
+
+## Session 24 (2026-08-22) — F2 Dymaxion cage migrated; F2 overlay migration COMPLETE
+
+**Result:** the Dymaxion reference cage is now the `dymaxion` ScreenOverlay
+tenant, the last named F2 overlay. The 3D `DymaxionOverlay` component + JSX are
+deleted. Commit(s) local, not pushed.
+
+### What shipped
+
+- `utils/dymaxionCage.ts`: the 12 unit icosa verts + 30 edges (EXACT
+  `THREE.IcosahedronGeometry(1,0)` output, dumped live from three 5.1 and
+  deduped — the "dump ground truth first" E4 lesson), plus `cageEdges(settings)`
+  which rotates them by the same `THREE.Euler(lat, -lon, roll, 'YXZ')` the old
+  `<Group rotation>` used. Same base orientation → same sliders, same cage.
+- `drawDymaxionTenant` in `components/overlays/tenants.ts`: edges only, amber
+  `rgba(251,191,36,0.95)` (carries the old material's 0.95 alpha — the S21
+  rivers lesson), fixed r = 1.12 in BOTH globe modes (reference frame, not
+  draped — the ruler's "deliberate fixed radius" case).
+- Wired into `overlayTenants` with `id: dymaxion:${lon},${lat},${roll}` so the
+  redraw gate fires when the cage is rotated with the globe paused (the S22
+  labels many-state-in-the-closure trap — the advisor caught this before code).
+- `tests/dymaxionTenant.test.ts` (9): radius fixed 1.12 both smooth states,
+  limb-break, empty/culled cases, `cageEdges` rotation matches THREE.
+
+### The design REVERSAL — record, don't silently change (refuted-hypothesis)
+
+The S23 brief (see the now-stale "Next session" section above) said to cull each
+edge on its two **endpoints** and draw a straight screen segment when both are
+visible, reasoning that per-sample culling would wrongly cull the chord's middle.
+**That reasoning was inverted.** `isVisible` (`utils/screenProject.ts:31`) tests
+a point against a sphere of the point's OWN radius. An icosa edge is a straight
+chord between two r = 1.12 verts; its midpoint dips to r ≈ 0.95, which has a MORE
+permissive horizon than the endpoints, not less. So endpoint-only culling drops
+most of the cage:
+
+| camDist | verts visible | edges (endpoint-only) | edges (per-sample) |
+|---|---|---|---|
+| 2.5 (default) | 3.3/12 | **3.6/30** | 12.9/30 |
+| 1.5 (zoomed in) | 1.5/12 | **0.6/30** | 7.0/30 |
+
+Measured over 400 random orientations. Endpoint-only would ship a cage that is a
+few disconnected amber lines and nearly vanishes when zoomed in. The tenant
+instead **samples each chord (16 pts) and breaks the polyline at the horizon** —
+the routes/ruler idiom. Perspective preserves straight lines, so the collinear
+samples still draw the exact straight edge, and you get limb CLIPPING instead of
+whole-edge popping. Caught by the advisor; verified numerically before coding.
+
+### Accepted limitation (matches the old cage, strictly better)
+
+`project` uses each point's own radius for the horizon, so a near-limb chord
+sample that dips behind the r=1 globe front face can still overdraw it slightly.
+The old 3D cage used `depthTest={false}` and drew ALL edges through everything,
+so this is strictly better. Fine for a reference cage.
+
+### Gate state
+
+typecheck 0 · lint 0 errors / 29 warnings (ratchet held — the one new
+`exhaustive-deps` warning was fixed by depending on the whole `dymaxionSettings`
+object in the `dymaxionEdges` memo) · `tests/dymaxionTenant.test.ts` 9/9 ·
+overlay suite (dymaxion + ruler + overlayFrameOrder) 17/17 · build OK. Did NOT
+drive Playwright (M1 auto-rotate CPU trap; the occlusion is proven numerically
+per the table above). Visual eyeball is Matt's, per S23 precedent.
+
+### If the cage ever looks wrong
+
+Sparse/disconnected edges → someone reverted to endpoint-only culling (see the
+table). Cage frozen while dragging sliders with the globe paused → the tenant id
+stopped encoding lon/lat/roll (the S22 redraw-gate trap). Cage brighter than
+before → the 0.95 alpha was dropped from `DYMAXION_COLOR`.
 
 ## Session 23 (2026-08-22) — D9 pangea bias root-caused and fixed
 
