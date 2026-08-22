@@ -42,14 +42,33 @@ describe('civ expansion claims water correctly', () => {
     // expand from it, so expansion died partway across a landmass — worst on
     // mountains, where landTerrainStepCost burns the budget fastest.
     // Genuinely isolated islands beyond the water-step allowance stay unclaimed
-    // and SHOULD; hence a small tolerance rather than zero.
+    // and SHOULD.
     const world = await generateWorld(makeParams({ points: 3000 }));
     const sea = world.params.seaLevel;
-    const land = world.cells.filter((c) => c.height >= sea && !isLakeCell(c));
-
+    const isLand = (c: typeof world.cells[number]) => c.height >= sea && !isLakeCell(c);
+    const land = world.cells.filter(isLand);
     expect(land.length).toBeGreaterThan(0);
-    const unclaimed = land.filter((c) => c.regionId === undefined).length;
-    expect(unclaimed / land.length).toBeLessThan(0.02);
+
+    const unclaimed = land.filter((c) => c.regionId === undefined);
+
+    // CORRECTNESS: no unclaimed land may border CLAIMED land. A reachable gap —
+    // expansion stopping partway across a landmass (the old `cost > 200` cap) —
+    // shows up as an unclaimed cell next to a claimed one. Isolated islands never
+    // touch the mainland, so this stays 0 no matter how fragmented the terrain.
+    const reachableGaps = unclaimed.filter((c) =>
+      world.cells[c.id].neighbors.some((n) => {
+        const nc = world.cells[n];
+        return isLand(nc) && nc.regionId !== undefined;
+      }),
+    );
+    expect(reachableGaps).toHaveLength(0);
+
+    // CANARY (not a correctness bound): total unclaimed land fraction. This only
+    // catches a big shift in island TOPOLOGY. D9's fractal crust moved it from
+    // ~2% (near-pangea) to ~7% (many separate landmasses); the loose 15% bound
+    // flags a future change that fragments land far more, without failing on the
+    // legitimate islands D9 produces.
+    expect(unclaimed.length / land.length).toBeLessThan(0.15);
   }, 60000);
 
   it('territorialWaters = 0 claims no ocean at all', async () => {
