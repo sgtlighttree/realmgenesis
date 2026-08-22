@@ -447,13 +447,22 @@ Four fixes after the cage landed. Final commits: `02b4900` (auto-mode),
 - **Drag did nothing** — default `mode` is `planet`; the 3D globe drag only
   rotates the cage in `overlay` mode, but the hint never said so. Checking
   "Show Overlay" now auto-enters `overlay` mode (`Controls.tsx` ~L1405).
-- **Drag inverted on BOTH axes** (superseded `09a1d5f`, which flipped only lat
-  and was wrong). Derived from the cage euler `Euler(lat, -lon, roll)`:
-  longitude drives a `-lon` rotation about the up axis, so grab-drag right (+dx)
-  must DECREASE lon; drag up (dy<0) pitches up via `lat += dy`. Final:
-  `lon -= dx`, `lat += dy`, `roll -= dx` (`WorldViewer.tsx` ~L905). The 2D
-  Mercator preview's own signs are NOT the oracle (it applies a horizontal flip
-  the globe does not) — the euler is.
+- **Drag felt like grabbing the occluded side** — the REAL cause, found with
+  Playwright (commit `dc12a37`, supersedes the sign-flip commits `09a1d5f` and
+  `3bcdfe5`). The local-euler sign edits were a dead end: the drag was already
+  CORRECT at the default +Z camera (verified — set `lon` 0→60 via the slider,
+  the cage moved left; drag-right gave `lon` decreasing → front right). The bug
+  is that the handler hardcoded a +Z camera. OrbitControls is free until overlay
+  mode, so once Matt orbits toward the far side, screen-right ≠ world +X and the
+  rotation inverts. **Fix: camera-relative.** Rotate the visible cage about the
+  camera's own up/right axes (Shift = forward/roll) in world space, then pull it
+  back into the globe's local frame (`local' = gm⁻¹·delta·gm·local`) and
+  decompose to the YXZ euler the cage stores. `<CaptureFrame/>` publishes the
+  live camera + globe-mesh to refs the DOM handler reads. Signs verified against
+  the render: drag-right → front right, drag-down → front down.
+  **Correction to an earlier claim in this file: there is no fixed lon/lat sign
+  that is right — the correct signs depend on the camera, which is exactly why
+  three sign guesses all failed.** The euler is NOT a standalone oracle.
 - **Real Dymaxion net preview** (superseded `c38e952`, which showed a Mercator +
   net — Matt wanted the ACTUAL projection). `components/DymaxionNetPreview.tsx`
   renders the world to an offscreen 2:1 equirectangular source, then warps it
@@ -461,14 +470,23 @@ Four fixes after the cage landed. Final commits: `02b4900` (auto-mode),
   `Map2D.tsx`) — the same path the full 2D Dymaxion view uses. Shown in the
   "2D Projection" card when `showOverlay` is on, else `MiniMapCanvas`.
 
-**Playwright verification gap (honest):** drove headless chromium against Matt's
-`:3000` — app loads, world generates, globe + 2D card render (confirmed by
-screenshot). But the Export-tab **Projection combobox would NOT open under
-automation** (`aria-expanded` never flips, even on a native DOM `click()` — a
-custom listbox that ignores synthetic pointer/native events), so I could NOT
-reach "Show Overlay" headlessly. The **net-preview render and the corrected drag
-feel are NOT browser-verified** — Matt eyeballs both. Gates ARE green:
-typecheck 0, lint 0/29, build OK.
+**Playwright — how to drive this UI headlessly (learned the hard way).** The
+`playwright` npm package is NOT a project dep; run the CLI via
+`npx -y playwright@latest --version` to populate `~/.npm/_npx/<hash>/`, then
+`import { chromium } from '<that path>/node_modules/playwright/index.mjs'` and
+launch with `executablePath` pointing at the cached
+`chromium_headless_shell-1237/.../chrome-headless-shell` (version mismatch with
+the bundled build is fine for screenshots). **The `Select` combobox
+(`components/Select.tsx`) will NOT open under automation** — `aria-expanded`
+never flips, even on a native DOM `click()`. Workaround: it supports **type-ahead
+without opening** (Select.tsx:139 calls `onChange` directly on a printable key),
+so `combo.focus(); combo.press('d')` selects "Dymaxion". The lon/lat/roll
+**range inputs** respond to a native-value-setter + `input` dispatch. With that,
+the cage overlay, sliders, and drag are all reachable headlessly. Verified: app
+loads, world generates, globe + real net preview render, and the drag direction
+(the whole reason for this) is confirmed at the default and orbited camera.
+Kill the chromium tree after (`pkill -f chrome-headless-shell`) — the M1 trap.
+Gates green: typecheck 0, lint 0/29, build OK.
 
 ## Session 23 (2026-08-22) — D9 pangea bias root-caused and fixed
 
