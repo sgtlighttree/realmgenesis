@@ -409,6 +409,58 @@ export function drawRiversTenant(
   ctx.stroke();
 }
 
+// --- ruler arc (A5 great-circle measurement), migrated off 3D LineSegments ---
+
+const RULER_COLOR = '#fbbf24';
+// Deliberate FIXED radii, not draped: the ruler measures a great circle and
+// must clear the highest peaks (relief tops out at 1.05), so it floats above
+// terrain rather than riding it — the one case where a tenant does NOT track
+// the mesh (see the LocalProjector radius contract). Mirrors the old 3D
+// RulerArc's RULER_RADIUS / 1.01 constants exactly.
+export const RULER_RADIUS_RAISED = 1.062;
+export const RULER_RADIUS_SMOOTH = 1.01;
+const RULER_DOT_PX = 3.5; // endpoint marker radius, screen pixels
+
+// The measurement arc is a polyline over unit-sphere great-circle samples plus a
+// dot at each endpoint. The polyline BREAKS at the horizon like every other
+// tenant, so it never draws a chord across the far side. `points` are unit
+// vectors (A5 computes them on the unit sphere); the tenant lifts them to the
+// fixed ruler radius itself.
+export function drawRulerTenant(
+  ctx: CanvasRenderingContext2D,
+  points: Point[],
+  project: LocalProjector,
+  smooth: boolean,
+): void {
+  if (points.length < 2) return;
+  const r = smooth ? RULER_RADIUS_SMOOTH : RULER_RADIUS_RAISED;
+  const pt: [number, number] = [0, 0];
+
+  ctx.strokeStyle = RULER_COLOR;
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  let drawing = false;
+  for (const p of points) {
+    if (project(p.x * r, p.y * r, p.z * r, pt)) {
+      if (drawing) ctx.lineTo(pt[0], pt[1]);
+      else { ctx.moveTo(pt[0], pt[1]); drawing = true; }
+    } else {
+      drawing = false;
+    }
+  }
+  ctx.stroke();
+
+  // Endpoint dots, drawn only when the endpoint is on the near hemisphere.
+  ctx.fillStyle = RULER_COLOR;
+  for (const end of [points[0], points[points.length - 1]]) {
+    if (project(end.x * r, end.y * r, end.z * r, pt)) {
+      ctx.beginPath();
+      ctx.arc(pt[0], pt[1], RULER_DOT_PX, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
 // --- point labels (capitals/provinces/towns/geography/markers), migrated off
 // canvas-texture sprites (F2 S22, last tenant) ---
 
