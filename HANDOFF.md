@@ -440,21 +440,35 @@ before → the 0.95 alpha was dropped from `DYMAXION_COLOR`.
 
 ### S24 follow-ups — Dymaxion overlay UX (Matt, same session)
 
-Three fixes after the cage landed (commits `09a1d5f` drag, `c38e952` preview):
+Four fixes after the cage landed. Final commits: `02b4900` (auto-mode),
+`3bcdfe5` (drag axes), `5aea663` (real net preview). Two earlier commits
+(`09a1d5f`, `c38e952`) were SUPERSEDED in the same session — see below.
 
-- **2D live preview.** The shell "2D Projection" card now renders
-  `DymaxionPreview2D` (live, draggable net) instead of `MiniMapCanvas` when
-  `showOverlay` is on (`ShellApp.tsx`). Reuses the Export-tab preview.
-- **Drag did nothing.** Default `mode` is `planet`; the 3D globe drag only
+- **Drag did nothing** — default `mode` is `planet`; the 3D globe drag only
   rotates the cage in `overlay` mode, but the hint never said so. Checking
   "Show Overlay" now auto-enters `overlay` mode (`Controls.tsx` ~L1405).
-- **Latitude drag inverted.** `handleOverlayPointerMove` did `lat + dy`; the 2D
-  preview does `lat - dy`. Flipped to match (`WorldViewer.tsx` ~L909). lon/roll
-  already matched.
+- **Drag inverted on BOTH axes** (superseded `09a1d5f`, which flipped only lat
+  and was wrong). Derived from the cage euler `Euler(lat, -lon, roll)`:
+  longitude drives a `-lon` rotation about the up axis, so grab-drag right (+dx)
+  must DECREASE lon; drag up (dy<0) pitches up via `lat += dy`. Final:
+  `lon -= dx`, `lat += dy`, `roll -= dx` (`WorldViewer.tsx` ~L905). The 2D
+  Mercator preview's own signs are NOT the oracle (it applies a horizontal flip
+  the globe does not) — the euler is.
+- **Real Dymaxion net preview** (superseded `c38e952`, which showed a Mercator +
+  net — Matt wanted the ACTUAL projection). `components/DymaxionNetPreview.tsx`
+  renders the world to an offscreen 2:1 equirectangular source, then warps it
+  onto the icosa net via `rasterizeDymaxionSource` (now `export`ed from
+  `Map2D.tsx`) — the same path the full 2D Dymaxion view uses. Shown in the
+  "2D Projection" card when `showOverlay` is on, else `MiniMapCanvas`.
 
-Not eyeballed in-browser (M1 trap) — Matt confirms in his `:3000`. If the drag
-still feels off on lon, the preview applies a horizontal flip the 3D globe does
-not; match the preview as the oracle.
+**Playwright verification gap (honest):** drove headless chromium against Matt's
+`:3000` — app loads, world generates, globe + 2D card render (confirmed by
+screenshot). But the Export-tab **Projection combobox would NOT open under
+automation** (`aria-expanded` never flips, even on a native DOM `click()` — a
+custom listbox that ignores synthetic pointer/native events), so I could NOT
+reach "Show Overlay" headlessly. The **net-preview render and the corrected drag
+feel are NOT browser-verified** — Matt eyeballs both. Gates ARE green:
+typecheck 0, lint 0/29, build OK.
 
 ## Session 23 (2026-08-22) — D9 pangea bias root-caused and fixed
 
