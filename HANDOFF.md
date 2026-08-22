@@ -318,6 +318,19 @@ browser** — Generate a few default worlds and check land is scattered, not one
 Pangea > 0.7. A failure there means someone lowered the crust frequency or
 dropped fBm back to one octave.
 
+### Follow-up: the Continents PRESET was stale (also S23)
+
+Matt then noticed the `Continents` terrain preset produced different values than
+a fresh reload. It did: the `handlePresetChange('Continents')` map in
+`Controls.tsx` predated the D7-era retune of `DEFAULT_PARAMS` and set noiseScale
+1.0 (vs default 0.4), ridgeBlend 0.5 (vs 0.1), warpStrength 0.2 (vs 0.5),
+tectonicStrength 0.8 (vs 0.5). The default reload was the world Matt wanted; the
+preset was the drifted one. **Fix:** the Continents case now pulls every value
+from `DEFAULT_PARAMS` (imported), so it is the default by construction and cannot
+drift again. Verified live in Playwright (Islands → Continents snaps back to
+0.4 / 10% / 0.5 / 0.50). The Pangea/Archipelago/Islands presets are intentional
+deltas and were left alone.
+
 ## Session 22 (2026-08-22) — labels DONE and verified; branch held back
 
 **Branch `f2-labels-tenant`, `63f34ef` (work) + `c81ef2b` (verification).**
