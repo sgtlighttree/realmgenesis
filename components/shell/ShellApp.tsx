@@ -7,7 +7,7 @@ import Inspector from '../Inspector';
 import EditToolbar from '../EditToolbar';
 import { BiomeLegendList } from '../Legend';
 import { MiniMapCanvas } from '../MiniMap';
-import DymaxionPreview2D from '../DymaxionPreview2D';
+import DymaxionNetPreview from '../DymaxionNetPreview';
 import { ViewStrip } from '../ViewControls';
 import WideShell from './WideShell';
 import NarrowShell from './NarrowShell';
@@ -195,10 +195,10 @@ const ShellApp: React.FC = () => {
       key: 'minimap',
       title: '2D Projection',
       collapsible: true,
-      // With the Dymaxion cage on, show the live net preview here (draggable,
-      // updates as the cage moves) instead of the plain minimap.
+      // With the Dymaxion cage on, show the live ACTUAL Dymaxion net projection
+      // here (updates as the cage moves) instead of the plain minimap.
       node: dymaxionSettings.showOverlay
-        ? <DymaxionPreview2D world={world} viewMode={viewMode} settings={dymaxionSettings} onChange={setDymaxionSettings} />
+        ? <DymaxionNetPreview world={world} viewMode={viewMode} settings={dymaxionSettings} />
         : <MiniMapCanvas world={world} viewMode={viewMode} />,
     });
   }

@@ -126,7 +126,7 @@ const drawMarkerPins = (
   ctx.restore();
 };
 
-const rasterizeDymaxionSource = ({
+export const rasterizeDymaxionSource = ({
   sourceData,
   sourceWidth,
   sourceHeight,
