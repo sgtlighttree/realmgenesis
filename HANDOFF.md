@@ -59,7 +59,15 @@ What S25 did:
 **NOT visually verified in-browser** (M1 Playwright auto-rotate CPU trap; logic is
 unit-tested + the sync effect mirrors the proven `season` pattern). **Matt to
 eyeball:** move the Max Elevation slider (Terrain tab, under Planet Radius) → the
-Inspector "Elev" readout should rescale WITHOUT a regenerate.
+Inspector "Elev" readout should rescale WITHOUT a regenerate. The Inspector is the
+canary for the whole feature: **GeoJSON export also reads `world.params.maxElevationM`
+via the same sync effect**, so if the slider moves the Inspector, the export is
+correct too; if it doesn't, the export silently writes metres against a stale datum.
+
+Known, accepted: `MAX_DEPTH_M` (11000) is fixed while `maxElevationM` is
+adjustable, so at the 1000 m slider floor land compresses hard against ocean depth
+(1000 m land range vs 11000 m ocean). Deliberate — the two are independent datums
+(`seafloorDepth` owns depth). Only visible if someone sets a near-flat world.
 
 **Matt's stated queue: D8a then C5b — both DONE.** Next unclaimed by Matt.
 My standing recommendation stays **A3 — map style system** (last unstarted item
