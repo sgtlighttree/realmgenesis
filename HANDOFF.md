@@ -37,11 +37,20 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## ▶ START HERE — pickup for a fresh session (written 2026-08-22, end of S22)
+## ▶ START HERE — pickup for a fresh session (updated 2026-08-22, end of S23)
 
-**`main` is clean and carries Sessions 18 through 21.** Last pushed at
-`daa617d` (2026-08-21); `c3bf856` and the S21 rivers work are committed locally
-and NOT yet pushed — pushing is Matt's call.
+**`main` is clean and PUSHED at `2014efb`.** S23 shipped D9 (pangea fix), the
+Continents-preset fix, the F2 ruler tenant, and E4 (Dymaxion default → blender).
+Gates: typecheck 0 · lint 0 errors/29 warnings · new tests
+(`crustDistribution`, `rulerTenant`, `dymaxionBlenderNet`) green. See the S23
+entry below and **"Next session: F2 Dymaxion cage" immediately below this block.**
+
+**The one open piece of F2 is the Dymaxion cage overlay — do NOT start coding it
+cold. Re-explore first (own section below).**
+
+_Older context (S18–S22):_ **`main` carried Sessions 18 through 21.** Historic
+push points: `daa617d` (2026-08-21). The S21 rivers work and `c3bf856` are in
+`main`.
 
 **`f2-labels-tenant` is MERGED into `main`** (no-ff) and **`main` is PUSHED**.
 The territorial-water bug that gated it is fixed (`c9b70b7`). Gates on the merged
@@ -116,9 +125,11 @@ zero assertion failures means the machine, not a regression.
    (`utils/crust.ts`), which is seeded independently of plates — a single 0.3-freq
    noise octave put the whole sphere in one lobe. Now fractal + per-`landStyle`.
    See the S23 entry below.
-2. **Finish F2 properly: Dymaxion, rulers, selection.** See "F2's real remaining
-   scope" below. Dymaxion is the strongest candidate (a fixed r = 1.12 overlay
-   floating over all terrain); the selection ring is the one worth arguing about.
+2. **F2 Dymaxion cage overlay — the LAST F2 piece.** Ruler is migrated (S23);
+   selection/highlight rings declined in writing (Matt, S23 — keep 3D). Only the
+   Dymaxion cage remains. Matt wants this planned carefully in a fresh session
+   with a re-exploration phase FIRST — see the dedicated brief immediately after
+   this list. Do not code it cold.
 3. **A3 — map style system.** My pick for the next roadmap item once F2 closes.
    Reasoning in the S22 entry.
 4. **D8 World Datum** — fully scoped in ROADMAP D8 into D8a (presentation, no seed
@@ -130,6 +141,92 @@ zero assertion failures means the machine, not a regression.
 6. **The view strip at middle widths** (~1150px viewport): the chip row scrolls
    because even icons overflow. An overflow "More" popover would be better; not
    built because it was not asked for.
+
+---
+
+## Next session: F2 Dymaxion cage overlay (RE-EXPLORE before coding)
+
+Matt deferred this to a fresh, well-planned session on purpose. **Phase 0 is
+re-exploration — do not trust the line numbers here, they drift.** Re-grep and
+re-read the real code first, then plan (brainstorming skill), then implement.
+
+### What this overlay IS (and is NOT)
+
+The `DymaxionOverlay` is the amber icosahedron **wireframe cage** you can toggle
+**onto the 3D globe** (Export tab → Dymaxion → Show Overlay, driven by
+`dymaxionSettings.showOverlay`). It is a reference cage floating at a fixed
+r = 1.12, used to see how the icosa faces sit on the sphere. **It is unrelated to
+the 2D Dymaxion view and to the E4 export work** (that is settled — see
+`docs/dymaxion.md`). Do not conflate them again; a whole sub-thread this session
+was spent untangling that confusion.
+
+### Re-exploration checklist (Phase 0)
+
+- `grep -n "DymaxionOverlay" components/WorldViewer.tsx` — read the component
+  (was ~L303) and its JSX mount (was ~L902, gated by `dymaxionSettings.showOverlay`).
+- Re-read the tenant seam: `components/overlays/ScreenOverlay.tsx` (the
+  `LocalProjector` radius + horizon contract) and `components/overlays/tenants.ts`.
+  **`drawRulerTenant` is the freshest, closest example** — a fixed-radius,
+  limb-broken tenant. Copy its shape.
+- Re-read `tests/rulerTenant.test.ts` for the test pattern and the
+  `tests/helpers/overlayCanvas.ts` doubles (the projector records `radii`).
+
+### The decision already made (Matt, S23) — don't re-litigate
+
+**Edges only. Back hemisphere hidden. Drop the amber faces.** Rationale: all 20
+faces are one flat color the edges already delineate, and filling only
+fully-visible faces produces a ragged, jumping limb boundary (a visible artifact,
+not a subtle effect). Confirm the dropped faces look fine with one before/after
+screenshot — cheap insurance, Matt already approved the drop.
+
+### The subtle part that NEEDS the careful planning
+
+1. **Fixed radius, NOT draped.** The cage is a reference frame at r = 1.12, so
+   the tenant projects at a deliberate fixed 1.12 in BOTH `smooth` values — it
+   does NOT track the mesh via `displayRadius`. This is a legitimate "deliberate
+   fixed radius" per the LocalProjector contract (like the ruler's 1.062). The
+   per-tenant radius test asserts 1.12 in both smooth states.
+2. **Rotation.** The cage rotates by the settings euler (`lon/lat/roll`, YXZ)
+   in LOCAL frame; ScreenOverlay then applies the globe spin matrix. So
+   pre-rotate the 12 icosa verts by the euler, pass local-frame points, let
+   `project` handle spin+camera. Settings reach the tenant via a closure in the
+   `overlayTenants` useMemo (like labels/rivers), with `dymaxionSettings` as a dep.
+3. **Icosahedron edges are straight CHORDS, not great circles.** A chord between
+   two r = 1.12 verts dips to r ≈ 0.95 at its midpoint — INSIDE the globe. So a
+   naive per-sample horizon test will cull an edge's middle even when both ends
+   are "in front". Decide the occlusion model deliberately: likely test
+   visibility at the two ENDPOINTS (front-face of the r=1.12 sphere) and draw the
+   straight screen segment when both are visible, rather than per-sample. Think
+   this through — it is the one real design question and why Matt wanted planning.
+4. **"Back edges faint" is NOT free.** The advisor preferred keeping back edges
+   faint (they show in today's 3D `depthTest={false}` cage), but the
+   `LocalProjector` culls behind-horizon points and returns NO coords, so faint
+   back edges would need a non-culling projector variant added to the seam. Matt
+   chose back-HIDDEN, which needs no seam change. If you revisit "faint", that is
+   a seam extension, not a tenant tweak.
+
+### Mandatory / do-not-break
+
+- Per-tenant test: radius assertion (1.12, both smooth values) + limb-break
+  assertion, in the `overlayCanvas` harness shape. "Parallax-free by construction"
+  without a test is how the S18 bug shipped.
+- Do NOT delete `tests/overlayFrameOrder.test.ts` or reorder `<GlobeSpin/>`
+  relative to `<ScreenOverlay/>` while editing that JSX block.
+- After landing: remove the 3D `DymaxionOverlay` component + JSX, keep imports
+  clean (check `IcosahedronGeometry`/`LineSegments`/`Group` are still used —
+  they may not be after this).
+
+### Explicitly OUT of scope (decide, don't drift)
+
+`CityMarkers`, `MarkerPins`, `TiltAxisLine` are still 3D and were NEVER in the
+F2 named scope. Leave them. Migrating them would fix an accepted overpaint nit as
+a side effect, but that is a separate deliberate decision, not silent inclusion.
+
+### Done means
+
+The Dymaxion cage lands as a tenant OR is itself declined in writing (ROADMAP F2
+template). Only then is F2 fully closed. ROADMAP F2 already records the ruler
+(done) and selection ring (declined); update it for the cage outcome.
 
 ---
 
