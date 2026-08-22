@@ -416,9 +416,26 @@ tooling with zero fudging — worth advertising.
 Project an Azgaar flat map onto the sphere (equirectangular assumption,
 re-tessellate onto the cell graph). Lossy by nature; stretch goal.
 
-### E4. Blender-accurate UV mapping support for Dymaxion (added by Matt/maintainer)
+### E4. Blender-accurate UV mapping support for Dymaxion  —  ✅ DONE
+> _verified against live Blender 2026-08-22; net was already exact, default fixed_
 
-I do need to check this myself since I recall importing Blender Icosphere model data to tune the Dymaxion export UVs, but the current 2D dymaxion probably isn't exact to what Blender shows on the UV editor.
+Original note: "I recall importing Blender Icosphere model data to tune the
+Dymaxion export UVs, but the current 2D dymaxion probably isn't exact to what
+Blender shows."
+
+**Outcome:** it WAS exact. Dumped the default icosphere's UV + vertex data live
+from Blender 5.1 and compared: `buildBlenderNet` matched to 5 decimals (the Feb
+extraction held). The export rasterizes at `px = u·W, py = (1−v)·H` on a square
+canvas — Blender's own UV sampling formula — so a Blender-layout PNG drops onto
+the icosphere with zero tweaking (confirmed by Matt: "drops perfectly"). The
+black upper band is the icosphere's unused vertical UV (v only reaches 0.472),
+not a defect.
+
+The only real bug was the **default layout**: everything defaulted to the
+`classic` staircase, so users exported a net that can never map onto the
+icosphere. Default is now the `blender` sawtooth (view, preview, export). Ground
+truth is frozen in `tests/fixtures/dymaxionBlenderUV.json` +
+`tests/dymaxionBlenderNet.test.ts`; full writeup in `docs/dymaxion.md`.
 
 ---
 
