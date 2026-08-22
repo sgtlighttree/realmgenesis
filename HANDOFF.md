@@ -38,30 +38,35 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## ▶ START HERE — pickup for a fresh session (updated 2026-08-22, end of S24)
+## ▶ START HERE — pickup for a fresh session (updated 2026-08-22, end of S25)
 
-**S24 finished F2 and polished the Dymaxion overlay. All committed to `main`,
-NOT pushed** (pushing is Matt's call). Gates: typecheck 0 · lint 0 errors/29
-warnings · `tests/dymaxionTenant.test.ts` 9/9 · overlay suite 17/17 · build OK.
+**S25 closed C5b and shipped D8a. Committed to `main`, NOT pushed** (pushing is
+Matt's call). HEAD `21aaded`. Gates: typecheck 0 · lint 0 errors/29 warnings ·
+295 tests / 43 files · build OK (worker chunk 87.55KB, +0.49 from the datum
+constant riding into DEFAULT_PARAMS — an expected param addition, not stray code).
 
-What S24 shipped (all Matt-confirmed working in his browser):
-1. **F2 Dymaxion cage tenant** — the LAST named F2 overlay. **F2's overlay
-   migration is COMPLETE** (see the S24 entry + ROADMAP F2 for the full tally and
-   the items that stay 3D by deliberate decision).
-2. **Real Dymaxion net preview** in the "2D Projection" card when Show Overlay is
-   on (`DymaxionNetPreview`, reuses the actual net rasterizer — not a Mercator).
-3. **Camera-relative cage drag** — the drag no longer inverts when the globe is
-   orbited. Matt confirmed "FIXED". (Shift-roll direction + sensitivity were left
-   for Matt to judge; a sign flip is one character if he wants it.)
+What S25 did:
+1. **C5b territorial-waters bug CLOSED.** The core fix already shipped in
+   `c9b70b7`; the one open thread was unclaimed PEAKS at 200k. Probed 5 seeds up
+   to 200k: `reachableGaps = 0` every run, unclaimed peaks only ever on isolated
+   masses. Not reproduced. Doc-only close (`8d039c0`). ROADMAP C5b → DONE.
+2. **D8a presentation datum SHIPPED** (`21aaded`). Elevations read in metres, not
+   percent. `maxElevationM` (default 9000) is a display-only WorldParams key
+   (like `planetRadius`/`season`); `utils/datum.ts` is the single source. Inspector
+   + GeoJSON export + contourLabel now metres; a season-style sync effect makes the
+   slider live without regenerate. Seeds byte-identical. See the S25 entry below.
 
-**Recommended next: A3 — map style system** (parchment/fantasy rendering).
-Reasoning: it is the last unstarted item in section A, it is what makes output
-"pinboard-worthy rather than diagnostic," and it styles the exact Canvas2D
-overlay layer F2 just spent seven sessions unifying — doing it earlier would have
-meant styling a moving target. **Second choice: D8a** (presentation datum, cheap,
-no seed changes — heights in metres, fixes the %-vs-km inconsistency). **Do NOT
-start F3** (true vector 2D) — a large rendering rewrite right after a long
-rendering migration, with `tenants.ts` (~590 lines, 9 tenants) never reorganised.
+**NOT visually verified in-browser** (M1 Playwright auto-rotate CPU trap; logic is
+unit-tested + the sync effect mirrors the proven `season` pattern). **Matt to
+eyeball:** move the Max Elevation slider (Terrain tab, under Planet Radius) → the
+Inspector "Elev" readout should rescale WITHOUT a regenerate.
+
+**Matt's stated queue: D8a then C5b — both DONE.** Next unclaimed by Matt.
+My standing recommendation stays **A3 — map style system** (last unstarted item
+in section A, makes output "pinboard-worthy," styles the Canvas2D overlay layer F2
+unified). **D8b** (simulation coupling — lapse rate, rain shadow, snow line) is
+the natural D8 follow-on but breaks determinism and needs an escape hatch. **Do
+NOT start F3** (vector 2D rewrite) right after the F2 migration.
 
 _Prior state:_ **`main` was clean and PUSHED at `2014efb`** at end of S23; HEAD
 moved to `6f6d725` (a test repair after D9). S23 shipped D9 (pangea fix), the
@@ -378,6 +383,67 @@ mean and make the units agree. Suggested shape, not prescribed:
 as a hard line (D2 ships `currentStrength = 0` byte-identical; D5's G-class star
 is an exact no-op). It needs the same discipline — or an explicit decision from
 Matt that civ geometry is allowed to move.
+
+## Session 25 (2026-08-22) — C5b closed, D8a presentation datum shipped
+
+Matt's queue: **D8a then C5b, smaller first.** C5b turned out nearly done, so it
+went first. Both shipped. `main` at `21aaded`, NOT pushed.
+
+### C5b — territorial waters (`8d039c0`, doc-only)
+
+The core bug was already fixed in `c9b70b7`; ROADMAP C5b was stale text describing
+the dead bug. The one genuinely open thread was the "honest gap": unclaimed high
+PEAKS, which never reproduced at 3k/30k but Matt saw at 200k. **Verified with a
+throwaway harness (now deleted):** 5 seeds up to 200k, `reachableGaps = 0` in every
+run. One seed (`delta`, 100k) produced 89 unclaimed peaks — ALL on isolated masses
+(`REACHABLE-unclaimed-peaks = 0`). Structural guarantee: with the `cost > 200` cap
+gone, expansion cannot die partway across a landmass, so any unclaimed peak sits on
+an unreachable mass, which is correct. The `landTerrainStepCost |Δheight|*20`
+suspect is a non-issue. No code change needed; ROADMAP C5b → DONE.
+
+### D8a — presentation datum (`21aaded`)
+
+Elevations now read in **metres above/below sea level**, not percent — fixing the
+app's %-vertical vs km-horizontal inconsistency. `utils/datum.ts` is the single
+source: `elevationMetres`/`formatElevation` scale ABOVE SEA LEVEL against a FIXED
+`maxElevationM` (default 9000). Confirmed the scaling is above-sea, not raw height:
+at seaLevel 0.55, height 0.70 → (0.70-0.55)/(1-0.55)×9000 = 3000 m, matching the
+ROADMAP's illustrative "3,140 m".
+
+**Decisions (Matt's calls, don't re-litigate):**
+- **`maxElevationM` is a display-only `WorldParams` key**, not a module constant.
+  Matt wanted it user-adjustable (default 9000, warned). It lives in WorldParams
+  like `planetRadius`/`season` — free serialization + plumbing, and paramLiveness
+  has **no coverage check** (it's a doc-comment allowlist), so a render-only param
+  there is the established pattern, NOT a failure. Reads nothing in generation.
+- **Display-only, NOT D8b.** Matt confirmed changing it rescales readouts and
+  changes no terrain. Coupling into lapse rate / rain shadow / snow line is D8b
+  (breaks determinism, needs an escape hatch) — explicitly deferred.
+- **The sync effect is what makes the slider work at all** (advisor flagged this,
+  hard). Consumers read `world.params` (a generation snapshot), not live `params`.
+  Extended the existing `season` sync effect in `useWorldEngine.ts` to also push
+  `maxElevationM` into `world.params` with `world.cells` identity preserved — so the
+  slider takes effect with no regenerate. If the slider ever looks dead: that effect
+  was reverted or a consumer switched to reading live `params`.
+- **GeoJSON: `height` REPLACED with rounded metres** (Matt chose replace over
+  additive). Safe: `properties.height` at `exportVector.ts:334` is the only consumer
+  and `exportVector.test.ts` asserts nothing about it (verified before the change).
+- **`MAX_DEPTH_M` (11000) is a fixed constant, not adjustable** — `seafloorDepth`
+  already owns generation-side ocean depth; a second knob would duplicate it.
+- **Lore prompt deferred:** `services/gemini.ts` has no terrain-height text to
+  convert. Adding it is net-new prompt work, out of D8a scope.
+- **contourLabel → metres though DORMANT** (labels pulled S19e). It is the
+  documented single change point; leaving it in % would re-earn the drift.
+
+**Old saves:** validator skips missing keys; `withParamDefaults` defaults
+`maxElevationM` to 9000 (mirrors season/starClass/currentStrength). Seeds
+byte-identical.
+
+**NOT browser-verified** (M1 Playwright auto-rotate CPU trap). Logic is unit-tested
+(`tests/datum.test.ts`, 11 cases) and the sync effect copies the proven season
+pattern. Matt to eyeball the slider→Inspector rescale.
+
+Gates: typecheck 0 · lint 0/29 · 295 tests / 43 files · build OK.
 
 ## Session 24 (2026-08-22) — F2 Dymaxion cage migrated; F2 overlay migration COMPLETE
 

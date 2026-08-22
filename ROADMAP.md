@@ -328,8 +328,8 @@ the feature was additive), here the prior output *is* the defect — a "reproduc
 pangea" hatch would only preserve the bug. ROADMAP:34 authorizes seed breakage.
 Rejected alternative: a `crustFractalOctaves=1` flag reproducing the old field.
 
-### D8. World datum (units)  —  ⬜ TODO
-> _surfaced Session 19d; scoped Session 19e after auditing where heights are actually consumed_
+### D8. World datum (units)  —  🟡 PARTIAL
+> _surfaced Session 19d; scoped Session 19e; **D8a shipped Session 25** (`21aaded`); D8b still TODO_
 
 Heights are a normalized 0–1 field with no real-world meaning, while horizontal
 distance is already genuine (A5 measures great-circle **kilometres** from
@@ -338,19 +338,25 @@ vertically in percent** — that inconsistency is the core argument, not DEM exp
 
 It splits into two tiers with very different costs.
 
-#### D8a — presentation datum (cheap, no seed changes)
+#### D8a — presentation datum (cheap, no seed changes)  —  ✅ DONE (S25, `21aaded`)
 
-A `maxElevationM` param (fixed, e.g. 9000) that `mountainHeight` shapes *within*
-rather than defines, plus one formatter. Nothing in generation reads it.
+`maxElevationM` (default 9000) is a **display-only `WorldParams` key** — like
+`planetRadius`/`season`, user-adjustable but read by nothing in generation, so
+seeds stay byte-identical. `utils/datum.ts` is the single source:
+`elevationMetres`/`formatElevation` scale **above sea level** against the FIXED
+maximum (comparable between worlds); `MAX_DEPTH_M` is a fixed constant because
+`seafloorDepth` already owns generation-side depth. A `season`-style sync effect
+pushes the live value into `world.params` so the slider takes effect with no
+regenerate. Guarded by `tests/datum.test.ts`.
 
-- Inspector `Elev: 70%` → `3,140 m`.
-- Contour labels (pulled in S19d) become metres — `utils/shading.ts`
-  `contourLabel()` is the single change point.
-- **GeoJSON export currently writes `height: cell.height` as a raw 0–1 number**
-  (`utils/exportVector.ts:334`). Geometry is genuinely geodesic lon/lat, so the
-  export is half-real: correct kilometres horizontally, unitless vertically.
-  QGIS and Blender users expect metres.
-- Lore prompts can say "a 4,200 m massif" instead of "high terrain".
+- Inspector `Elev: 70%` → `3,000 m` (above-sea scaling; the ROADMAP's illustrative
+  "3,140 m" assumed the same). **DONE.**
+- Contour labels → metres via `contourLabel()`. Still DORMANT (labels pulled S19e);
+  updated as the documented single change point so it never re-earns the drift. **DONE.**
+- GeoJSON export: `height` **replaced** with rounded metres (Matt's call — the
+  vertical is now genuine, matching the already-geodesic lon/lat). **DONE.**
+- Lore prompts: **deferred** — `services/gemini.ts` has no existing terrain-height
+  text to convert; adding it is net-new prompt work, out of D8a scope.
 
 **Caveat that decides the design:** if the datum is *derived* from
 `mountainHeight`, the same cell reports a different altitude when that slider
