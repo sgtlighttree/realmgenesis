@@ -392,6 +392,49 @@ as a hard line (D2 ships `currentStrength = 0` byte-identical; D5's G-class star
 is an exact no-op). It needs the same discipline — or an explicit decision from
 Matt that civ geometry is allowed to move.
 
+## D8b — IN DESIGN (S25), one decision open. Read before coding.
+
+Matt chose: **default ON** (`physicalClimate` flag, off = byte-identical old
+formulas — the D2 model) and **all 3 couplings under one flag**. Design drafted +
+advisor-reviewed + impact measured. NOT yet spec'd or coded.
+
+**The three couplings:**
+1. **Lapse rate** (`worldGen.ts:616-617`): coupled `temp -= max(0,elevationMetres)/1000 × LAPSE`; off `elevation × 60`.
+2. **Orographic** (`worldGen.ts:577-579`): coupled scales rain by real barrier
+   metres (windward boost / leeward shadow, bounded); off `0.02/1.5/0.2`.
+   **Use land-side above-sea metres only** (`max(0,elevationMetres)` per cell, ocean
+   contributes 0) to avoid the seaLevel slope kink inside the loop (advisor item 3).
+   Air-temperature factor DEFERRED (temp is computed after the moisture loop).
+3. **Snow line: FREE** — grounded lapse makes temperature vary with altitude+latitude,
+   so `determineBiome`'s temp-based ICE_CAP/TUNDRA become an altitude-varying snow
+   line with NO code change. Volcanic `landH>0.85` is already datum-relative.
+
+**MEASURED impact (20k cells, 2 seeds, isolated lapse swap):**
+- `lapse 3.0 / datum 9000` → **0% biome change** (validates: reproduces old `×60`).
+- `lapse 6.5 / datum 9000` (physical + D8a's default) → **~51% land biome change,
+  ~15% of land becomes uninhabitable ICE_CAP, VOLCANIC vanishes.** Too aggressive.
+- `lapse 6.5 / datum 6000` → ~25% change, ~3% new ice. Moderate.
+- `lapse 4.0 / datum 9000` → ~19% change, ~2% new ice, volcanic mostly survives.
+
+**THE OPEN DECISION (Matt's, pick two of three):** physical lapse (6.5) + tall
+peaks (datum 9000 display) + moderate climate — can't have all three.
+- 6.5 + 9000 = icy dramatic world (honest physics for 9km peaks).
+- 6.5 + lower datum (~6000) = moderate, but D8a peak readouts shrink (shared key).
+- 9000 + softer lapse (4-5) = tall peaks + moderate, but lapse isn't strictly physical.
+`maxElevationM` is SHARED between D8a display and D8b physics, so the datum choice
+moves both. **This blocks the spec.**
+
+**Advisor blocker not yet cleared with Matt (item 1):** default-ON moves **civ
+layout** (biome→suitability: ICE_CAP=0), not just climate, for every existing seed
+on load. Matt approved seeds changing but was told "climate." Confirm he accepts
+factions/towns/populations moving too (S22 gated a merge on exactly this class).
+
+**Adopt (advisor items 4-5):** name the flag `physicalClimate` (not `datumCoupling`);
+its validator line goes with the boolean type-checks in `export.ts`, NOT `numericBounds`.
+`maxElevationM` moves from the paramLiveness display-only allowlist INTO
+TERRAIN_PERTURBATIONS (coupling default-on makes it a live generation param); add
+`physicalClimate: false` there too.
+
 ## Session 25 (2026-08-22) — C5b closed, D8a presentation datum shipped
 
 Matt's queue: **D8a then C5b, smaller first.** C5b turned out nearly done, so it
