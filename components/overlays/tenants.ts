@@ -461,6 +461,68 @@ export function drawRulerTenant(
   }
 }
 
+// --- Dymaxion reference cage (icosahedron wireframe), migrated off the 3D
+// `DymaxionOverlay` (F2, last named tenant) ---
+
+// Deliberate FIXED radius, NOT draped: the cage is a reference frame floating
+// above all terrain (relief tops out at 1.05), so it projects at 1.12 in BOTH
+// smooth states and does NOT track the mesh via displayRadius — the same
+// "deliberate fixed radius" case as the ruler (see the LocalProjector contract).
+// Matches the old 3D `IcosahedronGeometry(1.12, 0)` exactly.
+export const DYMAXION_CAGE_RADIUS = 1.12;
+// Carries the old edge material's alpha: it was `opacity={0.95} transparent`, so
+// a solid stroke would make the cage brighter than before (the S21 rivers lesson).
+const DYMAXION_COLOR = 'rgba(251,191,36,0.95)'; // #fbbf24 @ 0.95
+// Samples per edge. Each icosa edge subtends ~63.4 deg, so per-sample horizon
+// breaking (below) needs several samples to clip cleanly at the limb.
+const DYMAXION_SAMPLES = 16;
+
+// The cage edges drawn in screen space. `edges` are pairs of UNIT-vector
+// endpoints already rotated by the settings euler (utils/dymaxionCage.ts,
+// cageEdges); the tenant lifts them to the fixed cage radius itself.
+//
+// OCCLUSION — why per-sample, not per-endpoint. Each edge is a straight CHORD
+// between two r=1.12 verts; its midpoint dips to r~0.95. `isVisible` tests a
+// point against a sphere of the point's OWN radius, so the shrinking mid-chord
+// is MORE permissive than its endpoints, not less. Culling whole edges on their
+// two endpoints therefore drops most of the cage — measured 3.6/30 edges at
+// camDist 2.5, 0.6/30 zoomed to 1.5 (the cage nearly vanishes). Sampling the
+// chord and breaking the polyline at the horizon (the routes/ruler idiom) clips
+// each edge at the limb instead, drawing ~13/30 at 2.5. Perspective preserves
+// straight lines, so the collinear samples still render the exact straight edge.
+// (This reverses the endpoint-only plan in the S23 HANDOFF, whose horizon
+// reasoning was inverted — recorded there, not silently changed.)
+export function drawDymaxionTenant(
+  ctx: CanvasRenderingContext2D,
+  edges: [Point, Point][],
+  project: LocalProjector,
+  _smooth: boolean, // ignored on purpose: fixed radius, same cage in both modes
+): void {
+  if (edges.length === 0) return;
+  const R = DYMAXION_CAGE_RADIUS;
+  const pt: [number, number] = [0, 0];
+  ctx.strokeStyle = DYMAXION_COLOR;
+  ctx.lineWidth = 1;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  for (const [a, b] of edges) {
+    let drawing = false;
+    for (let s = 0; s <= DYMAXION_SAMPLES; s++) {
+      const t = s / DYMAXION_SAMPLES;
+      const x = (a.x + (b.x - a.x) * t) * R;
+      const y = (a.y + (b.y - a.y) * t) * R;
+      const z = (a.z + (b.z - a.z) * t) * R;
+      if (project(x, y, z, pt)) {
+        if (drawing) ctx.lineTo(pt[0], pt[1]);
+        else { ctx.moveTo(pt[0], pt[1]); drawing = true; }
+      } else {
+        drawing = false;
+      }
+    }
+  }
+  ctx.stroke();
+}
+
 // --- point labels (capitals/provinces/towns/geography/markers), migrated off
 // canvas-texture sprites (F2 S22, last tenant) ---
 
