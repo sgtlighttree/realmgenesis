@@ -178,16 +178,32 @@ notes, persisted in the JSON save; optional Gemini lore per marker.
 Already tracked in `HANDOFF.md` next tasks: merge/split factions, province
 management, bulk rename, town/capital relocation.
 
-### C5b. Territorial waters are dead at default params  —  ⬜ TODO (BUG)
-> _found 2026-08-22; full diagnosis in HANDOFF "The merge gate"_
+### C5b. Territorial waters are dead at default params  —  ✅ DONE
+> _fixed 2026-08-22 (`c9b70b7`); peaks half verified not-reproduced 2026-08-22 (S25)_
 
-`recalculateCivs` charges **40** for one water step against a total
-territorial-water budget of **7.5**, so no water cell is ever claimed at default
-params and `territorialWaters` does nothing. Interior lakes are folded into the
+**The bug:** `recalculateCivs` charged **40** for one water step against a total
+territorial-water budget of **7.5**, so no water cell was ever claimed at default
+params and `territorialWaters` did nothing. Interior lakes were folded into the
 same test, making them impassable walls rather than claimable territory — high
-mountains starve separately against the `cost > 200` cap. Fixing it moves civ
-geometry for every existing seed, so it needs the same escape-hatch discipline as
-D2/D5.
+mountains starved separately against the `cost > 200` cap.
+
+**The fix (`c9b70b7`):** territorial waters are now counted in **ocean steps from
+the coast** (`maxWaterSteps = round(territorialWaters * 12)`), not a cost budget a
+single step already blows; reaching land resets the allowance, so a realm
+island-hops one strait at a time. **Lakes count as land** (`isOcean = height <
+seaLevel && !isLakeCell`), so an enclosed lake belongs to its realm instead of
+walling it off. The `cost > 200` frontier cap is **gone**, so land expansion runs
+to completion. Guarded by `tests/civClaim.test.ts` (4 cases).
+
+**The peaks half — verified not-reproduced (S25).** The cap removal was a
+*reasoned* fix for stranded high peaks that never reproduced at 3k/30k; Matt saw
+them at 200k. Probed 5 seeds up to 200k cells: **`reachableGaps = 0` in every run**
+(no unclaimed land ever borders claimed land — expansion can no longer die partway
+across a landmass). Unclaimed peaks appear only on isolated landmasses beyond the
+water-step allowance, which is correct. Structural guarantee: no cap → no
+partway-death → any unclaimed peak sits on an unreachable mass.
+
+**Seed compatibility broken deliberately** — Matt authorised it in ROADMAP:34.
 
 ### C6. Diplomacy & relations (later)  —  ⬜ TODO
 

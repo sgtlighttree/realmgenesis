@@ -13,8 +13,9 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 - [x] ~~**Unclaimed high mountains + interior lakes.** States should leave no stone
       unturned.~~ **FIXED 2026-08-22** (`c9b70b7`) — territorial waters now count
       ocean steps from the coast, lakes count as land, and the expansion cost cap
-      is gone. Lakes 100% → 0% unclaimed, ocean 0% → 9.8% claimed. **Caveat: the
-      unclaimed-PEAKS half never reproduced at 3k or 30k cells — check it at 200k.**
+      is gone. Lakes 100% → 0% unclaimed, ocean 0% → 9.8% claimed. **Peaks half
+      VERIFIED not-reproduced at 200k across 5 seeds (S25) — `reachableGaps=0`
+      everywhere; unclaimed peaks only ever sit on isolated masses. C5b closed.**
 - [ ] Make a true vector 2D mode instead of raster, but keep it optimized
 - [~] V3 of terrain generation algorithm. Goal is to make plate boundaries far more realistic, make part of Milestone D. — *V3 shipped & live; D7 part 1 (enclaves/exclaves killed, connected plates) done Session 9. D7 part 2 (grounded geophysics, non-Voronoi boundaries) still open.*
 - [ ] Major UI/frontend/rendering overhaul (Milestone F), use skill `/impeccable` for visual UI review
@@ -316,11 +317,13 @@ useful part and a future session may hit the same shape.
 remaining 2 are isolated islands beyond the step allowance, which SHOULD stay
 unclaimed.
 
-**Honest gap: unclaimed peaks never reproduced** at 3000 or 30000 points (0% both
-before and after). Matt saw them at 200k. The cap removal is a reasoned fix for
-that half, not a verified one. If peaks are still unclaimed at 200k, the cap was
-not the cause and the next suspect is `landTerrainStepCost`'s `|Δheight| * 20`
-losing frontier races outright rather than any budget.
+**Peaks half — VERIFIED not-reproduced (S25 2026-08-22).** Probed 5 seeds up to
+200k cells with a throwaway harness (now deleted): `reachableGaps = 0` in every
+run — no unclaimed land ever borders claimed land, so expansion cannot die partway
+across a landmass. One seed (`delta`, 100k) produced 89 unclaimed peaks; ALL sat
+on isolated masses (`REACHABLE-unclaimed-peaks = 0`). The cap removal holds: with
+no `cost > 200` cap, any unclaimed peak is on an unreachable landmass, which is
+correct. The `landTerrainStepCost` `|Δheight| * 20` suspect is a non-issue.
 
 **Seed compatibility is broken deliberately** — Matt authorised it in ROADMAP.
 
