@@ -905,11 +905,13 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
     const sensitivity = 0.25;
     onDymaxionChange((prev) => ({
       ...prev,
-      // Drag directions match the 2D net preview (the oracle): lon += dx,
-      // lat -= dy. The lat sign was flipped (was + dy) — it read inverted.
-      lon: e.shiftKey ? prev.lon : wrapAngle(prev.lon + dx * sensitivity),
-      lat: e.shiftKey ? prev.lat : clampLat(prev.lat - dy * sensitivity),
-      roll: e.shiftKey ? wrapAngle(prev.roll + dx * sensitivity) : prev.roll,
+      // Grab-and-drag feel, derived from the cage euler Euler(lat, -lon, roll):
+      // longitude drives a -lon rotation about the up axis, so dragging right
+      // (+dx) must DECREASE lon for the front to move right; dragging up (dy<0)
+      // must pitch the front up, which is lat += dy. Both were inverted before.
+      lon: e.shiftKey ? prev.lon : wrapAngle(prev.lon - dx * sensitivity),
+      lat: e.shiftKey ? prev.lat : clampLat(prev.lat + dy * sensitivity),
+      roll: e.shiftKey ? wrapAngle(prev.roll - dx * sensitivity) : prev.roll,
     }));
   }, [onDymaxionChange, clampLat, wrapAngle]);
 
