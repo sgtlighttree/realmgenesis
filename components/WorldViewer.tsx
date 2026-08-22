@@ -905,8 +905,10 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
     const sensitivity = 0.25;
     onDymaxionChange((prev) => ({
       ...prev,
+      // Drag directions match the 2D net preview (the oracle): lon += dx,
+      // lat -= dy. The lat sign was flipped (was + dy) — it read inverted.
       lon: e.shiftKey ? prev.lon : wrapAngle(prev.lon + dx * sensitivity),
-      lat: e.shiftKey ? prev.lat : clampLat(prev.lat + dy * sensitivity),
+      lat: e.shiftKey ? prev.lat : clampLat(prev.lat - dy * sensitivity),
       roll: e.shiftKey ? wrapAngle(prev.roll + dx * sensitivity) : prev.roll,
     }));
   }, [onDymaxionChange, clampLat, wrapAngle]);
