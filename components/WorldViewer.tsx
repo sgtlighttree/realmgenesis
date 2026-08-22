@@ -51,6 +51,23 @@ const GlobeSpin: React.FC<{ target: React.RefObject<THREE.Group | null>; paused:
   return null;
 };
 
+// Publishes the live camera and the globe-mesh object to refs that the
+// DOM-level overlay-drag handler (which lives OUTSIDE the R3F scene, on the
+// <Canvas> element) can read. This lets cage dragging rotate in SCREEN space
+// regardless of how the globe is spun or the camera is orbited — without it the
+// drag assumes a fixed +Z camera and inverts once the user orbits away.
+const CaptureFrame: React.FC<{
+  cameraRef: React.MutableRefObject<THREE.Camera | null>;
+  globeRef: React.MutableRefObject<THREE.Object3D | null>;
+}> = ({ cameraRef, globeRef }) => {
+  const { camera, scene } = useThree();
+  useFrame(() => {
+    cameraRef.current = camera;
+    if (!globeRef.current) globeRef.current = scene.getObjectByName('globe-mesh') ?? null;
+  });
+  return null;
+};
+
 // Plate widening used to close the seams between cells of differing height.
 // 1 = untouched (seams visible, the pre-existing look).
 const CELL_OVERHANG = 1.03;
@@ -863,6 +880,11 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
   }, [isPauseControlled, onPausedChange]);
   const [isSpaceHeld, setIsSpaceHeld] = useState(false);
   const dragRef = useRef<{ active: boolean; lastX: number; lastY: number }>({ active: false, lastX: 0, lastY: 0 });
+  // Live camera + globe-mesh, published by <CaptureFrame/> for the camera-relative
+  // cage drag below. Reset when the world changes (the globe-mesh remounts).
+  const cameraRef = useRef<THREE.Camera | null>(null);
+  const globeRef = useRef<THREE.Object3D | null>(null);
+  useEffect(() => { globeRef.current = null; }, [world]);
   const overlayMode = dymaxionSettings.mode === 'overlay';
   const isPaintModeActive = editMode !== 'off' && editMode !== 'world-edit';
   const orbitMouseButtons = useMemo(() => ({
@@ -902,17 +924,59 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
     const dy = e.clientY - dragRef.current.lastY;
     dragRef.current.lastX = e.clientX;
     dragRef.current.lastY = e.clientY;
-    const sensitivity = 0.25;
-    onDymaxionChange((prev) => ({
-      ...prev,
-      // Grab-and-drag feel, derived from the cage euler Euler(lat, -lon, roll):
-      // longitude drives a -lon rotation about the up axis, so dragging right
-      // (+dx) must DECREASE lon for the front to move right; dragging up (dy<0)
-      // must pitch the front up, which is lat += dy. Both were inverted before.
-      lon: e.shiftKey ? prev.lon : wrapAngle(prev.lon - dx * sensitivity),
-      lat: e.shiftKey ? prev.lat : clampLat(prev.lat + dy * sensitivity),
-      roll: e.shiftKey ? wrapAngle(prev.roll - dx * sensitivity) : prev.roll,
-    }));
+    if (dx === 0 && dy === 0) return;
+
+    const camera = cameraRef.current;
+    const globe = globeRef.current;
+    const shift = !!e.shiftKey;
+    // radians per pixel — matches the old 0.25°/px feel.
+    const ROT = THREE.MathUtils.degToRad(0.25);
+
+    onDymaxionChange((prev) => {
+      // The cage's orientation relative to the globe (its parent), from stored
+      // euler. cageEdges applies exactly Euler(lat, -lon, roll, 'YXZ').
+      const local = new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(
+          THREE.MathUtils.degToRad(prev.lat),
+          -THREE.MathUtils.degToRad(prev.lon),
+          THREE.MathUtils.degToRad(prev.roll),
+          'YXZ',
+        ),
+      );
+      if (!camera || !globe) return prev; // frame not captured yet
+
+      // Rotate the VISIBLE cage in screen space: about the camera's own up/right
+      // (drag) or forward (Shift = roll) axes, expressed in world coordinates.
+      // This is why the drag stays correct no matter where the camera orbits —
+      // the axes track the camera, not a hardcoded +Z.
+      const camQ = camera.quaternion;
+      const delta = new THREE.Quaternion();
+      if (shift) {
+        const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(camQ);
+        delta.setFromAxisAngle(forward, -dx * ROT);
+      } else {
+        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camQ);
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camQ);
+        const yaw = new THREE.Quaternion().setFromAxisAngle(up, dx * ROT);
+        const pitch = new THREE.Quaternion().setFromAxisAngle(right, dy * ROT);
+        delta.multiplyQuaternions(yaw, pitch);
+      }
+
+      // R_world = gm · local ; apply the screen-space delta on the left ;
+      // pull back into the globe's local frame: local' = gm⁻¹ · delta · gm · local.
+      const gmQ = new THREE.Quaternion();
+      globe.getWorldQuaternion(gmQ);
+      const worldQ = gmQ.clone().multiply(local);
+      const worldQ2 = delta.multiply(worldQ);
+      const local2 = gmQ.clone().invert().multiply(worldQ2);
+      const eul = new THREE.Euler().setFromQuaternion(local2, 'YXZ');
+      return {
+        ...prev,
+        lat: clampLat(THREE.MathUtils.radToDeg(eul.x)),
+        lon: wrapAngle(-THREE.MathUtils.radToDeg(eul.y)),
+        roll: wrapAngle(THREE.MathUtils.radToDeg(eul.z)),
+      };
+    });
   }, [onDymaxionChange, clampLat, wrapAngle]);
 
   const handleOverlayPointerUp = useCallback(() => {
@@ -934,6 +998,7 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
         onPointerUp={handleOverlayPointerUp}
         onPointerLeave={handleOverlayPointerUp}
       >
+        <CaptureFrame cameraRef={cameraRef} globeRef={globeRef} />
         <AmbientLight intensity={0.5} />
         <PointLight position={[10, 10, 10]} intensity={1.5} />
         <DirectionalLight position={[-5, 5, 2]} intensity={0.5} />
