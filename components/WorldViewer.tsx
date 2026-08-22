@@ -11,7 +11,8 @@ import { computeBorderSegments } from '../utils/borders';
 import { collectLabels } from '../utils/labels';
 import { computeLabelAnchors } from '../utils/labelAnchors';
 import { ScreenOverlay, OverlayTenant } from './overlays/ScreenOverlay';
-import { drawCurrentsTenant, drawGraticuleTenant, drawRoutesTenant, drawContoursTenant, drawBordersTenant, drawRiversTenant, drawLabelsTenant, drawRulerTenant } from './overlays/tenants';
+import { drawCurrentsTenant, drawGraticuleTenant, drawRoutesTenant, drawContoursTenant, drawBordersTenant, drawRiversTenant, drawLabelsTenant, drawRulerTenant, drawDymaxionTenant } from './overlays/tenants';
+import { cageEdges } from '../utils/dymaxionCage';
 import { computeRiverPolylines } from '../utils/riverPaths';
 
 const Mesh = 'mesh' as any;
@@ -300,43 +301,8 @@ const CountryLabels: React.FC<{ world: WorldData; visible: boolean }> = ({ world
     );
 };
 
-const DymaxionOverlay: React.FC<{ settings: DymaxionSettings }> = ({ settings }) => {
-  const { faceGeometry, edgeGeometry } = useMemo(() => {
-    const faceGeometry = new THREE.IcosahedronGeometry(1.12, 0);
-    const edgeGeometry = new THREE.EdgesGeometry(faceGeometry);
-    return { faceGeometry, edgeGeometry };
-  }, []);
-
-  useEffect(() => () => { faceGeometry.dispose(); edgeGeometry.dispose(); }, [faceGeometry, edgeGeometry]);
-
-  const rotation = useMemo(() => {
-    const lon = THREE.MathUtils.degToRad(settings.lon);
-    const lat = THREE.MathUtils.degToRad(settings.lat);
-    const roll = THREE.MathUtils.degToRad(settings.roll);
-    return new THREE.Euler(lat, -lon, roll, 'YXZ');
-  }, [settings.lon, settings.lat, settings.roll]);
-
-  return (
-    <Group rotation={rotation}>
-      <Mesh geometry={faceGeometry} renderOrder={5}>
-        <MeshBasicMaterial
-          color="#fbbf24"
-          opacity={0.18}
-          transparent
-          depthWrite={false}
-          depthTest={false}
-          side={THREE.DoubleSide}
-          polygonOffset
-          polygonOffsetFactor={-2}
-          polygonOffsetUnits={-2}
-        />
-      </Mesh>
-      <LineSegments geometry={edgeGeometry} renderOrder={6}>
-        <LineBasicMaterial color="#fbbf24" linewidth={1} opacity={0.95} transparent depthTest={false} />
-      </LineSegments>
-    </Group>
-  );
-};
+// The Dymaxion reference cage migrated to the ScreenOverlay `dymaxion` tenant
+// (F2 — last named overlay). Geometry lives in utils/dymaxionCage.ts.
 
 const BrushRing: React.FC<{ center: [number, number, number]; radius: number }> = ({ center, radius }) => {
   const geometry = useMemo(() => {
@@ -776,6 +742,11 @@ const WorldMesh: React.FC<{
   // contours (terrain annotation), then currents, then routes, then borders,
   // then the graticule, with LABELS LAST (plan §5) so they sit on top of every
   // other overlay.
+  // Rotated cage edges for the dymaxion tenant. Recomputed only when the cage
+  // orientation changes (the tenant's id also encodes lon/lat/roll so the
+  // ScreenOverlay redraw gate fires — see the note in the tenant array below).
+  const dymaxionEdges = useMemo(() => cageEdges(dymaxionSettings), [dymaxionSettings]);
+
   const overlayTenants = useMemo<OverlayTenant[]>(() => [
     { id: 'rivers', visible: showRivers && riverPolylines.length > 0,
       draw: (ctx, _proj, _world, project, smooth) => drawRiversTenant(ctx, riverPolylines, project, smooth) },
@@ -788,6 +759,13 @@ const WorldMesh: React.FC<{
     { id: 'borders', visible: labelVisibility.borders && borderSegments.length > 0,
       draw: (ctx, _proj, _world, project, smooth) => drawBordersTenant(ctx, borderSegments, project, smooth) },
     { id: 'graticule', visible: showGrid, draw: drawGraticuleTenant },
+    // Dymaxion reference cage. Fixed radius (clears peaks), not draped; see
+    // drawDymaxionTenant. lon/lat/roll are folded into the id so the redraw
+    // gate fires when the cage is rotated with the globe paused — the same
+    // many-state-in-the-draw-closure trap the labels tenant hit (S22).
+    { id: `dymaxion:${dymaxionSettings.lon},${dymaxionSettings.lat},${dymaxionSettings.roll}`,
+      visible: dymaxionSettings.showOverlay && dymaxionEdges.length > 0,
+      draw: (ctx, _proj, _world, project, smooth) => drawDymaxionTenant(ctx, dymaxionEdges, project, smooth) },
     // Labels last, on top of everything (plan §5). camDist is read live at
     // draw time (camera is a stable reference from useThree, not a memo dep)
     // so it never goes stale between redraws — same as the old PointLabels.
@@ -811,7 +789,7 @@ const WorldMesh: React.FC<{
     // radius (clears peaks), not draped; see drawRulerTenant.
     { id: 'ruler', visible: !!rulerArc && rulerArc.length > 1,
       draw: (ctx, _proj, _world, project, smooth) => drawRulerTenant(ctx, rulerArc!, project, smooth) },
-  ], [showRivers, riverPolylines, showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, labelVisibility, borderSegments, showGrid, labelAnchors, camera, rulerArc]);
+  ], [showRivers, riverPolylines, showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, labelVisibility, borderSegments, showGrid, dymaxionSettings.showOverlay, dymaxionSettings.lon, dymaxionSettings.lat, dymaxionSettings.roll, dymaxionEdges, labelAnchors, camera, rulerArc]);
 
   return (
     <Group>
@@ -858,7 +836,7 @@ const WorldMesh: React.FC<{
             {isPaintMode && brushCenter && (
                 <BrushRing center={brushCenter} radius={Math.max(0.018, brushSize * 0.038)} />
             )}
-            {dymaxionSettings.showOverlay && <DymaxionOverlay settings={dymaxionSettings} />}
+            {/* Dymaxion cage migrated to ScreenOverlay (F2 dymaxion tenant). */}
             <Mesh scale={[0.99, 0.99, 0.99]}>
                 <IcosahedronGeometry args={[1, 16]} />
                 <MeshBasicMaterial color="#000000" side={THREE.FrontSide} />
