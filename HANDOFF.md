@@ -331,6 +331,36 @@ drift again. Verified live in Playwright (Islands → Continents snaps back to
 0.4 / 10% / 0.5 / 0.50). The Pangea/Archipelago/Islands presets are intentional
 deltas and were left alone.
 
+### Also S23: F2 ruler migrated, Dymaxion E4 (net was already correct)
+
+**F2 ruler tenant.** `RulerArc` is now the `ruler` ScreenOverlay tenant
+(`drawRulerTenant`), one of the last three named F2 overlays. Fixed radius
+(1.062 / 1.01), limb-broken, endpoint dots. `tests/rulerTenant.test.ts`. The
+**selection/highlight rings were declined in writing** (Matt's call — see ROADMAP
+F2): they already drape and should read as attached to geometry. **Only the
+Dymaxion cage overlay remains for F2**, and Matt deferred it to after E4; when
+resumed he chose edges-only / back-hidden / no faces (details in ROADMAP F2).
+
+**E4 Dymaxion — the net was never wrong.** Matt thought the Blender export UVs
+were off. Dumped the default icosphere live from his Blender 5.1 (the `blender`
+MCP works — Object Mode only, Edit Mode reads empty). `buildBlenderNet` matched
+to 5 decimals; the Feb extraction was correct. The export already uses Blender's
+exact sampling formula (`px=u·W, py=(1−v)·H`, square canvas), so a blender-layout
+PNG drops onto the icosphere with zero tweaking — Matt confirmed "drops
+perfectly." The black upper band is the icosphere's unused vertical UV
+(v≤0.472), not a bug.
+
+**The only real E4 bug was the default layout.** View/preview/export all
+defaulted to the `classic` staircase, which can never map onto the icosphere.
+Flipped the default (and every `|| 'classic'` fallback) to `blender` (sawtooth).
+Ground truth frozen in `tests/fixtures/dymaxionBlenderUV.json` +
+`tests/dymaxionBlenderNet.test.ts`; writeup in `docs/dymaxion.md`.
+
+**Lesson worth keeping:** the pre-work suspicion ("the net is probably wrong")
+was false, and two rounds of measurement (net-vs-Blender, then export-formula)
+proved it before any code changed. Don't rewrite a subsystem on a hunch — dump
+the ground truth first.
+
 ## Session 22 (2026-08-22) — labels DONE and verified; branch held back
 
 **Branch `f2-labels-tenant`, `63f34ef` (work) + `c81ef2b` (verification).**

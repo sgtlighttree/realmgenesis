@@ -469,19 +469,28 @@ Part of redesign is figuring out how the planet is presented; overlays like bord
   (S19b), faction borders (S20), rivers (S21), point labels (S22, on branch
   `f2-labels-tenant`, verified but unmerged).
 
-  **NOT migrated — three of the six overlays this paragraph names are still
-  physical 3D objects:**
-  - **`DymaxionOverlay`** (`components/WorldViewer.tsx` ~L509) — icosahedron
-    faces + edges at a fixed r = 1.12. It floats above all terrain by design, so
-    it has the parallax the tenant seam exists to remove.
-  - **`RulerArc`** (~L638) — the A5 great-circle measurement arc.
-  - **Cell highlight + selection ring** (~L1065/L1068) — hover and selected-cell
-    outlines.
+  **Status of the last three (updated 2026-08-22, S23):**
+  - **`RulerArc`** — ✅ MIGRATED. Now the `ruler` ScreenOverlay tenant
+    (`components/overlays/tenants.ts` `drawRulerTenant`), limb-broken polyline +
+    endpoint dots at the fixed ruler radius. Guarded by `tests/rulerTenant.test.ts`.
+  - **Cell highlight + selection ring** — ⛔ DECLINED IN WRITING (Matt's call,
+    S23). Unlike Dymaxion's fixed 1.12 float, these already drape via
+    `displayRadius` (a tiny 0.012 lift), so they barely have the parallax the seam
+    removes — and a selection ring should read as *attached* to the selected
+    cell's geometry, not composited flat over it. Flattening them is a downgrade,
+    the way `CurvedFactionLabel` is. Applies to `CellSelectionOverlay`,
+    `CellHighlightOutline`, and `BrushRing` together. Leave them 3D.
+  - **`DymaxionOverlay`** (`components/WorldViewer.tsx` ~L303) — icosahedron cage
+    at fixed r = 1.12; still 3D. Deferred by Matt (S23) to after the E4 Dymaxion
+    work. When resumed: Matt chose **edges only, back hemisphere hidden, drop the
+    amber faces** (all 20 faces are one flat color the edges already delineate).
+    Note the ScreenOverlay projector culls behind-horizon points and returns no
+    coords, so "draw back edges faint" would need a non-culling projector variant;
+    edges-only-back-hidden needs no seam change.
 
-  A 2026-08-22 session claimed "F2's rendering work is finished" on the strength
-  of the borders/rivers/labels queue in HANDOFF. That queue was never the whole
-  list; this paragraph is. **Do not mark F2 done until these three land or are
-  explicitly declined in writing, the way faction labels were.**
+  With the ruler migrated and the selection ring declined in writing, only the
+  Dymaxion cage remains — and it is deferred, not forgotten. **Still do not mark
+  F2 fully done until the Dymaxion cage lands or is declined in writing too.**
 
   **Even then the queue does NOT fully empty.** Faction labels stay 3D permanently:
   `CurvedFactionLabel` renders curved textured meshes following the sphere's
