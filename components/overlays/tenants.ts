@@ -12,6 +12,48 @@ import { LabelAnchor } from '../../utils/labelAnchors';
 import { MapLabel, drawMapLabels } from '../../utils/labels';
 import { LocalProjector } from './ScreenOverlay';
 
+// ---------------------------------------------------------------------------
+// Shared idioms
+//
+// Two patterns recur across these tenants:
+//  • The RADIUS CONTRACT (see ScreenOverlay's LocalProjector): every point a
+//    tenant projects must be scaled to its RENDERED radius. Cell-bound overlays
+//    drape via `displayRadius(height, smooth[, lift])` with RAW height (never
+//    clamped to sea level — see drawGraticuleTenant for what that clamp cost in
+//    S18); reference overlays (ruler, cage) use a deliberate FIXED radius.
+//  • The HORIZON BREAK: a polyline must never draw a chord across the far
+//    hemisphere, so it breaks wherever a sample is culled behind the limb. That
+//    is `strokeBrokenSubpath` below, shared by the five polyline tenants
+//    (graticule / routes / rivers / ruler / dymaxion). Contours and borders use
+//    the simpler two-endpoint variant inline (a segment is one short cell edge).
+// ---------------------------------------------------------------------------
+
+// One module scratch pixel for the polyline helper — a redraw is single-threaded.
+const SUBPATH_PT: [number, number] = [0, 0];
+
+// Stroke ONE horizon-broken polyline of `count` samples into the CURRENT path.
+// `place(i, out)` projects sample i, writing its screen pixel into `out` and
+// returning false when the sample is culled past the limb. Emits `moveTo` on
+// (re)entry and `lineTo` while visible, so the stroke BREAKS at the horizon
+// instead of drawing across the far side. The caller owns beginPath()/stroke()
+// and calls this once per independent subpath (each graticule line, route, river
+// path, or cage edge). Allocation-free per sample.
+function strokeBrokenSubpath(
+  ctx: CanvasRenderingContext2D,
+  count: number,
+  place: (i: number, out: [number, number]) => boolean,
+): void {
+  let drawing = false;
+  for (let i = 0; i < count; i++) {
+    if (place(i, SUBPATH_PT)) {
+      if (drawing) ctx.lineTo(SUBPATH_PT[0], SUBPATH_PT[1]);
+      else { ctx.moveTo(SUBPATH_PT[0], SUBPATH_PT[1]); drawing = true; }
+    } else {
+      drawing = false;
+    }
+  }
+}
+
 // --- currents draw constants (single source; also consumed by Map2D, Task 6) ---
 export const CURRENT_SPEED_MIN = 0.04; // skip near-still cells
 export const CURRENT_ARC = 0.05;       // max arrow arc length (unit-sphere)
@@ -104,18 +146,17 @@ export function drawGraticuleTenant(
 ): void {
   ctx.strokeStyle = 'rgba(255,255,255,0.28)';
   ctx.lineWidth = 1;
-  const pt: [number, number] = [0, 0];
   const cells = world.cells;
   // Running nearest-cell id carried across the whole draw; -1 = seed via brute
   // scan on the first sample, then hill-climb from the previous sample.
   let startId = -1;
 
   // Projects a UNIT direction, applying the drape radius on the raised globe.
-  const projSample = (x: number, y: number, z: number): boolean => {
-    if (smooth || cells.length === 0) return project(x, y, z, pt); // unit sphere
+  const projSample = (x: number, y: number, z: number, out: [number, number]): boolean => {
+    if (smooth || cells.length === 0) return project(x, y, z, out); // unit sphere
     startId = startId < 0 ? nearestCellBrute(cells, x, y, z) : nearestCellWalk(cells, x, y, z, startId);
     const r = displayRadius(cells[startId].height, false);
-    return project(x * r, y * r, z * r, pt);
+    return project(x * r, y * r, z * r, out);
   };
 
   // parallels (constant latitude)
@@ -123,17 +164,11 @@ export function drawGraticuleTenant(
     const la = lat * D2R;
     const cy = Math.sin(la);
     const cr = Math.cos(la);
-    let drawing = false;
     ctx.beginPath();
-    for (let s = 0; s <= GRAT_SEG; s++) {
+    strokeBrokenSubpath(ctx, GRAT_SEG + 1, (s, out) => {
       const lon = (s / GRAT_SEG) * Math.PI * 2;
-      if (projSample(cr * Math.cos(lon), cy, cr * Math.sin(lon))) {
-        if (drawing) ctx.lineTo(pt[0], pt[1]);
-        else { ctx.moveTo(pt[0], pt[1]); drawing = true; }
-      } else {
-        drawing = false;
-      }
-    }
+      return projSample(cr * Math.cos(lon), cy, cr * Math.sin(lon), out);
+    });
     ctx.stroke();
   }
 
@@ -142,18 +177,12 @@ export function drawGraticuleTenant(
     const lo = lon * D2R;
     const cl = Math.cos(lo);
     const sl = Math.sin(lo);
-    let drawing = false;
     ctx.beginPath();
-    for (let s = 0; s <= GRAT_SEG; s++) {
+    strokeBrokenSubpath(ctx, GRAT_SEG + 1, (s, out) => {
       const lat = (s / GRAT_SEG) * Math.PI - Math.PI / 2;
       const cla = Math.cos(lat);
-      if (projSample(cla * cl, Math.sin(lat), cla * sl)) {
-        if (drawing) ctx.lineTo(pt[0], pt[1]);
-        else { ctx.moveTo(pt[0], pt[1]); drawing = true; }
-      } else {
-        drawing = false;
-      }
-    }
+      return projSample(cla * cl, Math.sin(lat), cla * sl, out);
+    });
     ctx.stroke();
   }
 }
@@ -197,7 +226,6 @@ export function drawRoutesTenant(
   const routes = world.routes;
   if (!routes || routes.length === 0) return;
   const cells = world.cells;
-  const pt: [number, number] = [0, 0];
   // Flat radius: used on the smooth globe, and as the fallback for a route
   // whose cellIds are missing or out of step with its path.
   const flat = displayRadius(smooth ? 0 : world.params.seaLevel, smooth, ROUTE_LIFT);
@@ -210,19 +238,13 @@ export function drawRoutesTenant(
       if (route.kind !== kind || route.path.length < 2) continue;
       const ids = route.cellIds;
       const drape = !smooth && !!ids && ids.length === route.path.length;
-      let drawing = false;
       ctx.beginPath();
-      for (let k = 0; k < route.path.length; k++) {
+      strokeBrokenSubpath(ctx, route.path.length, (k, out) => {
         const p = route.path[k];
-        const cell = drape ? cells[ids[k]] : undefined;
+        const cell = drape ? cells[ids![k]] : undefined;
         const rad = cell ? displayRadius(cell.height, false, ROUTE_LIFT) : flat;
-        if (project(p.x * rad, p.y * rad, p.z * rad, pt)) {
-          if (drawing) ctx.lineTo(pt[0], pt[1]);
-          else { ctx.moveTo(pt[0], pt[1]); drawing = true; }
-        } else {
-          drawing = false;
-        }
-      }
+        return project(p.x * rad, p.y * rad, p.z * rad, out);
+      });
       ctx.stroke();
     }
   }
@@ -380,31 +402,22 @@ export function drawRiversTenant(
   smooth: boolean,
 ): void {
   if (polylines.length === 0) return;
-  const pt: [number, number] = [0, 0];
   ctx.strokeStyle = RIVER_COLOR;
   ctx.lineWidth = RIVER_WIDTH;
   ctx.lineCap = 'round';
   ctx.beginPath();
   for (const path of polylines) {
     if (path.length < 2) continue;
-    let drawing = false;
-    for (const p of path) {
-      let ok: boolean;
+    strokeBrokenSubpath(ctx, path.length, (i, out) => {
+      const p = path[i];
       if (smooth) {
         const len = Math.hypot(p.x, p.y, p.z) || 1;
         const r = (1 + RIVER_LIFT) / len;
-        ok = project(p.x * r, p.y * r, p.z * r, pt);
-      } else {
-        // Already baked at the correct relief radius — project as-is.
-        ok = project(p.x, p.y, p.z, pt);
+        return project(p.x * r, p.y * r, p.z * r, out);
       }
-      if (ok) {
-        if (drawing) ctx.lineTo(pt[0], pt[1]);
-        else { ctx.moveTo(pt[0], pt[1]); drawing = true; }
-      } else {
-        drawing = false;
-      }
-    }
+      // Already baked at the correct relief radius — project as-is.
+      return project(p.x, p.y, p.z, out);
+    });
   }
   ctx.stroke();
 }
@@ -439,15 +452,7 @@ export function drawRulerTenant(
   ctx.strokeStyle = RULER_COLOR;
   ctx.lineWidth = 1.4;
   ctx.beginPath();
-  let drawing = false;
-  for (const p of points) {
-    if (project(p.x * r, p.y * r, p.z * r, pt)) {
-      if (drawing) ctx.lineTo(pt[0], pt[1]);
-      else { ctx.moveTo(pt[0], pt[1]); drawing = true; }
-    } else {
-      drawing = false;
-    }
-  }
+  strokeBrokenSubpath(ctx, points.length, (i, out) => project(points[i].x * r, points[i].y * r, points[i].z * r, out));
   ctx.stroke();
 
   // Endpoint dots, drawn only when the endpoint is on the near hemisphere.
@@ -500,25 +505,15 @@ export function drawDymaxionTenant(
 ): void {
   if (edges.length === 0) return;
   const R = DYMAXION_CAGE_RADIUS;
-  const pt: [number, number] = [0, 0];
   ctx.strokeStyle = DYMAXION_COLOR;
   ctx.lineWidth = 1;
   ctx.lineCap = 'round';
   ctx.beginPath();
   for (const [a, b] of edges) {
-    let drawing = false;
-    for (let s = 0; s <= DYMAXION_SAMPLES; s++) {
+    strokeBrokenSubpath(ctx, DYMAXION_SAMPLES + 1, (s, out) => {
       const t = s / DYMAXION_SAMPLES;
-      const x = (a.x + (b.x - a.x) * t) * R;
-      const y = (a.y + (b.y - a.y) * t) * R;
-      const z = (a.z + (b.z - a.z) * t) * R;
-      if (project(x, y, z, pt)) {
-        if (drawing) ctx.lineTo(pt[0], pt[1]);
-        else { ctx.moveTo(pt[0], pt[1]); drawing = true; }
-      } else {
-        drawing = false;
-      }
-    }
+      return project((a.x + (b.x - a.x) * t) * R, (a.y + (b.y - a.y) * t) * R, (a.z + (b.z - a.z) * t) * R, out);
+    });
   }
   ctx.stroke();
 }
