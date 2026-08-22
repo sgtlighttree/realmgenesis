@@ -39,21 +39,28 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ## ▶ START HERE — pickup for a fresh session (updated 2026-08-22, end of S24)
 
-**S24 shipped the F2 Dymaxion cage tenant — the LAST named F2 overlay. F2's
-overlay migration is COMPLETE.** Changes are committed locally, **NOT pushed**
-(pushing is Matt's call). Gates on the working tree: typecheck 0 · lint 0
-errors/29 warnings · `tests/dymaxionTenant.test.ts` 9/9 · overlay suite
-(dymaxion + ruler + frameOrder) 17/17 · build OK. See the **S24 entry below**.
+**S24 finished F2 and polished the Dymaxion overlay. All committed to `main`,
+NOT pushed** (pushing is Matt's call). Gates: typecheck 0 · lint 0 errors/29
+warnings · `tests/dymaxionTenant.test.ts` 9/9 · overlay suite 17/17 · build OK.
 
-**Visual confirmation is Matt's to eyeball** (his :3000 dev server, the M1
-auto-rotate CPU trap makes a Claude-driven Playwright pass not worth it — same
-call as S23). What to check: Export tab → Dymaxion → Show Overlay. The amber
-cage should draw as **edges only** (no filled faces), clip cleanly at the limb,
-and track the lon/lat/roll sliders **even with the globe paused**.
+What S24 shipped (all Matt-confirmed working in his browser):
+1. **F2 Dymaxion cage tenant** — the LAST named F2 overlay. **F2's overlay
+   migration is COMPLETE** (see the S24 entry + ROADMAP F2 for the full tally and
+   the items that stay 3D by deliberate decision).
+2. **Real Dymaxion net preview** in the "2D Projection" card when Show Overlay is
+   on (`DymaxionNetPreview`, reuses the actual net rasterizer — not a Mercator).
+3. **Camera-relative cage drag** — the drag no longer inverts when the globe is
+   orbited. Matt confirmed "FIXED". (Shift-roll direction + sensitivity were left
+   for Matt to judge; a sign flip is one character if he wants it.)
 
-**F2 is done. Next roadmap item: A3 — map style system** (recommended in S22;
-it styles the overlay layer F2 just unified). D8 (World Datum, scoped in ROADMAP)
-is the other candidate — sequencing is Matt's call.
+**Recommended next: A3 — map style system** (parchment/fantasy rendering).
+Reasoning: it is the last unstarted item in section A, it is what makes output
+"pinboard-worthy rather than diagnostic," and it styles the exact Canvas2D
+overlay layer F2 just spent seven sessions unifying — doing it earlier would have
+meant styling a moving target. **Second choice: D8a** (presentation datum, cheap,
+no seed changes — heights in metres, fixes the %-vs-km inconsistency). **Do NOT
+start F3** (true vector 2D) — a large rendering rewrite right after a long
+rendering migration, with `tenants.ts` (~590 lines, 9 tenants) never reorganised.
 
 _Prior state:_ **`main` was clean and PUSHED at `2014efb`** at end of S23; HEAD
 moved to `6f6d725` (a test repair after D9). S23 shipped D9 (pangea fix), the
