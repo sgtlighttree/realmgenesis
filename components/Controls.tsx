@@ -1476,7 +1476,7 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                                     onChange={(e) => { updateDymaxion({ layout: e.target.checked ? 'blender' : 'classic' }); }}
                                     className="accent-brand-soft"
                                 />
-                                Blender UV Net (export only)
+                                Blender UV layout (sawtooth) — uncheck for classic staircase
                             </label>
 
                             <div className="space-y-1">

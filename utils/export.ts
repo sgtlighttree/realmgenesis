@@ -155,7 +155,7 @@ const exportDymaxionRaster = (
   ctx.fillStyle = viewMode === 'satellite' || viewMode === 'biome' ? '#050505' : '#000000';
   ctx.fillRect(0, 0, width, height);
 
-  const layout = dymaxionSettings?.layout || 'classic';
+  const layout = dymaxionSettings?.layout || 'blender';
   const net = buildDymaxionNet(layout);
   const faces = net.faces;
   const isBlender = layout === 'blender';
@@ -311,7 +311,7 @@ export const exportMap = async (
   if (projectionType === 'mercator') height = resolution; 
   if (projectionType === 'orthographic') height = resolution; 
   if (projectionType === 'dymaxion') {
-    height = dymaxionSettings?.layout === 'blender' ? resolution : Math.round(resolution * 0.6);
+    height = dymaxionSettings?.layout !== 'classic' ? resolution : Math.round(resolution * 0.6);
   }
 
   if (projectionType === 'dymaxion') {
