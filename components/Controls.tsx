@@ -13,6 +13,7 @@ import {
   ViewControlsProps, DISPLAY_MODES, DisplayButton, ViewLayerGrid,
   LayerToggleRow, OverlayToggles, buildLayerToggles,
 } from './ViewControls';
+import { DEFAULT_PARAMS } from '../utils/defaultParams';
 
 interface ControlsProps {
   params: WorldParams;
@@ -262,15 +263,19 @@ const Controls: React.FC<ControlsProps> = ({
       let updates: Partial<WorldParams> = { landStyle: style };
       switch(style) {
           case 'Continents':
-              updates.noiseScale = 1.0;
-              updates.ridgeBlend = 0.5;
-              updates.maskType = 'None';
-              updates.warpStrength = 0.2;
-              updates.tectonicStrength = 0.8;
-              updates.erosionIterations = 2;
-              updates.cellJitter = 0.5;
-              updates.mountainHeight = 1.0;
-              updates.oceanDepth = 1.0;
+              // Continents IS the default world — pull every value from
+              // DEFAULT_PARAMS so the preset can never drift from a fresh reload
+              // again (it had: noiseScale 1.0 vs 0.4, ridgeBlend .5 vs .1,
+              // warpStrength .2 vs .5, tectonicStrength .8 vs .5).
+              updates.noiseScale = DEFAULT_PARAMS.noiseScale;
+              updates.ridgeBlend = DEFAULT_PARAMS.ridgeBlend;
+              updates.maskType = DEFAULT_PARAMS.maskType;
+              updates.warpStrength = DEFAULT_PARAMS.warpStrength;
+              updates.tectonicStrength = DEFAULT_PARAMS.tectonicStrength;
+              updates.erosionIterations = DEFAULT_PARAMS.erosionIterations;
+              updates.cellJitter = DEFAULT_PARAMS.cellJitter;
+              updates.mountainHeight = DEFAULT_PARAMS.mountainHeight;
+              updates.oceanDepth = DEFAULT_PARAMS.oceanDepth;
               break;
           case 'Pangea':
               updates.noiseScale = 0.8;
