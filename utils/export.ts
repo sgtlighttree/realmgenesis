@@ -9,6 +9,7 @@ import { collectLabels, drawMapLabels } from './labels';
 import { computeShadeMap, computeContourSegments, drawContourPaths, contourInterval } from './shading';
 import { computeScaleBar, niceScaleBarLength, drawScaleBar } from './measure';
 import { NAME_STYLES, NameStyle } from './namegen';
+import { DEFAULT_MAX_ELEVATION_M } from './datum';
 
 // Older saved configs predate params added after the config format was
 // established (nameStyle, then numCultures for C1); default them here so the
@@ -25,6 +26,8 @@ const withParamDefaults = (params: WorldParams): WorldParams => ({
   starClass: (['O', 'B', 'A', 'F', 'G', 'K', 'M'] as const).includes(params.starClass) ? params.starClass : 'G',
   // D2: pre-D2 saves lack currentStrength → default to 1.0 (default-on).
   currentStrength: typeof params.currentStrength === 'number' && isFinite(params.currentStrength) ? params.currentStrength : 1.0,
+  // D8a: pre-D8a saves lack maxElevationM → default to the 9000 m datum (display-only, seed-safe).
+  maxElevationM: typeof params.maxElevationM === 'number' && isFinite(params.maxElevationM) ? params.maxElevationM : DEFAULT_MAX_ELEVATION_M,
 });
 
 // Matches the options offered in the Export tab. 16K+ exceeded browser
@@ -493,6 +496,7 @@ export const validateWorldParams = (params: unknown): params is Record<string, u
         borderRoughness: [0, 1],
         detailLevel: [0, 10],
         planetRadius: [1000, 20000],
+        maxElevationM: [1000, 20000], // D8a presentation datum
     };
     for (const [key, [min, max]] of Object.entries(numericBounds)) {
         if (key in p) {

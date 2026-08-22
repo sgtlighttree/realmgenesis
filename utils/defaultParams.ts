@@ -1,4 +1,5 @@
 import { WorldParams } from '../types';
+import { DEFAULT_MAX_ELEVATION_M } from './datum';
 
 // Canonical default world parameters — the single source of truth for a fresh
 // world. `useWorldEngine` seeds its `params` state from this, and `tests/helpers.ts`
@@ -8,6 +9,7 @@ export const DEFAULT_PARAMS: WorldParams = {
   mapName: 'map',
   points: 5000,
   planetRadius: 6371,
+  maxElevationM: DEFAULT_MAX_ELEVATION_M,
   axialTilt: 23.5,
   plates: 12,
   seaLevel: 0.55,

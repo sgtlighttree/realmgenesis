@@ -6,6 +6,7 @@ import { seasonalTemperatureDelta } from './seasons';
 import { toLonLat, Point3 } from './geo';
 import { collectLabels, LABEL_CONFIG } from './labels';
 import { ProjectionType } from './export';
+import { elevationMetres } from './datum';
 
 // 'dymaxion' is a raster-only path (triangular net rasterization, not a
 // d3 projection) — SVG export reuses the same projection select as PNG
@@ -324,6 +325,10 @@ const buildCellFeatures = (world: WorldData): GeoJsonFeatureOut<PolygonGeometry>
   const factionNames = buildFactionNameMap(world);
   const provinceNames = buildProvinceNameMap(world);
   const features: GeoJsonFeatureOut<PolygonGeometry>[] = [];
+  // D8a: export real metres relative to sea level, not the raw 0-1 field.
+  // Geometry is already geodesic lon/lat; this makes the vertical genuine too,
+  // so QGIS/Blender open the file in consistent units.
+  const { seaLevel, maxElevationM } = world.params;
 
   world.cells.forEach((cell, i) => {
     const feature = world.geoJson.features[i];
@@ -331,7 +336,7 @@ const buildCellFeatures = (world: WorldData): GeoJsonFeatureOut<PolygonGeometry>
 
     const properties: Record<string, unknown> = {
       id: cell.id,
-      height: cell.height,
+      height: Math.round(elevationMetres(cell.height, seaLevel, maxElevationM)),
       biome: cell.biome,
       temperature: cell.temperature,
       moisture: cell.moisture,

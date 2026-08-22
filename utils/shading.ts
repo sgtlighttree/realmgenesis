@@ -1,5 +1,6 @@
 import { Cell } from '../types';
 import { Point3, toLonLat } from './geo';
+import { formatElevation } from './datum';
 
 // d3.GeoPath-compatible callable; typed structurally so this module stays
 // free of a d3 import (only the canvas-bound path generator is ever passed,
@@ -183,16 +184,18 @@ export const contourStroke = (index: boolean): string =>
   `rgba(${CONTOUR_INK}, ${index ? CONTOUR_INDEX_ALPHA : CONTOUR_ALPHA})`;
 
 /**
- * Elevation readout for an index contour.
+ * Elevation readout for an index contour, in metres against the D8a
+ * presentation datum (`utils/datum.ts`) — the same units the Inspector shows.
  *
- * Percent of the normalized height field, because the project has NO real-world
- * elevation datum — the Inspector shows `height * 100` as a percentage too, so
- * this at least agrees with the rest of the app. A proper datum (metres derived
- * from a defined maximum) is tracked as D8 World Datum on the ROADMAP; when it
- * lands, this is the single place the readout changes.
+ * NOTE: contour elevation labels are DORMANT — deliberately not rendered
+ * (HANDOFF S19e). This is the documented single change point for when they are
+ * revived, kept in metres so it never re-earns the old %-vs-km inconsistency.
  */
-export const contourLabel = (elevation: number): string =>
-  `${Math.round(elevation * 100)}%`;
+export const contourLabel = (
+  elevation: number,
+  seaLevel: number,
+  maxElevationM?: number,
+): string => formatElevation(elevation, seaLevel, maxElevationM);
 
 // Draws contour segments through a projection-bound d3 path generator. Two
 // passes so index contours land on top of the intermediates they cross.
