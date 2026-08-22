@@ -129,17 +129,28 @@ export function useWorldEngine() {
     setRuntimeApiKey(apiKey);
   }, [apiKey]);
 
-  // D1: the season slider is a render-only param — it must recolor without
-  // regenerating. The viewers read world.params (a generation snapshot), so
-  // push params.season into world.params here, keeping world.cells identity so
-  // WorldMesh geometry is reused and only colors recompute (paint-stroke pattern).
+  // D1/D8a: season and maxElevationM are render-only params — they must take
+  // effect without regenerating. The viewers and Inspector read world.params (a
+  // generation snapshot), so push the live values into world.params here, keeping
+  // world.cells identity so WorldMesh geometry is reused and only colors/readouts
+  // recompute (paint-stroke pattern). maxElevationM only rescales displayed
+  // metres; it touches no terrain.
   useEffect(() => {
     setWorld(prev =>
-      prev && prev.params.season !== params.season
-        ? { ...prev, params: { ...prev.params, season: params.season } }
+      prev &&
+      (prev.params.season !== params.season ||
+        prev.params.maxElevationM !== params.maxElevationM)
+        ? {
+            ...prev,
+            params: {
+              ...prev.params,
+              season: params.season,
+              maxElevationM: params.maxElevationM,
+            },
+          }
         : prev,
     );
-  }, [params.season]);
+  }, [params.season, params.maxElevationM]);
 
   // Controller reference to persist across renders
   const abortControllerRef = useRef<AbortController | null>(null);

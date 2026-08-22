@@ -10,6 +10,8 @@ import { makeParams, terrainSignature, civSignature, nameSignature, cultureSigna
 // Display-only params are explicitly allowlisted:
 //   mapName        – filename/label only
 //   planetRadius   – documented display-only
+//   maxElevationM  – D8a presentation datum; rescales readouts, reads nothing in generation
+//   season         – D1 render-only orbital position
 //   loreLevel      – only affects the Gemini prompt
 //   civSeed/seed   – covered by their own cases below
 

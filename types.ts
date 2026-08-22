@@ -89,6 +89,7 @@ export interface WorldParams {
   points: number;
   seed: string;
   planetRadius: number; // km
+  maxElevationM: number; // D8a: presentation datum — metres at height 1.0 above sea level. Display-only (rescales readouts), does NOT change terrain.
   axialTilt: number; // degrees (visual/climate)
   
   // Geography

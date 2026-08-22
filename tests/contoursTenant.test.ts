@@ -156,11 +156,12 @@ describe('adaptive contour interval', () => {
 });
 
 describe('contour elevation readout', () => {
-  it('formats an elevation as a percentage', () => {
-    // Kept as the seam for ROADMAP D8 (World Datum), which turns this into
-    // metres. The contour LABELS that used it were pulled — see below.
-    expect(contourLabel(0.68)).toBe('68%');
-    expect(contourLabel(SL)).toBe('55%');
+  it('formats an elevation in metres against the D8a datum', () => {
+    // D8a landed: contourLabel now reports metres above sea level against the
+    // presentation datum, not a percentage. (0.68-0.55)/(1-0.55)*9000 = 2600.
+    // The contour LABELS that used it stay pulled — see below.
+    expect(contourLabel(0.68, SL, 9000)).toBe('2,600 m');
+    expect(contourLabel(SL, SL, 9000)).toBe('Sea level');
   });
 
   it('draws no text: elevation labels are deliberately not rendered', () => {

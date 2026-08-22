@@ -5,6 +5,7 @@ import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps
 import { downloadSVG, downloadGeoJSON } from '../utils/exportVector';
 import { NAME_STYLES } from '../utils/namegen';
 import { STAR_CLASSES, STAR_CLASS_LABELS } from '../utils/planetary';
+import { DEFAULT_MAX_ELEVATION_M } from '../utils/datum';
 import { exportGLB } from '../utils/exportGLB';
 import { WorldData } from '../types';
 import DymaxionPreview2D from './DymaxionPreview2D';
@@ -689,6 +690,22 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                     onChange={(e) => { handleChange('planetRadius', parseInt(e.target.value) as 1 | 2 | 3); }}
                     className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                   />
+              </div>
+              <div className="space-y-1">
+                  <div className="flex justify-between text-xs text-ink-muted">
+                    <label>Max Elevation</label>
+                    <span>{(params.maxElevationM ?? DEFAULT_MAX_ELEVATION_M).toLocaleString('en-US')} m</span>
+                  </div>
+                  <input
+                    type="range" min="1000" max="20000" step="500"
+                    value={params.maxElevationM ?? DEFAULT_MAX_ELEVATION_M}
+                    onChange={(e) => { handleChange('maxElevationM', parseInt(e.target.value)); }}
+                    className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
+                  />
+                  <p className="text-[10px] text-ink-muted leading-tight">
+                    Metre value of the highest peak. Rescales every elevation readout
+                    (inspector, contours, GeoJSON export) — it does not change terrain.
+                  </p>
               </div>
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-ink-muted">
