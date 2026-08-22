@@ -101,7 +101,7 @@ export function useWorldEngine() {
   const [labelVisibility, setLabelVisibility] = useState<LabelVisibility>(DEFAULT_LABEL_VISIBILITY);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [dymaxionSettings, setDymaxionSettings] = useState<DymaxionSettings>({
-    layout: 'classic',
+    layout: 'blender',
     lon: 0,
     lat: 0,
     roll: 0,

@@ -243,7 +243,7 @@ const Map2D: React.FC<{
   const lastPaintCell = useRef<number | null>(null);
   const [isSpaceHeld, setIsSpaceHeld] = useState(false);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
-  const dymaxionLayout = dymaxionSettings?.layout || 'classic';
+  const dymaxionLayout = dymaxionSettings?.layout || 'blender';
   const dymaxionLon = dymaxionSettings?.lon ?? 0;
   const dymaxionLat = dymaxionSettings?.lat ?? 0;
   const dymaxionRoll = dymaxionSettings?.roll ?? 0;
