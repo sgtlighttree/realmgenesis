@@ -349,8 +349,10 @@ maximum (comparable between worlds); `MAX_DEPTH_M` is a fixed constant because
 pushes the live value into `world.params` so the slider takes effect with no
 regenerate. Guarded by `tests/datum.test.ts`.
 
-- Inspector `Elev: 70%` → `3,000 m` (above-sea scaling; the ROADMAP's illustrative
-  "3,140 m" assumed the same). **DONE.**
+- Inspector `Elev: 70%` → `1,000 m` (S25b: a quadratic hypsometric curve, `frac^2`,
+  replaced the linear map — linear reported a ~2 km median land elevation vs Earth's
+  ~840 m. Curved matches Earth: mean 824 m, 72% under 1 km. `HYPSOMETRIC_EXPONENT`
+  in `utils/datum.ts`; verified with `scripts/queryWorld.mjs hypsometry`). **DONE.**
 - Contour labels → metres via `contourLabel()`. Still DORMANT (labels pulled S19e);
   updated as the documented single change point so it never re-earns the drift. **DONE.**
 - GeoJSON export: `height` **replaced** with rounded metres (Matt's call — the
