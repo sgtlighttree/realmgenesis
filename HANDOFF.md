@@ -60,7 +60,12 @@ What S25/S25b did:
 4. **GRASSLAND biome ADDED** (`1518d34`). There was no temperate plains biome —
    steppe stood in for it. Semi-arid band now: Mediterranean warm-only (>18°C),
    GRASSLAND temperate (2-18°C), steppe cold (<=2°C). Grassland 8%, Mediterranean
-   9.8→4.4%, steppe 29→26.5%.
+   9.8→4.4%, steppe 29→26.5%. **THIS MOVED CIV GEOMETRY on existing seeds** —
+   `determineBiome` runs in generation, biome → suitability (grassland 0.9 vs the
+   old Mediterranean 1.0 / steppe 0.5) → `recalculateCivs`, so factions/towns/
+   populations shifted. Authorized by ROADMAP:34 (seed breakage allowed) + Matt's
+   same-session approval of civ movement for D8b; recorded here because it landed
+   ahead of D8b, not silently. Not a display-only change like the curve.
 5. **Agent debug tool** (`1437033`, `4440f11`): `scripts/queryWorld.mjs` —
    `node scripts/queryWorld.mjs {cell <id>|hypsometry|gradients|biomes|climate|near}`.
    Loads the real engine via vite ssrLoadModule (no deps, no browser). USE THIS to
@@ -77,6 +82,8 @@ findings. Short version:
 - **Datum pick RESOLVED by the curve:** physical lapse **6.5 °C/km** + datum **9000**
   + the `frac^2` curve, all three (Matt's lean = accuracy). Measured: ICE_CAP stays
   7.0→6.7% (curve keeps land low, so only genuine peaks cool). No pick-two tradeoff.
+  **~21-27% biome change is a FLOOR** — measured lapse-only (post-hoc temp swap);
+  full D8b also moves moisture, so the real shift is larger.
 - **Default ON, Matt ACCEPTS civ layout moving** on existing seeds; `physicalClimate`
   (name it this, not `datumCoupling`) = off reproduces old byte-identical.
 - **Moisture dryness folds INTO D8b.** 42% of land is moisture <0.15 (Earth
