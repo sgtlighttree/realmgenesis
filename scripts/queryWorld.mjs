@@ -98,7 +98,14 @@ function run() {
       metreHist[`${lo}-${hi}m`] = `${(frac * 100).toFixed(1)}%`;
     }
     const mean = Math.round(land.reduce((s, h) => s + toM(h), 0) / n);
+    // Ocean-side check: is the symmetric curve making abyssal plains too shallow?
+    const ocean = cells.filter((c) => c.height < sea && !isLakeCell(c)).map((c) => elevationMetres(c.height, sea, datum));
+    ocean.sort((a, b) => a - b); // most negative first
+    const on = ocean.length;
+    const oq = (p) => Math.round(ocean[Math.floor(p * (on - 1))]);
+    const oceanDepth = { cells: on, meanM: Math.round(ocean.reduce((s, m) => s + m, 0) / on), deepest: oq(0), p25: oq(0.25), median: oq(0.5), p75_shallow: oq(0.75), earthRef: 'mean ~-3700m, abyssal plains -3000..-6000m' };
     return {
+      oceanDepthActualDatum: oceanDepth,
       meta: { seed, landCells: n, seaLevel: sea, datum, curve },
       normalizedHeightQuantiles: {
         min: q(0).toFixed(3), p10: q(0.1).toFixed(3), p25: q(0.25).toFixed(3),
