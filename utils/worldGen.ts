@@ -368,8 +368,13 @@ export function determineBiome(height: number, temp: number, moisture: number, s
       return BiomeType.COLD_DESERT;
   }
   if (moisture < 0.4) {
+      // Semi-arid band. Mediterranean is now warm-only (dry-summer subtropical);
+      // the temperate-cool middle becomes GRASSLAND (prairie/plains), the biome
+      // that was missing — previously this collapsed into Mediterranean/steppe.
+      // Steppe here stays only for the genuinely cold semi-arid.
       if (temp > 25) return BiomeType.TROPICAL_SAVANNA;
-      if (temp > 10) return BiomeType.MEDITERRANEAN;
+      if (temp > 18) return BiomeType.MEDITERRANEAN;
+      if (temp > 2) return BiomeType.GRASSLAND;
       return BiomeType.STEPPE;
   }
   
@@ -1261,6 +1266,7 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
             case BiomeType.TEMPERATE_RAINFOREST: suitability = 0.8; break;
             case BiomeType.MEDITERRANEAN: suitability = 1.0; break; 
             case BiomeType.STEPPE: suitability = 0.5; break;
+            case BiomeType.GRASSLAND: suitability = 0.9; break;
             case BiomeType.BOREAL_FOREST: suitability = 0.4; break;
             case BiomeType.TUNDRA: suitability = 0.2; break;
             case BiomeType.ICE_CAP: suitability = 0.0; break;
