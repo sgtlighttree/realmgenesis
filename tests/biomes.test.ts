@@ -37,10 +37,15 @@ describe('determineBiome', () => {
   });
 
   it('classifies semi-arid bands (moisture < 0.4) by temperature', () => {
+    // New scheme: Mediterranean is warm-only (>18); the temperate-cool middle
+    // (2-18) is GRASSLAND (the added prairie/plains biome); steppe stays only for
+    // the genuinely cold semi-arid (<=2).
     const land = SL + 0.3 * (1 - SL);
     expect(determineBiome(land, 30, 0.3, SL)).toBe(BiomeType.TROPICAL_SAVANNA);
-    expect(determineBiome(land, 15, 0.3, SL)).toBe(BiomeType.MEDITERRANEAN);
-    expect(determineBiome(land, 5, 0.3, SL)).toBe(BiomeType.STEPPE);
+    expect(determineBiome(land, 20, 0.3, SL)).toBe(BiomeType.MEDITERRANEAN);
+    expect(determineBiome(land, 15, 0.3, SL)).toBe(BiomeType.GRASSLAND);
+    expect(determineBiome(land, 5, 0.3, SL)).toBe(BiomeType.GRASSLAND);
+    expect(determineBiome(land, 0, 0.3, SL)).toBe(BiomeType.STEPPE);
   });
 
   it('classifies humid bands (moisture >= 0.4) by temperature', () => {

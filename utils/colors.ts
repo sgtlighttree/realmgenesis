@@ -38,6 +38,7 @@ export const BIOME_COLORS: Record<BiomeType, string> = {
   [BiomeType.TROPICAL_SAVANNA]: '#aed581',    // Yellowish Green
   
   // Temperate
+  [BiomeType.GRASSLAND]: '#9ccc65',           // Meadow green — temperate prairie/plains
   [BiomeType.MEDITERRANEAN]: '#8d6e63',       // Dry brownish green
   [BiomeType.TEMPERATE_FOREST]: '#2e7d32',    // Standard Forest Green
   [BiomeType.TEMPERATE_RAINFOREST]: '#1b5e20', // Darker Green
@@ -144,6 +145,7 @@ export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, facti
              case BiomeType.BOREAL_FOREST: color.setHex(0x193626); break;
              case BiomeType.TROPICAL_SAVANNA: color.setHex(0x6f7d46); break;
              case BiomeType.STEPPE: color.setHex(0x8a9263); break;
+             case BiomeType.GRASSLAND: color.setHex(0x6a8f3c); break;
              case BiomeType.MEDITERRANEAN: color.setHex(0x6b7044); break;
              case BiomeType.BEACH: color.setHex(0xe8ddc5); break;
              case BiomeType.VOLCANIC: color.setHex(0x262626); break;

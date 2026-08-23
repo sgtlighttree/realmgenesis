@@ -53,6 +53,7 @@ export enum BiomeType {
   TROPICAL_SAVANNA = 'Tropical Savanna',
   
   // C - Temperate
+  GRASSLAND = 'Grassland',
   MEDITERRANEAN = 'Mediterranean',
   TEMPERATE_FOREST = 'Temperate Forest',
   TEMPERATE_RAINFOREST = 'Temperate Rainforest',
