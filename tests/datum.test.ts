@@ -30,11 +30,11 @@ describe('elevationMetres', () => {
     expect(elevationMetres(0.7, sea, 9000)).toBeCloseTo(1000, 6);
   });
 
-  it('curves ocean depth symmetrically for a shallow near-shore shelf', () => {
-    // Just below sea level stays near 0, not a linear plunge: depthFrac small,
-    // squared smaller. h 0.50, sea 0.55: depthFrac = 0.05/0.55 = 0.0909;
-    // ^2 * 11000 = ~90.9 m, vs ~1000 m linear.
-    expect(elevationMetres(0.5, sea, 9000)).toBeCloseTo(-90.909, 2);
+  it('scales ocean depth linearly (curve is land-only)', () => {
+    // Ocean stays linear: real ocean floor is bottom-heavy abyssal plain, so a
+    // concave curve made it implausibly shallow. h 0.50, sea 0.55:
+    // (0.50-0.55)/0.55 * 11000 = -1000 m.
+    expect(elevationMetres(0.5, sea, 9000)).toBeCloseTo(-1000, 6);
   });
 
   it('is monotonic increasing across the whole range', () => {
