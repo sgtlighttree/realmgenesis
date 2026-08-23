@@ -365,7 +365,17 @@ regenerate. Guarded by `tests/datum.test.ts`.
 moves, so values are not comparable between worlds. It must be a fixed maximum
 that `mountainHeight` distributes terrain within.
 
-#### D8b — simulation coupling (powerful, breaks determinism)
+#### D8b — simulation coupling (powerful, breaks determinism)  —  ⬜ TODO (decisions made S25b, spec pending)
+
+**Decisions locked S25b (2026-08-23):** flag `physicalClimate`, default **ON**
+(off = byte-identical old formulas); **all 3 couplings under it**; datum pick
+**physical lapse 6.5 °C/km + datum 9000 + the `frac^2` curve** — measured stable
+(ICE_CAP 7.0→6.7%) because the curve keeps land low. Matt accepts civ-layout
+movement on existing seeds. **Moisture dryness folds in here:** 42% of land is
+moisture <0.15 (Earth ~33% arid+semiarid) — the real cause of steppe dominance —
+so retune the inland rain-shadow when rewriting the orographic pass, once. The
+GRASSLAND biome added S25b will populate as interiors get wetter. Full context:
+HANDOFF "D8b — IN DESIGN".
 
 The larger payoff, because several tuned magic constants are really physical
 quantities wearing normalized clothes:

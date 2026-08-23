@@ -38,43 +38,53 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## ▶ START HERE — pickup for a fresh session (updated 2026-08-22, end of S25)
+## ▶ START HERE — pickup for a fresh session (updated 2026-08-23, end of S25b)
 
-**S25 closed C5b and shipped D8a. Committed to `main`, NOT pushed** (pushing is
-Matt's call). HEAD `21aaded`. Gates: typecheck 0 · lint 0 errors/29 warnings ·
-295 tests / 43 files · build OK (worker chunk 87.55KB, +0.49 from the datum
-constant riding into DEFAULT_PARAMS — an expected param addition, not stray code).
+**S25/S25b closed C5b, shipped D8a + a hypsometric-curve fix + a GRASSLAND biome,
+and built an agent debug tool. Committed to `main`, NOT pushed** (pushing is
+Matt's call). Gates: typecheck 0 · lint 0/29 · 295 tests / 43 files pass (the one
+red is `paramLiveness` terrain @ 132s vs 120s TIMEOUT — the LOAD CANARY, passes
+isolated 8/8; check `uptime` before suspecting code) · build OK.
 
-What S25 did:
-1. **C5b territorial-waters bug CLOSED.** The core fix already shipped in
-   `c9b70b7`; the one open thread was unclaimed PEAKS at 200k. Probed 5 seeds up
-   to 200k: `reachableGaps = 0` every run, unclaimed peaks only ever on isolated
-   masses. Not reproduced. Doc-only close (`8d039c0`). ROADMAP C5b → DONE.
-2. **D8a presentation datum SHIPPED** (`21aaded`). Elevations read in metres, not
-   percent. `maxElevationM` (default 9000) is a display-only WorldParams key
-   (like `planetRadius`/`season`); `utils/datum.ts` is the single source. Inspector
-   + GeoJSON export + contourLabel now metres; a season-style sync effect makes the
-   slider live without regenerate. Seeds byte-identical. See the S25 entry below.
+What S25/S25b did:
+1. **C5b territorial-waters bug CLOSED** (`8d039c0`, doc-only). Peaks-stranding
+   verified not-reproduced at 200k across 5 seeds. ROADMAP C5b → DONE.
+2. **D8a presentation datum SHIPPED** (`21aaded`). Elevations in metres.
+   `maxElevationM` (default 9000) is a display-only WorldParams key; `utils/datum.ts`
+   is the single source; a season-style sync effect makes the slider live.
+3. **Hypsometric curve FIX** (`1101863`). Matt reported land elevations too high
+   (steppe at 3,268 m). Diagnosed with the new tool: heightmap fine, LINEAR datum
+   wrong. `elevationMetres` now applies `frac^2` (`HYPSOMETRIC_EXPONENT`) on both
+   land and ocean → Earth-like (mean 824 m, 72% under 1 km). Steppe cell now 1,179 m.
+   Display-only, seeds byte-identical.
+4. **GRASSLAND biome ADDED** (`1518d34`). There was no temperate plains biome —
+   steppe stood in for it. Semi-arid band now: Mediterranean warm-only (>18°C),
+   GRASSLAND temperate (2-18°C), steppe cold (<=2°C). Grassland 8%, Mediterranean
+   9.8→4.4%, steppe 29→26.5%.
+5. **Agent debug tool** (`1437033`, `4440f11`): `scripts/queryWorld.mjs` —
+   `node scripts/queryWorld.mjs {cell <id>|hypsometry|gradients|biomes|climate|near}`.
+   Loads the real engine via vite ssrLoadModule (no deps, no browser). USE THIS to
+   inspect terrain/climate data instead of driving the 3D UI.
 
-**NOT visually verified in-browser** (M1 Playwright auto-rotate CPU trap; logic is
-unit-tested + the sync effect mirrors the proven `season` pattern). **Matt to
-eyeball:** move the Max Elevation slider (Terrain tab, under Planet Radius) → the
-Inspector "Elev" readout should rescale WITHOUT a regenerate. The Inspector is the
-canary for the whole feature: **GeoJSON export also reads `world.params.maxElevationM`
-via the same sync effect**, so if the slider moves the Inspector, the export is
-correct too; if it doesn't, the export silently writes metres against a stale datum.
+**Matt to eyeball in-browser** (not verified — M1 Playwright CPU trap): (a) land
+elevations now read realistically; (b) Grassland (meadow green) shows on temperate
+semi-arid land; (c) Max Elevation slider rescales the Inspector "Elev" WITHOUT
+regenerate — the Inspector is the canary (GeoJSON export shares the same synced datum).
 
-Known, accepted: `MAX_DEPTH_M` (11000) is fixed while `maxElevationM` is
-adjustable, so at the 1000 m slider floor land compresses hard against ocean depth
-(1000 m land range vs 11000 m ocean). Deliberate — the two are independent datums
-(`seafloorDepth` owns depth). Only visible if someone sets a near-flat world.
+**NEXT: D8b — decisions all made this session, spec not yet written.** See the
+"D8b — IN DESIGN" section below; it has been UPDATED with the curve + moisture
+findings. Short version:
+- **Datum pick RESOLVED by the curve:** physical lapse **6.5 °C/km** + datum **9000**
+  + the `frac^2` curve, all three (Matt's lean = accuracy). Measured: ICE_CAP stays
+  7.0→6.7% (curve keeps land low, so only genuine peaks cool). No pick-two tradeoff.
+- **Default ON, Matt ACCEPTS civ layout moving** on existing seeds; `physicalClimate`
+  (name it this, not `datumCoupling`) = off reproduces old byte-identical.
+- **Moisture dryness folds INTO D8b.** 42% of land is moisture <0.15 (Earth
+  arid+semiarid ~33%) — the real reason steppe dominates. D8b's orographic coupling
+  rewrites the rain-shadow math anyway, so tune moisture there, once. Grassland will
+  populate further once interiors get wetter.
 
-**Matt's stated queue: D8a then C5b — both DONE.** Next unclaimed by Matt.
-My standing recommendation stays **A3 — map style system** (last unstarted item
-in section A, makes output "pinboard-worthy," styles the Canvas2D overlay layer F2
-unified). **D8b** (simulation coupling — lapse rate, rain shadow, snow line) is
-the natural D8 follow-on but breaks determinism and needs an escape hatch. **Do
-NOT start F3** (vector 2D rewrite) right after the F2 migration.
+Standing alternative after D8b: **A3 map style system**. **Do NOT start F3** yet.
 
 _Prior state:_ **`main` was clean and PUSHED at `2014efb`** at end of S23; HEAD
 moved to `6f6d725` (a test repair after D9). S23 shipped D9 (pangea fix), the
@@ -416,18 +426,26 @@ advisor-reviewed + impact measured. NOT yet spec'd or coded.
 - `lapse 6.5 / datum 6000` → ~25% change, ~3% new ice. Moderate.
 - `lapse 4.0 / datum 9000` → ~19% change, ~2% new ice, volcanic mostly survives.
 
-**THE OPEN DECISION (Matt's, pick two of three):** physical lapse (6.5) + tall
-peaks (datum 9000 display) + moderate climate — can't have all three.
-- 6.5 + 9000 = icy dramatic world (honest physics for 9km peaks).
-- 6.5 + lower datum (~6000) = moderate, but D8a peak readouts shrink (shared key).
-- 9000 + softer lapse (4-5) = tall peaks + moderate, but lapse isn't strictly physical.
-`maxElevationM` is SHARED between D8a display and D8b physics, so the datum choice
-moves both. **This blocks the spec.**
+**THE DATUM DECISION — RESOLVED (S25b), no longer a pick-two.** The `frac^2`
+hypsometric curve shipped in `1101863` keeps most land genuinely low (mean 824 m),
+so grounded lapse only cools the few real peaks. Measured (curve + lapse 6.5 +
+datum 9000, 20k, 2 seeds): biome change ~21-27%, **ICE_CAP stays 7.0→6.7%**, new
+ice 1-3% (vs 15% under the old LINEAR datum). So the accurate pick — **physical
+lapse 6.5 °C/km + datum 9000 + the curve** — is stable. Matt's lean was accuracy;
+take all three. (Pre-curve this was a pick-two; the curve dissolved it.)
 
-**Advisor blocker not yet cleared with Matt (item 1):** default-ON moves **civ
-layout** (biome→suitability: ICE_CAP=0), not just climate, for every existing seed
-on load. Matt approved seeds changing but was told "climate." Confirm he accepts
-factions/towns/populations moving too (S22 gated a merge on exactly this class).
+**Civ-layout-moving: Matt ACCEPTS (S25b).** default-ON changes biome →
+suitability (ICE_CAP=0) so factions/towns/populations shift on existing seeds.
+Explained and approved. `physicalClimate=off` reproduces old byte-identical.
+
+**MOISTURE dryness folds into D8b (S25b decision).** Investigation
+(`scripts/queryWorld.mjs climate`, 3 seeds) found 42-45% of land at moisture <0.15
+(Earth arid+semiarid ~33%), median land moisture ~0.22, bimodal (coasts wet,
+interiors starve). THIS is why steppe dominates, not elevation. The 8-pass moisture
+transport under-delivers inland. Since D8b's orographic coupling rewrites that same
+rain-shadow math (`worldGen.ts:577-579`), tune the inland-dryness THERE, once, not
+before. Target: fewer <0.15 cells so grassland/forest grow and the dry biomes fall
+toward Earth-like shares. GRASSLAND biome is already in place to receive them.
 
 **Adopt (advisor items 4-5):** name the flag `physicalClimate` (not `datumCoupling`);
 its validator line goes with the boolean type-checks in `export.ts`, NOT `numericBounds`.
