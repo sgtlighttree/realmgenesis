@@ -145,6 +145,32 @@ function run() {
     return { meta: { seed, landCells: land }, landBiomeShare: out };
   }
 
+  if (cmd === 'climate') {
+    // Why does one biome dominate? Reports land moisture + temperature
+    // distributions and, for steppe specifically, which determineBiome branch
+    // produced it (arid-temperate vs semiarid-cool).
+    const land = cells.filter(isLand);
+    const mo = land.map((c) => c.moisture).sort((a, b) => a - b);
+    const te = land.map((c) => c.temperature).sort((a, b) => a - b);
+    const n = land.length;
+    const q = (arr, p) => arr[Math.floor(p * (n - 1))];
+    const dryLt15 = land.filter((c) => c.moisture < 0.15).length / n;
+    const dry15to40 = land.filter((c) => c.moisture >= 0.15 && c.moisture < 0.4).length / n;
+    // steppe branches (see determineBiome): A = moisture<0.15 & 10<temp<=25;
+    // B = moisture 0.15-0.4 & temp<=10.
+    const steppe = land.filter((c) => c.biome === 'Steppe');
+    const branchA = steppe.filter((c) => c.moisture < 0.15).length;
+    const branchB = steppe.filter((c) => c.moisture >= 0.15 && c.moisture < 0.4).length;
+    return {
+      meta: { seed, landCells: n },
+      moistureQuantiles: { min: q(mo, 0).toFixed(3), p25: q(mo, 0.25).toFixed(3), median: q(mo, 0.5).toFixed(3), p75: q(mo, 0.75).toFixed(3), max: q(mo, 1).toFixed(3) },
+      tempQuantilesC: { min: q(te, 0).toFixed(1), p25: q(te, 0.25).toFixed(1), median: q(te, 0.5).toFixed(1), p75: q(te, 0.75).toFixed(1), max: q(te, 1).toFixed(1) },
+      dryLandShare: { 'moisture<0.15': `${(dryLt15 * 100).toFixed(1)}%`, 'moisture0.15-0.4': `${(dry15to40 * 100).toFixed(1)}%` },
+      steppeBreakdown: { total: steppe.length, aridTemperate_moLt15: branchA, semiaridCool_mo15to40: branchB },
+      earthReference: 'arid+semiarid ~33% of real land',
+    };
+  }
+
   if (cmd === 'near') {
     const [x, y, z] = positional.map(Number);
     let best = null, bestD = Infinity;
