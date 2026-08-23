@@ -25,10 +25,23 @@ export const DEFAULT_MAX_ELEVATION_M = 9000;
 export const MAX_DEPTH_M = 11000;
 
 /**
+ * Hypsometric power curve applied to the above-sea (and below-sea) FRACTION
+ * before scaling to metres. The normalized height field sits mostly at mid-range
+ * (median land frac ~0.23), so a LINEAR datum reported a median land elevation of
+ * ~2 km — Earth is ~840 m with ~70% of land under 1 km. A quadratic curve
+ * (frac^2) matches Earth almost exactly (measured: mean 824 m, 72% under 1 km)
+ * without touching the height field, generation, or the 3D relief. Applied
+ * symmetrically to ocean depth too, so near-shore water is a shallow shelf rather
+ * than a cliff to the abyss. Verified with scripts/queryWorld.mjs hypsometry.
+ */
+export const HYPSOMETRIC_EXPONENT = 2.0;
+
+/**
  * Convert a normalized 0-1 cell height to metres relative to sea level.
  * Land (height > seaLevel) scales toward +maxElevationM at height 1.
  * Ocean (height < seaLevel) scales toward -MAX_DEPTH_M at height 0.
- * The coastline (height === seaLevel) is exactly 0.
+ * The coastline (height === seaLevel) is exactly 0. Both sides pass through the
+ * HYPSOMETRIC_EXPONENT curve so the metre distribution matches Earth's.
  */
 export const elevationMetres = (
   height: number,
@@ -36,9 +49,11 @@ export const elevationMetres = (
   maxElevationM: number = DEFAULT_MAX_ELEVATION_M,
 ): number => {
   if (height >= seaLevel) {
-    return ((height - seaLevel) / (1 - seaLevel)) * maxElevationM;
+    const frac = (height - seaLevel) / (1 - seaLevel);
+    return Math.pow(frac, HYPSOMETRIC_EXPONENT) * maxElevationM;
   }
-  return ((height - seaLevel) / seaLevel) * MAX_DEPTH_M;
+  const depthFrac = (seaLevel - height) / seaLevel;
+  return -Math.pow(depthFrac, HYPSOMETRIC_EXPONENT) * MAX_DEPTH_M;
 };
 
 /**

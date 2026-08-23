@@ -157,10 +157,10 @@ describe('adaptive contour interval', () => {
 
 describe('contour elevation readout', () => {
   it('formats an elevation in metres against the D8a datum', () => {
-    // D8a landed: contourLabel now reports metres above sea level against the
-    // presentation datum, not a percentage. (0.68-0.55)/(1-0.55)*9000 = 2600.
+    // D8a + hypsometric curve: contourLabel reports curved metres above sea
+    // level. frac = (0.68-0.55)/(1-0.55) = 0.2889; frac^2 * 9000 = 751 m.
     // The contour LABELS that used it stay pulled — see below.
-    expect(contourLabel(0.68, SL, 9000)).toBe('2,600 m');
+    expect(contourLabel(0.68, SL, 9000)).toBe('751 m');
     expect(contourLabel(SL, SL, 9000)).toBe('Sea level');
   });
 

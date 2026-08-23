@@ -24,9 +24,17 @@ describe('elevationMetres', () => {
     expect(elevationMetres(0, sea, 9000)).toBeCloseTo(-MAX_DEPTH_M, 6);
   });
 
-  it('scales land above sea level, not raw height', () => {
-    // height 0.70 with sea 0.55: (0.70-0.55)/(1-0.55) = 1/3 of 9000 = 3000 m.
-    expect(elevationMetres(0.7, sea, 9000)).toBeCloseTo(3000, 6);
+  it('applies the quadratic hypsometric curve to land, not raw height', () => {
+    // height 0.70 with sea 0.55: frac = (0.70-0.55)/(1-0.55) = 1/3; curved
+    // frac^2 = 1/9 of 9000 = 1000 m (linear would have been 3000 m).
+    expect(elevationMetres(0.7, sea, 9000)).toBeCloseTo(1000, 6);
+  });
+
+  it('curves ocean depth symmetrically for a shallow near-shore shelf', () => {
+    // Just below sea level stays near 0, not a linear plunge: depthFrac small,
+    // squared smaller. h 0.50, sea 0.55: depthFrac = 0.05/0.55 = 0.0909;
+    // ^2 * 11000 = ~90.9 m, vs ~1000 m linear.
+    expect(elevationMetres(0.5, sea, 9000)).toBeCloseTo(-90.909, 2);
   });
 
   it('is monotonic increasing across the whole range', () => {
@@ -38,9 +46,9 @@ describe('elevationMetres', () => {
     }
   });
 
-  it('rescales linearly with the adjustable datum', () => {
+  it('rescales proportionally with the adjustable datum', () => {
     // Doubling the datum doubles the reported land elevation (display-only).
-    expect(elevationMetres(0.7, sea, 18000)).toBeCloseTo(6000, 6);
+    expect(elevationMetres(0.7, sea, 18000)).toBeCloseTo(2000, 6);
   });
 
   it('leaves ocean depth unaffected by the elevation datum', () => {
@@ -57,7 +65,8 @@ describe('formatElevation', () => {
   });
 
   it('formats land elevation with thousands separators and a unit', () => {
-    expect(formatElevation(0.7, sea, 9000)).toBe('3,000 m');
+    // Curved: frac 1/3 -> 1/9 * 9000 = 1000 m.
+    expect(formatElevation(0.7, sea, 9000)).toBe('1,000 m');
   });
 
   it('formats ocean depth as a negative metre value', () => {
