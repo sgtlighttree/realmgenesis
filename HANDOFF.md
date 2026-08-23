@@ -90,9 +90,11 @@ Reuse Matt's :3000 server (a closed tab does NOT stop vite; never kill it). The
 Select combobox resists automation — use the tab buttons + native-value-setter on
 range inputs. `pkill -f chrome-headless-shell` after (the auto-rotate CPU trap).
 
-**NEXT: D8b — decisions all made this session, spec not yet written.** See the
-"D8b — IN DESIGN" section below; it has been UPDATED with the curve + moisture
-findings. Short version:
+**NEXT: D8b — SPEC WRITTEN, needs Matt's review then implementation.**
+→ `docs/superpowers/specs/2026-08-23-d8b-climate-coupling-design.md`. All decisions
+are in it. Next session: Matt reviews the spec, then invoke the writing-plans skill
+to turn it into an implementation plan (do NOT code straight from the spec). The
+"D8b — IN DESIGN" section below is the source the spec was built from. Short version:
 - **Datum pick RESOLVED by the curve:** physical lapse **6.5 °C/km** + datum **9000**
   + the `frac^2` curve, all three (Matt's lean = accuracy). Measured: ICE_CAP stays
   7.0→6.7% (curve keeps land low, so only genuine peaks cool). No pick-two tradeoff.
