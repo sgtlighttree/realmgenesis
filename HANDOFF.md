@@ -71,10 +71,24 @@ What S25/S25b did:
    Loads the real engine via vite ssrLoadModule (no deps, no browser). USE THIS to
    inspect terrain/climate data instead of driving the 3D UI.
 
-**Matt to eyeball in-browser** (not verified — M1 Playwright CPU trap): (a) land
-elevations now read realistically; (b) Grassland (meadow green) shows on temperate
-semi-arid land; (c) Max Elevation slider rescales the Inspector "Elev" WITHOUT
-regenerate — the Inspector is the canary (GeoJSON export shares the same synced datum).
+**VERIFIED in-browser (S25b, headless Playwright, seed `realmgenesis` 5k, 0 console
+errors):**
+- (a) Land elevations realistic — Cell 3394 read **916 m** at datum 9000 (was
+  ~3 km class under linear).
+- (b) **Grassland renders** — in the legend and visibly distinct (meadow green)
+  across continents in Mercator biome view, mixed with forest/steppe/tundra; steppe
+  no longer visually dominant.
+- (c) **Max Elevation slider rescales the Inspector LIVE** — 9000→916 m, 18000→1,833 m
+  (doubled), 4500→458 m (halved), all with NO regeneration. Ocean cells correctly
+  unaffected (datum is elevation-only). Warning text renders accurately.
+
+Playwright recipe (M1, headless, no project dep): populate the CLI cache with
+`npx -y playwright@latest --version`, import `chromium` from
+`~/.npm/_npx/<hash>/node_modules/playwright/index.mjs`, launch with
+`executablePath` = the house `chromium_headless_shell-1237/.../chrome-headless-shell`.
+Reuse Matt's :3000 server (a closed tab does NOT stop vite; never kill it). The
+Select combobox resists automation — use the tab buttons + native-value-setter on
+range inputs. `pkill -f chrome-headless-shell` after (the auto-rotate CPU trap).
 
 **NEXT: D8b — decisions all made this session, spec not yet written.** See the
 "D8b — IN DESIGN" section below; it has been UPDATED with the curve + moisture
