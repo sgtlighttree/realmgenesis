@@ -50,19 +50,29 @@ export const HYPSOMETRIC_EXPONENT = 2.0;
  * The OROG_* constants scale the orographic (rain-shadow) moisture term by the
  * real barrier metres crossed. Windward ascent boosts rain (capped so coasts do
  * not saturate); leeward descent dries it (floored so a single edge cannot lose
- * everything). Tuned empirically (Task 5) against the land-moisture target in
- * the D8b spec §6 — 3-seed average moisture<0.15 share ~32.4%, within the
- * ~30-36% accept band (scripts/queryWorld.mjs climate/biomes). The leeward
- * floor/per-km pair is nearly disabled (0.95/0.02) — most of the remaining
- * drop from ~41% to ~32% came from raising OROG_WINDWARD_PER_KM (0.5→0.7) to
- * push more moisture onto coasts/windward slopes, since leeward-only tuning
- * plateaued around ~36% and could not reach the target alone.
+ * everything). Tuned empirically against TWO measured targets, 3 seeds at 20k:
+ *   (1) land moisture<0.15 share in the ~30-36% accept band (spec §6);
+ *   (2) a functioning rain shadow — cells behind an upwind barrier (>500 m) are
+ *       measurably drier than exposed cells (a windward/leeward contrast metric).
+ * Final: windward 0.85, leeward floor 0.5 / per-km 0.3 → 3-seed avg 35.4% dry
+ * share AND a shadow contrast of ~0.135 (shadowed ~0.26-0.34 vs exposed
+ * ~0.42-0.44 mean moisture).
+ *
+ * NOTE — an earlier Task 5 tune hit 32.4% by nearly DISABLING leeward drying
+ * (floor 0.95 / per-km 0.02), which killed rain shadows (contrast ~0.08 — no
+ * better than the incidental inland-dryness gradient). That aggregate-only target
+ * was smeared, not located. This tune trades ~3 pts of dry share (32→35%) for
+ * real, correctly-placed rain-shadow aridity — steppe rises only to ~18-25%
+ * (still below pre-D8b ~26.5-29%). The root cause of inland dryness is the 8-pass
+ * transport under-delivering moisture (worldGen.ts:611 land decay + fixed pass
+ * count), which the orographic knob can locate but not add water to — addressing
+ * that is a follow-up, not part of this pair.
  */
 export const LAPSE_RATE_C_PER_KM = 6.5;
-export const OROG_WINDWARD_PER_KM = 0.7;
+export const OROG_WINDWARD_PER_KM = 0.85;
 export const OROG_WINDWARD_CAP = 2.5;
-export const OROG_LEEWARD_PER_KM = 0.02;
-export const OROG_LEEWARD_FLOOR = 0.95;
+export const OROG_LEEWARD_PER_KM = 0.3;
+export const OROG_LEEWARD_FLOOR = 0.5;
 
 /**
  * Convert a normalized 0-1 cell height to metres relative to sea level.
