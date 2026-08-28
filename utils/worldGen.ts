@@ -9,7 +9,14 @@ import { simulateTectonics, projectTectonicsToDisplay } from './tectonicsV3';
 import { annualMeanLatTemp } from './seasons';
 import { applyStarClass } from './planetary';
 import { computeOceanCurrents, computeSstAnomaly, COAST_K, EVAP_K, OceanCurrentField } from './currents';
-import { elevationMetres, LAPSE_RATE_C_PER_KM } from './datum';
+import {
+  elevationMetres,
+  LAPSE_RATE_C_PER_KM,
+  OROG_WINDWARD_PER_KM,
+  OROG_WINDWARD_CAP,
+  OROG_LEEWARD_PER_KM,
+  OROG_LEEWARD_FLOOR,
+} from './datum';
 
 // --- DATA STRUCTURES ---
 
@@ -580,10 +587,21 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
              
              if (dot > 0) { 
                  let carry = n.moisture;
-                 const heightDiff = c.height - n.height;
-                 if (heightDiff > 0.02) carry *= 1.5;
-                 else if (heightDiff < -0.02) carry *= 0.2; 
-                 incomingMoisture += carry; 
+                 if (params.physicalClimate) {
+                   // Land-side above-sea metres only (ocean neighbour → 0), so a
+                   // coastal barrier is measured from sea level and we never cross
+                   // the seaLevel slope kink inside the loop (spec §5, advisor item 3).
+                   const cM = Math.max(0, elevationMetres(c.height, params.seaLevel, params.maxElevationM));
+                   const nM = Math.max(0, elevationMetres(n.height, params.seaLevel, params.maxElevationM));
+                   const dKm = (cM - nM) / 1000;
+                   if (dKm > 0) carry *= Math.min(OROG_WINDWARD_CAP, 1 + OROG_WINDWARD_PER_KM * dKm);
+                   else if (dKm < 0) carry *= Math.max(OROG_LEEWARD_FLOOR, 1 + OROG_LEEWARD_PER_KM * dKm);
+                 } else {
+                   const heightDiff = c.height - n.height;
+                   if (heightDiff > 0.02) carry *= 1.5;
+                   else if (heightDiff < -0.02) carry *= 0.2; // exact old formula — byte-identical hatch
+                 }
+                 incomingMoisture += carry;
                  count++; 
              }
           });
