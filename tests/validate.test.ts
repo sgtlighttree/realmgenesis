@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateWorldParams, validateCivData } from '../utils/export';
+import { validateWorldParams, validateCivData, withParamDefaults } from '../utils/export';
 import { makeParams } from './helpers';
 
 // makeParams uses 300 points for engine-test speed, below the validator's
@@ -35,6 +35,28 @@ describe('validateWorldParams', () => {
     expect(validateWorldParams(null)).toBe(false);
     expect(validateWorldParams([])).toBe(false);
     expect(validateWorldParams('params')).toBe(false);
+  });
+});
+
+describe('physicalClimate param', () => {
+  it('defaults a missing physicalClimate to true (old saves get grounded climate)', () => {
+    const p = makeParams();
+    delete (p as unknown as Record<string, unknown>).physicalClimate;
+    expect(withParamDefaults(p).physicalClimate).toBe(true);
+  });
+  it('preserves an explicit false', () => {
+    const p = makeParams({ physicalClimate: false });
+    expect(withParamDefaults(p).physicalClimate).toBe(false);
+  });
+  it('rejects a non-boolean physicalClimate', () => {
+    const bad = { ...makeParams(), physicalClimate: 'yes' } as unknown;
+    expect(validateWorldParams(bad)).toBe(false);
+  });
+  it('accepts a boolean physicalClimate', () => {
+    // makeParams() defaults to 300 points (engine-test speed), below the
+    // validator's UI-aligned 2000 floor — use validParams() so this
+    // assertion isolates physicalClimate, not an unrelated points failure.
+    expect(validateWorldParams(validParams({ physicalClimate: true }))).toBe(true);
   });
 });
 
