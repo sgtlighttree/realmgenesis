@@ -45,7 +45,7 @@ const useIsNarrow = (): boolean => {
 const ShellApp: React.FC = () => {
   const engine = useWorldEngine();
   const {
-    params, setParams, world, viewMode, setViewMode, displayMode, setDisplayMode,
+    params, setParams, world, viewMode, setViewMode, mapStyleId, setMapStyleId, displayMode, setDisplayMode,
     inspectMode, inspectedCellId, rulerActive, markerMode, selectedMarkerId,
     setSelectedMarkerId, isGenerating, genProgress, logs, lore, isLoreLoading,
     showGrid, setShowGrid, smoothGlobe, setSmoothGlobe, showRivers, setShowRivers, showRoutes, setShowRoutes,
@@ -105,6 +105,7 @@ const ShellApp: React.FC = () => {
       onCancel={handleCancel}
       onUpdateCivs={handleUpdateCivs} onUpdateProvinces={handleUpdateProvinces}
       viewMode={viewMode} setViewMode={setViewMode}
+      mapStyleId={mapStyleId} setMapStyleId={setMapStyleId}
       displayMode={displayMode} setDisplayMode={setDisplayMode}
       loading={isGenerating} logs={logs} genProgress={genProgress}
       lore={lore} generatingLore={isLoreLoading} onGenerateLore={handleGenerateLore}
