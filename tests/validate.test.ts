@@ -49,7 +49,10 @@ describe('physicalClimate param', () => {
     expect(withParamDefaults(p).physicalClimate).toBe(false);
   });
   it('rejects a non-boolean physicalClimate', () => {
-    const bad = { ...makeParams(), physicalClimate: 'yes' } as unknown;
+    // Use validParams() (points: 5000, clears the [2000, 200000] floor) so
+    // physicalClimate is the ONLY reason validateWorldParams can reject —
+    // makeParams()'s default 300 points would reject on its own.
+    const bad = { ...validParams(), physicalClimate: 'yes' } as unknown;
     expect(validateWorldParams(bad)).toBe(false);
   });
   it('accepts a boolean physicalClimate', () => {
