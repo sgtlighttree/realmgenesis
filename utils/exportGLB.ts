@@ -11,7 +11,13 @@ const buildWorldMesh = (world: WorldData, viewMode: ViewMode): THREE.Mesh => {
   const religionColors = buildReligionColorMap(world.religions);
 
   world.cells.forEach(cell => {
-    const c = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors, seasonalTemperatureDelta(cell, world.params));
+    const c = getCellColor(cell, viewMode, {
+      seaLevel: world.params.seaLevel,
+      factionColors,
+      cultureColors,
+      religionColors,
+      seasonalDelta: seasonalTemperatureDelta(cell, world.params),
+    });
     const hMult = 1 + cell.height * 0.05;
     const cx = cell.center.x * hMult;
     const cy = cell.center.y * hMult;

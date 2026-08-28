@@ -41,8 +41,7 @@ The param-liveness test (`tests/paramLiveness.test.ts`) fails if any `WorldParam
 ## Key Invariants
 
 - **Relative imports only** — `@/` alias is configured but intentionally unused.
-- **`seaLevel` must be passed to `getCellColor`** as the third argument (from `world.params.seaLevel`), not hardcoded.
-- **`factionColors` map required for political rendering** — any render path calling `getCellColor` for political/province mode must pass a faction-color map (build via `buildFactionColorMap(civData)` from `colors.ts`).
+- **`getCellColor(cell, mode, ctx)` takes a `ColorContext` object**, not positional arguments. `ctx.seaLevel` is required and comes from `world.params.seaLevel` — never hardcoded. For political/province/culture/religion modes the matching colour map must be present on the context (build via `buildFactionColorMap(civData)` / `buildCultureColorMap` / `buildReligionColorMap` from `colors.ts`); omitting it renders those modes blank.
 - **R3F element names are strings** (e.g., `"bufferGeometry"`) — intentional pattern to bypass TSX types. `@typescript-eslint/no-explicit-any` is warn, not error.
 - **Gemini API key is ephemeral** — never persisted to storage. Set via `setRuntimeApiKey()` or build-time `GEMINI_API_KEY` env var.
 - **WorldMesh geometry is reused across paint strokes** — `world.cells` identity is the structural key. Paint strokes mutate cells in place and shallow-copy `WorldData`; never replace the `cells` array outside full regeneration.
