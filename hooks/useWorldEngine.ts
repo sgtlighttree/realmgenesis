@@ -129,28 +129,21 @@ export function useWorldEngine() {
     setRuntimeApiKey(apiKey);
   }, [apiKey]);
 
-  // D1/D8a: season and maxElevationM are render-only params — they must take
-  // effect without regenerating. The viewers and Inspector read world.params (a
-  // generation snapshot), so push the live values into world.params here, keeping
-  // world.cells identity so WorldMesh geometry is reused and only colors/readouts
-  // recompute (paint-stroke pattern). maxElevationM only rescales displayed
-  // metres; it touches no terrain.
+  // D1: season is render-only — it takes effect without regenerating. The
+  // viewers and Inspector read world.params (a generation snapshot), so push the
+  // live value into world.params here, keeping world.cells identity so WorldMesh
+  // geometry is reused and only colors recompute (paint-stroke pattern).
+  // D8b: maxElevationM is NO LONGER synced here — it became a generation param
+  // (it drives lapse + orographic), so it must regenerate to take effect. A live
+  // push would make world.params.maxElevationM disagree with the datum that baked
+  // the world (a determinism hole on save/reload).
   useEffect(() => {
     setWorld(prev =>
-      prev &&
-      (prev.params.season !== params.season ||
-        prev.params.maxElevationM !== params.maxElevationM)
-        ? {
-            ...prev,
-            params: {
-              ...prev.params,
-              season: params.season,
-              maxElevationM: params.maxElevationM,
-            },
-          }
+      prev && prev.params.season !== params.season
+        ? { ...prev, params: { ...prev.params, season: params.season } }
         : prev,
     );
-  }, [params.season, params.maxElevationM]);
+  }, [params.season]);
 
   // Controller reference to persist across renders
   const abortControllerRef = useRef<AbortController | null>(null);
