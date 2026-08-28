@@ -90,7 +90,24 @@ const getProvinceVariant = (baseColorHex: string, provId: number, strength = 1):
   return c;
 };
 
-export const getCellColor = (cell: Cell, mode: ViewMode, seaLevel: number, factionColors?: Map<number, string>, cultureColors?: Map<number, string>, religionColors?: Map<number, string>, seasonalDelta?: number): THREE.Color => {
+/**
+ * Everything `getCellColor` needs beyond the cell and the view mode.
+ *
+ * Replaces a 7-positional-argument signature that had grown two documented
+ * footguns (a silently-wrong third argument, and an omitted faction map that
+ * rendered political mode blank). An object makes both impossible: `seaLevel`
+ * is required and named, and the optional maps are named at every call site.
+ */
+export interface ColorContext {
+  seaLevel: number;
+  factionColors?: Map<number, string>;
+  cultureColors?: Map<number, string>;
+  religionColors?: Map<number, string>;
+  seasonalDelta?: number;
+}
+
+export const getCellColor = (cell: Cell, mode: ViewMode, ctx: ColorContext): THREE.Color => {
+  const { seaLevel, factionColors, cultureColors, religionColors, seasonalDelta } = ctx;
   const color = new THREE.Color();
 
   // D1: at a non-neutral season the render layer passes a per-cell temperature

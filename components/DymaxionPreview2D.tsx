@@ -124,7 +124,7 @@ const DymaxionPreview2D: React.FC<Props> = ({ world, viewMode, settings, onChang
     world.cells.forEach((cell, i) => {
       const feature = world.geoJson?.features?.[i];
       if (!feature) return;
-      const color = getCellColor(cell, viewMode, world.params.seaLevel);
+      const color = getCellColor(cell, viewMode, { seaLevel: world.params.seaLevel });
       ctx.beginPath();
       path(feature);
       ctx.fillStyle = '#' + color.getHexString();

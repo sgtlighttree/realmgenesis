@@ -61,7 +61,13 @@ const DymaxionNetPreview: React.FC<Props> = ({ world, viewMode, settings }) => {
       world.cells.forEach((cell, i) => {
         const feature = world.geoJson?.features?.[i];
         if (!feature || !feature.geometry || feature.geometry.coordinates.length === 0) return;
-        const color = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors, seasonalTemperatureDelta(cell, world.params));
+        const color = getCellColor(cell, viewMode, {
+          seaLevel: world.params.seaLevel,
+          factionColors,
+          cultureColors,
+          religionColors,
+          seasonalDelta: seasonalTemperatureDelta(cell, world.params),
+        });
         sctx.beginPath();
         path(feature);
         sctx.fillStyle = '#' + color.getHexString();

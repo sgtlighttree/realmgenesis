@@ -524,7 +524,13 @@ const WorldMesh: React.FC<{
     const inflate = showCellEdges ? 1 : CELL_OVERHANG;
     let o = 0;
     for (const cell of world.cells) {
-      const c = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors, seasonalTemperatureDelta(cell, world.params));
+      const c = getCellColor(cell, viewMode, {
+        seaLevel: world.params.seaLevel,
+        factionColors,
+        cultureColors,
+        religionColors,
+        seasonalDelta: seasonalTemperatureDelta(cell, world.params),
+      });
       // Multiply in relief shading only when toggled; the off path stays a
       // straight color copy so rendering is unchanged.
       if (showHillshade) c.multiplyScalar(shadeMap[cell.id]);

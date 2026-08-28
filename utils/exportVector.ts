@@ -99,7 +99,13 @@ const renderCellPaths = (world: WorldData, viewMode: ViewMode, pathGenerator: d3
     if (!feature?.geometry) return;
     const d = pathGenerator(feature);
     if (!d) return;
-    const hex = '#' + getCellColor(cell, viewMode, seaLevel, factionColors, cultureColors, religionColors, seasonalTemperatureDelta(cell, world.params)).getHexString();
+    const hex = '#' + getCellColor(cell, viewMode, {
+      seaLevel,
+      factionColors,
+      cultureColors,
+      religionColors,
+      seasonalDelta: seasonalTemperatureDelta(cell, world.params),
+    }).getHexString();
     parts.push(`<path d="${d}" fill="${hex}" stroke="${hex}" stroke-width="1"/>`);
   });
   return parts.join('');

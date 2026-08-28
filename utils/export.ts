@@ -112,7 +112,13 @@ const renderEquirectangular = (
   world.cells.forEach((cell, i) => {
     const feature = world.geoJson.features[i];
     if (!feature) return;
-    const threeColor = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors, seasonalTemperatureDelta(cell, world.params));
+    const threeColor = getCellColor(cell, viewMode, {
+      seaLevel: world.params.seaLevel,
+      factionColors,
+      cultureColors,
+      religionColors,
+      seasonalDelta: seasonalTemperatureDelta(cell, world.params),
+    });
     if (shadeMap) threeColor.multiplyScalar(shadeMap[cell.id]);
     const hexColor = '#' + threeColor.getHexString();
     ctx.beginPath();
@@ -369,7 +375,13 @@ export const exportMap = async (
   world.cells.forEach((cell, i) => {
     const feature = world.geoJson.features[i];
     if (!feature) return;
-    const threeColor = getCellColor(cell, viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors, seasonalTemperatureDelta(cell, world.params));
+    const threeColor = getCellColor(cell, viewMode, {
+      seaLevel: world.params.seaLevel,
+      factionColors,
+      cultureColors,
+      religionColors,
+      seasonalDelta: seasonalTemperatureDelta(cell, world.params),
+    });
     if (shadeMap) threeColor.multiplyScalar(shadeMap[cell.id]);
     const hexColor = '#' + threeColor.getHexString();
     ctx.beginPath();

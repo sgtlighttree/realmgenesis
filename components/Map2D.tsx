@@ -369,7 +369,13 @@ const Map2D: React.FC<{
       for (let i = 0; i < world.cells.length; i++) {
         const feature = world.geoJson?.features?.[i];
         if (!feature || !feature.geometry) continue;
-        const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors, seasonalTemperatureDelta(world.cells[i], world.params));
+        const color = getCellColor(world.cells[i], viewMode, {
+          seaLevel: world.params.seaLevel,
+          factionColors,
+          cultureColors,
+          religionColors,
+          seasonalDelta: seasonalTemperatureDelta(world.cells[i], world.params),
+        });
         if (shadeMap) color.multiplyScalar(shadeMap[i]);
         const hexColor = '#' + color.getHexString();
         srcCtx.beginPath();
@@ -600,7 +606,13 @@ const Map2D: React.FC<{
     for (let i = 0; i < world.cells.length; i++) {
         const feature = world.geoJson?.features?.[i];
       if (!feature || !feature.geometry) continue;
-        const color = getCellColor(world.cells[i], viewMode, world.params.seaLevel, factionColors, cultureColors, religionColors, seasonalTemperatureDelta(world.cells[i], world.params));
+        const color = getCellColor(world.cells[i], viewMode, {
+          seaLevel: world.params.seaLevel,
+          factionColors,
+          cultureColors,
+          religionColors,
+          seasonalDelta: seasonalTemperatureDelta(world.cells[i], world.params),
+        });
         if (shadeMap) color.multiplyScalar(shadeMap[i]);
         const hexColor = '#' + color.getHexString();
       ctx.beginPath();
