@@ -1021,6 +1021,24 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                   className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
              </div>
+              {/* D8b: physical climate — real lapse rate + rain shadow driven by
+                  the elevation datum. Off falls back to the classic formulas.
+                  Generation param; changes climate and civ layout. */}
+              <div className="flex items-center justify-between text-xs text-ink-muted pt-2">
+                <div className="flex flex-col">
+                  <label>Physical Climate (grounded)</label>
+                  <span className="text-[10px] text-ink-faint">
+                    Real lapse rate + rain shadow from the elevation datum. Off = classic formulas.
+                    Changes climate and civ layout for existing worlds.
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={params.physicalClimate ?? true}
+                  onChange={(e) => { handleChange('physicalClimate', e.target.checked); }}
+                  className="bg-surface-hover"
+                />
+              </div>
              {/* ... (rest of climate sliders) ... */}
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-ink-muted">
