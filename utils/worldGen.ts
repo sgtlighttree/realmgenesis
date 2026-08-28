@@ -141,12 +141,13 @@ async function applyHydraulicErosion(cells: Cell[], iterations: number, seaLevel
     }
 }
 
-async function applyThermalErosion(cells: Cell[], iterations: number) {
+async function applyThermalErosion(cells: Cell[], iterations: number, seaLevel = -Infinity) {
     const talus = 0.008; // Min slope diff
     const rate = 0.2;
 
     for(let iter=0; iter<iterations; iter++) {
         cells.forEach(c => {
+            if (c.height < seaLevel) return; // EXPERIMENT
             let maxDiff = 0;
             let lowestNIndex = -1;
             for(const nId of c.neighbors) {
@@ -493,7 +494,7 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
       const thermalSteps = Math.ceil(params.erosionIterations * 0.5 * resFactor);
       
       await applyHydraulicErosion(cells, hydraulicSteps, params.seaLevel); 
-      await applyThermalErosion(cells, thermalSteps);
+      await applyThermalErosion(cells, thermalSteps, params.seaLevel);
       
       minH = Infinity; maxH = -Infinity;
       cells.forEach(c => { if (c.height < minH) minH = c.height; if (c.height > maxH) maxH = c.height; });
