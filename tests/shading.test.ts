@@ -28,18 +28,26 @@ describe('computeShadeMap', () => {
     expect(Array.from(a)).toEqual(Array.from(b));
   }, 30000);
 
-  it('assigns exactly 1.0 to every water cell and stays in the clamp band', async () => {
+  it('stays in the clamp band for every cell', async () => {
     const world = await generateWorld(makeParams());
     const shade = computeShadeMap(world.cells, world.params.seaLevel);
     expect(shade.length).toBe(world.cells.length);
     world.cells.forEach(cell => {
       const s = shade[cell.id];
-      if (cell.height < world.params.seaLevel) {
-        expect(s).toBe(1.0);
-      }
       expect(s).toBeGreaterThanOrEqual(SHADE_MIN);
       expect(s).toBeLessThanOrEqual(SHADE_MAX);
     });
+  }, 30000);
+
+  // D10 changed this deliberately: water used to be forced to exactly 1.0, which
+  // rendered the sea bed as a flat colour ramp in Map2D and exports whatever the
+  // bathymetry said. Water now shades off its water neighbours.
+  it('shades the sea bed, not just the land', async () => {
+    const world = await generateWorld(makeParams());
+    const shade = computeShadeMap(world.cells, world.params.seaLevel);
+    const water = world.cells.filter(c => c.height < world.params.seaLevel);
+    expect(water.length).toBeGreaterThan(0);
+    expect(water.some(c => shade[c.id] !== 1.0)).toBe(true);
   }, 30000);
 
   it('produces at least some non-neutral shading on real relief', async () => {
