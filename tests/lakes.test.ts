@@ -21,7 +21,12 @@ const FRESH_SEED = 'lakeworld';
 
 describe('lakes', () => {
   it('produces the expected lakes for the salt-lake seed', async () => {
-    const world = await generateWorld(makeParams({ seed: SALT_SEED }));
+    // D8b: physicalClimate defaults ON, and its moisture retune wets s17's basin
+    // so it freshens (gains an outflow) instead of evaporating to salt. This test
+    // exercises SALT_LAKE hydrology, which needs an arid endorheic basin, so it
+    // pins the classic climate via the byte-identical hatch (physicalClimate:false).
+    // Verified: hatch-off → salt+endorheic; default-on → fresh non-endorheic.
+    const world = await generateWorld(makeParams({ seed: SALT_SEED, physicalClimate: false }));
     expect(world.lakes).toBeDefined();
     expect(world.lakes!.length).toBe(1);
     const lake = world.lakes![0];
