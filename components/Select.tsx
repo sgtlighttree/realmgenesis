@@ -21,6 +21,32 @@ import { Check, ChevronDown } from 'lucide-react';
  * bug. Portal + fixed escapes both stacking contexts.
  */
 
+/**
+ * Should a scroll event close the menu?
+ *
+ * The scroll listener is registered in the CAPTURE phase, deliberately: the menu
+ * is portaled and positioned `fixed`, so a scroll in ANY ancestor scroll
+ * container can move the trigger out from under it and leave the menu stranded
+ * in mid-air. Capture is the only way to see those scrolls.
+ *
+ * The cost of capture is that it also sees the menu scrolling ITSELF — the
+ * option list is `overflow-y-auto`. Without this guard, trackpad-scrolling the
+ * options or dragging their scrollbar closed the dropdown instantly, and the
+ * remainder of the gesture fell through to the 2D/3D viewport underneath,
+ * rotating the globe or panning the map.
+ *
+ * A scroll inside the menu never moves the trigger, so it must never close.
+ * The sibling `pointerdown` handler already applies the same containment test;
+ * this brings the scroll handler in line with it.
+ */
+export const shouldCloseOnScroll = (
+  target: unknown,
+  menu: { contains: (node: never) => boolean } | null,
+): boolean => {
+  if (!menu || target == null) return true;
+  return !menu.contains(target as never);
+};
+
 export interface SelectOption<T extends string> {
   value: T;
   label: string;
@@ -89,14 +115,17 @@ function Select<T extends string>({
       if (menuRef.current?.contains(t) || triggerRef.current?.contains(t)) return;
       setOpen(false);
     };
-    const onScrollOrResize = () => { setOpen(false); };
+    const onScroll = (e: Event) => {
+      if (shouldCloseOnScroll(e.target, menuRef.current)) setOpen(false);
+    };
+    const onResize = () => { setOpen(false); };
     document.addEventListener('pointerdown', onPointerDown, true);
-    window.addEventListener('resize', onScrollOrResize);
-    window.addEventListener('scroll', onScrollOrResize, true);
+    window.addEventListener('resize', onResize);
+    window.addEventListener('scroll', onScroll, true);
     return () => {
       document.removeEventListener('pointerdown', onPointerDown, true);
-      window.removeEventListener('resize', onScrollOrResize);
-      window.removeEventListener('scroll', onScrollOrResize, true);
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('scroll', onScroll, true);
     };
   }, [open]);
 
@@ -201,7 +230,10 @@ function Select<T extends string>({
           aria-label={label}
           tabIndex={-1}
           style={{ ...menuStyle, zIndex: 60 }}
-          className="overflow-y-auto border border-edge bg-surface py-1 shadow-2xl rg-rise"
+          // `overscroll-contain` stops scroll CHAINING: at the top or bottom of the
+          // list, further wheel/touch scrolling would otherwise propagate to the
+          // page and reach the R3F canvas, zooming the globe while the menu is open.
+          className="overflow-y-auto overscroll-contain border border-edge bg-surface py-1 shadow-2xl rg-rise"
         >
           {options.map((opt, i) => {
             const isSelected = opt.value === value;
