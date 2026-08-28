@@ -17,3 +17,18 @@ describe('D8b lapse-rate coupling', () => {
     expect(terrainSignature(hi)).not.toBe(terrainSignature(lo));
   }, 120000);
 });
+
+describe('D8b orographic coupling', () => {
+  it('changes the land-moisture signature vs the old normalized threshold', async () => {
+    // Isolate moisture: same seed, only the hatch flips. terrainSignature
+    // includes moisture, so a change here proves the orographic branch is live.
+    // (Lapse also moves under the hatch — this test asserts the pair is live,
+    // Task 5 measures the moisture distribution specifically.)
+    const off = await generateWorld(makeParams({ physicalClimate: false }));
+    const on = await generateWorld(makeParams({ physicalClimate: true }));
+    const sea = makeParams().seaLevel;
+    const moist = (w: typeof on) =>
+      w.cells.filter(c => c.height >= sea).map(c => c.moisture.toFixed(4)).join(',');
+    expect(moist(on)).not.toBe(moist(off));
+  }, 120000);
+});
