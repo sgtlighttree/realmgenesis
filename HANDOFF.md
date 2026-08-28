@@ -42,10 +42,10 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 **S26 shipped D8b (climate coupling) and MERGED it to `main` at `16ee4ce`
 (`--no-ff`). NOT pushed** (pushing stays Matt's call). Branch `d8b-climate-coupling`
-deleted post-merge. Built subagent-driven from the spec+plan. Two POST-MERGE
-follow-ups still wait on Matt: **(1) a design sign-off on the leeward tradeoff**
-(below) and **(2) visual/browser verification** — now easy, `main` has D8b so Matt's
-running `:3000` picks it up on reload (no separate server needed anymore).
+deleted post-merge. Built subagent-driven from the spec+plan. The
+leeward/rain-shadow tradeoff was **RESOLVED this session** (`da2dccf`, item 3 below).
+One POST-MERGE follow-up still waits on Matt: **visual/browser verification** — easy
+now, `main` has D8b so Matt's running `:3000` picks it up on reload.
 
 Gates (verified on branch HEAD `7010cf3`, whose tree is IDENTICAL to merged `main`
 — main was unmoved at merge, `--no-ff`, zero conflicts): typecheck 0 · lint 0 errors
@@ -60,14 +60,19 @@ What D8b did (see ROADMAP D8b for detail):
    `utils/datum.ts`.
 2. **Lapse rate** grounded at 6.5 °C/km on datum metres. **Orographic** rain shadow
    scaled by real barrier metres. **Snow line** emergent (no `determineBiome` change).
-3. **Moisture retune** — land `moisture<0.15` 40.97%→32.4% (3 seeds), steppe fell +
-   grassland rose in all 3. **⚠ DECISION FOR MATT:** the band was reached by nearly
-   DISABLING leeward drying (`OROG_LEEWARD_FLOOR 0.95`/`PER_KM 0.02`) — rain shadows
-   barely function. Real cause is base moisture under-delivering inland (spec §6), not
-   the orographic knob. Options if you want stronger rain shadows: re-tune the 4
-   `OROG_*` in `utils/datum.ts` (raise floor → ~35-36% upper band, shadows partly
-   return), or recalibrate the 8-pass transport as a follow-up. As shipped it hits the
-   target and improves biomes; the tradeoff is real and yours to accept or adjust.
+3. **Moisture retune + rain-shadow fix** (`da2dccf`, post-merge on `main`). Task 5's
+   first tune hit 32.4% by nearly DISABLING leeward drying (`floor 0.95`/`per-km 0.02`)
+   — which killed rain shadows. **FIXED this session** after Matt asked: retuned to
+   **windward 0.85, leeward floor 0.5 / per-km 0.3** → 3-seed avg land `moisture<0.15`
+   **35.4%** (in the 30-36% band) AND a real rain shadow — a windward/leeward contrast
+   metric (cells behind a >500 m upwind barrier vs exposed) went 0.08 → 0.135
+   (shadowed 0.26-0.34 vs exposed 0.42-0.44 mean moisture). Steppe 18-25% (below
+   pre-D8b 26.5-29%), grassland healthy, no collapse. Only OROG_* changed (ON-branch),
+   so hatch-off stays byte-identical by construction. **Verify method for future tunes:
+   `tmp/shadow.mjs` pattern — aggregate dry-share ALONE cannot tell "wet with shadows"
+   from "wet without"; measure the contrast.** Deeper root cause (8-pass transport
+   under-delivers inland: `worldGen.ts:611` land decay + fixed pass count) is a
+   follow-up the orographic knob can locate but not fix.
 4. **`maxElevationM` is now a GENERATION param** (your call) — drives lapse+orographic,
    regenerates to apply; its D8a live display-only sync was REMOVED (`useWorldEngine.ts`).
 5. **`lakes.test.ts` salt-lake seed pinned to `physicalClimate:false`** — the retune
@@ -81,8 +86,18 @@ biome view; the new **Physical Climate** toggle (Climate tab) flips the climate 
 regenerates; high peaks read colder. If a render bug appears, it is likely the
 toggle wiring or the grassland path.
 
-**NEXT ITEM (next agent):** after Matt's leeward sign-off + browser check, the
-standing next roadmap item is **A3 — map style system** (ROADMAP §A3, the last
+**NEXT ITEM (next agent) — Matt's request, do this first:** **seafloor relief
+detail.** Matt reported the sea bed has little height variation vs land at any
+resolution, and Sea/Trench Depth didn't change it. Diagnosis: `seafloorDepth`
+(0.3-2.0) is only a LINEAR mean-depth DATUM (Stage-9b — shifts overall ocean depth,
+coastline fixed), NOT a roughness/detail control; and the old `seafloorDetail`
+roughness knob was RETIRED and baked at 0.5 in S13 (`3a5a046`), so there is
+currently NO live control for bathymetric relief. The task: restore/​add a seafloor
+relief-detail control (or widen the ocean height variance) so the sea bed reads with
+real bumpiness. Likely touches the V3 seafloor-age→bathymetry path (ROADMAP D7 part 2)
+and/or the Stage-9b ocean remap. A generation change → escape-hatch discipline applies.
+
+After that, the standing roadmap item is **A3 — map style system** (ROADMAP §A3, last
 unstarted item in section A; "what makes output pinboard-worthy rather than
 diagnostic"). **Do NOT start F3.** Non-blocking D8b follow-ups the final review
 flagged, if Matt wants them: (a) no standing CI guard for the byte-identical hatch

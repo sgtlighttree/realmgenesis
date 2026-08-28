@@ -365,7 +365,7 @@ regenerate. Guarded by `tests/datum.test.ts`.
 moves, so values are not comparable between worlds. It must be a fixed maximum
 that `mountainHeight` distributes terrain within.
 
-#### D8b — simulation coupling (`physicalClimate`)  —  ✅ DONE (merged to `main` `16ee4ce`, 2026-08-28; pending Matt visual sign-off + leeward-tradeoff decision)
+#### D8b — simulation coupling (`physicalClimate`)  —  ✅ DONE (merged to `main` `16ee4ce`, 2026-08-28; rain-shadow retune `da2dccf`; pending only Matt visual sign-off)
 
 **Shipped (S26, branch `d8b-climate-coupling`).** `physicalClimate` (boolean,
 default **ON**) gates two sites in `utils/worldGen.ts`; off = **byte-identical**
@@ -377,14 +377,15 @@ to pre-D8b `main` (verified per-cell: all generation output identical, only the
 - **Orographic rain shadow** — scaled by real barrier metres (land-side above-sea,
   ocean → 0), tuned constants in `utils/datum.ts`.
 - **Snow line** — emergent for free; `determineBiome` unchanged.
-- **Moisture retune** (folded in): land `moisture<0.15` share **40.97% → 32.4%**
-  (Earth-like ~33%) across 3 seeds; steppe fell + grassland rose in all 3, no
-  seed collapsed to one biome. **Tradeoff flagged for Matt:** hitting the band
-  needed nearly disabling *leeward* drying (`OROG_LEEWARD_FLOOR 0.95` /
-  `PER_KM 0.02`) — rain shadows barely function. Root cause is base moisture
-  under-delivering inland (spec §6), which the orographic knob can mask but not
-  fix. If Matt wants stronger rain shadows: re-tune the 4 `OROG_*` constants
-  (higher floor → upper band) or recalibrate the 8-pass transport as follow-up.
+- **Moisture retune + rain-shadow fix** (folded in; retuned `da2dccf`): land
+  `moisture<0.15` share **~35.4%** across 3 seeds (in the 30-36% band); steppe
+  ~18-25% (below pre-D8b 26.5-29%), grassland healthy, no collapse. Final
+  constants: windward 0.85, leeward floor 0.5 / per-km 0.3. An earlier tune hit
+  32.4% by nearly disabling leeward drying, which KILLED rain shadows; the retune
+  restores them — verified with a windward/leeward moisture-contrast metric (0.08
+  → 0.135). Deeper root cause (base moisture under-delivers inland: spec §6, the
+  8-pass transport's land decay + fixed pass count) is a follow-up the orographic
+  knob can locate but not fix.
 - **`maxElevationM` is now a GENERATION param** (Matt's call) — it drives lapse +
   orographic, so it regenerates to apply; its D8a live display-only sync was removed.
 - One existing test (`lakes.test.ts` salt-lake seed) pinned to `physicalClimate:false`:
