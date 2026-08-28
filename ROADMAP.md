@@ -365,7 +365,7 @@ regenerate. Guarded by `tests/datum.test.ts`.
 moves, so values are not comparable between worlds. It must be a fixed maximum
 that `mountainHeight` distributes terrain within.
 
-#### D8b — simulation coupling (`physicalClimate`)  —  ✅ DONE (branch `d8b-climate-coupling`, 2026-08-28; pending Matt visual sign-off + merge)
+#### D8b — simulation coupling (`physicalClimate`)  —  ✅ DONE (merged to `main` `16ee4ce`, 2026-08-28; pending Matt visual sign-off + leeward-tradeoff decision)
 
 **Shipped (S26, branch `d8b-climate-coupling`).** `physicalClimate` (boolean,
 default **ON**) gates two sites in `utils/worldGen.ts`; off = **byte-identical**

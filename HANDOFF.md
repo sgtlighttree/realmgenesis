@@ -40,15 +40,18 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ## ▶ START HERE — pickup for a fresh session (updated 2026-08-28, end of S26)
 
-**S26 shipped D8b (climate coupling) on branch `d8b-climate-coupling`, NOT merged,
-NOT pushed.** Built subagent-driven from the spec+plan. Two things wait on Matt:
-**(1) a design sign-off** and **(2) visual/browser verification** (deferred per the
-M1 Playwright trap + S23/S25 precedent). Once both clear: merge `--no-ff` to `main`,
-then push is Matt's call.
+**S26 shipped D8b (climate coupling) and MERGED it to `main` at `16ee4ce`
+(`--no-ff`). NOT pushed** (pushing stays Matt's call). Branch `d8b-climate-coupling`
+deleted post-merge. Built subagent-driven from the spec+plan. Two POST-MERGE
+follow-ups still wait on Matt: **(1) a design sign-off on the leeward tradeoff**
+(below) and **(2) visual/browser verification** — now easy, `main` has D8b so Matt's
+running `:3000` picks it up on reload (no separate server needed anymore).
 
-Gates on the branch (HEAD `b4039a7`): typecheck 0 · lint 0 errors / 29 warnings
-(≤30) · build OK, worker chunk 88KB (was 87KB — expected, generation-stage code
-added) · **full suite 305 tests / 44 files pass** after the one salt-lake pin.
+Gates (verified on branch HEAD `7010cf3`, whose tree is IDENTICAL to merged `main`
+— main was unmoved at merge, `--no-ff`, zero conflicts): typecheck 0 · lint 0 errors
+/ 29 warnings (≤30) · build OK, worker chunk 88KB (was 87KB — expected, generation-
+stage code added) · **full suite 305 tests / 44 files pass**. Final whole-branch
+review (opus-high): APPROVE, 0 critical / 0 important.
 
 What D8b did (see ROADMAP D8b for detail):
 1. **`physicalClimate` flag, default ON** — gates two `worldGen.ts` sites; OFF =
@@ -71,12 +74,22 @@ What D8b did (see ROADMAP D8b for detail):
    wets s17's basin so it freshens instead of forming a salt lake (authorized change).
 
 **Browser verification is OUTSTANDING (Matt's eyeball).** Not driven this session —
-Matt's :3000 runs the MAIN repo (old code), so D8b needs a fresh dev server on the
-worktree, and the M1 Playwright auto-rotate trap is not worth it for a data-only
-change already proven by measurement + byte-identical hatch. Check on a branch
-build: grassland/forest grew and steppe receded in biome view; the new **Physical
-Climate** toggle (Climate tab) flips the climate + regenerates; high peaks read
-colder. If a render bug appears, it is likely the toggle wiring or grassland path.
+the M1 Playwright auto-rotate trap is not worth it for a data-only change already
+proven by measurement + the byte-identical hatch. Now `main` carries D8b, so just
+reload the running `:3000` and check: grassland/forest grew and steppe receded in
+biome view; the new **Physical Climate** toggle (Climate tab) flips the climate +
+regenerates; high peaks read colder. If a render bug appears, it is likely the
+toggle wiring or the grassland path.
+
+**NEXT ITEM (next agent):** after Matt's leeward sign-off + browser check, the
+standing next roadmap item is **A3 — map style system** (ROADMAP §A3, the last
+unstarted item in section A; "what makes output pinboard-worthy rather than
+diagnostic"). **Do NOT start F3.** Non-blocking D8b follow-ups the final review
+flagged, if Matt wants them: (a) no standing CI guard for the byte-identical hatch
+(deliberate — `captureBaseline.mjs` forbids a committed fixture due to V8 `Math.*`
+drift; verified once manually); (b) salt-lake hydrology is now only tested under the
+hatch — if a default-ON seed still yields an arid endorheic basin, pin one to keep
+SALT_LAKE coverage under the shipping default.
 
 _Prior session (S25/S25b) below — D8a, curve, grassland, C5b — is now shipped and
 on `main`._
