@@ -9,6 +9,7 @@ import { simulateTectonics, projectTectonicsToDisplay } from './tectonicsV3';
 import { annualMeanLatTemp } from './seasons';
 import { applyStarClass } from './planetary';
 import { computeOceanCurrents, computeSstAnomaly, COAST_K, EVAP_K, OceanCurrentField } from './currents';
+import { elevationMetres, LAPSE_RATE_C_PER_KM } from './datum';
 
 // --- DATA STRUCTURES ---
 
@@ -618,8 +619,13 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
               if (cnt > 0) temp += COAST_K * currentStrength * (sum / cnt);
           }
       }
-      const elevation = Math.max(0, c.height - params.seaLevel);
-      temp -= elevation * 60;
+      if (params.physicalClimate) {
+        const elevM = Math.max(0, elevationMetres(c.height, params.seaLevel, params.maxElevationM));
+        temp -= (elevM / 1000) * LAPSE_RATE_C_PER_KM;
+      } else {
+        const elevation = Math.max(0, c.height - params.seaLevel);
+        temp -= elevation * 60; // exact old formula — byte-identical hatch
+      }
       if (tempVariance > 0) temp += simplex.noise3D(c.center.x * 5, c.center.y * 5, c.center.z * 5) * tempVariance;
       c.temperature = temp;
       c.moisture = Math.max(0, Math.min(1, c.moisture * params.rainfallMultiplier));
