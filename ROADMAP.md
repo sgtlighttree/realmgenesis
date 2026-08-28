@@ -293,6 +293,65 @@ Another overhaul of terrain generaton algorithm to make it more realistic
 and get rid of seam lines on plate boundaries, and more detailed heightmap
 rendering and calculation without increasing cell count
 
+### D10. Flat sea bed — no bathymetric relief  —  ✅ DONE
+> _root-caused + fixed 2026-08-28 (Session 27). Cause was NOT the missing slider._
+
+Matt reported the sea bed showed little height variation next to land at any
+resolution, and that Sea Depth / Trench Depth did not change it.
+
+The sea bed was **not** flat in the data — ocean depth already spanned ~8,000 m
+against land's ~2,700 m. The deficit was purely high-frequency. Measured across
+3 seeds at 20k, per-neighbour relief in normalized height: **ocean 0.0153 vs land
+0.0250, a 1.64x texture gap.** Big smooth swells, no bumps. An aggregate depth
+histogram cannot see this — the diagnosis needed a two-scale relief metric
+(neighbour delta vs neighbour-of-neighbour).
+
+**Root causes (two, neither of them the missing control):**
+1. **`applyThermalErosion` had no sea-level check** (`utils/worldGen.ts`). It is a
+   smoothing operator — any slope above `talus` sheds to its lowest neighbour —
+   and it ran on every cell, planing the sea bed flat regardless of what
+   generation produced. Ablation: with erosion off, a relief sweep moved ocean
+   texture 0.0117→0.0140; with erosion on, 0.0162→0.0159, fully erased. Talus
+   erosion models freeze-thaw and gravity scree, a **subaerial** process;
+   submarine slopes hold far steeper angles. `thermalSteps` scales with
+   `sqrt(points)`, which is the "at any resolution" part of the report.
+2. **`computeShadeMap` short-circuited every water cell to `shade = 1.0`**
+   (`utils/shading.ts`), so the sea floor had zero relief shading in Map2D and
+   every export whatever the bathymetry said.
+
+The retired `seafloorDetail` knob would not have helped: it was **inverted** at
+the display site (`noiseInfluence *= 1 - 0.65 * seafloorDetail`), so turning
+"detail" up damped fine noise harder. It grew macro swells while flattening
+texture.
+
+**Fix:**
+- Split the talus constant — subaerial `0.008`, submarine `0.12`. Ocean cells stay
+  donors, so nothing piles at the coast (verified: no deposition rim).
+- Water hillshades off its **water** neighbours only (a land neighbour would put
+  the full land/ocean step into the gradient and rim every coastline). Land
+  untouched, so existing maps do not shift.
+- New **`seafloorRelief`** param (0–2.0, default 1.0) applied in a new **Stage 9c**
+  — after normalization, after erosion, at display resolution. 4-octave fBm,
+  zero-mean, shelf-tapered, clamped below `seaLevel` so **land fraction is
+  invariant by construction**. Distinct from `seafloorDepth`, which is a
+  mean-depth datum and cannot change roughness.
+
+| seafloorRelief | ocean texture | land texture | ratio | land cells |
+|----------------|---------------|--------------|-------|------------|
+| 0   | 0.0167 | 0.0250 | 1.50x | 4,558 |
+| 1.0 (default) | 0.0253 | 0.0251 | **0.99x** | 4,565 |
+| 2.0 | 0.0373 | 0.0251 | 0.67x | 4,593 |
+
+Default 1.0 means the sea bed carries the same texture as land. Holds at 80k
+(1.53x → 0.96x). Seed movement was authorized by Matt; there is no byte-identical
+hatch.
+
+**Rejected:** driving the param from the tectonicsV3 display-noise damping factor.
+Implemented, measured, reverted — un-damping that land-tuned noise pushed the
+global pre-normalization minimum down, and renormalization against a fixed
+`seaLevel` inflated land-cell count ~52% (4,410 → 6,692). It also saturated at
+relief 1.0, so half the slider did nothing. See HANDOFF S27 for the full record.
+
 ### D9. Pangea bias — terrain concentrates into supercontinents  —  ✅ DONE
 > _root-caused + fixed 2026-08-22 (Session 23). Cause was NOT plate seeding._
 

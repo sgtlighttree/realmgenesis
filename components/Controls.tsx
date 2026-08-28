@@ -923,6 +923,18 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                   className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
+              <div className="space-y-1" title="Ruggedness of the sea bed. 0 = smooth abyssal plains, higher = abyssal hills, seamounts and broken terrain. This is roughness, not depth — Seafloor Depth moves the whole floor up or down without changing how bumpy it is.">
+                <div className="flex justify-between text-xs text-ink-muted">
+                  <label>Seafloor Relief</label>
+                  <span>{params.seafloorRelief?.toFixed(2) ?? '1.00'}</span>
+                </div>
+                <input
+                  type="range" min="0" max="2" step="0.05"
+                  value={params.seafloorRelief ?? 1.0}
+                  onChange={(e) => { handleAdvancedChange('seafloorRelief', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
+                />
+              </div>
               <div className="space-y-1" title="How many shear-driven microplates to inject along high-strain boundaries. 0 = none, higher = more elongated slivers breaking up round plates.">
                 <div className="flex justify-between text-xs text-ink-muted">
                   <label>Microplates</label>

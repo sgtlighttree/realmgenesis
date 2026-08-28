@@ -32,6 +32,11 @@ export const withParamDefaults = (params: WorldParams): WorldParams => ({
   // saves get grounded climate on load — the accepted civ-move; reproducible
   // with false.
   physicalClimate: typeof params.physicalClimate === 'boolean' ? params.physicalClimate : true,
+  // D10: pre-D10 saves lack seafloorRelief → default to 1.0. Old saves get the
+  // rougher sea bed on load; 0.5 is the closest pre-D10 reference at the display
+  // damping site (the macro hill term also gained octaves, so no value reproduces
+  // pre-D10 output exactly — seed movement was authorized).
+  seafloorRelief: typeof params.seafloorRelief === 'number' && isFinite(params.seafloorRelief) ? params.seafloorRelief : 1.0,
 });
 
 // Matches the options offered in the Export tab. 16K+ exceeded browser
@@ -480,6 +485,7 @@ export const validateWorldParams = (params: unknown): params is Record<string, u
         ridgeBlend: [0, 1],
         warpStrength: [0, 2.0],
         tectonicStrength: [0, 2.0],
+        seafloorRelief: [0, 2.0],
         erosionIterations: [0, 50],
         baseTemperature: [-10, 50],
         poleTemperature: [-50, 20],

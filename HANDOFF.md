@@ -38,6 +38,163 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## S27 (2026-08-28) — D10 seafloor relief — ✅ IMPLEMENTED, branch not merged
+
+Branch `d10-seafloor-relief` off `main` @ `07d088b`. Three commits: `654213d`
+(param + findings), `a669a39` (erosion + Stage 9c), `ab1175f` (hillshade).
+**Gates on the branch: typecheck 0 · lint 0 errors / 29 warnings (≤30) · build OK,
+worker chunk 88.65KB (was 88KB) · 306 tests / 44 files ALL PASS** (paramLiveness
+passed in the full run this time; it is still the load canary — check `uptime`
+before suspecting code). NOT merged, NOT pushed — Matt's call.
+
+Matt scoped this at session start: he sees the flat sea bed in **BOTH** the 3D
+globe and the 2D map, and he authorized a **higher default that moves existing
+seeds**.
+
+### Instrument first
+
+Aggregate depth range CANNOT tell "smooth swells" from "bumpy" — the sea bed
+already spanned ~8,000 m vs land's ~2,700 m and still looked flat. **`node
+scripts/reliefMetrics.mjs`** (committed, companion to `queryWorld.mjs`) reports
+relief at TWO scales — s1 (neighbour delta = TEXTURE) and s2
+(neighbour-of-neighbour = SWELL) — ocean vs land, in normalized height units, plus
+land-cell count and coastal-ocean depth as side-effect guards. Any WorldParams key
+is overridable as a flag: `--seafloorRelief=2.0 --points=80000
+--erosionIterations=0`. Use it, not a depth histogram. Same lesson as D8b's
+rain-shadow contrast metric — and D8b's `tmp/shadow.mjs` did NOT survive its
+session, which is why this one is committed.
+
+### What was actually wrong (all VERIFIED, 3 seeds @ 20k and 80k)
+
+1. **ROOT CAUSE — `applyThermalErosion` had NO sea-level check** (`worldGen.ts`).
+   It is a pure smoothing operator: any slope above `talus` sheds to its lowest
+   neighbour. It ran on every cell and planed the sea bed flat regardless of what
+   generation produced. Ablation: with `erosionIterations=0` a `seafloorRelief`
+   0→2 sweep moved ocean texture 0.0117→0.0140; with erosion ON the same sweep
+   moved it 0.0162→0.0159 — fully erased.
+   Physically wrong too: talus erosion models freeze-thaw and gravity scree, a
+   SUBAERIAL process. Submarine slopes hold far steeper angles. Fixed by splitting
+   the constant — subaerial `0.008`, `SUBMARINE_TALUS = 0.12`. Ocean cells remain
+   DONORS, so nothing piles at the coast.
+   This is also the "at any resolution" part: `thermalSteps` scales with
+   `sqrt(points)`, so more resolution meant more underwater planing.
+   `applyHydraulicErosion` was innocent — it rains on land only.
+
+2. **`computeShadeMap` short-circuited every water cell to `shade = 1.0`**
+   (`utils/shading.ts`). The sea bed had ZERO relief shading in Map2D and every
+   export, whatever the data said. That is the whole 2D half of the complaint.
+   Fixed: water shades off its WATER neighbours only (a land neighbour would put
+   the full land/ocean step into the gradient and draw a hard rim around every
+   coastline). Land is untouched, so existing maps do not shift.
+
+3. **The retired `seafloorDetail` was INVERTED at the display site.** Pre-S13 code
+   (`3a5a046^:tectonicsV3.ts:857`) read `noiseInfluence *= 1 - 0.65 * seafloorDetail`
+   — turning "detail" UP damped fine noise HARDER. It grew macro swells while
+   flattening texture, and could never have delivered bumpiness. **"Restore the old
+   knob" was not the fix.** VERIFIED from git history.
+
+### REFUTED — kept so nobody re-derives it
+
+- **"Drive `seafloorRelief` from the tectonicsV3 display-noise damping factor"
+  (`0.35 + 0.65*relief`).** Implemented, measured, REVERTED to the baked 0.675.
+  That structural noise is land-tuned and large-amplitude, so un-damping it pushed
+  the global pre-normalization minimum down; renormalization against a fixed
+  normalized `seaLevel` of 0.55 then lifted mid-range cells over the coastline and
+  **inflated land-cell count ~52%** (4,410 → 6,692, 3 seeds). It also **saturated
+  at relief 1.0**, so the slider's upper half did nothing. A seafloor-roughness
+  control must not resize the continents.
+- **"Skipping underwater thermal erosion welds a deposition rim onto coastlines."**
+  Plausible (land cells still donate into ocean, hydraulic erosion deposits at
+  river mouths, ocean cells could gain with no outlet). **Measured and refuted:**
+  coastal-ocean p5 depth is flat at 0.0027→0.0030 across a `0.008 → ∞` submarine
+  talus sweep. The land-count jump that prompted the check came from the damping
+  change above, not the guard — at `talus=0.008` (guard effectively off) land was
+  already 6,692. The guard alone moves land only +2.4%.
+
+### The shipped design
+
+**`seafloorRelief` (0-2.0, default 1.0)** — plumbed through `types.ts`,
+`defaultParams.ts`, `export.ts` (numeric bounds + `withParamDefaults`),
+`Controls.tsx` (slider under Seafloor Depth), `tests/paramLiveness.test.ts`.
+
+It applies in a **new Stage 9c in `worldGen.ts`** — after normalization, after
+erosion, at display resolution. Each of those is load-bearing:
+- **After normalization** — `seaLevel` is a fixed 0.55 in the same space as the
+  perturbation, and the clamp keeps every ocean cell strictly below it, so **land
+  fraction is invariant BY CONSTRUCTION**. This is what the reverted approach got
+  wrong.
+- **After erosion** — thermal erosion is a smoothing operator; anything added
+  before it is partly ground away.
+- **At display resolution** — the macro tectonic grid is a fixed 10k, so relief
+  added there thins out as the user raises point count.
+
+4-octave fBm, zero-mean, smoothstep-tapered across the shelf (`SHELF_FRAC 0.18`)
+so the coastline is untouched and shelves stay smooth while abyssal plains get
+hills — which is also how Earth reads.
+
+**Measured result @ 20k, 3 seeds** (baseline on `main`: ocean s1 0.0153, land s1
+0.0250, ratio **1.64x**, land cells 4,410):
+
+| relief | ocean s1 | land s1 | ratio | land cells |
+|--------|----------|---------|-------|------------|
+| 0      | 0.0167   | 0.0250  | 1.50x | 4,558      |
+| 1.0    | 0.0253   | 0.0251  | **0.99x** | 4,565  |
+| 2.0    | 0.0373   | 0.0251  | 0.67x | 4,593      |
+
+Linear, unsaturated, land count stable. **Default 1.0 means "the sea bed carries
+the same texture as land"** — the literal complaint. Holds at 80k (1.53x → 0.96x,
+land 17,421 → 17,470). Water shade sd 0.2306 vs land 0.2387 at the default.
+
+### Decisions + rationale
+
+- **`seafloorRelief` is roughness; `seafloorDepth` is a mean-depth datum.** Two
+  separate sliders, deliberately. `seafloorDepth` moves the whole floor up or down
+  without changing bumpiness — which is exactly why Matt's Sea/Trench Depth
+  attempts did nothing for this.
+- **No byte-identical escape hatch.** Matt authorized seed movement explicitly this
+  session. `seafloorRelief 0` is the closest thing (Stage 9c disabled entirely),
+  but the erosion guard and the macro hill's added fBm octaves still differ from
+  pre-D10. This is stated, not silent.
+- **Water hillshade uses no separate strength constant.** Ocean and land carry
+  equal measured texture at the default, so one `STRENGTH` gives equal visual
+  weight. Rejected a `WATER_STRENGTH` knob: a constant with no measurement target
+  to tune against.
+- **AUTHORIZED TEST CHANGE:** `tests/shading.test.ts` asserted water shade is
+  exactly 1.0 — that assertion *was* the bug. Split into a clamp-band check plus a
+  new "shades the sea bed" test.
+
+### Known interaction, for whoever tunes next
+
+The `roughness` slider still drives land relief only in the ocean's structural
+noise (damping stayed baked at 0.675), so `roughness` and `seafloorRelief` do NOT
+overlap. If anyone re-opens the damping site, they will overlap — and that path is
+the refuted one above.
+
+### OUTSTANDING — Matt's eyeball
+
+Browser verification is not done (data-only measurement + gates only). On the
+branch, reload `:3000` and check: (a) the sea bed reads bumpy on the 3D globe,
+(b) the new **Seafloor Relief** slider (under Seafloor Depth) moves it,
+(c) coastlines have no dark rim.
+
+**For the 2D check you must turn Hillshade ON.** `Map2D`'s `showHillshade` prop
+defaults to `false` (`Map2D.tsx:230`), so the sea-floor shading fix is invisible
+until that toggle is on. Map2D and `export.ts` both call the shared
+`computeShadeMap`, so the fix reaches both. Whether hillshade should default on is
+Matt's call, not changed here. If a render bug appears it is most likely the water
+branch in `computeShadeMap`.
+
+### NEXT after this
+
+Merge decision + push are Matt's. Then the standing roadmap item is **A3 — map
+style system** (ROADMAP §A3, last unstarted item in section A; "what makes output
+pinboard-worthy rather than diagnostic"). **Do NOT start F3.** The non-blocking
+D8b follow-ups from S26 still stand if Matt wants them: (a) no standing CI guard
+for the D8b byte-identical hatch; (b) salt-lake hydrology is only tested under
+that hatch.
+
+---
+
 ## ▶ START HERE — pickup for a fresh session (updated 2026-08-28, end of S26)
 
 **S26 shipped D8b (climate coupling) and MERGED it to `main` at `16ee4ce`
@@ -2255,7 +2412,9 @@ preserved, **coastline held fixed**. Complements `oceanDepth` (a *contrast* powe
 - **Byte-identical at default** — `h' = sl − sl·min(1, shaped·sd)`; with `sd=1`,
   `min(1, shaped)` is a no-op since `shaped ∈ [0,1]`. The block doesn't even fire at
   defaults. Verified: full suite passes, `worldGen` determinism holds.
-- **Retired `seafloorDetail`** — its two internal jobs (abyssal-hill amplitude, GDH1
+- **Retired `seafloorDetail`** — _(D10/S27 note: this retirement left NO live control
+  for bathymetric roughness, and the knob was inverted at the display site anyway.
+  Superseded by `seafloorRelief`; see the S27 entry.)_ its two internal jobs (abyssal-hill amplitude, GDH1
   noise-damping) baked at the former 0.5 default in `tectonicsV3.ts`, so default worlds
   are visually unchanged and the GDH1-protection stays. `paramLiveness` case swapped.
   Precedent: `plateInfluence`→`tectonicStrength`.

@@ -117,6 +117,7 @@ export interface WorldParams {
   // D7 part 2 — geophysical realism (all inert at their zero-ish defaults on old seeds)
   spreadRate: number; // 0.004-0.02, chord-per-Ma seafloor spreading rate; smaller = older/deeper floor
   seafloorDepth: number; // 0.3-2.0, linear ocean-floor depth datum (mean water depth); 1.0 = unchanged, <1 shallower seas, >1 deeper abyss. Coastline (seaLevel) held fixed.
+  seafloorRelief: number; // 0-2.0, bathymetric relief (roughness) of the sea bed. Scales abyssal-hill amplitude at macro scale AND the deep-ocean structural-noise damping at display scale, in the SAME direction. 0 = near-flat abyssal plains, 2 = rugged. Distinct from seafloorDepth, which is a mean-depth datum.
   microplateIntensity: number; // 0-1, how many shear-driven microplates to inject (0 = none, byte-identical)
   plateElongation: number; // 0–1: seed-chain length → plate elongation (0 = round blobs)
 

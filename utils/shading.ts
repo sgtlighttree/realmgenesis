@@ -42,11 +42,25 @@ export const computeShadeMap = (cells: Cell[], seaLevel: number): Float32Array =
 
   for (let i = 0; i < cells.length; i++) {
     const cell = cells[i];
-    // Water carries no relief shading.
-    if (cell.height < seaLevel) {
-      shade[cell.id] = 1.0;
-      continue;
-    }
+    // D10: water DOES carry relief shading. It used to short-circuit to 1.0, so
+    // the sea bed rendered as a flat colour ramp in Map2D and every export no
+    // matter what the bathymetry said — half of the "sea bed looks flat" report.
+    //
+    // Two rules keep it honest:
+    //   * A water cell averages its gradient over WATER neighbours only. Mixing
+    //     in a coastal land neighbour puts the full land/ocean height step into
+    //     the gradient, which would draw a hard shaded rim around every
+    //     coastline instead of sea-floor relief. Land cells are UNCHANGED — they
+    //     still average over all neighbours, so existing maps do not shift.
+    //   * Same STRENGTH and clamp band as land, no separate water constant.
+    //     Ocean and land now carry equal measured texture at the default
+    //     `seafloorRelief` (0.99x, see D10), so one strength gives both the same
+    //     visual weight. Flat sea floor still lands at exactly 1.0 on its own,
+    //     because the radial baseline is subtracted below.
+    //
+    // Lakes are unaffected: their height is >= seaLevel, so they take the land
+    // path exactly as before.
+    const isWater = cell.height < seaLevel;
 
     const c = cell.center;
     const nLen = Math.hypot(c.x, c.y, c.z) || 1;
@@ -58,6 +72,7 @@ export const computeShadeMap = (cells: Cell[], seaLevel: number): Float32Array =
     for (const nId of cell.neighbors) {
       const nb = cells[nId];
       if (!nb) continue;
+      if (isWater && nb.height >= seaLevel) continue; // water shades off water only
       let dx = nb.center.x - c.x;
       let dy = nb.center.y - c.y;
       let dz = nb.center.z - c.z;
