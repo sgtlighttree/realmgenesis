@@ -1362,7 +1362,8 @@ const hashSeed = (seed: string): number => {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run tests/substrateSvg.test.ts`
-Expected: PASS, 5 tests.
+Expected: PASS, 6 tests. (The fill-opacity regression test was added in the
+post-review correction pass, taking this file from 5 blocks to 6.)
 
 - [ ] **Step 5: Run the gates and commit**
 
