@@ -54,12 +54,15 @@ seeds**.
 ### Instrument first
 
 Aggregate depth range CANNOT tell "smooth swells" from "bumpy" — the sea bed
-already spanned ~8,000 m vs land's ~2,700 m and still looked flat. `tmp/relief.mjs`
-reports relief at TWO scales: s1 (neighbour delta = texture) and s2
-(neighbour-of-neighbour = swell), ocean vs land, in normalized height units.
-`tmp/sweep.mjs` adds land-cell count and coastal-ocean depth (side-effect checks).
-Use these, not a depth histogram. Same lesson as D8b's rain-shadow contrast metric.
-(Both live in gitignored `tmp/` — rewrite from this description if needed.)
+already spanned ~8,000 m vs land's ~2,700 m and still looked flat. **`node
+scripts/reliefMetrics.mjs`** (committed, companion to `queryWorld.mjs`) reports
+relief at TWO scales — s1 (neighbour delta = TEXTURE) and s2
+(neighbour-of-neighbour = SWELL) — ocean vs land, in normalized height units, plus
+land-cell count and coastal-ocean depth as side-effect guards. Any WorldParams key
+is overridable as a flag: `--seafloorRelief=2.0 --points=80000
+--erosionIterations=0`. Use it, not a depth histogram. Same lesson as D8b's
+rain-shadow contrast metric — and D8b's `tmp/shadow.mjs` did NOT survive its
+session, which is why this one is committed.
 
 ### What was actually wrong (all VERIFIED, 3 seeds @ 20k and 80k)
 
@@ -171,10 +174,24 @@ the refuted one above.
 
 Browser verification is not done (data-only measurement + gates only). On the
 branch, reload `:3000` and check: (a) the sea bed reads bumpy on the 3D globe,
-(b) Mercator/Dymaxion show sea-floor relief shading instead of a flat blue ramp,
-(c) the new **Seafloor Relief** slider (Terrain tab, under Seafloor Depth) moves
-it, (d) coastlines have no dark rim. If a render bug appears it is most likely the
-water branch in `computeShadeMap`.
+(b) the new **Seafloor Relief** slider (under Seafloor Depth) moves it,
+(c) coastlines have no dark rim.
+
+**For the 2D check you must turn Hillshade ON.** `Map2D`'s `showHillshade` prop
+defaults to `false` (`Map2D.tsx:230`), so the sea-floor shading fix is invisible
+until that toggle is on. Map2D and `export.ts` both call the shared
+`computeShadeMap`, so the fix reaches both. Whether hillshade should default on is
+Matt's call, not changed here. If a render bug appears it is most likely the water
+branch in `computeShadeMap`.
+
+### NEXT after this
+
+Merge decision + push are Matt's. Then the standing roadmap item is **A3 — map
+style system** (ROADMAP §A3, last unstarted item in section A; "what makes output
+pinboard-worthy rather than diagnostic"). **Do NOT start F3.** The non-blocking
+D8b follow-ups from S26 still stand if Matt wants them: (a) no standing CI guard
+for the D8b byte-identical hatch; (b) salt-lake hydrology is only tested under
+that hatch.
 
 ---
 
@@ -2395,7 +2412,9 @@ preserved, **coastline held fixed**. Complements `oceanDepth` (a *contrast* powe
 - **Byte-identical at default** — `h' = sl − sl·min(1, shaped·sd)`; with `sd=1`,
   `min(1, shaped)` is a no-op since `shaped ∈ [0,1]`. The block doesn't even fire at
   defaults. Verified: full suite passes, `worldGen` determinism holds.
-- **Retired `seafloorDetail`** — its two internal jobs (abyssal-hill amplitude, GDH1
+- **Retired `seafloorDetail`** — _(D10/S27 note: this retirement left NO live control
+  for bathymetric roughness, and the knob was inverted at the display site anyway.
+  Superseded by `seafloorRelief`; see the S27 entry.)_ its two internal jobs (abyssal-hill amplitude, GDH1
   noise-damping) baked at the former 0.5 default in `tectonicsV3.ts`, so default worlds
   are visually unchanged and the GDH1-protection stays. `paramLiveness` case swapped.
   Precedent: `plateInfluence`→`tectonicStrength`.
