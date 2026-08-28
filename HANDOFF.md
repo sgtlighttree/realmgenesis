@@ -38,6 +38,81 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## S27 IN PROGRESS (2026-08-28) — D10 seafloor relief
+
+Branch `d10-seafloor-relief` off `main` @ `07d088b`. Matt answered two scoping
+questions this session: he sees the flat sea bed in **BOTH** the 3D globe and the
+2D map, and he authorized a **higher default that moves existing seeds**.
+
+### Findings (measured, 3 seeds @ 20k, instrument `tmp/relief.mjs`)
+
+Instrument note: aggregate depth range CANNOT tell "smooth swells" from "bumpy".
+`tmp/relief.mjs` reports relief at TWO scales — s1 (neighbour delta = texture) and
+s2 (neighbour-of-neighbour = swell) — in normalized height units, ocean vs land.
+Use it, not a depth histogram. (Same lesson as D8b's rain-shadow contrast metric.)
+
+1. **The sea bed is NOT flat in the data.** Ocean depth spans ~8,000 m vs land's
+   ~2,700 m. The deficit is purely high-frequency: baseline ocean s1 **0.0153** vs
+   land **0.0250** — a **1.64x texture gap**. Big smooth swells, no bumps.
+   VERIFIED, 3 seeds, consistent.
+
+2. **ROOT CAUSE: `applyThermalErosion` (`worldGen.ts:143`) has NO sea-level check.**
+   It is a pure smoothing operator — any slope above `talus = 0.008` is ground
+   toward flat — and it runs on ALL cells. Ocean s1 sits right at that threshold,
+   so the sea bed is planed flat regardless of what generation produced.
+   `applyHydraulicErosion` is innocent: it rains on land only (`flux = 0` below
+   sea level), so ocean cells never erode there; they only RECEIVE deposition from
+   land neighbours, which is correct (river-mouth fans).
+   **VERIFIED by ablation:** with `erosionIterations=0`, a `seafloorRelief` sweep
+   0→2 moves ocean s1 0.0117→0.0140 (+20%). With erosion ON, the same sweep moves
+   it 0.0162→0.0159 — erased. n=3 seeds.
+   Physically this is also just wrong: talus/thermal erosion models freeze-thaw and
+   gravity scree, a SUBAERIAL process. Submarine slopes hold far steeper angles.
+   This also explains Matt's "at any resolution": `thermalSteps` scales with
+   `sqrt(points)`, so more resolution means more underwater planing.
+
+3. **The retired `seafloorDetail` was INVERTED at the display site.** Pre-S13 code
+   (`3a5a046^:tectonicsV3.ts:857`) read `noiseInfluence *= 1 - 0.65 * seafloorDetail`
+   — turning "detail" UP damped the fine noise HARDER. The old slider grew macro
+   swells while flattening real texture. It could never have delivered bumpiness.
+   This is why "restore the old knob" is not the fix. VERIFIED from git history.
+
+4. `seafloorRelief` saturates above 1.0 with the first-cut implementation, because
+   the display-site damping factor `min(1, 0.35 + 0.65*relief)` clamps there, and
+   the macro abyssal-hill amplitude coefficient (`* 0.06`) is too small to carry
+   the knob on its own. Needs retuning. n=3, measured.
+
+### Design decisions
+
+- **`seafloorRelief` (0-2, default 1.0) drives TWO sites, same direction.** Sea-bed
+  roughness is one physical quantity sampled at two grid resolutions (macro 10k
+  abyssal hills; display-resolution structural noise). One site alone gives a slider
+  that grows swells without texture — exactly the old `seafloorDetail` failure.
+  Rejected alternative: one param per site. Two knobs for one quantity, and the
+  display site is the only one that scales with the user's point count.
+- **No byte-identical escape hatch.** The macro hill term gained fBm octaves, so no
+  parameter value reproduces pre-D10 output. Matt authorized seed movement
+  explicitly this session (and ROADMAP:34 allows it). The `0.35 + 0.65*relief` form
+  DOES reproduce the S13 baked 0.675 exactly at relief 0.5, so that value is the
+  reference point for the display site alone.
+
+### Status
+
+Param plumbed: `types.ts`, `defaultParams.ts`, `export.ts` (bounds + defaults),
+`Controls.tsx` slider, `paramLiveness.test.ts`. Both generation sites wired.
+Thermal-erosion sea-level guard is currently an UNCOMMITTED EXPERIMENT in
+`worldGen.ts` (backup at `tmp/worldGen.ts.bak`) — pending advisor review, because
+skipping underwater thermal erosion changes coastlines, rivers, and lakes.
+With the guard on: ocean s1 0.0153 → **0.0177**, texture ratio 1.64x → **1.25x**.
+
+**OPEN (2D/export only, NOT yet addressed):** `computeShadeMap`
+(`utils/shading.ts:46`) short-circuits every water cell to `shade = 1.0` — the sea
+bed gets ZERO relief shading in Map2D and exports, whatever the data says. Matt
+confirmed he sees flatness in 2D too, so this IS in scope this session, as a
+SEPARATE commit from the generation change.
+
+---
+
 ## ▶ START HERE — pickup for a fresh session (updated 2026-08-28, end of S26)
 
 **S26 shipped D8b (climate coupling) and MERGED it to `main` at `16ee4ce`
