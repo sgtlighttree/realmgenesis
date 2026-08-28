@@ -38,6 +38,108 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## S27b (2026-08-29) — A3 map style system (parchment) — 🟡 IN PROGRESS
+
+Branch `a3-map-style` off pushed `main` @ `4881231`. **Spec:**
+`docs/superpowers/specs/2026-08-28-a3-map-style-system-design.md`. **Plan:**
+`docs/superpowers/plans/2026-08-28-a3-map-style-system.md` (10 tasks).
+Matt went AFK mid-session with "full auto, use advisor frequently".
+
+### Scope, decided with Matt
+
+One **parchment** preset done properly (other preset ideas logged in ROADMAP/spec
+§9, NOT built) · **Map2D + PNG/SVG export only, the 3D globe stays diagnostic**
+(it paints per-cell vertex colours, so hatching and paper grain would need a
+baked texture or custom shaders — double the work, M1 perf risk, for an
+inspection view) · **glyphs over a soft hillshade** · **bare-paper land**, glyphs
+carry the terrain.
+
+### Done and independently verified (gates re-run by the orchestrator, not taken on report)
+
+| Task | Commit | What |
+|---|---|---|
+| 1 | `680e7c1` | `getCellColor` → `ColorContext` object (10 call sites) |
+| 2 | `1bea405` | Style registry, `fillPolicy`, `mapStyleId` state, Map Style selector |
+| 3 | `42a3f8d` | `placeGlyphs` — substrate-independent placement |
+| 4 | `9d79af9` | `glyphPaths` — procedural shapes |
+| 5 | `6007550` | `Substrate` interface + Canvas2D |
+| 6 | `ae80711` | SVG substrate |
+| — | `544889b` | UI bugfix: Select closed on its own scroll (below) |
+
+Gate state: typecheck 0 · lint 0 errors / 29 warnings · **331 tests / 50 files**.
+
+### Decisions + rationale
+
+- **Style is orthogonal to `ViewMode`**, not a 13th view mode (ROADMAP A3 says "a
+  style layer OVER the existing view modes").
+- **`mapStyleId` is NOT a `WorldParam`.** It never influences generation, so
+  `paramLiveness` would fail it. Lives beside `viewMode` in `useWorldEngine`.
+- **`fillPolicy` per view mode (spec §4)** — the collision nobody had thought
+  through. `height`/`temperature`/`moisture`/`population` are continuous ramps
+  whose entire information content IS the fill; bare paper renders them BLANK. So
+  they keep their fill and suppress glyphs. Categorical modes (political,
+  province, culture, religion, plates) get muted fill on paper. Only
+  satellite/biome/height_bw go bare.
+- **One SVG path string serves both substrates** — SVG embeds it, Canvas2D feeds
+  it to `Path2D`, which accepts SVG path syntax. That is what stops raster and
+  vector drifting into two different-looking maps.
+
+### REFUTED / corrected before they shipped — kept so nobody re-derives them
+
+Four bugs were caught by reviewing the PLAN's own code, not by tests. Subagents
+copy plan code verbatim, so all four would have shipped:
+
+1. **Full-bleed ocean hatch would have covered the land.** Under the `bare`
+   policy `landPass` returns early and paints nothing, so a `hatchRect` over the
+   whole canvas sat directly on the parchment. Split into `oceanFillPass` +
+   ocean-only hatching.
+2. **`seasonalDelta` is PER CELL.** The draft `landPass` reused one shared
+   `ColorContext`, which would have silently disabled D1 seasonal biomes and D3
+   sea ice under parchment, with no test to catch it.
+3. **`rgba()` passed to the SVG substrate.** Canvas2D accepts it; **SVG 1.1 has
+   no `rgba()` colour syntax** and renders it inconsistently in Illustrator and
+   Inkscape. `fillFeature` now takes an explicit `opacity`; colours stay opaque.
+4. **`from 'd3-geo'`.** The repo depends on `d3` directly and every consumer
+   writes `import * as d3 from 'd3'`; `d3-geo` is only transitive, so it would
+   have worked by accident and broken on a hoist.
+
+### UI bugfix `544889b` — Select closed on its own scroll
+
+Matt reported the view-mode dropdown vanishing when trackpad-scrolled or when its
+scrollbar was clicked, with the gesture then falling through to the viewport.
+**Root cause:** the scroll listener is registered in the CAPTURE phase, so it saw
+the menu's own `overflow-y-auto` list scrolling. Capture is CORRECT and stays —
+the menu is portaled and `fixed`, so an ancestor scroll can move the trigger out
+from under it, and capture is the only way to see that. The missing piece was the
+containment guard the sibling `pointerdown` handler always had. Extracted as the
+pure predicate `shouldCloseOnScroll` and unit-tested (no jsdom in this repo, and
+one bug does not justify adding it). `overscroll-contain` added to the list to
+stop scroll CHAINING reaching the R3F canvas at the list's extremes.
+
+**Known gap:** the test covers the decision, not the wiring. If `menuRef.current`
+is null when the listener fires, the predicate returns `true` and the menu closes
+— same symptom, different path. Not worth jsdom; recorded so a recurrence is not
+re-diagnosed from scratch.
+
+### OPEN — read before writing Task 7
+
+Two design problems in the plan's `passes.ts` code, found in review:
+
+1. **`hillshadePass` hardcodes `#000000`/`#ffffff`** — the only colours in the
+   file not drawn from `StylePalette`. On bare paper that reads as dirt, not
+   relief. Hillshade SHOULD apply to bare land (spec §1: "glyphs over a soft
+   hillshade") but the ink must be warm sepia from the palette.
+2. **Per-cell ocean hatching does not scale.** There are 13k-17k ocean cells at
+   20k points (measured in D10), and `hatchFeature` does save→clip→full-canvas
+   hatch→restore each time, ~400 clipped lines per cell, on every Map2D
+   re-render. Hatch ONCE over a composite clip region built from all ocean cells.
+   `hatchFeature` (singular) is being replaced by `hatchFeatures` (plural).
+
+Also: `runStyle` and Task 8's call site both encode "is this the default style".
+Use one test — `style.passes.length > 0` — not an id comparison in two places.
+
+---
+
 ## S27 (2026-08-28) — D10 seafloor relief — ✅ SHIPPED, MERGED and PUSHED
 
 Merged to `main` at **`4881231`** (`--no-ff`) and **PUSHED to `origin/main`** at
