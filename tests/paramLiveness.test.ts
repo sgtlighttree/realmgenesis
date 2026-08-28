@@ -10,7 +10,6 @@ import { makeParams, terrainSignature, civSignature, nameSignature, cultureSigna
 // Display-only params are explicitly allowlisted:
 //   mapName        – filename/label only
 //   planetRadius   – documented display-only
-//   maxElevationM  – D8a presentation datum; rescales readouts, reads nothing in generation
 //   season         – D1 render-only orbital position
 //   loreLevel      – only affects the Gemini prompt
 //   civSeed/seed   – covered by their own cases below
@@ -43,6 +42,8 @@ const TERRAIN_PERTURBATIONS: Record<string, Perturbation> = {
   axialTilt: { axialTilt: 60 },
   starClass: { starClass: 'M' }, // D5: cooler star lowers global temperature
   currentStrength: { currentStrength: 0 }, // D2: disabling ocean currents changes the climate signature (default is 1.0)
+  maxElevationM: { maxElevationM: 4500 }, // D8b: datum drives lapse + orographic when physicalClimate is on (default)
+  physicalClimate: { physicalClimate: false }, // D8b: toggling off changes the climate signature (default is true)
 };
 
 // Civ-layer params: expect regionId/provinceId/population changes

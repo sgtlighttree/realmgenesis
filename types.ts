@@ -132,6 +132,7 @@ export interface WorldParams {
   moistureTransport: number;
   temperatureVariance: number;
   season: number; // D1: orbital position 0-1, 0.5 = neutral (annual mean). Render-only, not a generation param.
+  physicalClimate: boolean; // D8b: grounded lapse rate + orographic rain shadow from the metre datum. Default true; false = byte-identical old formulas. Changes generated climate AND civ layout for existing seeds.
   starClass: StarClass; // D5: host star spectral class — scales global insolation/temperature (G = Sun-like default).
   currentStrength: number; // D2: ocean-current intensity (0-2). 0 = disabled/byte-identical; scales Coriolis, coastal temperature moderation, and warm-current evaporation.
 

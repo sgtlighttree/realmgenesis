@@ -41,6 +41,30 @@ export const MAX_DEPTH_M = 11000;
 export const HYPSOMETRIC_EXPONENT = 2.0;
 
 /**
+ * D8b — physical climate coupling constants (gated by `physicalClimate`).
+ *
+ * `LAPSE_RATE_C_PER_KM` is the standard environmental lapse rate: air cools
+ * 6.5 °C for every kilometre of altitude. It replaces the invented `* 60`
+ * multiplier on normalized height in worldGen's temperature finalize.
+ *
+ * The OROG_* constants scale the orographic (rain-shadow) moisture term by the
+ * real barrier metres crossed. Windward ascent boosts rain (capped so coasts do
+ * not saturate); leeward descent dries it (floored so a single edge cannot lose
+ * everything). Tuned empirically (Task 5) against the land-moisture target in
+ * the D8b spec §6 — 3-seed average moisture<0.15 share ~32.4%, within the
+ * ~30-36% accept band (scripts/queryWorld.mjs climate/biomes). The leeward
+ * floor/per-km pair is nearly disabled (0.95/0.02) — most of the remaining
+ * drop from ~41% to ~32% came from raising OROG_WINDWARD_PER_KM (0.5→0.7) to
+ * push more moisture onto coasts/windward slopes, since leeward-only tuning
+ * plateaued around ~36% and could not reach the target alone.
+ */
+export const LAPSE_RATE_C_PER_KM = 6.5;
+export const OROG_WINDWARD_PER_KM = 0.7;
+export const OROG_WINDWARD_CAP = 2.5;
+export const OROG_LEEWARD_PER_KM = 0.02;
+export const OROG_LEEWARD_FLOOR = 0.95;
+
+/**
  * Convert a normalized 0-1 cell height to metres relative to sea level.
  * Land (height > seaLevel) rises toward +maxElevationM at height 1, through the
  * HYPSOMETRIC_EXPONENT curve so the metre distribution matches Earth's.

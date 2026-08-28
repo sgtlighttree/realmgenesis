@@ -4,6 +4,11 @@ import {
   MAX_DEPTH_M,
   elevationMetres,
   formatElevation,
+  LAPSE_RATE_C_PER_KM,
+  OROG_WINDWARD_PER_KM,
+  OROG_WINDWARD_CAP,
+  OROG_LEEWARD_PER_KM,
+  OROG_LEEWARD_FLOOR,
 } from '../utils/datum';
 
 // D8a presentation datum. The height field is normalized 0-1 with seaLevel as
@@ -76,5 +81,18 @@ describe('formatElevation', () => {
   it('exports a 9000 m default datum', () => {
     expect(DEFAULT_MAX_ELEVATION_M).toBe(9000);
     expect(elevationMetres(1, sea)).toBeCloseTo(9000, 6);
+  });
+});
+
+describe('D8b physical constants', () => {
+  it('uses the standard environmental lapse rate', () => {
+    expect(LAPSE_RATE_C_PER_KM).toBe(6.5);
+  });
+  it('exposes bounded orographic constants', () => {
+    expect(OROG_WINDWARD_PER_KM).toBeGreaterThan(0);
+    expect(OROG_WINDWARD_CAP).toBeGreaterThan(1);
+    expect(OROG_LEEWARD_PER_KM).toBeGreaterThan(0);
+    expect(OROG_LEEWARD_FLOOR).toBeGreaterThan(0);
+    expect(OROG_LEEWARD_FLOOR).toBeLessThan(1);
   });
 });

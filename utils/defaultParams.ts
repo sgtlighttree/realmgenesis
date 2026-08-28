@@ -40,6 +40,7 @@ export const DEFAULT_PARAMS: WorldParams = {
   moistureTransport: 0.5,
   temperatureVariance: 5,
   season: 0.5,
+  physicalClimate: true,
   starClass: 'G',
   currentStrength: 1.0,
   numFactions: 6,

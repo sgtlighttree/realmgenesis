@@ -16,7 +16,7 @@ import { DEFAULT_MAX_ELEVATION_M } from './datum';
 // generator and every UI control bound to these params always receive a
 // valid value instead of `undefined` (which would e.g. turn the Cultures
 // slider into an uncontrolled input).
-const withParamDefaults = (params: WorldParams): WorldParams => ({
+export const withParamDefaults = (params: WorldParams): WorldParams => ({
   ...params,
   nameStyle: NAME_STYLES.includes(params.nameStyle as NameStyle) ? params.nameStyle : 'fantasy',
   numCultures: typeof params.numCultures === 'number' && isFinite(params.numCultures) ? params.numCultures : 4,
@@ -28,6 +28,10 @@ const withParamDefaults = (params: WorldParams): WorldParams => ({
   currentStrength: typeof params.currentStrength === 'number' && isFinite(params.currentStrength) ? params.currentStrength : 1.0,
   // D8a: pre-D8a saves lack maxElevationM → default to the 9000 m datum (display-only, seed-safe).
   maxElevationM: typeof params.maxElevationM === 'number' && isFinite(params.maxElevationM) ? params.maxElevationM : DEFAULT_MAX_ELEVATION_M,
+  // D8b: pre-D8b saves lack physicalClimate → default to grounded (true). Old
+  // saves get grounded climate on load — the accepted civ-move; reproducible
+  // with false.
+  physicalClimate: typeof params.physicalClimate === 'boolean' ? params.physicalClimate : true,
 });
 
 // Matches the options offered in the Export tab. 16K+ exceeded browser
@@ -513,6 +517,7 @@ export const validateWorldParams = (params: unknown): params is Record<string, u
     if ('maskType' in p && typeof p.maskType !== 'string') return false;
     if ('nameStyle' in p && typeof p.nameStyle !== 'string') return false;
     if ('starClass' in p && !['O', 'B', 'A', 'F', 'G', 'K', 'M'].includes(p.starClass as string)) return false;
+    if ('physicalClimate' in p && typeof p.physicalClimate !== 'boolean') return false;
     if ('loreLevel' in p) {
         const ll = p.loreLevel;
         if (typeof ll !== 'number' || ![1, 2, 3].includes(ll)) return false;
