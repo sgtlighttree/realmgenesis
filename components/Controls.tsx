@@ -15,6 +15,7 @@ import {
   LayerToggleRow, OverlayToggles, buildLayerToggles,
 } from './ViewControls';
 import { DEFAULT_PARAMS } from '../utils/defaultParams';
+import { MAP_STYLES, MapStyleId } from '../utils/mapStyle';
 
 interface ControlsProps {
   params: WorldParams;
@@ -26,6 +27,8 @@ interface ControlsProps {
   onUpdateProvinces: (p?: WorldParams) => void;
   viewMode: ViewMode;
   setViewMode: (m: ViewMode) => void;
+  mapStyleId: MapStyleId;
+  setMapStyleId: (id: MapStyleId) => void;
   displayMode: DisplayMode;
   setDisplayMode: (m: DisplayMode) => void;
   lore: LoreData | null;
@@ -115,6 +118,8 @@ const Controls: React.FC<ControlsProps> = ({
   onUpdateProvinces,
   viewMode,
   setViewMode,
+  mapStyleId,
+  setMapStyleId,
   displayMode,
   setDisplayMode,
   lore,
@@ -581,6 +586,21 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                 <ViewLayerGrid viewMode={viewMode} setViewMode={setViewMode} />
               </div>
             )}
+
+            <div
+              className="space-y-1"
+              title="Map style. Changes how the 2D map and exports are drawn. Does not affect the 3D globe or the generated world."
+            >
+              <label className="text-xs text-ink-muted block mb-1">Map Style</label>
+              <Select
+                value={mapStyleId}
+                options={Object.values(MAP_STYLES).map(s => ({ value: s.id, label: s.name })) as SelectOption<MapStyleId>[]}
+                onChange={(v) => { setMapStyleId(v); }}
+                label="Map style"
+                className="w-full"
+                triggerClassName="w-full justify-between bg-surface-raised border-edge px-2 py-2 text-xs"
+              />
+            </div>
 
             <div className="pt-4 border-t border-edge-subtle space-y-3">
               <h3 className="text-xs font-semibold text-ink-muted mb-2">AI Settings (BYOK)</h3>

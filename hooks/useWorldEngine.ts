@@ -8,6 +8,7 @@ import { getCellsInRadius, applyTerrainStroke, applyFlattenStroke, applySmoothSt
 import { generateWorldLore, setRuntimeApiKey } from '../services/gemini';
 import { greatCircleDistanceKm, sampleGreatCircleArc } from '../utils/measure';
 import { DEFAULT_PARAMS } from '../utils/defaultParams';
+import { MapStyleId } from '../utils/mapStyle';
 
 const isValidProvinceId = (world: WorldData, factionId: number, provinceId: number | undefined): provinceId is number => {
   if (provinceId === undefined) return false;
@@ -62,6 +63,9 @@ export function useWorldEngine() {
   const [params, setParams] = useState<WorldParams>(DEFAULT_PARAMS);
   const [world, setWorld] = useState<WorldData | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('biome');
+  // A3: render-only style axis, orthogonal to viewMode. Deliberately NOT a
+  // WorldParam — it never influences generation, so paramLiveness would fail it.
+  const [mapStyleId, setMapStyleId] = useState<MapStyleId>('default');
   const [displayMode, setDisplayMode] = useState<DisplayMode>('globe');
   const [inspectMode, setInspectMode] = useState<InspectMode>('click');
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
@@ -674,7 +678,7 @@ export function useWorldEngine() {
     }
   }, [world]);
   return {
-    params, setParams, world, setWorld, viewMode, setViewMode, displayMode, setDisplayMode, inspectMode, setInspectMode, inspectorCollapsed, setInspectorCollapsed, inspectedCellId, setInspectedCellId, rulerActive, setRulerActive, rulerCells, setRulerCells, markerMode, setMarkerMode, selectedMarkerId, setSelectedMarkerId, isGenerating, setIsGenerating, genProgress, setGenProgress, logs, setLogs, lore, setLore, isLoreLoading, setIsLoreLoading, showGrid, setShowGrid, smoothGlobe, setSmoothGlobe, showRivers, setShowRivers, showRoutes, setShowRoutes, showHillshade, setShowHillshade, showContours, setShowContours, showCurrents, setShowCurrents, showCellEdges, setShowCellEdges, labelVisibility, setLabelVisibility, sidebarOpen, setSidebarOpen, dymaxionSettings, setDymaxionSettings, apiKey, setApiKey, editMode, setEditMode, paintStyle, setPaintStyle, brushSize, setBrushSize, paintStrength, setPaintStrength, paintFaction, setPaintFaction, paintBiome, setPaintBiome, sampleHeight, setSampleHeight, adaptiveBiomes, setAdaptiveBiomes, undoStack, setUndoStack, addLog, handleGenerate, requestGenerate, pendingGenerate, confirmGenerate, cancelGenerate, handleLoadWorld, handleCancel, handleUpdateCivs, handleUpdateProvinces, toggleInspectEnabled, toggleRuler, toggleMarkerMode, handleInspect, updateMarker, deleteMarker, rulerArc, rulerDistanceKm, handleGenerateLore, factionColors, cultureColors, religionColors, handlePaint, handleUndo, handleEditWorldData, handleEditFaction, handleMergeFactions, handleRenameProvince, handleRenameTown, handleRelocateCapital,
+    params, setParams, world, setWorld, viewMode, setViewMode, mapStyleId, setMapStyleId, displayMode, setDisplayMode, inspectMode, setInspectMode, inspectorCollapsed, setInspectorCollapsed, inspectedCellId, setInspectedCellId, rulerActive, setRulerActive, rulerCells, setRulerCells, markerMode, setMarkerMode, selectedMarkerId, setSelectedMarkerId, isGenerating, setIsGenerating, genProgress, setGenProgress, logs, setLogs, lore, setLore, isLoreLoading, setIsLoreLoading, showGrid, setShowGrid, smoothGlobe, setSmoothGlobe, showRivers, setShowRivers, showRoutes, setShowRoutes, showHillshade, setShowHillshade, showContours, setShowContours, showCurrents, setShowCurrents, showCellEdges, setShowCellEdges, labelVisibility, setLabelVisibility, sidebarOpen, setSidebarOpen, dymaxionSettings, setDymaxionSettings, apiKey, setApiKey, editMode, setEditMode, paintStyle, setPaintStyle, brushSize, setBrushSize, paintStrength, setPaintStrength, paintFaction, setPaintFaction, paintBiome, setPaintBiome, sampleHeight, setSampleHeight, adaptiveBiomes, setAdaptiveBiomes, undoStack, setUndoStack, addLog, handleGenerate, requestGenerate, pendingGenerate, confirmGenerate, cancelGenerate, handleLoadWorld, handleCancel, handleUpdateCivs, handleUpdateProvinces, toggleInspectEnabled, toggleRuler, toggleMarkerMode, handleInspect, updateMarker, deleteMarker, rulerArc, rulerDistanceKm, handleGenerateLore, factionColors, cultureColors, religionColors, handlePaint, handleUndo, handleEditWorldData, handleEditFaction, handleMergeFactions, handleRenameProvince, handleRenameTown, handleRelocateCapital,
   };
 }
 
