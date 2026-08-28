@@ -38,8 +38,20 @@ export interface Substrate {
   strokeFeature(feature: GeoFeatureLike, stroke: string, width: number): void;
   strokeSegments(segments: Array<[Point3, Point3]>, stroke: string, width: number): void;
   hatchRect(x: number, y: number, w: number, h: number, spec: HatchSpec): void;
-  /** Hatch ONE feature. Full-bleed hatching would cover bare-paper land. */
-  hatchFeature(feature: GeoFeatureLike, spec: HatchSpec): void;
+  /**
+   * Hatch a SET of features as one composite region.
+   *
+   * Plural, not singular, for cost. A world has 13,000-17,000 ocean cells at the
+   * default 20k points, and Map2D re-renders on every viewport change. Hatching
+   * per cell means one clip plus a full-canvas line sweep EACH — roughly 400
+   * clipped lines per cell. Building one composite path and sweeping once turns
+   * that into a single operation.
+   *
+   * Full-bleed `hatchRect` is not an option either: under the `bare` fill policy
+   * the land is unpainted parchment, so a full-canvas hatch would sit on top of
+   * it.
+   */
+  hatchFeatures(features: GeoFeatureLike[], spec: HatchSpec): void;
   grain(spec: GrainSpec): void;
   drawGlyph(g: PlacedGlyph, ink: string, width: number): void;
 }

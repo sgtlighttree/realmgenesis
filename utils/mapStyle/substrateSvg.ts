@@ -50,11 +50,18 @@ export class SvgSubstrate implements Substrate {
     );
   }
 
-  hatchFeature(feature: GeoFeatureLike, spec: HatchSpec): void {
-    const d = this.path(feature);
-    if (!d) return;
+  hatchFeatures(features: GeoFeatureLike[], spec: HatchSpec): void {
+    const ds: string[] = [];
+    for (const f of features) {
+      const d = this.path(f);
+      if (d) ds.push(d);
+    }
+    if (!ds.length) return;
+    // One <path> holding every subpath, not one element per feature: an ocean
+    // is 13k-17k cells, and that many elements makes the file unopenable in a
+    // vector editor for no visual gain.
     const id = this.hatchPatternId(spec);
-    this.bodyParts.push(`<path d="${d}" fill="url(#${id})"/>`);
+    this.bodyParts.push(`<path d="${ds.join('')}" fill="url(#${id})"/>`);
   }
 
   strokeFeature(feature: GeoFeatureLike, stroke: string, width: number): void {
@@ -83,7 +90,7 @@ export class SvgSubstrate implements Substrate {
     this.bodyParts.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="url(#${id})"/>`);
   }
 
-  /** One <pattern> per distinct spec, shared by hatchRect and hatchFeature. */
+  /** One <pattern> per distinct spec, shared by hatchRect and hatchFeatures. */
   private hatchPatternId(spec: HatchSpec): string {
     const key = `${spec.color}|${spec.spacingPx}|${spec.widthPx}|${spec.angleDeg}`;
     let id = this.patternIds.get(key);

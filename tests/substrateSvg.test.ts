@@ -40,6 +40,22 @@ describe('SvgSubstrate', () => {
     expect(s.body()).not.toContain('rgba(');
   });
 
+  it('hatches many features as ONE path element', () => {
+    const s = new SvgSubstrate((() => 'M0 0L1 1') as never, 100, 50);
+    const features = Array.from({ length: 20 }, () => ({ type: 'Feature', geometry: {} }));
+    s.hatchFeatures(features, { color: '#000', spacingPx: 8, widthPx: 1, angleDeg: 45 });
+    // 13k-17k separate <path> elements would make the SVG unopenable in a
+    // vector editor for no visual gain.
+    expect(s.body().match(/<path/g)?.length).toBe(1);
+    expect(s.body()).toMatch(/fill="url\(#/);
+  });
+
+  it('emits nothing for an empty feature set', () => {
+    const s = new SvgSubstrate((() => 'M0 0L1 1') as never, 100, 50);
+    s.hatchFeatures([], { color: '#000', spacingPx: 8, widthPx: 1, angleDeg: 45 });
+    expect(s.body()).toBe('');
+  });
+
   it('reuses one pattern id for identical hatch specs', () => {
     const s = new SvgSubstrate((() => '') as never, 100, 50);
     const spec = { color: '#000', spacingPx: 8, widthPx: 1, angleDeg: 45 };

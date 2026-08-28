@@ -39,10 +39,14 @@ export class Canvas2DSubstrate implements Substrate {
     this.ctx.restore();
   }
 
-  hatchFeature(feature: GeoFeatureLike, spec: HatchSpec): void {
+  hatchFeatures(features: GeoFeatureLike[], spec: HatchSpec): void {
+    if (!features.length) return;
     this.ctx.save();
+    // ONE composite path: d3's canvas path generator appends to the current
+    // path, so calling it repeatedly without an intervening beginPath() unions
+    // every feature into a single clip region. One clip, one line sweep.
     this.ctx.beginPath();
-    this.path(feature);
+    for (const f of features) this.path(f);
     this.ctx.clip();
     this.hatchRect(0, 0, this.width, this.height, spec);
     this.ctx.restore();
