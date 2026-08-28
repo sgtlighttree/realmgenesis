@@ -38,14 +38,19 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## S27 (2026-08-28) — D10 seafloor relief — ✅ IMPLEMENTED, branch not merged
+## S27 (2026-08-28) — D10 seafloor relief — ✅ SHIPPED, MERGED and PUSHED
 
-Branch `d10-seafloor-relief` off `main` @ `07d088b`. Three commits: `654213d`
-(param + findings), `a669a39` (erosion + Stage 9c), `ab1175f` (hillshade).
-**Gates on the branch: typecheck 0 · lint 0 errors / 29 warnings (≤30) · build OK,
-worker chunk 88.65KB (was 88KB) · 306 tests / 44 files ALL PASS** (paramLiveness
-passed in the full run this time; it is still the load canary — check `uptime`
-before suspecting code). NOT merged, NOT pushed — Matt's call.
+Merged to `main` at **`4881231`** (`--no-ff`) and **PUSHED to `origin/main`** at
+Matt's explicit request. Branch `d10-seafloor-relief` deleted post-merge. Five
+commits: `654213d` (param + findings), `a669a39` (erosion + Stage 9c), `ab1175f`
+(hillshade), `3ecedac` (handoff), `50520cc` (roadmap + instrument + liveness).
+**Gates on merged `main`: typecheck 0 · lint 0 errors / 29 warnings (≤30) · build
+OK, worker chunk 88.65KB (was 88KB) · 306 tests / 44 files ALL PASS**
+(paramLiveness passed in the full run; it is still the load canary — check
+`uptime` before suspecting code).
+
+**Browser verification of D10 is STILL OUTSTANDING and it is now on `origin`.**
+Measured and gated, not eyeballed. See "OUTSTANDING — Matt's eyeball" below.
 
 Matt scoped this at session start: he sees the flat sea bed in **BOTH** the 3D
 globe and the 2D map, and he authorized a **higher default that moves existing
