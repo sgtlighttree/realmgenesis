@@ -882,10 +882,11 @@ the same shape instead of two drifting approximations."
   ```ts
   interface Substrate {
     fillRect(x, y, w, h, fill: string): void;
-    fillFeature(feature: GeoFeatureLike, fill: string): void;
+    fillFeature(feature: GeoFeatureLike, fill: string, opacity?: number): void;
     strokeFeature(feature: GeoFeatureLike, stroke: string, width: number): void;
     strokeSegments(segments: Array<[Point3, Point3]>, stroke: string, width: number): void;
     hatchRect(x, y, w, h, spec: HatchSpec): void;
+    hatchFeature(feature: GeoFeatureLike, spec: HatchSpec): void;
     grain(spec: GrainSpec): void;
     drawGlyph(g: PlacedGlyph, ink: string, width: number): void;
   }
@@ -978,10 +979,18 @@ export interface GrainSpec {
  */
 export interface Substrate {
   fillRect(x: number, y: number, w: number, h: number, fill: string): void;
-  fillFeature(feature: GeoFeatureLike, fill: string): void;
+  /**
+   * `opacity` is an EXPLICIT parameter, never baked into `fill` as an `rgba()`
+   * string. Canvas2D accepts `rgba()`; SVG 1.1 does not — it needs a separate
+   * `fill-opacity`, and an `rgba()` fill renders inconsistently in Illustrator
+   * and Inkscape. Colour strings stay opaque so both substrates agree.
+   */
+  fillFeature(feature: GeoFeatureLike, fill: string, opacity?: number): void;
   strokeFeature(feature: GeoFeatureLike, stroke: string, width: number): void;
   strokeSegments(segments: Array<[Point3, Point3]>, stroke: string, width: number): void;
   hatchRect(x: number, y: number, w: number, h: number, spec: HatchSpec): void;
+  /** Hatch ONE feature. Full-bleed hatching would cover bare-paper land. */
+  hatchFeature(feature: GeoFeatureLike, spec: HatchSpec): void;
   grain(spec: GrainSpec): void;
   drawGlyph(g: PlacedGlyph, ink: string, width: number): void;
 }
@@ -1021,11 +1030,23 @@ export class Canvas2DSubstrate implements Substrate {
     this.ctx.fillRect(x, y, w, h);
   }
 
-  fillFeature(feature: GeoFeatureLike, fill: string): void {
+  fillFeature(feature: GeoFeatureLike, fill: string, opacity = 1): void {
+    this.ctx.save();
+    this.ctx.globalAlpha = opacity;
     this.ctx.beginPath();
     this.path(feature);
     this.ctx.fillStyle = fill;
     this.ctx.fill();
+    this.ctx.restore();
+  }
+
+  hatchFeature(feature: GeoFeatureLike, spec: HatchSpec): void {
+    this.ctx.save();
+    this.ctx.beginPath();
+    this.path(feature);
+    this.ctx.clip();
+    this.hatchRect(0, 0, this.width, this.height, spec);
+    this.ctx.restore();
   }
 
   strokeFeature(feature: GeoFeatureLike, stroke: string, width: number): void {
@@ -1175,6 +1196,13 @@ describe('SvgSubstrate', () => {
     expect(s.body()).toContain('stroke="#3b2f1c"');
   });
 
+  it('emits fill-opacity rather than an rgba() fill', () => {
+    const s = new SvgSubstrate((() => 'M0 0L1 1') as never, 100, 50);
+    s.fillFeature({ type: 'Feature', geometry: {} }, '#000000', 0.25);
+    expect(s.body()).toContain('fill-opacity="0.250"');
+    expect(s.body()).not.toContain('rgba(');
+  });
+
   it('reuses one pattern id for identical hatch specs', () => {
     const s = new SvgSubstrate((() => '') as never, 100, 50);
     const spec = { color: '#000', spacingPx: 8, widthPx: 1, angleDeg: 45 };
@@ -1235,10 +1263,21 @@ export class SvgSubstrate implements Substrate {
     this.bodyParts.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${esc(fill)}"/>`);
   }
 
-  fillFeature(feature: GeoFeatureLike, fill: string): void {
+  fillFeature(feature: GeoFeatureLike, fill: string, opacity = 1): void {
     const d = this.path(feature);
     if (!d) return;
-    this.bodyParts.push(`<path d="${d}" fill="${esc(fill)}" stroke="${esc(fill)}" stroke-width="0.5"/>`);
+    // fill-opacity, NOT an rgba() fill — SVG 1.1 has no rgba() colour syntax.
+    const op = opacity < 1 ? ` fill-opacity="${opacity.toFixed(3)}"` : '';
+    this.bodyParts.push(
+      `<path d="${d}" fill="${esc(fill)}"${op} stroke="${esc(fill)}" stroke-width="0.5"/>`,
+    );
+  }
+
+  hatchFeature(feature: GeoFeatureLike, spec: HatchSpec): void {
+    const d = this.path(feature);
+    if (!d) return;
+    const id = this.hatchPatternId(spec);
+    this.bodyParts.push(`<path d="${d}" fill="url(#${id})"/>`);
   }
 
   strokeFeature(feature: GeoFeatureLike, stroke: string, width: number): void {
@@ -1263,6 +1302,12 @@ export class SvgSubstrate implements Substrate {
   hatchRect(x: number, y: number, w: number, h: number, spec: HatchSpec): void {
     // One <pattern> per distinct spec — repeating a pattern definition per
     // rect would bloat the file for no visual difference.
+    const id = this.hatchPatternId(spec);
+    this.bodyParts.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="url(#${id})"/>`);
+  }
+
+  /** One <pattern> per distinct spec, shared by hatchRect and hatchFeature. */
+  private hatchPatternId(spec: HatchSpec): string {
     const key = `${spec.color}|${spec.spacingPx}|${spec.widthPx}|${spec.angleDeg}`;
     let id = this.patternIds.get(key);
     if (!id) {
@@ -1276,7 +1321,7 @@ export class SvgSubstrate implements Substrate {
         `</pattern>`,
       );
     }
-    this.bodyParts.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="url(#${id})"/>`);
+    return id;
   }
 
   grain(spec: GrainSpec): void {
@@ -1400,11 +1445,15 @@ Add `passes: StylePass[];` to `MapStyle`. Import `WorldData`, `ViewMode` from `.
 - [ ] **Step 4: Implement `utils/mapStyle/passes.ts`**
 
 ```ts
+import * as THREE from 'three';
+
+import { ViewMode } from '../../types';
 import { getCellColor } from '../colors';
+import { seasonalTemperatureDelta } from '../seasons';
 import { computeShadeMap } from '../shading';
 import { isLakeCell } from '../worldGen';
 import { Substrate } from './substrate';
-import { MapStyle, StylePass, StyleRenderContext } from './types';
+import { FillPolicy, MapStyle, StylePalette, StylePass, StyleRenderContext } from './types';
 
 /** Run a style's passes in order. The only entry point render paths need. */
 export const runStyle = (style: MapStyle, ctx: StyleRenderContext, sub: Substrate): void => {
@@ -1412,14 +1461,14 @@ export const runStyle = (style: MapStyle, ctx: StyleRenderContext, sub: Substrat
 };
 
 /** Full-bleed paper tone plus grain. Always first — everything sits on it. */
-export const paperPass = (palette: { paper: string }, seed: string): StylePass =>
+export const paperPass = (palette: StylePalette, seed: string): StylePass =>
   (ctx, sub) => {
     sub.fillRect(0, 0, ctx.widthPx, ctx.heightPx, palette.paper);
     sub.grain({ seed, opacity: 0.10, scale: 1 });
   };
 
-/** Flat sea tone under diagonal hatch bands. */
-export const oceanPass = (palette: { sea: string; seaHatch: string }): StylePass =>
+/** Flat sea tone on ocean cells only. */
+export const oceanFillPass = (palette: StylePalette): StylePass =>
   (ctx, sub) => {
     const { world, colorCtx } = ctx;
     for (let i = 0; i < world.cells.length; i++) {
@@ -1429,9 +1478,31 @@ export const oceanPass = (palette: { sea: string; seaHatch: string }): StylePass
       if (!feature) continue;
       sub.fillFeature(feature, palette.sea);
     }
-    sub.hatchRect(0, 0, ctx.widthPx, ctx.heightPx, {
-      color: palette.seaHatch, spacingPx: 7, widthPx: 0.6, angleDeg: 45,
-    });
+  };
+
+/**
+ * Diagonal hatch on OCEAN CELLS ONLY, never full-bleed.
+ *
+ * A full-bleed hatchRect would cover bare-paper land: under the 'bare' fill
+ * policy — satellite, biome, height_bw, the flagship modes — landPass returns
+ * early and paints nothing, so a full-bleed hatch would sit directly on the
+ * land. Per-feature hatching is why `hatchFeature` exists on Substrate.
+ *
+ * Runs AFTER hillshadePass so the hatching sits over the relief shading, per
+ * spec §7.4.
+ */
+export const oceanHatchPass = (palette: StylePalette): StylePass =>
+  (ctx, sub) => {
+    const { world, colorCtx } = ctx;
+    for (let i = 0; i < world.cells.length; i++) {
+      const cell = world.cells[i];
+      if (cell.height >= colorCtx.seaLevel) continue;
+      const feature = world.geoJson?.features?.[i];
+      if (!feature) continue;
+      sub.hatchFeature(feature, {
+        color: palette.seaHatch, spacingPx: 7, widthPx: 0.6, angleDeg: 45,
+      });
+    }
   };
 
 /**
@@ -1439,44 +1510,57 @@ export const oceanPass = (palette: { sea: string; seaHatch: string }): StylePass
  *   bare        → paper shows through; glyphs carry the terrain
  *   categorical → the mode's own fill, muted toward the paper
  *   ramp        → the mode's own fill at full strength
+ *
+ * Takes `fillPolicy` and `palette` directly rather than the whole MapStyle:
+ * a style holds its passes, so passing the style in would be circular and
+ * force a cast.
  */
-export const landPass = (style: MapStyle): StylePass =>
+export const landPass = (
+  fillPolicy: (mode: ViewMode) => FillPolicy,
+  palette: StylePalette,
+): StylePass =>
   (ctx, sub) => {
-    const policy = style.fillPolicy(ctx.viewMode);
+    const policy = fillPolicy(ctx.viewMode);
     if (policy === 'bare') return;
     const mute = policy === 'categorical' ? 0.45 : 0;
+    const paper = new THREE.Color(palette.paper);
     const { world, colorCtx } = ctx;
     for (let i = 0; i < world.cells.length; i++) {
       const cell = world.cells[i];
       if (cell.height < colorCtx.seaLevel && !isLakeCell(cell)) continue;
       const feature = world.geoJson?.features?.[i];
       if (!feature) continue;
-      const color = getCellColor(cell, ctx.viewMode, colorCtx);
-      if (mute > 0) color.lerp(new (color.constructor as never)(style.palette.paper), mute);
+      // seasonalDelta is PER CELL — a shared ColorContext would silently kill
+      // the D1 seasonal biome re-derivation and D3 sea ice under parchment.
+      const color = getCellColor(cell, ctx.viewMode, {
+        ...colorCtx,
+        seasonalDelta: seasonalTemperatureDelta(cell, world.params),
+      });
+      if (mute > 0) color.lerp(paper, mute);
       sub.fillFeature(feature, `#${color.getHexString()}`);
     }
   };
 
-/** Existing hillshade, multiplied in softly so relief reads under the glyphs. */
+/**
+ * Existing hillshade, multiplied in softly so relief reads under the glyphs.
+ * Opacity is an explicit argument, never an rgba() colour — see Substrate.
+ */
 export const hillshadePass = (opacityScale: number): StylePass =>
   (ctx, sub) => {
     if (!ctx.shadeMap) return;
-    const { world, colorCtx } = ctx;
+    const { world } = ctx;
     for (let i = 0; i < world.cells.length; i++) {
       const s = ctx.shadeMap[world.cells[i].id];
-      if (s === 1) continue;
+      if (s === 1) continue; // flat ground contributes nothing
       const feature = world.geoJson?.features?.[i];
       if (!feature) continue;
-      // Darken where shaded, lighten where lit; alpha carries the strength.
       const a = Math.min(0.5, Math.abs(1 - s) * opacityScale);
-      const ink = s < 1 ? '0,0,0' : '255,255,255';
-      sub.fillFeature(feature, `rgba(${ink},${a.toFixed(3)})`);
+      sub.fillFeature(feature, s < 1 ? '#000000' : '#ffffff', a);
     }
-    void colorCtx;
   };
 
 /** Heavy ink coastline plus a lighter offset swash line just outside it. */
-export const coastlinePass = (palette: { coast: string; inkLight: string }, widthPx: number): StylePass =>
+export const coastlinePass = (palette: StylePalette, widthPx: number): StylePass =>
   (ctx, sub) => {
     const w = Math.max(0.75, (widthPx / 1024) * 1.4);
     sub.strokeSegments(ctx.coastlines, palette.coast, w);
@@ -1484,7 +1568,7 @@ export const coastlinePass = (palette: { coast: string; inkLight: string }, widt
   };
 
 /** Relief and vegetation glyphs. Empty when the fill policy suppressed them. */
-export const glyphPass = (palette: { ink: string }, widthPx: number): StylePass =>
+export const glyphPass = (palette: StylePalette, widthPx: number): StylePass =>
   (ctx, sub) => {
     const w = Math.max(0.6, (widthPx / 1024) * 1.1);
     for (const g of ctx.glyphs) sub.drawGlyph(g, palette.ink, w);
@@ -1505,9 +1589,12 @@ export const styleParchment: MapStyle = {
   fillPolicy: parchmentFillPolicy,
   passes: [
     paperPass(PARCHMENT_PALETTE, 'parchment'),
-    oceanPass(PARCHMENT_PALETTE),
-    landPass({ fillPolicy: parchmentFillPolicy, palette: PARCHMENT_PALETTE } as MapStyle),
+    oceanFillPass(PARCHMENT_PALETTE),
+    landPass(parchmentFillPolicy, PARCHMENT_PALETTE),
     hillshadePass(0.5),
+    // Hatch AFTER hillshade (spec §7.4: shading sits under the hatching), and
+    // per-ocean-cell, so bare-paper land is never covered.
+    oceanHatchPass(PARCHMENT_PALETTE),
     coastlinePass(PARCHMENT_PALETTE, 1024),
     glyphPass(PARCHMENT_PALETTE, 1024),
   ],
@@ -1741,4 +1828,24 @@ git commit -m "docs(A3): map style system documentation, roadmap and handoff"
 
 **Type consistency:** `PlacedGlyph`, `GlyphKind`, `FillPolicy`, `MapStyleId`, `StylePass`, `StyleRenderContext`, `Substrate`, `HatchSpec`, `GrainSpec`, `ColorContext` are each defined in exactly one task and used with the same shape thereafter. `placeGlyphs` keeps the signature `(cells, projection, widthPx, opts)` in Tasks 3, 8 and 9. `getMapStyle` / `MAP_STYLES` are defined in Task 2 and used unchanged in 7, 8, 9.
 
-**Known risk:** Task 7's `landPass` uses `color.lerp(new (color.constructor as never)(...))` to mute toward the paper. If that reads awkwardly during implementation, import `THREE.Color` directly in `passes.ts` — `utils/colors.ts` already does, so there is no new dependency.
+**Corrections applied after review (2026-08-28):**
+
+1. **`oceanPass` split into `oceanFillPass` + `oceanHatchPass`, hatching per ocean
+   cell.** The original ended with a full-bleed `hatchRect`, which under the
+   `bare` fill policy — `satellite`, `biome`, `height_bw`, the flagship modes —
+   would have covered the bare-paper land in sea hatching, because `landPass`
+   returns early and paints nothing there. `hatchFeature` was added to
+   `Substrate` for this.
+2. **`landPass` now spreads `seasonalDelta` per cell.** `ColorContext.seasonalDelta`
+   is per-cell — every pre-A3 call site computes it inside its loop. Reusing one
+   shared context would have silently disabled D1 seasonal biome re-derivation and
+   D3 sea ice under parchment, with no test to catch it.
+3. **`fillFeature` takes an explicit `opacity`.** `hillshadePass` previously passed
+   an `rgba()` string, which Canvas2D accepts but SVG 1.1 has no syntax for — it
+   renders inconsistently in Illustrator and Inkscape. That is exactly the raster
+   /vector drift the substrate exists to prevent, so opacity is now a parameter
+   and colour strings stay opaque.
+4. **Pass order now matches spec §7.4** — hillshade under the ocean hatching.
+5. **`landPass` takes `fillPolicy` and `palette` instead of the whole `MapStyle`,**
+   removing an `as MapStyle` cast that papered over a circular reference (a style
+   holds its passes, so a pass cannot take the style).
