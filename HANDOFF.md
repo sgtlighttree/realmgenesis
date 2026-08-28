@@ -47,11 +47,14 @@ leeward/rain-shadow tradeoff was **RESOLVED this session** (`da2dccf`, item 3 be
 One POST-MERGE follow-up still waits on Matt: **visual/browser verification** — easy
 now, `main` has D8b so Matt's running `:3000` picks it up on reload.
 
-Gates (verified on branch HEAD `7010cf3`, whose tree is IDENTICAL to merged `main`
-— main was unmoved at merge, `--no-ff`, zero conflicts): typecheck 0 · lint 0 errors
-/ 29 warnings (≤30) · build OK, worker chunk 88KB (was 87KB — expected, generation-
-stage code added) · **full suite 305 tests / 44 files pass**. Final whole-branch
-review (opus-high): APPROVE, 0 critical / 0 important.
+Gates on current `main` (`f7b6712`, includes the merge `16ee4ce` + rain-shadow
+retune `da2dccf`): typecheck 0 · lint 0 errors / 29 warnings (≤30) · build OK, worker
+chunk 88KB (was 87KB — expected, generation-stage code added) · **full suite 305
+tests / 44 files pass** (the retune run showed 1 red = `paramLiveness` terrain @
+120.5s TIMEOUT, the LOAD CANARY — passed 8/8 isolated at 117s; check `uptime` before
+suspecting code). Final whole-branch review of the D8b branch (opus-high): APPROVE,
+0 critical / 0 important. **NOT pushed** — `origin/main` is behind; pushing is Matt's
+call.
 
 What D8b did (see ROADMAP D8b for detail):
 1. **`physicalClimate` flag, default ON** — gates two `worldGen.ts` sites; OFF =
