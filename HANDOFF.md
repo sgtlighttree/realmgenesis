@@ -38,7 +38,50 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## ▶ START HERE — pickup for a fresh session (updated 2026-08-23, end of S25b)
+## ▶ START HERE — pickup for a fresh session (updated 2026-08-28, end of S26)
+
+**S26 shipped D8b (climate coupling) on branch `d8b-climate-coupling`, NOT merged,
+NOT pushed.** Built subagent-driven from the spec+plan. Two things wait on Matt:
+**(1) a design sign-off** and **(2) visual/browser verification** (deferred per the
+M1 Playwright trap + S23/S25 precedent). Once both clear: merge `--no-ff` to `main`,
+then push is Matt's call.
+
+Gates on the branch (HEAD `b4039a7`): typecheck 0 · lint 0 errors / 29 warnings
+(≤30) · build OK, worker chunk 88KB (was 87KB — expected, generation-stage code
+added) · **full suite 305 tests / 44 files pass** after the one salt-lake pin.
+
+What D8b did (see ROADMAP D8b for detail):
+1. **`physicalClimate` flag, default ON** — gates two `worldGen.ts` sites; OFF =
+   **byte-identical** to pre-D8b `main` (verified per-cell via `digestWorld`: every
+   generation-output field identical, only the `params` echo differs). Constants in
+   `utils/datum.ts`.
+2. **Lapse rate** grounded at 6.5 °C/km on datum metres. **Orographic** rain shadow
+   scaled by real barrier metres. **Snow line** emergent (no `determineBiome` change).
+3. **Moisture retune** — land `moisture<0.15` 40.97%→32.4% (3 seeds), steppe fell +
+   grassland rose in all 3. **⚠ DECISION FOR MATT:** the band was reached by nearly
+   DISABLING leeward drying (`OROG_LEEWARD_FLOOR 0.95`/`PER_KM 0.02`) — rain shadows
+   barely function. Real cause is base moisture under-delivering inland (spec §6), not
+   the orographic knob. Options if you want stronger rain shadows: re-tune the 4
+   `OROG_*` in `utils/datum.ts` (raise floor → ~35-36% upper band, shadows partly
+   return), or recalibrate the 8-pass transport as a follow-up. As shipped it hits the
+   target and improves biomes; the tradeoff is real and yours to accept or adjust.
+4. **`maxElevationM` is now a GENERATION param** (your call) — drives lapse+orographic,
+   regenerates to apply; its D8a live display-only sync was REMOVED (`useWorldEngine.ts`).
+5. **`lakes.test.ts` salt-lake seed pinned to `physicalClimate:false`** — the retune
+   wets s17's basin so it freshens instead of forming a salt lake (authorized change).
+
+**Browser verification is OUTSTANDING (Matt's eyeball).** Not driven this session —
+Matt's :3000 runs the MAIN repo (old code), so D8b needs a fresh dev server on the
+worktree, and the M1 Playwright auto-rotate trap is not worth it for a data-only
+change already proven by measurement + byte-identical hatch. Check on a branch
+build: grassland/forest grew and steppe receded in biome view; the new **Physical
+Climate** toggle (Climate tab) flips the climate + regenerates; high peaks read
+colder. If a render bug appears, it is likely the toggle wiring or grassland path.
+
+_Prior session (S25/S25b) below — D8a, curve, grassland, C5b — is now shipped and
+on `main`._
+
+---
 
 **S25/S25b closed C5b, shipped D8a + a hypsometric-curve fix + a GRASSLAND biome,
 and built an agent debug tool. Committed to `main`, NOT pushed** (pushing is
@@ -90,11 +133,10 @@ Reuse Matt's :3000 server (a closed tab does NOT stop vite; never kill it). The
 Select combobox resists automation — use the tab buttons + native-value-setter on
 range inputs. `pkill -f chrome-headless-shell` after (the auto-rotate CPU trap).
 
-**NEXT: D8b — SPEC WRITTEN, needs Matt's review then implementation.**
-→ `docs/superpowers/specs/2026-08-23-d8b-climate-coupling-design.md`. All decisions
-are in it. Next session: Matt reviews the spec, then invoke the writing-plans skill
-to turn it into an implementation plan (do NOT code straight from the spec). The
-"D8b — IN DESIGN" section below is the source the spec was built from. Short version:
+**D8b — ✅ IMPLEMENTED S26 on branch `d8b-climate-coupling`** (spec
+`docs/superpowers/specs/2026-08-23-d8b-climate-coupling-design.md`; plan
+`docs/superpowers/plans/2026-08-28-d8b-climate-coupling.md`). See the S26 START HERE
+block at the top. The design short version below is kept for rationale:
 - **Datum pick RESOLVED by the curve:** physical lapse **6.5 °C/km** + datum **9000**
   + the `frac^2` curve, all three (Matt's lean = accuracy). Measured: ICE_CAP stays
   7.0→6.7% (curve keeps land low, so only genuine peaks cool). No pick-two tradeoff.

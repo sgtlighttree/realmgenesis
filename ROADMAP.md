@@ -365,7 +365,38 @@ regenerate. Guarded by `tests/datum.test.ts`.
 moves, so values are not comparable between worlds. It must be a fixed maximum
 that `mountainHeight` distributes terrain within.
 
-#### D8b — simulation coupling (powerful, breaks determinism)  —  ⬜ TODO (decisions made S25b, spec pending)
+#### D8b — simulation coupling (`physicalClimate`)  —  ✅ DONE (branch `d8b-climate-coupling`, 2026-08-28; pending Matt visual sign-off + merge)
+
+**Shipped (S26, branch `d8b-climate-coupling`).** `physicalClimate` (boolean,
+default **ON**) gates two sites in `utils/worldGen.ts`; off = **byte-identical**
+to pre-D8b `main` (verified per-cell: all generation output identical, only the
+`params` echo differs). New physical constants live in `utils/datum.ts`.
+
+- **Lapse rate** — grounded at **6.5 °C/km** on real datum metres (`LAPSE_RATE_C_PER_KM`).
+  ICE_CAP stayed ~7% (the `frac^2` curve keeps land low, so only real peaks cool).
+- **Orographic rain shadow** — scaled by real barrier metres (land-side above-sea,
+  ocean → 0), tuned constants in `utils/datum.ts`.
+- **Snow line** — emergent for free; `determineBiome` unchanged.
+- **Moisture retune** (folded in): land `moisture<0.15` share **40.97% → 32.4%**
+  (Earth-like ~33%) across 3 seeds; steppe fell + grassland rose in all 3, no
+  seed collapsed to one biome. **Tradeoff flagged for Matt:** hitting the band
+  needed nearly disabling *leeward* drying (`OROG_LEEWARD_FLOOR 0.95` /
+  `PER_KM 0.02`) — rain shadows barely function. Root cause is base moisture
+  under-delivering inland (spec §6), which the orographic knob can mask but not
+  fix. If Matt wants stronger rain shadows: re-tune the 4 `OROG_*` constants
+  (higher floor → upper band) or recalibrate the 8-pass transport as follow-up.
+- **`maxElevationM` is now a GENERATION param** (Matt's call) — it drives lapse +
+  orographic, so it regenerates to apply; its D8a live display-only sync was removed.
+- One existing test (`lakes.test.ts` salt-lake seed) pinned to `physicalClimate:false`:
+  the retune wets s17's basin so it freshens instead of forming an arid salt lake —
+  the authorized behavior change, testing SALT_LAKE hydrology needs the classic climate.
+
+Spec: `docs/superpowers/specs/2026-08-23-d8b-climate-coupling-design.md`; plan:
+`docs/superpowers/plans/2026-08-28-d8b-climate-coupling.md`. Deferred (out of scope,
+recorded): air-temperature orographic factor, volcanic-vs-temperature decoupling,
+D5 gravity, D3 sea-level coupling.
+
+**Original design notes (kept for rationale):**
 
 **Decisions locked S25b (2026-08-23):** flag `physicalClimate`, default **ON**
 (off = byte-identical old formulas); **all 3 couplings under it**; datum pick
