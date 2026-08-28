@@ -864,17 +864,22 @@ export function projectTectonicsToDisplay(
     const roughness = params.roughness ?? 0.5;
     const structuralNoise = (fbmVal * (1 - blend) + ridgedRemapped * blend) * (0.5 + roughness);
 
-    // Deep-ocean cells carry GDH1 bathymetry, so the display-resolution
-    // structural noise is damped there to keep the age→depth gradient legible.
-    // `seafloorRelief` sets how hard: relief 0 → factor 0.35 (near-flat abyssal
-    // plain, gradient fully preserved), relief 1 → 1.0 (no damping, sea bed as
-    // textured as land). The 0.35 + 0.65·relief form reproduces the S13 baked
-    // 0.675 exactly at relief 0.5, so that value is the pre-D10 reference point
-    // for this site. Clamped at 1 so relief > 1 grows macro hills without letting
-    // land-tuned noise overrun the bathymetry.
+    // Deep-ocean cells carry GDH1 bathymetry; damp the structural noise there so
+    // the age→depth gradient isn't washed out. Stays baked at 0.675 (the S13
+    // value, from the retired seafloorDetail default of 0.5).
+    //
+    // D10 tried driving this factor from `seafloorRelief` and REVERTED it. The
+    // structural noise here is land-tuned and large-amplitude, so un-damping it
+    // pushed the global pre-normalization minimum down; with `seaLevel` fixed at
+    // a normalized 0.55, that renormalization lifted mid-range cells across the
+    // coastline and inflated land-cell count by ~52% (measured, 3 seeds @ 20k:
+    // 4,410 → 6,692). It also saturated at relief 1.0, so the slider's upper half
+    // did nothing. A seafloor-roughness control must not resize the continents.
+    // Bathymetric relief is applied in Stage 9b instead (`worldGen.ts`), after
+    // normalization, where land fraction is preserved by construction.
     let noiseInfluence = 1.2 - tectonicStrength;
     if (dc.crustType === 0 && macroResult.heights[nearest] < 0.5) {
-      noiseInfluence *= Math.min(1, 0.35 + 0.65 * Math.max(0, params.seafloorRelief ?? 1.0));
+      noiseInfluence *= 1 - 0.65 * 0.5;
     }
     height = height * tectonicStrength + structuralNoise * noiseInfluence;
 

@@ -141,13 +141,38 @@ async function applyHydraulicErosion(cells: Cell[], iterations: number, seaLevel
     }
 }
 
-async function applyThermalErosion(cells: Cell[], iterations: number, seaLevel = -Infinity) {
-    const talus = 0.008; // Min slope diff
+// D10 bathymetric-relief constants (Stage 9c). Amplitude is in normalized height
+// units and is scaled by the `seafloorRelief` param; frequency is in unit-sphere
+// coordinates. SHELF_FRAC is the fraction of full ocean depth over which the
+// perturbation ramps in from the coast, keeping continental shelves smooth.
+const SEAFLOOR_RELIEF_AMP = 0.06;
+const SEAFLOOR_RELIEF_FREQ = 12;
+const SEAFLOOR_SHELF_FRAC = 0.18;
+
+// Submarine talus angle. Far higher than the subaerial 0.008 because talus
+// erosion models freeze-thaw and gravity scree — a SUBAERIAL process — while
+// submarine slopes hold much steeper angles. At 0.008 (the old shared value)
+// this operator planed the sea bed flat: measured, it erased a full
+// `seafloorRelief` 0→2 sweep (ocean texture 0.0162→0.0159 with erosion on, vs
+// 0.0117→0.0140 with erosion off). Ocean cells still act as DONORS above this
+// angle, so nothing piles up at the coast (verified: coastal-ocean p5 depth is
+// flat across a 0.008→∞ talus sweep — no deposition rim).
+const SUBMARINE_TALUS = 0.12;
+
+// Thermal (talus) erosion: any slope steeper than `talus` sheds material to its
+// lowest neighbour. This models freeze-thaw and gravity scree, which are
+// SUBAERIAL processes, so it runs on land only — `seaLevel` is required, not
+// defaulted, because a missing guard silently planes the sea bed flat (the D10
+// bug: submarine slopes hold far steeper angles than talus, and this operator
+// ground ocean texture to nothing regardless of what generation produced).
+async function applyThermalErosion(cells: Cell[], iterations: number, seaLevel: number) {
+    const talus = 0.008; // Min slope diff (subaerial)
+    const talusSubmarine = SUBMARINE_TALUS;
     const rate = 0.2;
 
     for(let iter=0; iter<iterations; iter++) {
         cells.forEach(c => {
-            if (c.height < seaLevel) return; // EXPERIMENT
+            const t = c.height < seaLevel ? talusSubmarine : talus;
             let maxDiff = 0;
             let lowestNIndex = -1;
             for(const nId of c.neighbors) {
@@ -157,8 +182,8 @@ async function applyThermalErosion(cells: Cell[], iterations: number, seaLevel =
                     lowestNIndex = nId;
                 }
             }
-            if (maxDiff > talus && lowestNIndex !== -1) {
-                const transfer = (maxDiff - talus) * rate;
+            if (maxDiff > t && lowestNIndex !== -1) {
+                const transfer = (maxDiff - t) * rate;
                 c.height -= transfer;
                 cells[lowestNIndex].height += transfer;
             }
@@ -522,6 +547,52 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
                   const shaped = Math.pow(Math.max(0, t), 1 / Math.max(0.1, od));
                   c.height = sl - sl * Math.min(1, shaped * sd);
               }
+          });
+      }
+  }
+
+  // D10 — Stage 9c: bathymetric relief (`seafloorRelief`, 0-2, default 1.0).
+  //
+  // Applied HERE, after normalization and after erosion, deliberately:
+  //   * After NORMALIZATION, so `seaLevel` is a fixed 0.55 in the same space the
+  //     perturbation lives in. A relief term applied before normalization pushes
+  //     the global minimum down and renormalization then lifts mid-range cells
+  //     across the coastline — measured at +52% land-cell count. Here the clamp
+  //     below keeps every ocean cell strictly under `seaLevel`, so the land/sea
+  //     ratio is preserved BY CONSTRUCTION.
+  //   * After EROSION, so it survives. `applyThermalErosion` is a smoothing
+  //     operator and used to plane the sea bed flat (fixed separately, it is now
+  //     land-only); anything added before erosion is partly ground away.
+  //   * At DISPLAY resolution, so the texture scales with the user's point count.
+  //     The macro tectonic grid is a fixed 10k, so relief added there thins out as
+  //     the display resolution rises — Matt's "little variation at any resolution".
+  //
+  // The term is 4-octave fBm, zero-mean, tapered to zero across the shelf so the
+  // coastline is untouched and shelves stay smooth while abyssal plains get hills
+  // — which is also how Earth reads. `seafloorRelief` 0 disables it entirely.
+  {
+      const sr = Math.max(0, params.seafloorRelief ?? 1.0);
+      if (sr > 0) {
+          const sl = params.seaLevel;
+          const reliefNoise = new SimplexNoise(new RNG(params.seed + '_seafloor_relief'));
+          cells.forEach(c => {
+              if (c.height >= sl) return;
+              const depthFrac = (sl - c.height) / Math.max(1e-6, sl);
+              // Shelf taper: no perturbation at the coast, full amplitude below
+              // SHELF_FRAC of the way to the deepest point. Smoothstep, so there
+              // is no visible seam where the taper reaches full strength.
+              const u = Math.min(1, depthFrac / SEAFLOOR_SHELF_FRAC);
+              const taper = u * u * (3 - 2 * u);
+              const p = c.center;
+              const n = fbm(
+                  reliefNoise,
+                  p.x * SEAFLOOR_RELIEF_FREQ, p.y * SEAFLOOR_RELIEF_FREQ, p.z * SEAFLOOR_RELIEF_FREQ,
+                  4, 0.5, 2.0,
+              );
+              const h = c.height + n * SEAFLOOR_RELIEF_AMP * sr * taper;
+              // Clamp: never breach the surface (land fraction is invariant),
+              // never go below 0 (the normalized floor).
+              c.height = Math.min(sl - 1e-6, Math.max(0, h));
           });
       }
   }
