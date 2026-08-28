@@ -158,6 +158,9 @@ describe('every tunable param influences the world', () => {
       boundaryRoughness: { boundaryRoughness: 0.8 },
       spreadRate: { spreadRate: 0.02 },
       seafloorDepth: { seafloorDepth: 0.5 },
+      // 2.0, not 0 — at 0 the Stage-9c block is skipped entirely, so a broken
+      // amplitude term would still pass. 2.0 exercises the live path.
+      seafloorRelief: { seafloorRelief: 2.0 },
       microplateIntensity: { microplateIntensity: 0.9 },
     };
 

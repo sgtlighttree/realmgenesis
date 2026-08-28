@@ -759,10 +759,21 @@ export function simulateTectonics(
   const seafloorAge = computeSeafloorAge(
     macroPoints, macroNeighbors, plateIds, crust.crustTypes, plates, rotatedSeeds, spreadRate, params.seed,
   );
-  // Abyssal-hill texture amplitude, baked at the former seafloorDetail default
-  // (0.5). The Seafloor Detail slider was repurposed into the seafloorDepth datum
-  // (Stage 9b, worldGen.ts); this internal texture is no longer user-exposed.
-  const seafloorDetail = 0.5;
+  // Bathymetric relief (`seafloorRelief`, 0-2, default 1.0). Sea-bed roughness is
+  // ONE physical quantity sampled at TWO grid resolutions, so this param drives
+  // two sites: the macro abyssal-hill amplitude here, and the display-resolution
+  // structural-noise damping in projectTectonicsToDisplay. Both move in the SAME
+  // direction (up = rougher).
+  //
+  // This replaces the retired `seafloorDetail`, which was INVERTED at the display
+  // site (`1 - 0.65 * detail`): turning "detail" up damped the fine noise harder,
+  // so it only ever grew macro swells while flattening real texture. That is why
+  // the old slider never delivered bumpiness. S13 baked it at 0.5 and retired it.
+  //
+  // The hill term is also now 3-octave fBm instead of a single freq-6 sample.
+  // Freq 6 over a 10k-point macro grid has features ~4x the macro spacing — it
+  // undulates at basin scale and cannot read as abyssal hills on its own.
+  const seafloorRelief = Math.max(0, params.seafloorRelief ?? 1.0);
   const abyssalNoise = new SimplexNoise(new RNG(params.seed + '_abyssal_v3'));
 
   // 5. Compose final height. Oceanic floor with a valid age follows GDH1
@@ -775,7 +786,7 @@ export function simulateTectonics(
     let base: number;
     if (crust.crustTypes[i] === 0 && seafloorAge[i] >= 0) {
       const p = macroPoints[i];
-      const hill = abyssalNoise.noise3D(p.x * 6, p.y * 6, p.z * 6) * seafloorDetail * 0.06;
+      const hill = fbm(abyssalNoise, p.x * 6, p.y * 6, p.z * 6, 3, 0.5, 2.0) * seafloorRelief * 0.06;
       base = depthToBandHeight(gdh1Depth(seafloorAge[i])) + hill;
     } else {
       base = saturatedIsostasy(thickness[i], crust.crustTypes[i] === 1);
@@ -853,9 +864,19 @@ export function projectTectonicsToDisplay(
     const roughness = params.roughness ?? 0.5;
     const structuralNoise = (fbmVal * (1 - blend) + ridgedRemapped * blend) * (0.5 + roughness);
 
-    // Deep-ocean cells carry GDH1 bathymetry; damp the structural noise there
-    // so the age→depth gradient isn't washed out. Damping baked at the former
-    // seafloorDetail default (0.5 → factor 0.675); the slider is now seafloorDepth.
+    // Deep-ocean cells carry GDH1 bathymetry; damp the structural noise there so
+    // the age→depth gradient isn't washed out. Stays baked at 0.675 (the S13
+    // value, from the retired seafloorDetail default of 0.5).
+    //
+    // D10 tried driving this factor from `seafloorRelief` and REVERTED it. The
+    // structural noise here is land-tuned and large-amplitude, so un-damping it
+    // pushed the global pre-normalization minimum down; with `seaLevel` fixed at
+    // a normalized 0.55, that renormalization lifted mid-range cells across the
+    // coastline and inflated land-cell count by ~52% (measured, 3 seeds @ 20k:
+    // 4,410 → 6,692). It also saturated at relief 1.0, so the slider's upper half
+    // did nothing. A seafloor-roughness control must not resize the continents.
+    // Bathymetric relief is applied in Stage 9b instead (`worldGen.ts`), after
+    // normalization, where land fraction is preserved by construction.
     let noiseInfluence = 1.2 - tectonicStrength;
     if (dc.crustType === 0 && macroResult.heights[nearest] < 0.5) {
       noiseInfluence *= 1 - 0.65 * 0.5;
