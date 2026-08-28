@@ -420,7 +420,7 @@ Create `tests/placeGlyphs.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest';
-import * as d3 from 'd3-geo';
+import * as d3 from 'd3';
 
 import { generateWorld } from '../utils/worldGen';
 import { makeParams } from './helpers';
@@ -501,7 +501,7 @@ Expected: FAIL — cannot resolve `../utils/mapStyle/placeGlyphs`.
 - [ ] **Step 3: Implement `utils/mapStyle/placeGlyphs.ts`**
 
 ```ts
-import * as d3 from 'd3-geo';
+import * as d3 from 'd3';
 
 import { BiomeType, Cell } from '../../types';
 import { toLonLat } from '../geo';
@@ -1424,7 +1424,7 @@ export interface StyleRenderContext {
 export type StylePass = (ctx: StyleRenderContext, sub: Substrate) => void;
 ```
 
-Add `passes: StylePass[];` to `MapStyle`. Import `WorldData`, `ViewMode` from `../../types`, `ColorContext` from `../colors`, `Substrate` from `./substrate`, and `d3` from `d3-geo`.
+Add `passes: StylePass[];` to `MapStyle`. Import `WorldData`, `ViewMode` from `../../types`, `ColorContext` from `../colors`, `Substrate` from `./substrate`, and `d3` from `d3`.
 
 - [ ] **Step 2: Add `passes: []` to `styleDefault.ts`**
 
