@@ -109,38 +109,63 @@ twice.
 ## The globe
 
 `bakeStyleTexture` renders the real 2D style to an equirectangular canvas, and
-the cell mesh samples it through UVs. The mesh keeps its displacement, so relief
-still reads; the look is identical to the 2D map because it IS the 2D map.
+the cell mesh samples it. The mesh keeps its displacement, so relief still reads;
+the look is identical to the 2D map because it IS the 2D map.
 
 Three things are load-bearing:
 
+- **The texture coordinate is computed in the FRAGMENT SHADER, not per vertex.**
+  `createStyledGlobeMaterial` injects `u = atan2(z, x)/2π + 0.5`,
+  `v = 0.5 − asin(y)/π` into `MeshBasicMaterial`. An equirectangular `u` IS a
+  longitude, and longitude is not linear across a triangle on a sphere, so a
+  per-vertex `uv` attribute is interpolated wrongly by construction. The old
+  `buildGlobeUVs` needed two guards to survive that — an antimeridian seam wrap
+  and a polar collapse — and the collapse traded polar streaks for a spiral
+  rosette at the pole. Per-fragment coordinates need neither guard.
+  `customProgramCacheKey` is required, or three.js may return a cached program
+  compiled without the injection.
+- **The direction comes from `sphereDir`, not from `position`.**
+  `buildGlobeDirs` emits the UNDISPLACED unit sphere direction per vertex, laid
+  out to match the position buffer. `position` carries per-cell height, so
+  normalizing it would make two neighbours at different heights sample different
+  content either side of their shared edge — a UV jog on every cell boundary.
+- **The texture has NO MIPMAPS** (`createStyleTexture`). `atan` jumps by a full
+  turn across the antimeridian, so the screen-space derivative explodes on that
+  one line and mip selection falls to the coarsest level — a blurred band down
+  the seam. Linear filtering uses no derivative. The globe sits near 1:1 against
+  a 2048-wide texture, so there is little to minify. `RepeatWrapping` on `u` lets
+  the seam texels blend; `ClampToEdge` on `v` is right because the poles ARE the
+  edge.
 - **The bake is NOT mirrored.** The 2D screen and export paths flip horizontally
-  for their own reasons, but UVs come straight from longitude, so a flip here
-  puts the world back to front.
-- **The antimeridian seam.** A cell straddling lon ±180 has vertices at u ≈ 0.99
-  and u ≈ 0.01; interpolated as-is, that triangle samples the entire texture
-  backwards and smears down the seam. `buildGlobeUVs` wraps each vertex to the
-  equivalent u NEAREST the cell centre — the shortest way round the cylinder —
-  which is correct only because the texture uses `RepeatWrapping`. Wrapping
-  everything below 0.5 instead is *not* equivalent and leaves cells like
-  `[0.1, 0.6, 0.9]` still spanning half the texture.
-- **The poles are a separate problem.** Equirectangular is singular there, so a
-  cell touching a pole spans a wide longitude range legitimately and no UV
-  assignment avoids stretching it. Those triangles collapse to the centre's
-  longitude: near a pole every longitude maps to near-identical content, so a
-  thin correct band beats a wide wrong one.
+  for their own reasons, but the globe's coordinate comes straight from
+  longitude, so a flip here puts the world back to front.
+- **The pole is a CONTENT problem, not a geometry one.** Equirectangular content
+  genuinely converges at the pole; no coordinate scheme changes that. What made
+  it read as a defect was the ocean hatch — a fixed-frequency pattern wound
+  round the singularity into a rosette. `oceanHatchPass` fades the hatch out
+  over a latitude band so there is no pattern left to swirl; the pole degrades to
+  plain paper instead. Coastlines and fills pinch, which is geographically
+  honest.
 - **Line weights scale by `lineScale`.** The globe shows one hemisphere filling
   the viewport, so weights tuned for a whole-world flat map read as heavy blobs.
   The bake halves them. Hatch spacing scales with output width for the same
   reason glyph size does — a fixed pixel spacing gives an 8192 export hair-fine
   hatching and the globe corduroy.
-- **The material is UNLIT and its JSX `key` matters.** Unlit because the baked
-  texture already contains the hillshade pass — a lit material shades it twice
-  and warm paper renders as dark grey-brown. The `key` because two branches are
-  both `meshStandardMaterial`: without distinct keys React patches props onto one
-  material instance, and three.js compiles its shader from the material's feature
-  set, so adding `map` to a material that never had one does nothing until the
-  program is rebuilt. The globe silently kept its vertex colours.
+- **The material is UNLIT.** The baked texture already contains the hillshade
+  pass, so a lit material shades it twice and warm paper renders as dark
+  grey-brown. It is also built imperatively and attached with `<primitive>`,
+  because `onBeforeCompile` is not a prop React can safely patch: where two
+  branches render the same element type, React reconciles them into one material
+  instance, and three.js compiles its shader from a material's feature set — so
+  adding `map` to a material that never had one does nothing until the program is
+  rebuilt. That is why the remaining declared branches still carry distinct
+  `key`s.
+
+**Looking at it.** `scripts/renderGlobePreview.mjs` screenshots the real styled
+globe from fixed camera latitudes (90° is straight down on the north pole).
+`renderMapPreview.mjs` renders the flat SVG and cannot see globe defects at all —
+the polar rosette survived three fix attempts partly because nothing was looking
+at the globe.
 
 Default bake is 2048×1024 (~8MB) — chosen for a 16GB M1 with tight thermals.
 

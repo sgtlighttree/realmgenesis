@@ -5,7 +5,8 @@ import * as THREE from 'three';
 import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, MarkerData } from '../types';
 import { getCellColor } from '../utils/colors';
 import { getMapStyle, MapStyleId } from '../utils/mapStyle';
-import { bakeStyleTexture, buildGlobeUVs } from '../utils/mapStyle/bakeTexture';
+import { bakeStyleTexture, buildGlobeDirs } from '../utils/mapStyle/bakeTexture';
+import { createStyleTexture, createStyledGlobeMaterial } from '../utils/mapStyle/globeMaterial';
 import { seasonalTemperatureDelta } from '../utils/seasons';
 import { displayRadius } from '../utils/displayRadius';
 import { computeShadeMap, computeContourSegments, contourInterval } from '../utils/shading';
@@ -31,6 +32,7 @@ const LineBasicMaterial = 'lineBasicMaterial' as any;
 const IcosahedronGeometry = 'icosahedronGeometry' as any;
 type R3FIntrinsic = React.FC<{ children?: React.ReactNode } & Record<string, unknown>>;
 const OctahedronGeometry = 'octahedronGeometry' as unknown as R3FIntrinsic;
+const Primitive = 'primitive' as unknown as R3FIntrinsic;
 
 // Idle globe spin rate, radians per second.
 const SPIN_RATE = 0.05;
@@ -496,9 +498,11 @@ const WorldMesh: React.FC<{
     colAttr.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute('position', posAttr);
     geo.setAttribute('color', colAttr);
-    // UVs are static for a given cell set — they depend only on cell geometry,
-    // not on style or view mode — so they are built once with the buffer.
-    geo.setAttribute('uv', new THREE.BufferAttribute(buildGlobeUVs(world), 2));
+    // Sphere directions are static for a given cell set — they depend only on
+    // cell geometry, not on style, view mode or height — so they are built once
+    // with the buffer. The styled material turns them into a texture coordinate
+    // in the fragment shader; there is deliberately no `uv` attribute.
+    geo.setAttribute('sphereDir', new THREE.BufferAttribute(buildGlobeDirs(world), 3));
     // The globe always fits inside r = 1.05 + margin; a fixed bounding sphere
     // avoids an O(vertices) recomputation on every refill and keeps raycasts valid
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 1.1);
@@ -514,18 +518,21 @@ const WorldMesh: React.FC<{
   const styleTexture = useMemo(() => {
     const style = getMapStyle(mapStyleId);
     const canvas = bakeStyleTexture(world, viewMode, style, showHillshade);
-    if (!canvas) return null;
-    const tex = new THREE.CanvasTexture(canvas);
-    // RepeatWrapping is what makes the antimeridian seam fix in buildGlobeUVs
-    // work: triangles straddling lon 180 carry u values past 1.0.
-    tex.wrapS = THREE.RepeatWrapping;
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = 4;
-    return tex;
+    return canvas ? createStyleTexture(canvas) : null;
   }, [world, viewMode, mapStyleId, showHillshade]);
 
   // Every useMemo GPU resource in this file has a matching disposal effect.
   useEffect(() => () => { styleTexture?.dispose(); }, [styleTexture]);
+
+  // Built imperatively rather than declared as JSX, because it carries an
+  // `onBeforeCompile` shader injection. See `createStyledGlobeMaterial` for what
+  // the shader does and why the globe has no `uv` attribute.
+  const styledMaterial = useMemo(
+    () => (styleTexture ? createStyledGlobeMaterial(styleTexture) : null),
+    [styleTexture],
+  );
+
+  useEffect(() => () => { styledMaterial?.dispose(); }, [styledMaterial]);
 
   // Per-cell hillshade relief factor. Keyed on world identity (heights mutate in
   // place on paint, WorldData shallow-copied) so it refreshes exactly like colors.
@@ -852,26 +859,20 @@ const WorldMesh: React.FC<{
             onPointerOut={tracksPointerMove ? handlePointerOut : undefined}
             >
                 {/* The `key` on each branch is LOAD-BEARING, not tidiness.
-                    Two of these are `meshStandardMaterial`, so without distinct
-                    keys React reconciles them as one element and patches props
-                    onto the SAME material instance. three.js compiles its shader
-                    from the material's feature set, so adding `map` to a
-                    material that never had one does nothing until the program is
-                    rebuilt — the globe kept its vertex colours and silently
-                    ignored the texture. Distinct keys remount instead. */}
-                {styleTexture ? (
+                    Where two branches render the SAME element type, React
+                    reconciles them as one element and patches props onto the
+                    SAME material instance. three.js compiles its shader from
+                    the material's feature set, so adding `map` to a material
+                    that never had one does nothing until the program is rebuilt
+                    — the globe kept its vertex colours and silently ignored the
+                    texture. Distinct keys remount instead. */}
+                {styledMaterial ? (
                     /* A styled globe samples the baked map instead of per-cell
                        vertex colour — the whole point, since flat cell colour
-                       cannot carry hatching, grain or glyphs.
-                       UNLIT, like political mode, and for the same reason: the
-                       baked texture ALREADY contains the hillshade pass, so a
-                       lit material shades it a second time and a warm paper
-                       renders as dark grey-brown. Unlit also makes the globe
-                       match the 2D map and the exports exactly, which is the
-                       point of putting the style here. Relief still reads —
-                       the mesh keeps its displacement, and the baked shading
-                       travels with the texture. */
-                    <MeshBasicMaterial key="styled" map={styleTexture} toneMapped={false} side={THREE.FrontSide} />
+                       cannot carry hatching, grain or glyphs. Unlit, and it
+                       derives its texture coordinate in the fragment shader;
+                       see `createStyledGlobeMaterial`. */
+                    <Primitive object={styledMaterial} attach="material" />
                 ) : viewMode === 'political' ? (
                     <MeshBasicMaterial key="political" vertexColors toneMapped={false} side={THREE.FrontSide} />
                 ) : (
