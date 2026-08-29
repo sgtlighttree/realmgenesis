@@ -33,6 +33,7 @@ convention entrypoints, not reference docs.
 | [data-model.md](data-model.md) | `Cell`, `WorldData`, `WorldParams`, `BiomeType` (17), `ViewMode` (12), and the six worldbuilding entity types | ✅ current |
 | [params-reference.md](params-reference.md) | Every `WorldParams` key with range/default/consumer, and the param-liveness contract | ✅ current |
 | [rendering.md](rendering.md) | 3D globe (`WorldViewer`), 2D map (`Map2D`), Dymaxion, coloring, labels, hillshading | ✅ current |
+| [map-styles.md](map-styles.md) | The A3 style layer: substrate adapter, parchment passes, glyph placement, the fill-policy rule, the mirror trap, how to add a style | ✅ current |
 | [civilization.md](civilization.md) | Cultures → religions → factions → provinces → towns → routes → markers → AI lore | ✅ current |
 | [export.md](export.md) | PNG raster, SVG, GeoJSON, GLB, and save/load persistence | ✅ current |
 | [dymaxion.md](dymaxion.md) | Dymaxion projection, the classic vs Blender net layouts, and the Blender-UV interop (extraction script + why exports drop on cleanly) | ✅ current |
