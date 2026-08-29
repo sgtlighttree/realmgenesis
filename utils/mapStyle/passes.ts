@@ -30,6 +30,38 @@ const oceanFeatures = (ctx: StyleRenderContext) => {
   return out;
 };
 
+/**
+ * Ocean features grouped by hatch opacity, for `polarHatchFadeDeg`.
+ *
+ * Quantised to quarter steps rather than a true per-cell gradient because each
+ * distinct opacity costs one clip-and-sweep in Canvas2D and one <pattern> in
+ * SVG. Four bands over a ten-degree span is finer than the cells are, so the
+ * ramp reads as smooth; a hard cut would just move the artifact to the cut line.
+ */
+const oceanFeaturesByHatchOpacity = (
+  ctx: StyleRenderContext,
+  [startDeg, endDeg]: [number, number],
+): Map<number, ReturnType<typeof oceanFeatures>> => {
+  const bands = new Map<number, ReturnType<typeof oceanFeatures>>();
+  const { world, colorCtx } = ctx;
+  const span = Math.max(1e-6, endDeg - startDeg);
+  for (let i = 0; i < world.cells.length; i++) {
+    const cell = world.cells[i];
+    if (cell.height >= colorCtx.seaLevel) continue;
+    const feature = world.geoJson?.features?.[i];
+    if (!feature) continue;
+    // cell.center is a unit vector, so y is sin(latitude).
+    const latDeg = Math.abs((Math.asin(Math.max(-1, Math.min(1, cell.center.y))) * 180) / Math.PI);
+    const t = (latDeg - startDeg) / span;
+    const opacity = Math.ceil(Math.max(0, Math.min(1, 1 - t)) * 4) / 4;
+    if (opacity <= 0) continue;
+    const band = bands.get(opacity);
+    if (band) band.push(feature);
+    else bands.set(opacity, [feature]);
+  }
+  return bands;
+};
+
 /** Full-bleed paper tone plus grain. Always first — everything sits on it. */
 export const paperPass = (palette: StylePalette, seed: string): StylePass =>
   (ctx, sub) => {
@@ -76,12 +108,24 @@ export const oceanHatchPass = (palette: StylePalette): StylePass =>
     // bake got corduroy — the same "denser map at higher resolution" mistake
     // placeGlyphs already avoids.
     const k = (ctx.widthPx / 1024) * (ctx.lineScale ?? 1);
-    sub.hatchFeatures(oceanFeatures(ctx), {
+    const spec = {
       color: palette.seaHatch,
       spacingPx: Math.max(3, 6 * k),
       widthPx: Math.max(0.4, 0.9 * k),
       angleDeg: 45,
-    });
+    };
+    // The globe bake asks for a polar fade; a flat map never does. See
+    // `StyleRenderContext.polarHatchFadeDeg` for why the poles need it.
+    if (!ctx.polarHatchFadeDeg) {
+      sub.hatchFeatures(oceanFeatures(ctx), spec);
+      return;
+    }
+    const bands = oceanFeaturesByHatchOpacity(ctx, ctx.polarHatchFadeDeg);
+    // Descending, so the strongest band is laid down first and the faded ones
+    // read as an edge to it rather than as a separate pattern on top.
+    for (const opacity of [...bands.keys()].sort((a, b) => b - a)) {
+      sub.hatchFeatures(bands.get(opacity)!, { ...spec, opacity });
+    }
   };
 
 /**

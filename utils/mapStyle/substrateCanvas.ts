@@ -148,6 +148,7 @@ export class Canvas2DSubstrate implements Substrate {
     this.ctx.clip();
     this.ctx.strokeStyle = spec.color;
     this.ctx.lineWidth = spec.widthPx;
+    this.ctx.globalAlpha = spec.opacity ?? 1;
     const rad = (spec.angleDeg * Math.PI) / 180;
     const dx = Math.cos(rad);
     const dy = Math.sin(rad);

@@ -19,7 +19,9 @@ const recorder = () => {
     strokeSegments: (segs, stroke) => { calls.push({ op: 'strokeSegments', arg: stroke, count: segs.length }); },
     hatchRect: (_x, _y, _w, _h, spec: HatchSpec) => { calls.push({ op: 'hatchRect', arg: spec.color }); },
     hatchFeatures: (features, spec: HatchSpec) => {
-      calls.push({ op: 'hatchFeatures', arg: spec.color, count: features.length });
+      calls.push({
+        op: 'hatchFeatures', arg: spec.color, count: features.length, opacity: spec.opacity,
+      });
     },
     grain: (spec: GrainSpec) => { calls.push({ op: 'grain', arg: spec.seed }); },
     drawGlyph: (g: PlacedGlyph, ink) => { calls.push({ op: 'drawGlyph', arg: ink }); void g; },
@@ -31,12 +33,19 @@ const recorder = () => {
 const SEA = 0.55;
 const feature = () => ({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [] } });
 
+// Cell centres are UNIT VECTORS; oceanHatchPass reads latitude off y.
+const at = (latDeg: number) => ({
+  x: Math.cos((latDeg * Math.PI) / 180),
+  y: Math.sin((latDeg * Math.PI) / 180),
+  z: 0,
+});
+
 const makeCtx = (viewMode: ViewMode, over: Partial<StyleRenderContext> = {}): StyleRenderContext => {
   const cells = [
-    { id: 0, height: 0.8, biome: 'Temperate Forest', temperature: 10, moisture: 0.5 },
-    { id: 1, height: 0.6, biome: 'Steppe', temperature: 12, moisture: 0.2 },
-    { id: 2, height: 0.3, biome: 'Ocean', temperature: 8, moisture: 1 },
-    { id: 3, height: 0.1, biome: 'Deep Ocean', temperature: 6, moisture: 1 },
+    { id: 0, height: 0.8, biome: 'Temperate Forest', temperature: 10, moisture: 0.5, center: at(0) },
+    { id: 1, height: 0.6, biome: 'Steppe', temperature: 12, moisture: 0.2, center: at(5) },
+    { id: 2, height: 0.3, biome: 'Ocean', temperature: 8, moisture: 1, center: at(10) },
+    { id: 3, height: 0.1, biome: 'Deep Ocean', temperature: 6, moisture: 1, center: at(-10) },
   ];
   return {
     world: {
@@ -183,5 +192,69 @@ describe('parchment passes', () => {
     expect(calls[0].op).toBe('fillRect');
     expect(calls[0].arg).toBe(parchment.palette.paper);
     expect(calls[1].op).toBe('grain');
+  });
+});
+
+// The globe bakes an equirectangular texture, where every longitude converges
+// at the pole. The ocean hatch is a fixed-frequency pattern, so it wound round
+// that singularity as a spiral rosette — the defect three rounds of UV fixes
+// could only move, never remove. Fading the hatch out leaves plain paper there.
+describe('oceanHatchPass polar fade', () => {
+  const oceanAt = (...lats: number[]) => {
+    const cells = lats.map((lat, i) => ({
+      id: i, height: 0.2, biome: 'Ocean', temperature: 8, moisture: 1, center: at(lat),
+    }));
+    // Cast for the same reason makeCtx does: these passes read four fields, and
+    // a full Cell would be noise.
+    return { cells, geoJson: { features: cells.map(feature) } } as unknown as
+      Pick<StyleRenderContext['world'], 'cells' | 'geoJson'>;
+  };
+
+  const hatchCalls = (over: Partial<StyleRenderContext>) => {
+    const { sub, calls } = recorder();
+    runStyle(parchment, makeCtx('biome', over), sub);
+    return calls.filter(c => c.op === 'hatchFeatures');
+  };
+
+  it('hatches to the pole when no fade is set — a flat map has no singularity', () => {
+    const world = { ...makeCtx('biome').world, ...oceanAt(0, 89) };
+    const hatches = hatchCalls({ world });
+    expect(hatches.length).toBe(1);
+    expect(hatches[0].count).toBe(2);
+    expect(hatches[0].opacity).toBeUndefined();
+  });
+
+  it('drops ocean cells past the end of the fade band', () => {
+    const world = { ...makeCtx('biome').world, ...oceanAt(0, 89) };
+    const hatches = hatchCalls({ world, polarHatchFadeDeg: [66, 82] });
+    expect(hatches.length).toBe(1);
+    expect(hatches[0].count).toBe(1); // the 89-degree cell is gone
+    expect(hatches[0].opacity).toBe(1);
+  });
+
+  it('ramps opacity through the band instead of cutting at one latitude', () => {
+    // A hard cut would just move the artifact onto the cut line.
+    const world = { ...makeCtx('biome').world, ...oceanAt(0, 70, 74, 78) };
+    const hatches = hatchCalls({ world, polarHatchFadeDeg: [66, 82] });
+    const opacities = hatches.map(h => h.opacity);
+    expect(opacities.length).toBeGreaterThan(1);
+    // Strongest first, so the faded bands read as an edge to it.
+    expect([...opacities].sort((a, b) => (b as number) - (a as number))).toEqual(opacities);
+    expect(Math.max(...(opacities as number[]))).toBe(1);
+    expect(Math.min(...(opacities as number[]))).toBeLessThan(1);
+    // Every ocean cell inside the band is still hatched, none dropped.
+    expect(hatches.reduce((n, h) => n + (h.count ?? 0), 0)).toBe(4);
+  });
+
+  it('treats both hemispheres alike', () => {
+    const north = hatchCalls({
+      world: { ...makeCtx('biome').world, ...oceanAt(75) },
+      polarHatchFadeDeg: [66, 82],
+    });
+    const south = hatchCalls({
+      world: { ...makeCtx('biome').world, ...oceanAt(-75) },
+      polarHatchFadeDeg: [66, 82],
+    });
+    expect(south.map(h => h.opacity)).toEqual(north.map(h => h.opacity));
   });
 });

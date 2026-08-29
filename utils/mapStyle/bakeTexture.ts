@@ -82,6 +82,10 @@ export const bakeStyleTexture = (
     heightPx: height,
     glyphs,
     lineScale,
+    // Fade the ocean hatch out towards the poles. Values chosen by looking:
+    // `scripts/renderGlobePreview.mjs --views=90` puts the camera straight down
+    // on the north pole, and the tight part of the swirl sat inside ~78 deg.
+    polarHatchFadeDeg: [66, 82],
     shadeMap: showHillshade ? computeShadeMap(world.cells, world.params.seaLevel) : null,
     coastlines: computeCoastlineSegments(world),
     colorCtx: {

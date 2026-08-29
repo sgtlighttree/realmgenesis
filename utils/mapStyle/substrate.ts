@@ -9,6 +9,11 @@ export interface HatchSpec {
   spacingPx: number;
   widthPx: number;
   angleDeg: number;
+  /**
+   * 0-1, default 1. EXPLICIT, never baked into `color` as an `rgba()` string,
+   * for the same reason `fillFeature` takes one: SVG 1.1 has no `rgba()` syntax.
+   */
+  opacity?: number;
 }
 
 export interface GrainSpec {
