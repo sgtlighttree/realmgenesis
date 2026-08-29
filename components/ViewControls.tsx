@@ -7,6 +7,7 @@ import {
 
 import { ViewMode, DisplayMode, LabelVisibility } from '../types';
 import Select, { SelectOption } from './Select';
+import { MAP_STYLES, MapStyleId } from '../utils/mapStyle';
 
 /** Lucide icons take size/className; React.ElementType is too loose to accept them. */
 type IconType = React.ComponentType<{ size?: number; className?: string }>;
@@ -25,6 +26,12 @@ type IconType = React.ComponentType<{ size?: number; className?: string }>;
 export interface ViewControlsProps {
   viewMode: ViewMode;
   setViewMode: (m: ViewMode) => void;
+  /**
+   * A3 style axis. Sits beside viewMode because it IS its sibling: viewMode
+   * decides what the map shows, mapStyleId decides how it is drawn.
+   */
+  mapStyleId: MapStyleId;
+  setMapStyleId: (id: MapStyleId) => void;
   displayMode: DisplayMode;
   setDisplayMode: (m: DisplayMode) => void;
   showGrid: boolean;
@@ -73,6 +80,9 @@ export const VIEW_LAYERS: { mode: ViewMode; icon: IconType; label: string }[] = 
 ];
 
 /** Same list as VIEW_LAYERS, shaped for the themed Select. */
+export const MAP_STYLE_OPTIONS: SelectOption<MapStyleId>[] =
+  Object.values(MAP_STYLES).map(st => ({ value: st.id, label: st.name }));
+
 export const VIEW_LAYER_OPTIONS: SelectOption<ViewMode>[] =
   VIEW_LAYERS.map(l => ({ value: l.mode, label: l.label }));
 
@@ -406,6 +416,24 @@ export const ViewStrip: React.FC<ViewControlsProps & { rotation?: RotationContro
       className="shrink-0"
       triggerClassName="min-w-[7.5rem] justify-between"
     />
+
+    {/* Style sits next to the view layer because it is the SIBLING axis, not a
+        setting: viewMode picks what the map shows, style picks how it is drawn.
+        It lived in the Sys tab under Auto-Update and was reported as missing —
+        a display control filed among system options is a hidden one. Only
+        rendered for the 2D modes: the 3D globe is deliberately out of scope for
+        styles, so offering the control there would promise something it cannot
+        do. */}
+    {p.displayMode !== 'globe' && (
+      <Select
+        value={p.mapStyleId}
+        options={MAP_STYLE_OPTIONS}
+        onChange={p.setMapStyleId}
+        label="Map style"
+        className="shrink-0"
+        triggerClassName="min-w-[6.5rem] justify-between"
+      />
+    )}
 
     {/* Hidden full-label mirror: the yardstick useCompactStrip measures against.
         Never reflows with `compact`, so the measurement cannot oscillate.

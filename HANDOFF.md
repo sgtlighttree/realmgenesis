@@ -200,15 +200,47 @@ The test for it needs a **DOM stub**, not optionally: without `document` the til
 builder returns null and `grain` early-returns, so the assertion would pass
 vacuously on 0 === 0.
 
-### OUTSTANDING
+### Discoverability failure — the control was in the wrong place
 
-1. **The RASTER path has not been looked at.** Only the SVG export was rendered
-   and screenshotted. Map2D on screen and the PNG export share the passes and
-   the now-fixed coordinate conversion, so the risk is much lower than it was —
-   but it is not zero, and the Canvas2D seam-stroke and grain-tile changes are
-   untested by eye.
+Matt reported "the map style isn't present in the 2D viewport… I forgot that it
+was an export only thing". **The premise was wrong** — Map2D was always in
+scope, only the 3D globe was excluded, and driving the live app proved the 2D
+render worked all along. What failed was FINDING it: the selector had been
+placed in the **Sys tab under Auto-Update (Low Res)**, filed among system
+settings, while every other display control lives in the top ViewStrip.
+
+Moved to the **ViewStrip, immediately after the view-layer Select**, because
+style is that control's SIBLING AXIS: `viewMode` picks what the map shows,
+`mapStyleId` picks how it is drawn. Rendered only in the 2D display modes —
+offering it on the globe would promise something styles deliberately do not do.
+
+The sidebar copy is now **conditionally rendered, not CSS-hidden**: a hidden
+duplicate still sits in the accessibility tree, which would give two comboboxes
+the same `aria-label`. Shell uses the strip (`showViewControls={false}`); the
+classic route keeps the sidebar copy grouped with View Layer. Verified in the
+live app: 3D → 0 in the DOM, 2D → exactly 1, visible.
+
+**Lesson worth keeping:** a feature nobody can find is indistinguishable from a
+feature that does not exist, and the bug report will describe the second one.
+
+### RASTER PATH NOW VERIFIED BY EYE
+
+Driving the running dev server (reused, never killed) confirmed Map2D renders
+parchment correctly on screen: bare paper land, mountain glyphs, hatched sea,
+ink coastlines, faction borders, 0 console errors. That closes the raster gap —
+the Canvas2D seam-stroke and grain-tile changes are now visually confirmed, not
+just unit-tested.
+
+**Playwright recipe that worked** (M1, headless, no project dependency): import
+`chromium` from the npx cache (`~/.npm/_npx/*/node_modules/playwright/`), launch
+with `executablePath` = the newest `chromium_headless_shell-*` in
+`~/Library/Caches/ms-playwright`. The `Select` component resists ordinary
+clicking — **focus its `button[aria-label="…"]` and drive it with
+Enter / ArrowDown / Enter**. Reuse the running :3000 server; never kill it.
+
+### OUTSTANDING
    Load Map2D, switch Map Style to Parchment, and export a PNG.
-2. **D10's browser check is still outstanding** and is now on `origin`.
+1. **D10's browser check is still outstanding** and is now on `origin`.
 3. **`exportSVG` ignores the hillshade toggle.** It calls `computeShadeMap`
    unconditionally while the PNG path threads `showHillshade`, so with hillshade
    off a PNG exports unshaded and an SVG exports shaded. Caller-level, one

@@ -440,7 +440,7 @@ const Controls: React.FC<ControlsProps> = ({
   // shell's View strip (components/ViewControls.tsx) — one definition, each
   // host composing its own layout.
   const viewProps: ViewControlsProps = {
-    viewMode, setViewMode, displayMode, setDisplayMode,
+    viewMode, setViewMode, mapStyleId, setMapStyleId, displayMode, setDisplayMode,
     showGrid, setShowGrid, smoothGlobe, setSmoothGlobe, showRivers, setShowRivers, showRoutes, setShowRoutes,
     showHillshade, setShowHillshade, showContours, setShowContours,
     showCurrents, setShowCurrents,
@@ -588,6 +588,11 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
               </div>
             )}
 
+            {/* Shell renders this in the ViewStrip instead (showViewControls
+                false), so the two routes never show two controls for one value.
+                NOT rendered rather than CSS-hidden: a hidden copy still sits in
+                the accessibility tree, giving two comboboxes the same label. */}
+            {showViewControls && (
             <div
               className="space-y-1"
               title="Map style. Changes how the 2D map and exports are drawn. Does not affect the 3D globe or the generated world."
@@ -602,6 +607,7 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                 triggerClassName="w-full justify-between bg-surface-raised border-edge px-2 py-2 text-xs"
               />
             </div>
+            )}
 
             <div className="pt-4 border-t border-edge-subtle space-y-3">
               <h3 className="text-xs font-semibold text-ink-muted mb-2">AI Settings (BYOK)</h3>
