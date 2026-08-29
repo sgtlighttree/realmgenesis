@@ -17,6 +17,7 @@ export const styleDefault: MapStyle = {
     coast: '#ffffff',
     shadow: '#000000',
     highlight: '#ffffff',
+    ice: '#ffffff',
   },
   fillPolicy: () => 'ramp',
   // Empty by design: this style IS the pre-A3 look, and every view mode already

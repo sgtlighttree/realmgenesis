@@ -200,6 +200,31 @@ The test for it needs a **DOM stub**, not optionally: without `document` the til
 builder returns null and `grain` early-returns, so the assertion would pass
 vacuously on 0 === 0.
 
+### Ice was invisible under parchment — reported, fixed
+
+Matt: "parchment does eliminate all ice terrain/ice caps from view." Correct, and
+it was TWO losses with one cause each:
+
+1. **ICE_CAP land** fell under the `bare` fill policy, so it was left unpainted
+   and became indistinguishable from temperate land — **6.8% of land** in a
+   default 8k world (measured). "Glyphs carry the terrain" failed here because
+   there was no ice glyph, and could not fully succeed anyway: for ice, the white
+   expanse IS the information.
+2. **D3 seasonal SEA ICE** vanished because `oceanFillPass` paints a flat palette
+   tone and never consults `getCellColor`, where the sea-ice overlay lives.
+
+**Fix:** a named `ice` palette entry, an `ice` GlyphKind (angular floe shards —
+ice reads as fracture on a drawn map), ice outranking relief in `glyphFor` so a
+glaciated peak reads as ice rather than as a mountain, and a prominence high
+enough that thinning never drops it. `landPass` treats ICE_CAP as **the one
+exception to bare paper**; `oceanFillPass` applies the same `SEAWATER_FREEZE_C`
+test `colors.ts` uses.
+
+**The general lesson, worth more than the fix:** a "bare" fill policy is a claim
+that glyphs can carry every terrain. That claim needs checking per biome. Ice
+broke it; check any future bare-policy style against the full `BiomeType` list
+rather than against whichever biomes the test seed happens to contain.
+
 ### Discoverability failure — the control was in the wrong place
 
 Matt reported "the map style isn't present in the 2D viewport… I forgot that it

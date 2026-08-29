@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { glyphPathData } from '../utils/mapStyle/glyphPaths';
 import { GlyphKind, PlacedGlyph } from '../utils/mapStyle/types';
 
-const KINDS: GlyphKind[] = ['mountain', 'hill', 'forest', 'conifer', 'dune', 'marsh'];
+const KINDS: GlyphKind[] = ['mountain', 'hill', 'forest', 'conifer', 'dune', 'marsh', 'ice'];
 
 const glyph = (kind: GlyphKind, over: Partial<PlacedGlyph> = {}): PlacedGlyph => ({
   x: 100, y: 200, kind, scale: 16, seedRot: 0, cellId: 1, ...over,

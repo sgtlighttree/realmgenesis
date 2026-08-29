@@ -29,6 +29,9 @@ const landFrac = (cell: Cell, seaLevel: number): number =>
  */
 const glyphFor = (cell: Cell, seaLevel: number): GlyphKind | null => {
   const f = landFrac(cell, seaLevel);
+  // Ice outranks relief: a glaciated peak reads as ice on a drawn map, and
+  // without this an ice cap carries mountain glyphs and no sign of being ice.
+  if (cell.biome === BiomeType.ICE_CAP) return 'ice';
   if (f > 0.45) return 'mountain';
   if (f > 0.22) return 'hill';
   switch (cell.biome) {
@@ -52,6 +55,7 @@ const glyphFor = (cell: Cell, seaLevel: number): GlyphKind | null => {
  */
 const prominence = (cell: Cell, kind: GlyphKind, seaLevel: number): number => {
   const f = landFrac(cell, seaLevel);
+  if (kind === 'ice') return 2000 + f * 100; // never thinned away by relief
   if (kind === 'mountain' || kind === 'hill') return 1000 + f * 1000;
   return f * 100;
 };

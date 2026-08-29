@@ -66,7 +66,7 @@ describe('placeGlyphs', () => {
     });
     const kinds = new Set(placed.map(g => g.kind));
     for (const k of kinds) {
-      expect(['mountain', 'hill', 'forest', 'conifer', 'dune', 'marsh']).toContain(k);
+      expect(['mountain', 'hill', 'forest', 'conifer', 'dune', 'marsh', 'ice']).toContain(k);
     }
   }, 30000);
 });

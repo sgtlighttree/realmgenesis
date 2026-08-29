@@ -21,6 +21,7 @@ const PARCHMENT_PALETTE: StylePalette = {
   coast: '#2e2414',
   shadow: '#5c4a2e',
   highlight: '#fdf6e4',
+  ice: '#e9f0f2',
 };
 
 const BARE: ViewMode[] = ['satellite', 'biome', 'height_bw'];

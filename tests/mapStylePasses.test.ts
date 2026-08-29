@@ -85,6 +85,32 @@ describe('parchment passes', () => {
     }
   });
 
+  // REGRESSION (reported by Matt): parchment "eliminates all ice terrain/ice
+  // caps from view". Bare paper left ICE_CAP indistinguishable from temperate
+  // land — 6.8% of land in a default world — and oceanFillPass painted a flat
+  // tone without consulting getCellColor, so D3 seasonal sea ice went too.
+  it('paints ice caps even in bare modes', () => {
+    const ctx = makeCtx('biome');
+    (ctx.world.cells as { biome: string }[])[0].biome = 'Ice Cap';
+    const { sub, calls } = recorder();
+    runStyle(parchment, ctx, sub);
+    const fills = calls.filter(c => c.op === 'fillFeature');
+    // Two ocean cells plus the one ice cap; the other land cell stays bare.
+    expect(fills.length).toBe(3);
+    expect(fills.some(c => c.arg === parchment.palette.ice)).toBe(true);
+  });
+
+  it('paints frozen sea as ice, not open water', () => {
+    const ctx = makeCtx('biome');
+    // Below SEAWATER_FREEZE_C at the neutral season.
+    (ctx.world.cells as { temperature: number }[])[2].temperature = -40;
+    const { sub, calls } = recorder();
+    runStyle(parchment, ctx, sub);
+    const fills = calls.filter(c => c.op === 'fillFeature');
+    expect(fills.some(c => c.arg === parchment.palette.ice)).toBe(true);
+    expect(fills.some(c => c.arg === parchment.palette.sea)).toBe(true);
+  });
+
   it('leaves land unpainted in bare modes, and paints it otherwise', () => {
     // 'bare' — only the two ocean cells get a fill.
     const bare = recorder();
