@@ -40,9 +40,14 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ## S27h (2026-08-29) — NEXT SESSION STARTS HERE
 
-Branch `a3-map-style`, **NOT pushed, NOT merged**. Gates: typecheck 0 · lint 0
-errors / 29 warnings · targeted suites green. **The full suite has NOT been run
-this session** — ask before running it (`CLAUDE.md` run policy).
+**MERGED to `main` and pushed** (fast-forward, `4881231..28e1903`). Branch
+`a3-map-style` pushed and now identical to main.
+
+Gates, all green before the merge: typecheck 0 · lint 0 errors / 29 warnings ·
+**full suite 54 files / 424 tests**, run at full speed (`VITEST_WORKERS=8`) in
+196s wall for 906s of test time. `CLAUDE.md` now lists all three suite speeds
+rather than only the capped default — Matt asked for the uncapped one to be a
+named option, because an idle machine was being treated like a busy one.
 
 All three things S27g handed over are done. Commits, oldest first:
 
