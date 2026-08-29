@@ -11,7 +11,7 @@ export type FillPolicy =
   | 'categorical'  // bare paper plus a muted categorical fill on top
   | 'ramp';        // keep the mode's own continuous fill; suppress glyphs
 
-export type MapStyleId = 'default' | 'parchment' | 'blueprint';
+export type MapStyleId = 'default' | 'parchment' | 'blueprint' | 'inkwash';
 
 export type GlyphKind = 'mountain' | 'hill' | 'forest' | 'conifer' | 'dune' | 'marsh' | 'ice';
 
