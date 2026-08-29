@@ -16,6 +16,56 @@ const hash01 = (x: number, y: number, seed: string): number => {
   return (h >>> 8) / 0x1000000;
 };
 
+const GRAIN_TILE_PX = 64;
+const grainTiles = new Map<string, HTMLCanvasElement | null>();
+
+/**
+ * A small repeating noise tile, built once per (seed, scale) and cached.
+ *
+ * The first version painted grain by looping over the whole output in 3px steps
+ * and calling fillRect per speck. That is cost proportional to OUTPUT AREA, on a
+ * pass that runs first in every parchment render: measured 49,500 fillRect calls
+ * for one 1400x700 Map2D frame — on every pan and zoom — and 1,679,374 for an
+ * 8192px PNG export, plus 3.7M string allocations in hash01. A tile plus
+ * createPattern is constant cost at any size, and matches what the SVG substrate
+ * already does with one feTurbulence filter.
+ *
+ * Returns null where there is no DOM (unit tests), and the caller skips grain.
+ */
+const grainTile = (seed: string, scale: number): HTMLCanvasElement | null => {
+  const key = `${seed}|${scale}`;
+  const cached = grainTiles.get(key);
+  if (cached !== undefined) return cached;
+
+  let tile: HTMLCanvasElement | null = null;
+  if (typeof document !== 'undefined') {
+    tile = document.createElement('canvas');
+    tile.width = GRAIN_TILE_PX;
+    tile.height = GRAIN_TILE_PX;
+    const tctx = tile.getContext('2d');
+    if (!tctx) {
+      tile = null;
+    } else {
+      // Direct pixel writes, not fillRect per speck.
+      const img = tctx.createImageData(GRAIN_TILE_PX, GRAIN_TILE_PX);
+      const step = Math.max(1, Math.round(scale));
+      for (let y = 0; y < GRAIN_TILE_PX; y++) {
+        for (let x = 0; x < GRAIN_TILE_PX; x++) {
+          const n = hash01(Math.floor(x / step) * step, Math.floor(y / step) * step, seed);
+          const i = (y * GRAIN_TILE_PX + x) * 4;
+          if (n < 0.55) { img.data[i + 3] = 0; continue; }
+          const v = n > 0.85 ? 255 : 0;
+          img.data[i] = v; img.data[i + 1] = v; img.data[i + 2] = v;
+          img.data[i + 3] = 255;
+        }
+      }
+      tctx.putImageData(img, 0, 0);
+    }
+  }
+  grainTiles.set(key, tile);
+  return tile;
+};
+
 export class Canvas2DSubstrate implements Substrate {
   /**
    * `mirrored` says the context already carries Map2D's horizontal flip
@@ -116,17 +166,14 @@ export class Canvas2DSubstrate implements Substrate {
   }
 
   grain(spec: GrainSpec): void {
+    const tile = grainTile(spec.seed, spec.scale);
+    if (!tile || typeof this.ctx.createPattern !== 'function') return;
+    const pattern = this.ctx.createPattern(tile, 'repeat');
+    if (!pattern) return;
     this.ctx.save();
     this.ctx.globalAlpha = spec.opacity;
-    const step = Math.max(2, Math.round(3 * spec.scale));
-    for (let y = 0; y < this.height; y += step) {
-      for (let x = 0; x < this.width; x += step) {
-        const n = hash01(x, y, spec.seed);
-        if (n < 0.55) continue;
-        this.ctx.fillStyle = n > 0.85 ? '#ffffff' : '#000000';
-        this.ctx.fillRect(x, y, step, step);
-      }
-    }
+    this.ctx.fillStyle = pattern;
+    this.ctx.fillRect(0, 0, this.width, this.height);
     this.ctx.restore();
   }
 

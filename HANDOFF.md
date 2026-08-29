@@ -143,10 +143,14 @@ survived, and **both were found in one look at a rendered SVG**:
    — a real raster/vector divergence in the one place the substrate exists to
    prevent it.
 
-**Method that found them, reuse it:** `tmp/renderSvg.mjs` writes real
-`exportSVG` output to a file; `tmp/shot.mjs` opens it in headless Chromium and
-screenshots it; then LOOK at the PNG. No dev server, no R3F, no auto-rotate CPU
-trap. Far cheaper than driving the app, and it exercises the true export path.
+**Method that found them — now COMMITTED as `scripts/renderMapPreview.mjs`:**
+
+    node scripts/renderMapPreview.mjs --style=parchment --mode=biome --png
+
+writes real `exportSVG` output, screenshots it in headless Chromium, and tells
+you to look at the PNG. No dev server, no R3F, no auto-rotate CPU trap. It is
+committed rather than left in `tmp/` deliberately: D8b's equivalent
+(`tmp/shadow.mjs`) was cited in `datum.ts` and did not survive its session.
 
 ### Bugs caught in review before they shipped (kept so nobody re-derives them)
 
@@ -179,19 +183,41 @@ biome mode: bare parchment land, mountain/forest glyphs, clean hatched sea,
 strong coastlines. political mode: muted faction fills on paper with glyphs
 reading through — the money shot the fill-policy rule was designed for.
 
+### A seventh bug, found by review AFTER the visual check
+
+**`Canvas2DSubstrate.grain` cost scaled with OUTPUT AREA** — and only the raster
+path runs it, so the SVG screenshot structurally could not catch it. The first
+version looped the whole canvas in 3px steps calling `fillRect` per speck.
+Measured: **49,500 fillRect calls for one 1400x700 Map2D frame** (on every pan
+and zoom, since `paperPass` runs first in every parchment render) and
+**1,679,374 for an 8192px PNG export**, plus 3.7M string allocations in the
+hash. Now a 64x64 noise tile, cached per seed and painted with `createPattern` —
+constant cost at any size, mirroring what SVG already did with one
+`feTurbulence`. Same shape as the per-cell hatch bug: cost that scales with
+output rather than with content.
+
+The test for it needs a **DOM stub**, not optionally: without `document` the tile
+builder returns null and `grain` early-returns, so the assertion would pass
+vacuously on 0 === 0.
+
 ### OUTSTANDING
 
 1. **The RASTER path has not been looked at.** Only the SVG export was rendered
    and screenshotted. Map2D on screen and the PNG export share the passes and
    the now-fixed coordinate conversion, so the risk is much lower than it was —
-   but it is not zero, and the Canvas2D seam-stroke change is untested by eye.
+   but it is not zero, and the Canvas2D seam-stroke and grain-tile changes are
+   untested by eye.
    Load Map2D, switch Map Style to Parchment, and export a PNG.
 2. **D10's browser check is still outstanding** and is now on `origin`.
-3. **Pre-existing:** the SVG export has emitted `rgba()` STROKES since before A3
+3. **`exportSVG` ignores the hillshade toggle.** It calls `computeShadeMap`
+   unconditionally while the PNG path threads `showHillshade`, so with hillshade
+   off a PNG exports unshaded and an SVG exports shaded. Caller-level, one
+   parameter to thread. Not blocking.
+4. **Pre-existing:** the SVG export has emitted `rgba()` STROKES since before A3
    (`exportVector.ts` ~85, ~95, ~193 — river and label groups). SVG 1.1 has no
    `rgba()` colour syntax, so those may render inconsistently in Illustrator and
    Inkscape. Out of scope for A3; worth a small follow-up.
-4. **Select fix known gap** (see above): the predicate is tested, the wiring is
+5. **Select fix known gap** (see above): the predicate is tested, the wiring is
    not. A null `menuRef` at listener time reproduces the symptom by another path.
 
 ### NEXT

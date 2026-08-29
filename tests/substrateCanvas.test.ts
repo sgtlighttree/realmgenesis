@@ -9,6 +9,7 @@ const makeCtx = () => ({
   save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), fill: vi.fn(),
   stroke: vi.fn(), fillRect: vi.fn(), clip: vi.fn(), rect: vi.fn(),
   moveTo: vi.fn(), lineTo: vi.fn(), translate: vi.fn(), rotate: vi.fn(),
+  createPattern: vi.fn(() => ({})),
   fillStyle: '', strokeStyle: '', lineWidth: 0, globalAlpha: 1,
   lineCap: '', lineJoin: '',
 }) as unknown as CanvasRenderingContext2D;
@@ -51,6 +52,41 @@ describe('Canvas2DSubstrate', () => {
     new Canvas2DSubstrate(ctx, (() => {}) as never, 100, 50)
       .hatchFeatures([], { color: '#000', spacingPx: 8, widthPx: 1, angleDeg: 45 });
     expect(ctx.clip).not.toHaveBeenCalled();
+  });
+
+  it('paints grain at constant cost, not per output pixel', () => {
+    // The first version looped the whole output in 3px steps and called
+    // fillRect per speck: 49,500 calls for one 1400x700 Map2D frame (on every
+    // pan) and 1,679,374 for an 8192px PNG. A repeating tile is constant cost.
+    //
+    // A DOM stub is required, not optional: without `document` the tile builder
+    // returns null and grain early-returns, so the assertion would pass
+    // vacuously on 0 === 0 and prove nothing.
+    const tileCtx = {
+      createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+      putImageData: vi.fn(),
+    };
+    vi.stubGlobal('document', {
+      createElement: () => ({ width: 0, height: 0, getContext: () => tileCtx }),
+    });
+    try {
+      const calls = (c: CanvasRenderingContext2D) =>
+        (c.fillRect as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+
+      const big = makeCtx();
+      new Canvas2DSubstrate(big, (() => {}) as never, 8192, 4096)
+        .grain({ seed: 'grain-test', opacity: 0.1, scale: 1 });
+      const small = makeCtx();
+      new Canvas2DSubstrate(small, (() => {}) as never, 100, 50)
+        .grain({ seed: 'grain-test', opacity: 0.1, scale: 1 });
+
+      // The pattern path really ran, and cost is identical at 80x the area.
+      expect(big.createPattern).toHaveBeenCalled();
+      expect(calls(big)).toBe(1);
+      expect(calls(small)).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('restores the context for every save', () => {
