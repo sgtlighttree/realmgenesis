@@ -11,7 +11,7 @@ export type FillPolicy =
 
 export type MapStyleId = 'default' | 'parchment';
 
-export type GlyphKind = 'mountain' | 'hill' | 'forest' | 'conifer' | 'dune' | 'marsh';
+export type GlyphKind = 'mountain' | 'hill' | 'forest' | 'conifer' | 'dune' | 'marsh' | 'ice';
 
 /** A glyph resolved to output pixels. Both substrates just draw this. */
 export interface PlacedGlyph {
@@ -37,6 +37,14 @@ export interface StylePalette {
    */
   shadow: string;
   highlight: string;
+  /**
+   * Permanent ice — polar caps and frozen sea. A named entry because ice is the
+   * one terrain a bare-paper style cannot leave to glyphs alone: unpainted, an
+   * ice cap is indistinguishable from temperate land, and 6.8% of land in a
+   * default world is ICE_CAP. Period maps render polar ice pale and stippled,
+   * not blank.
+   */
+  ice: string;
 }
 
 /**

@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 
-import { ViewMode } from '../../types';
+import { BiomeType, ViewMode } from '../../types';
 import { getCellColor } from '../colors';
-import { seasonalTemperatureDelta } from '../seasons';
+import { SEAWATER_FREEZE_C, seasonalTemperatureDelta } from '../seasons';
 import { isLakeCell } from '../worldGen';
 import { Substrate } from './substrate';
 import { FillPolicy, MapStyle, StylePalette, StylePass, StyleRenderContext } from './types';
@@ -37,10 +37,27 @@ export const paperPass = (palette: StylePalette, seed: string): StylePass =>
     sub.grain({ seed, opacity: 0.10, scale: 1 });
   };
 
-/** Flat sea tone on ocean cells only. */
+/**
+ * Flat sea tone on ocean cells, with FROZEN sea painted as ice.
+ *
+ * The sea-ice check is here rather than inherited from `getCellColor` because
+ * this pass never calls it — it paints a flat palette tone. Without this, D3's
+ * seasonal sea ice silently disappeared under a style, the same class of loss as
+ * the ice caps on land.
+ */
 export const oceanFillPass = (palette: StylePalette): StylePass =>
   (ctx, sub) => {
-    for (const feature of oceanFeatures(ctx)) sub.fillFeature(feature, palette.sea);
+    const { world, colorCtx } = ctx;
+    for (let i = 0; i < world.cells.length; i++) {
+      const cell = world.cells[i];
+      if (cell.height >= colorCtx.seaLevel) continue;
+      const feature = world.geoJson?.features?.[i];
+      if (!feature) continue;
+      const frozen =
+        cell.biome !== BiomeType.LAKE && cell.biome !== BiomeType.SALT_LAKE &&
+        cell.temperature + seasonalTemperatureDelta(cell, world.params) < SEAWATER_FREEZE_C;
+      sub.fillFeature(feature, frozen ? palette.ice : palette.sea);
+    }
   };
 
 /**
@@ -74,7 +91,6 @@ export const landPass = (
 ): StylePass =>
   (ctx, sub) => {
     const policy = fillPolicy(ctx.viewMode);
-    if (policy === 'bare') return;
     const mute = policy === 'categorical' ? 0.45 : 0;
     const paper = new THREE.Color(palette.paper);
     const { world, colorCtx } = ctx;
@@ -83,6 +99,14 @@ export const landPass = (
       if (cell.height < colorCtx.seaLevel && !isLakeCell(cell)) continue;
       const feature = world.geoJson?.features?.[i];
       if (!feature) continue;
+      // Ice is the ONE exception to bare paper. Left unpainted, an ice cap is
+      // indistinguishable from temperate land — 6.8% of land in a default world
+      // simply vanished. Glyphs alone cannot carry it either: a white expanse is
+      // the information. Every other terrain still shows through as paper.
+      if (policy === 'bare') {
+        if (cell.biome === BiomeType.ICE_CAP) sub.fillFeature(feature, palette.ice);
+        continue;
+      }
       // seasonalDelta is PER CELL. Reusing one shared context here would
       // silently disable D1 seasonal biome re-derivation and D3 sea ice under
       // this style, with no test to catch it.

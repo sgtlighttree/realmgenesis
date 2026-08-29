@@ -49,6 +49,12 @@ const MARSH: UnitSubpath[] = [
   [[0.55, -0.1], [0.55, -0.7]],
 ];
 
+// Angular floe shards, not a rounded form: ice reads as fracture on a drawn map.
+const ICE: UnitSubpath[] = [
+  [[-0.9, 0], [-0.45, -0.5], [0.05, -0.15], [0.5, -0.6], [0.95, -0.1]],
+  [[-0.6, 0.3], [-0.2, 0.02], [0.25, 0.32]],
+];
+
 const SHAPES: Record<GlyphKind, UnitSubpath[]> = {
   mountain: MOUNTAIN,
   hill: HILL,
@@ -56,6 +62,7 @@ const SHAPES: Record<GlyphKind, UnitSubpath[]> = {
   conifer: CONIFER,
   dune: DUNE,
   marsh: MARSH,
+  ice: ICE,
 };
 
 const round = (n: number): string => (Math.round(n * 100) / 100).toString();
