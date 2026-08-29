@@ -38,9 +38,97 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## S27e (2026-08-29) — THE GLOBE TEXTURE WAS UPSIDE DOWN
+## S27f (2026-08-29) — parchment art direction: type, ink, desk, projections
 
-**START THE NEXT SESSION HERE.** Branch `a3-map-style`, not merged, not pushed.
+**START THE NEXT SESSION HERE.** Branch `a3-map-style`, pushed, NOT merged.
+Plan: `docs/superpowers/plans/2026-08-29-parchment-art-direction.md`.
+
+### Shipped
+
+| What | Commit |
+|---|---|
+| Cinzel + IM Fell English lettering | `184452b` |
+| Mercator paper spill + 3D faction names | `3a96592` |
+| Ink pass — every line overlay follows the style | `5206919` |
+| Desk backdrop instead of black | `bea091c` |
+| Equirectangular + Winkel Tripel as 2D views | `a65ba45` |
+
+### Three traps, each of which cost a round
+
+1. **Canvas2D does not wait for webfonts.** `ctx.font` takes a family that has
+   not loaded, falls back down the stack, and draws WITHOUT ERROR — so a map
+   painted too early looks exactly like an unstyled one and nothing reports a
+   problem. `useLabelFonts` awaits the faces and returns a theme whose IDENTITY
+   changes when they land, so callers repaint by the ordinary dependency rules.
+   It returned a bare counter first; `exhaustive-deps` correctly called an
+   unread dep unnecessary, and a disable comment at every site is an invitation
+   to delete the "pointless" dep and silently restore the bug.
+2. **A projection does not fill its canvas.** Mercator clipped at +/-85 degrees
+   is SQUARE, so a wide viewport leaves a margin down each side. `paperPass`
+   painted in raw canvas coordinates and spilled into it — Matt saw a band of
+   blank land off each edge of the world. `Substrate.withSphereClip` fixes it.
+3. **Map2D's offscreen bitmap is blitted UNDER the pan/zoom transform**
+   (`ctx.setTransform(dpr*scale, ...)` then `drawImage`). Anything painted into
+   the offscreen therefore zooms and pans with the paper. The desk backdrop was
+   a style pass for exactly one round because of this; it now lives in SCREEN
+   space beside the scale bar, which was already documented as being outside the
+   bitmap for precisely this reason.
+
+**Method note.** Trap 3 was found by pixel-probing the canvas
+(`getImageData` at fractional coordinates), not by reading more screenshots. The
+corners came back `rgba(0,0,0,0)` even after the fill was made unclipped, which
+ruled out the clip and pointed straight at the blit. Screenshots showed the
+symptom for two rounds; one probe located it.
+
+### Art direction, so nobody "tidies" it away
+
+- **Roman for land, italic for water.** Cinzel (Roman inscriptional capitals —
+  what map engravers imitated) for territory and settlements; IM Fell English
+  (Oxford's 1600s types) for geography, ITALIC only for water. Setting the
+  mountains in italic too throws away the one distinction it buys.
+- **One plate of ink.** Hierarchy comes from weight and from whether a line is
+  broken, never from hue. Rivers run thinner than the coastline — a river as
+  heavy as the coast reads as a strait. Borders are DASHED because a border is a
+  claim and a coastline is a fact.
+- **Halos and casings are PAPER, not black.** They knock the mark clear of the
+  ocean hatch instead of adding an outline to it.
+- Contours and current arrows take flat ink: their height and SST ramps are
+  modern data-viz gradients that fight an engraving.
+
+### Invariants added
+
+- `MapStyle.labelTheme` and `MapStyle.overlayInk` are HANDED to renderers, not
+  reached for — labels and line overlays are drawn by three renderers outside
+  the pass/substrate machinery (the R3F tenants, Map2D, each export path).
+- **Every `overlayInk` value must be an opaque colour.** The SVG export consumes
+  them and SVG 1.1 has no `rgba()`; transparency goes through a separate opacity
+  attribute, exactly as `Substrate.fillFeature` documents.
+- `utils/projections.ts` is the ONE place a d3 projection is built. Screen and
+  export shared nothing before; they had already drifted.
+- Every screen projection must have a working `invert` — the pointer is
+  projected back to lon/lat for picking.
+
+### Still open
+
+- **Toolbar reorg**, deferred by Matt to a later round: three labelled dropdowns
+  (projection, view layer, style), overlays folded into a labelled menu, and the
+  play/pause labelled. The projection list has grown to five entries, which is
+  what makes the current segmented control cramped.
+- **Map furniture** — compass rose, neatline, vignette. 2D ONLY (Matt:
+  parchment on the globe "is more of a novelty more than anything"). Note that
+  `Substrate.withOutsideSphereClip` and `strokeSphere` were written for this and
+  then REMOVED with the backdrop rework; re-add them when the neatline lands
+  rather than assuming they exist.
+- **SVG export embeds no fonts.** `exportSVG` emits `font-family` by name, so
+  the file only letters correctly on a machine that has Cinzel and IM Fell.
+  Either embed the woff2 as a base64 `@font-face` in `<defs>` or say so in the
+  export UI — do not leave it silent.
+- Exports get no desk backdrop, deliberately. Flip one flag if that is wrong.
+- The mid-ocean mesh seams (S27c) are still open and still pre-existing.
+
+---
+
+## S27e (2026-08-29) — THE GLOBE TEXTURE WAS UPSIDE DOWN
 
 ### The bug, and why five fixes across three sessions all missed it
 
