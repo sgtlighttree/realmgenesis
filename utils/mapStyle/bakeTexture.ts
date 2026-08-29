@@ -86,6 +86,10 @@ export const bakeStyleTexture = (
     // `scripts/renderGlobePreview.mjs --views=90` puts the camera straight down
     // on the north pole, and the tight part of the swirl sat inside ~78 deg.
     polarHatchFadeDeg: [66, 82],
+    // The globe joins this texture's left and right edges. Without this the
+    // ocean hatch's phase does not match across the join and the diagonals jog
+    // down the antimeridian as a thin vertical line.
+    wrapsHorizontally: true,
     shadeMap: showHillshade ? computeShadeMap(world.cells, world.params.seaLevel) : null,
     coastlines: computeCoastlineSegments(world),
     colorCtx: {

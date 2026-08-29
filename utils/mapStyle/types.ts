@@ -81,6 +81,16 @@ export interface StyleRenderContext {
    * and keep hatching to the pole.
    */
   polarHatchFadeDeg?: [number, number];
+  /**
+   * True when the output is wrapped end to end — the globe bake, whose left and
+   * right edges meet at the antimeridian.
+   *
+   * A hatch is drawn in output pixels, so unless its pattern repeats a whole
+   * number of times across the width, its phase differs either side of the join
+   * and the diagonals visibly jog down the seam. A flat map has no join, so
+   * `Map2D` and the exports leave this unset.
+   */
+  wrapsHorizontally?: boolean;
   colorCtx: ColorContext;
   coastlines: Array<[Point3, Point3]>;
 }

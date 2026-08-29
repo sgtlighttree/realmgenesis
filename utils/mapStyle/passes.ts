@@ -93,6 +93,28 @@ export const oceanFillPass = (palette: StylePalette): StylePass =>
   };
 
 /**
+ * Nudge a hatch spacing so the pattern repeats a whole number of times across
+ * the output width, for a surface whose two edges meet.
+ *
+ * A hatch at `angleDeg` repeats every `spacing / sin(angleDeg)` pixels
+ * horizontally. If the width is not a multiple of that, the phase at the left
+ * edge does not match the phase at the right, and on the globe the diagonals jog
+ * down the antimeridian — a thin vertical line, visible at any zoom. The
+ * adjustment is a fraction of a percent; it is the phase that matters, not the
+ * density.
+ *
+ * A horizontal hatch (sin 0) never repeats horizontally, so there is nothing to
+ * align and the spacing passes through.
+ */
+const snapHatchToWrap = (spacingPx: number, angleDeg: number, ctx: StyleRenderContext): number => {
+  if (!ctx.wrapsHorizontally) return spacingPx;
+  const sin = Math.abs(Math.sin((angleDeg * Math.PI) / 180));
+  if (sin < 1e-6) return spacingPx;
+  const repeats = Math.max(1, Math.round((ctx.widthPx * sin) / spacingPx));
+  return (ctx.widthPx * sin) / repeats;
+};
+
+/**
  * Diagonal hatch over the ocean, as ONE composite region.
  *
  * Not full-bleed: under the `bare` fill policy the land is unpainted parchment,
@@ -108,11 +130,12 @@ export const oceanHatchPass = (palette: StylePalette): StylePass =>
     // bake got corduroy — the same "denser map at higher resolution" mistake
     // placeGlyphs already avoids.
     const k = (ctx.widthPx / 1024) * (ctx.lineScale ?? 1);
+    const angleDeg = 45;
     const spec = {
       color: palette.seaHatch,
-      spacingPx: Math.max(3, 6 * k),
+      spacingPx: snapHatchToWrap(Math.max(3, 6 * k), angleDeg, ctx),
       widthPx: Math.max(0.4, 0.9 * k),
-      angleDeg: 45,
+      angleDeg,
     };
     // The globe bake asks for a polar fade; a flat map never does. See
     // `StyleRenderContext.polarHatchFadeDeg` for why the poles need it.

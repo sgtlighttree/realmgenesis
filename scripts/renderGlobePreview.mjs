@@ -11,6 +11,7 @@
 //   node scripts/renderGlobePreview.mjs [--style=parchment] [--mode=biome]
 //        [--seed=S] [--points=N] [--size=N] [--out=DIR] [--label=NAME]
 //        [--views=90,45,0]        (camera latitudes, degrees)
+//        [--lon=0] [--dist=2.6]   (camera longitude; lon 180 is the SEAM)
 //        [--texture]              (also dump the flat equirectangular bake)
 //
 // --texture is how you tell a TEXTURE defect from a SAMPLING one: if the mark
@@ -38,6 +39,11 @@ const size = Number(flags.size ?? 900);
 const outDir = String(flags.out ?? 'tmp');
 const label = String(flags.label ?? style);
 const views = String(flags.views ?? '90,45,0').split(',').map(Number);
+// lon 180 puts the antimeridian dead centre. The fragment shader's atan wraps
+// there, so it is the one place the per-fragment mapping has a failure mode the
+// per-vertex one did not — check it, do not reason about it.
+const lon = Number(flags.lon ?? 0);
+const dist = Number(flags.dist ?? 2.6);
 
 if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 
@@ -108,7 +114,7 @@ await page.goto(url, { waitUntil: 'load' });
 await page.waitForFunction('window.__ready === true', null, { timeout: 180000 });
 
 for (const lat of views) {
-  await page.evaluate(l => window.__look(l), lat);
+  await page.evaluate(a => window.__look(a[0], a[1], a[2]), [lat, lon, dist]);
   const file = `${outDir}/globe-${label}-lat${lat}.png`;
   await page.locator('#c').screenshot({ path: file });
   console.log(`  ${file}`);

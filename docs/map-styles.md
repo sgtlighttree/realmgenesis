@@ -139,6 +139,14 @@ Three things are load-bearing:
 - **The bake is NOT mirrored.** The 2D screen and export paths flip horizontally
   for their own reasons, but the globe's coordinate comes straight from
   longitude, so a flip here puts the world back to front.
+- **A wrapped surface needs a phase-aligned hatch.** The globe joins the bake's
+  left and right edges, and a hatch is drawn in output PIXELS, so unless its
+  pattern repeats a whole number of times across the width the phase differs
+  either side of the join and the diagonals jog down the antimeridian as a thin
+  vertical line. `StyleRenderContext.wrapsHorizontally` tells `oceanHatchPass` to
+  snap the spacing; the adjustment is a fraction of a percent. Screenshot at
+  **lon 180** to check it — a view at lon 0 is 180 degrees from the seam and
+  shows nothing.
 - **The pole is a CONTENT problem, not a geometry one.** Equirectangular content
   genuinely converges at the pole; no coordinate scheme changes that. What made
   it read as a defect was the ocean hatch — a fixed-frequency pattern wound
@@ -179,6 +187,11 @@ Default bake is 2048×1024 (~8MB) — chosen for a 16GB M1 with tight thermals.
 
 Nothing else needs to change. `Map2D`, both PNG paths and the SVG export all
 drive the registry.
+
+One thing the bake supplies that a flat render does not: `polarHatchFadeDeg` and
+`wrapsHorizontally` on the render context. A new style that hatches the ocean
+inherits both — a polar fade and a seam-aligned spacing — without asking for
+them. That is right for a sphere texture, but it is not obvious from the pass.
 
 ## Where state lives
 
