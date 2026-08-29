@@ -2,6 +2,7 @@ import { ViewMode } from '../../types';
 import {
   coastlinePass, glyphPass, hillshadePass, landPass, oceanFillPass, oceanHatchPass, paperPass,
 } from './passes';
+import { PARCHMENT_LABEL_THEME } from './labelTheme';
 import { FillPolicy, MapStyle, StylePalette } from './types';
 
 /**
@@ -43,6 +44,7 @@ export const styleParchment: MapStyle = {
   id: 'parchment',
   name: 'Parchment',
   palette: PARCHMENT_PALETTE,
+  labelTheme: PARCHMENT_LABEL_THEME,
   fillPolicy: parchmentFillPolicy,
   passes: [
     paperPass(PARCHMENT_PALETTE, 'parchment'),

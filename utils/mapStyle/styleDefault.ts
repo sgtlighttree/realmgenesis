@@ -1,3 +1,4 @@
+import { DEFAULT_LABEL_THEME } from './labelTheme';
 import { MapStyle } from './types';
 
 /**
@@ -19,6 +20,7 @@ export const styleDefault: MapStyle = {
     highlight: '#ffffff',
     ice: '#ffffff',
   },
+  labelTheme: DEFAULT_LABEL_THEME,
   fillPolicy: () => 'ramp',
   // Empty by design: this style IS the pre-A3 look, and every view mode already
   // paints its own fill. An empty pass list is also the signal a render path

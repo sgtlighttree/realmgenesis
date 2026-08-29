@@ -4,6 +4,7 @@ import { WorldData, ViewMode, InspectMode, DymaxionSettings, EditMode, LabelVisi
 import { getCellColor } from '../utils/colors';
 import { computeCoastlineSegments } from '../utils/boundaries';
 import { getMapStyle, MapStyleId } from '../utils/mapStyle';
+import { useLabelFonts } from '../utils/mapStyle/useLabelFonts';
 import { runStyle } from '../utils/mapStyle/passes';
 import { placeGlyphs } from '../utils/mapStyle/placeGlyphs';
 import { Canvas2DSubstrate } from '../utils/mapStyle/substrateCanvas';
@@ -343,6 +344,7 @@ const Map2D: React.FC<{
   }, [size.width, size.height, projectionType]);
 
   const style = useMemo(() => getMapStyle(mapStyleId), [mapStyleId]);
+  const fontsTick = useLabelFonts(style.labelTheme);
 
   // A style with no passes draws nothing, so the legacy per-cell loop runs
   // instead. This is the ONE test for that — never a comparison against the
@@ -602,6 +604,7 @@ const Map2D: React.FC<{
         dymaxionMarkerProject,
         renderDpr,
         labelVisibility,
+        { theme: style.labelTheme },
       );
 
       // Ruler arc: projected per-sample (not baked into the source equirect
@@ -858,6 +861,7 @@ const Map2D: React.FC<{
         // LOD tracks settled zoom without redrawing every cell per wheel tick.
         scaleRef.current,
         labelVisibility,
+        { theme: style.labelTheme },
       );
       ctx.restore();
     }
@@ -871,6 +875,10 @@ const Map2D: React.FC<{
     // A3: without these the canvas keeps the previous style's pixels — the
     // offscreen buffer is redrawn only when this effect re-runs.
     style,
+    // Bumps once the style's webfonts resolve. Canvas2D does NOT wait for
+    // them: without this the first paint silently keeps the fallback face and
+    // the map looks unstyled with nothing reporting a problem.
+    fontsTick,
     styled,
     glyphs,
     dymaxionGlyphs,
