@@ -58,5 +58,20 @@ export interface Substrate {
    */
   hatchFeatures(features: GeoFeatureLike[], spec: HatchSpec): void;
   grain(spec: GrainSpec): void;
+  /**
+   * Run `draw` clipped to the PROJECTED SPHERE — the map's own outline, which
+   * is what `d3.geoPath({ type: 'Sphere' })` traces for whatever projection is
+   * in force.
+   *
+   * Needed because a projection does not necessarily fill its canvas.
+   * `d3.geoMercator` clipped at +/-85 degrees is square, so fitting it into a
+   * wide viewport leaves a margin down each side. Anything painted by raw
+   * canvas coordinates — paper tone, grain — spills into that margin, where
+   * there is no map, and the parchment then reads as extra land off the edges
+   * of the world. Reported by Matt against the Mercator view.
+   *
+   * A no-op in effect for equirectangular, where the sphere IS the canvas.
+   */
+  withSphereClip(draw: () => void): void;
   drawGlyph(g: PlacedGlyph, ink: string, width: number): void;
 }

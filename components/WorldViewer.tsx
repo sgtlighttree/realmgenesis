@@ -8,6 +8,7 @@ import { getMapStyle, MapStyleId } from '../utils/mapStyle';
 import { bakeStyleTexture, buildGlobeDirs } from '../utils/mapStyle/bakeTexture';
 import { createStyleTexture, createStyledGlobeMaterial } from '../utils/mapStyle/globeMaterial';
 import { useLabelFonts } from '../utils/mapStyle/useLabelFonts';
+import { LabelTheme } from '../utils/mapStyle/labelTheme';
 import { seasonalTemperatureDelta } from '../utils/seasons';
 import { displayRadius, CELL_OVERHANG } from '../utils/displayRadius';
 import { computeShadeMap, computeContourSegments, contourInterval } from '../utils/shading';
@@ -167,7 +168,22 @@ const MarkerPins: React.FC<{ markers: MarkerData[]; visible: boolean }> = ({ mar
     );
 };
 
-const CurvedFactionLabel: React.FC<{ name: string; position: THREE.Vector3 }> = ({ name, position }) => {
+/**
+ * Faction names on the globe are NOT drawn by `drawMapLabels` — they are curved
+ * textured meshes, each baking its own canvas. So they need the style's
+ * lettering handed to them separately, or the globe shows Cinzel point labels
+ * beside Inter faction names, which is what Matt saw.
+ *
+ * The theme's identity changes once the webfonts resolve (see useLabelFonts),
+ * which re-bakes this texture. Without that the bake happens in the fallback
+ * face and stays there: Canvas2D does not wait for fonts, and this canvas is
+ * drawn exactly once.
+ */
+const CurvedFactionLabel: React.FC<{
+    name: string;
+    position: THREE.Vector3;
+    theme: LabelTheme;
+}> = ({ name, position, theme }) => {
     const { texture, scale } = useMemo(() => {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
@@ -182,19 +198,31 @@ const CurvedFactionLabel: React.FC<{ name: string; position: THREE.Vector3 }> = 
             return { texture: fallbackTexture, scale: [0.2, 0.06, 1] as [number, number, number] };
         }
 
-        ctx.font = `800 ${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
+        // Cinzel has no 800; asking for one makes the browser synthesise a
+        // bolder face that does not match the point labels. Cap at the weights
+        // the theme actually ships.
+        const weight = theme.faces.length > 0 ? 700 : 800;
+        const tracking = theme.trackingEm !== 0
+            ? `${(theme.trackingEm * fontSize).toFixed(2)}px` : '0px';
+        const setFont = () => {
+            ctx.font = `${weight} ${fontSize}px ${theme.displayFamily}`;
+            ctx.letterSpacing = tracking;
+        };
+
+        setFont();
         const textWidth = Math.ceil(ctx.measureText(label).width);
         canvas.width = Math.max(1, textWidth + paddingX * 2);
         canvas.height = Math.max(1, fontSize + paddingY * 2);
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.font = `800 ${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
+        // Resizing a canvas resets its context, so the font must be set again.
+        setFont();
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.lineJoin = 'round';
-        ctx.lineWidth = Math.max(5, 7 * pixelRatio);
-        ctx.strokeStyle = '#020617';
-        ctx.fillStyle = '#f8fafc';
+        ctx.lineWidth = Math.max(5, fontSize * theme.haloScale);
+        ctx.strokeStyle = theme.halo;
+        ctx.fillStyle = theme.ink;
         ctx.strokeText(label, canvas.width / 2, canvas.height / 2);
         ctx.fillText(label, canvas.width / 2, canvas.height / 2);
 
@@ -207,7 +235,7 @@ const CurvedFactionLabel: React.FC<{ name: string; position: THREE.Vector3 }> = 
         const height = 0.075;
         const width = height * (canvas.width / canvas.height);
         return { texture: labelTexture, scale: [width, height, 1] as [number, number, number] };
-    }, [name]);
+    }, [name, theme]);
 
     const geometry = useMemo(() => {
         const radius = Math.max(1.08, position.length());
@@ -287,7 +315,11 @@ const CurvedFactionLabel: React.FC<{ name: string; position: THREE.Vector3 }> = 
     );
 };
 
-const CountryLabels: React.FC<{ world: WorldData; visible: boolean }> = ({ world, visible }) => {
+const CountryLabels: React.FC<{
+    world: WorldData;
+    visible: boolean;
+    theme: LabelTheme;
+}> = ({ world, visible, theme }) => {
     const labels = useMemo(() => {
         if (!world.civData || !visible) return [];
         return world.civData.factions.map(f => {
@@ -316,6 +348,7 @@ const CountryLabels: React.FC<{ world: WorldData; visible: boolean }> = ({ world
                     key={l.id}
                     name={l.name}
                     position={l.position}
+                    theme={theme}
                 />
             ))}
         </Group>
@@ -544,8 +577,7 @@ const WorldMesh: React.FC<{
   // Lettering for the active style. `fontsTick` changes once the webfonts
   // resolve; it is in the tenant deps so the overlay repaints then. Without it
   // the first paint silently keeps the fallback face — Canvas2D does not wait.
-  const labelTheme = getMapStyle(mapStyleId).labelTheme;
-  const fontsTick = useLabelFonts(labelTheme);
+  const labelTheme = useLabelFonts(getMapStyle(mapStyleId).labelTheme);
 
   // Refill runs synchronously before the next painted frame so a fresh
   // geometry is never displayed with empty buffers
@@ -847,13 +879,7 @@ const WorldMesh: React.FC<{
     // radius (clears peaks), not draped; see drawRulerTenant.
     { id: 'ruler', visible: !!rulerArc && rulerArc.length > 1,
       draw: (ctx, _proj, _world, project, smooth) => drawRulerTenant(ctx, rulerArc!, project, smooth) },
-    // `fontsTick` is deliberately unread: it carries no value, it exists to
-    // rebuild this tenant list once the style's webfonts resolve. Canvas2D does
-    // NOT wait for webfonts — it draws in the fallback face without erroring —
-    // so only a repaint replaces that first frame. The rule cannot see a canvas
-    // repaint, so it calls the dependency unnecessary. It is not.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [showRivers, riverPolylines, showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, labelVisibility, borderSegments, showGrid, dymaxionSettings.showOverlay, dymaxionSettings.lon, dymaxionSettings.lat, dymaxionSettings.roll, dymaxionEdges, labelAnchors, camera, rulerArc, labelTheme, fontsTick]);
+  ], [showRivers, riverPolylines, showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, labelVisibility, borderSegments, showGrid, dymaxionSettings.showOverlay, dymaxionSettings.lon, dymaxionSettings.lat, dymaxionSettings.roll, dymaxionEdges, labelAnchors, camera, rulerArc, labelTheme]);
 
   return (
     <Group>
@@ -891,7 +917,7 @@ const WorldMesh: React.FC<{
                 <React.Suspense fallback={null}>
                     {/* CurvedFactionLabel stays 3D (curved textured meshes) — F2 does not
                         flatten faction names to Canvas2D (plan §1). */}
-                    <CountryLabels world={world} visible={labelVisibility.factions} />
+                    <CountryLabels world={world} visible={labelVisibility.factions} theme={labelTheme} />
                 </React.Suspense>
                 {/* Faction borders migrated to ScreenOverlay (F2 borders tenant). */}
                 {/* Rivers migrated to ScreenOverlay (F2 rivers tenant). */}

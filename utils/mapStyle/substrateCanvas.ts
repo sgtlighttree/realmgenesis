@@ -166,6 +166,15 @@ export class Canvas2DSubstrate implements Substrate {
     this.ctx.restore();
   }
 
+  withSphereClip(draw: () => void): void {
+    this.ctx.save();
+    this.ctx.beginPath();
+    this.path({ type: 'Sphere' });
+    this.ctx.clip();
+    draw();
+    this.ctx.restore();
+  }
+
   grain(spec: GrainSpec): void {
     const tile = grainTile(spec.seed, spec.scale);
     if (!tile || typeof this.ctx.createPattern !== 'function') return;
