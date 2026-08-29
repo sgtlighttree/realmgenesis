@@ -38,10 +38,97 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## S27d (2026-08-29) — why parchment still looks like "nothing happened"
+## S27e (2026-08-29) — THE GLOBE TEXTURE WAS UPSIDE DOWN
 
-**START THE NEXT SESSION HERE.** The reprojection is NOT the problem. Verified by
-Playwright against the running app.
+**START THE NEXT SESSION HERE.** Branch `a3-map-style`, not merged, not pushed.
+
+### The bug, and why five fixes across three sessions all missed it
+
+`THREE.Texture.flipY` **defaults to true**, and three.js feeds it to
+`UNPACK_FLIP_Y_WEBGL`, so a canvas's top row uploads to `v = 1`. Row 0 of an
+equirectangular canvas is the **north pole**, and both `d3.geoEquirectangular`
+and `toLonLat` put north at `v = 0`. The default flip painted the **southern
+hemisphere onto the northern mesh**.
+
+Consequences, all of which were seen and misattributed:
+
+- Coastlines on the wrong hemisphere — Matt, twice: "borders are messed up,
+  reprojection is a bit of a mess" (S27b) and "landmasses are STILL misaligned
+  with the ground truth cell landmass" (S27e).
+- Mountain glyphs on open ocean.
+- Hillshade fighting the very relief it was computed from.
+- **The "polar swirl" chased across three rounds was the SOUTH pole's content
+  drawn on the north.**
+
+`buildGlobeUVs` used the identical, *correct*, `vOf = 0.5 - asin(y)/PI`. So the
+flip predates every UV fix in both sessions. **Every fix changed the formula,
+which was right, and none touched the upload.** That is the whole lesson: five
+rounds of work on the half that was correct.
+
+Fixed with `tex.flipY = false` in `createStyleTexture` — at the upload, where the
+convention change actually happens. NOT by negating `v` in the shader: the shader
+agrees with the projection it mirrors, and a negated copy would disagree with it
+and get re-derived by the next reader. `tests/globeMaterial.test.ts` pins both
+halves together, because changing either alone inverts the world again.
+
+### What ruled the alternatives out — measurement, in this order
+
+Each of these took under a minute and each killed a plausible theory. Do them in
+this order next time something is misregistered:
+
+1. **Convention.** `toLonLat` is `atan2(z, x)` / `asin(y)` — identical to the
+   shader. Not a rotation.
+2. **Data.** GeoJSON longitude vs mesh longitude, per cell: **2000/2000 agree,
+   0 negated** (`tmp/align.mjs`). So the bake's deliberate un-mirroring is right,
+   and the 2D paths' `scale(-1,1)` is their own business. Not a mirror.
+3. **Projection.** `d3.geoEquirectangular().fitSize([2048,1024], Sphere)` against
+   the analytic `(lon+180)/360·w`, `(90−lat)/180·h` at nine probe points:
+   **dx = dy = 0 everywhere** (`tmp/proj.mjs`). Not a fit offset.
+4. **Upload.** Only suspect left, and directly testable — see below.
+
+### The instrument that settles orientation in one run
+
+    node scripts/renderGlobePreview.mjs --marker --views=90,-90
+
+`--marker` paints the canvas top **red** (north) and bottom **blue** (south).
+Blue came out on the north pole. No reasoning about GL upload order required.
+
+Also added, at Matt's request: **`--hatch=0`** for a horizontal ocean hatch. A
+diagonal hatch hides a vertical offset or a skew inside its own slope;
+horizontal lines are a ruled grid and misregistration reads off them instantly.
+Use it whenever alignment is in question. It threads through
+`StyleRenderContext.hatchAngleDeg`, debug-only, 45 when unset.
+
+### How to verify alignment properly
+
+Render the SAME camera twice and compare — parchment against vertex-colour
+ground truth:
+
+    node scripts/renderGlobePreview.mjs --label=p --views=20
+    node scripts/renderGlobePreview.mjs --label=t --views=20 --style=default
+
+Done at lat 20 / lon 0 and lat −30 / lon 110: coastlines coincide, glyphs sit on
+their own terrain. **Plausibility is not a check here** — a flipped world put
+mountains on ocean for three sessions and looked fine.
+
+### Still open, unchanged by this
+
+S27d's finding stands and is now the top remaining item: **every line and label
+overlay ignores `mapStyleId`** — neon sky-400 rivers, white borders, sans-serif
+labels over the parchment, with the river colour hardcoded in four files and
+five call sites. See S27d below for the table and the two design decisions Matt
+has to make first. Re-judge it now that the texture is the right way up.
+
+The mid-ocean mesh seams (S27c) are also still open and still pre-existing.
+
+---
+
+## S27d (2026-08-29) — the overlays ignore the style
+
+Verified by Playwright against the running app. NOTE: this session concluded
+"the reprojection is not the problem." That was **half wrong** — the overlay
+finding below is real and still open, but the texture WAS misregistered, by a
+vertical flip S27e found. Both were true at once.
 
 ### The projection is correct. The style just stops at the texture.
 
