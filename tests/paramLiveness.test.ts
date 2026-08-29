@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { generateWorld } from '../utils/worldGen';
 import { WorldParams } from '../types';
 import { makeParams, terrainSignature, civSignature, nameSignature, cultureSignature } from './helpers';
@@ -55,26 +55,73 @@ const CIV_PERTURBATIONS: Record<string, Perturbation> = {
   territorialWaters: { territorialWaters: 0.9 },
 };
 
+// V3 terrain model params. V3 is the only terrain path, so these must all
+// influence the terrain signature.
+const V3_PERTURBATIONS: Record<string, Perturbation> = {
+  marginCoupling: { marginCoupling: 0.8 },
+  numTimesteps: { numTimesteps: 10 },
+  simulationResolution: { simulationResolution: 5000 },
+  plateJitter: { plateJitter: 0.8 },
+  boundaryRoughness: { boundaryRoughness: 0.8 },
+  spreadRate: { spreadRate: 0.02 },
+  seafloorDepth: { seafloorDepth: 0.5 },
+  // 2.0, not 0 — at 0 the Stage-9c block is skipped entirely, so a broken
+  // amplitude term would still pass. 2.0 exercises the live path.
+  seafloorRelief: { seafloorRelief: 2.0 },
+  microplateIntensity: { microplateIntensity: 0.9 },
+};
+
+// ONE generation per case, and ONE shared baseline for the whole file.
+//
+// These three tables used to be three `it`s, each looping over its own table
+// with its own baseline: 27, 6 and 12 world generations inside three test
+// bodies. That cost a 120s timeout each, and on a loaded machine the terrain
+// one blew it — failing all 26 params at once, naming none of them. One slow
+// moment should fail one case, and the message should say which param.
+//
+// Splitting via `it.each` alone would have made it worse (a baseline per case,
+// so double the generations). Hoisting the baseline into `beforeAll` keeps the
+// total slightly BELOW the old one, because all three tables perturb the same
+// default world and now share its baseline instead of regenerating it.
 describe('every tunable param influences the world', () => {
-  it('terrain params change the terrain signature', async () => {
-    const baseline = await generateWorld(makeParams());
-    const baseSig = terrainSignature(baseline);
+  let baseTerrainSig = '';
+  let baseCivSig = '';
 
-    for (const [name, perturbation] of Object.entries(TERRAIN_PERTURBATIONS)) {
-      const world = await generateWorld(makeParams(perturbation));
-      expect(terrainSignature(world), `param "${name}" appears to be dead — output unchanged`).not.toBe(baseSig);
-    }
+  beforeAll(async () => {
+    const baseline = await generateWorld(makeParams());
+    baseTerrainSig = terrainSignature(baseline);
+    baseCivSig = civSignature(baseline);
   }, 120000);
 
-  it('civ params change the civilization signature', async () => {
-    const baseline = await generateWorld(makeParams());
-    const baseSig = civSignature(baseline);
-
-    for (const [name, perturbation] of Object.entries(CIV_PERTURBATIONS)) {
+  it.each(Object.entries(TERRAIN_PERTURBATIONS))(
+    'terrain param "%s" changes the terrain signature',
+    async (name, perturbation) => {
       const world = await generateWorld(makeParams(perturbation));
-      expect(civSignature(world), `param "${name}" appears to be dead — output unchanged`).not.toBe(baseSig);
-    }
-  }, 120000);
+      expect(terrainSignature(world), `param "${name}" appears to be dead — output unchanged`)
+        .not.toBe(baseTerrainSig);
+    },
+    60000,
+  );
+
+  it.each(Object.entries(CIV_PERTURBATIONS))(
+    'civ param "%s" changes the civilization signature',
+    async (name, perturbation) => {
+      const world = await generateWorld(makeParams(perturbation));
+      expect(civSignature(world), `param "${name}" appears to be dead — output unchanged`)
+        .not.toBe(baseCivSig);
+    },
+    60000,
+  );
+
+  it.each(Object.entries(V3_PERTURBATIONS))(
+    'V3 param "%s" changes the terrain signature',
+    async (name, perturbation) => {
+      const world = await generateWorld(makeParams(perturbation));
+      expect(terrainSignature(world), `V3 param "${name}" appears to be dead — output unchanged`)
+        .not.toBe(baseTerrainSig);
+    },
+    60000,
+  );
 
   // capitalSpacing only *binds* when capitals are dense enough for the minimum
   // separation to reject a candidate. At the default faction count under V3
@@ -144,33 +191,11 @@ describe('every tunable param influences the world', () => {
       .toBe(terrainSignature(baseline));
   }, 120000);
 
-  // V3 terrain model params. V3 is the only terrain path, so these must all
-  // influence the terrain signature.
-  it('V3 params change the terrain signature', async () => {
-    const baseline = await generateWorld(makeParams());
-    const baseSig = terrainSignature(baseline);
-
-    const v3Perturbations: Record<string, Perturbation> = {
-      marginCoupling: { marginCoupling: 0.8 },
-      numTimesteps: { numTimesteps: 10 },
-      simulationResolution: { simulationResolution: 5000 },
-      plateJitter: { plateJitter: 0.8 },
-      boundaryRoughness: { boundaryRoughness: 0.8 },
-      spreadRate: { spreadRate: 0.02 },
-      seafloorDepth: { seafloorDepth: 0.5 },
-      // 2.0, not 0 — at 0 the Stage-9c block is skipped entirely, so a broken
-      // amplitude term would still pass. 2.0 exercises the live path.
-      seafloorRelief: { seafloorRelief: 2.0 },
-      microplateIntensity: { microplateIntensity: 0.9 },
-    };
-
-    for (const [name, perturbation] of Object.entries(v3Perturbations)) {
-      const world = await generateWorld(makeParams(perturbation));
-      expect(terrainSignature(world), `V3 param "${name}" appears to be dead — output unchanged`).not.toBe(baseSig);
-    }
-
+  // plateElongation is compared against its own opposite, not the baseline, so
+  // it stays a case of its own rather than joining V3_PERTURBATIONS.
+  it('plateElongation changes the terrain signature', async () => {
     expect(terrainSignature(await generateWorld(makeParams({ plateElongation: 0.0 }))),
       'param "plateElongation" appears to be dead — output unchanged')
       .not.toBe(terrainSignature(await generateWorld(makeParams({ plateElongation: 1.0 }))));
-  }, 120000);
+  }, 60000);
 });
