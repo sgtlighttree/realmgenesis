@@ -16,7 +16,7 @@ import { insideTri, barycentric, normalizeVec, toLonLat, getDymaxionNetTransform
 import { collectLabels, drawMapLabels } from '../utils/labels';
 import { computeShadeMap, computeContourSegments, drawContourPaths, contourInterval } from '../utils/shading';
 import { drawCurrents2D } from './overlays/currents2D';
-import { computeScaleBar, niceScaleBarLength, drawScaleBar } from '../utils/measure';
+import { computeScaleBar, niceScaleBarLength } from '../utils/measure';
 
 type Size = { width: number; height: number };
 
@@ -1048,30 +1048,39 @@ const Map2D: React.FC<{
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
 
-    // Scale bar: fixed screen-space overlay (not part of the offscreen bitmap,
-    // so it never grows/shrinks or pans with the map). pixelsPerKm is scaled
-    // by the current zoom so its bar length reflects the visible ground scale.
-    // Dymaxion is skipped — net distortion varies per face, so a single
-    // scale figure would be misleading.
-    if (world && projectionType === 'mercator' && projection) {
-      const centerMapX = (size.width / 2 - offset.x) / scale;
-      const centerMapY = (size.height / 2 - offset.y) / scale;
-      const centerLonLat = projection.invert?.([size.width - centerMapX, centerMapY]);
-      if (centerLonLat && Number.isFinite(centerLonLat[0]) && Number.isFinite(centerLonLat[1])) {
-        const scaleBarInfo = computeScaleBar(projection, centerLonLat, world.params.planetRadius);
-        if (scaleBarInfo) {
-          const screenPixelsPerKm = scaleBarInfo.pixelsPerKm * scale;
-          const { km, px } = niceScaleBarLength(screenPixelsPerKm, 140);
-          if (km > 0) {
-            ctx.setTransform(displayDpr, 0, 0, displayDpr, 0, 0);
-            // x clears the BiomeLegend panel (bottom-4 left-4, w-48 when expanded)
-            // so the bar isn't drawn underneath it.
-            drawScaleBar(ctx, 224, size.height - 16, km, px);
-          }
-        }
-      }
-    }
   }, [size.width, size.height, scale, offset.x, offset.y, qualityDpr, viewMode, world?.params.seed, world, projectionType, renderCount, projection, rulerArc, styled, style.palette.desk, style.palette.deskShadow]);
+
+  /**
+   * Ground scale at the centre of the viewport.
+   *
+   * Was drawn onto the canvas at a hardcoded x of 224, chosen to clear a
+   * BiomeLegend panel that has since moved: the shell's panels float ABOVE a
+   * full-bleed canvas, so the bar sat underneath the left sidebar and could not
+   * be seen. As DOM in the same corner as the pan/zoom hint it cannot be
+   * occluded by a panel laid out in the same coordinate space, and it stops
+   * being a magic number that goes stale whenever the chrome moves.
+   *
+   * Skipped for Dymaxion: net distortion varies per face, so one figure would
+   * be a lie.
+   *
+   * The value DOES change as you pan north or south, and that is correct rather
+   * than a glitch — Mercator and equirectangular both stretch with latitude, so
+   * a bar valid at the equator is wrong at 60 degrees. The latitude it applies
+   * to is shown beside it, so the change reads as information.
+   */
+  const scaleBar = useMemo(() => {
+    if (!world || !projection || projectionType === 'dymaxion') return null;
+    const centerMapX = (size.width / 2 - offset.x) / scale;
+    const centerMapY = (size.height / 2 - offset.y) / scale;
+    const centerLonLat = projection.invert?.([size.width - centerMapX, centerMapY]);
+    if (!centerLonLat || !Number.isFinite(centerLonLat[0]) || !Number.isFinite(centerLonLat[1])) return null;
+    const info = computeScaleBar(projection, centerLonLat, world.params.planetRadius);
+    if (!info) return null;
+    const { km, px } = niceScaleBarLength(info.pixelsPerKm * scale, 140);
+    if (km <= 0) return null;
+    const lat = Math.round(centerLonLat[1]);
+    return { km, px, lat: `${Math.abs(lat)}\u00b0${lat < 0 ? 'S' : 'N'}` };
+  }, [world, projection, projectionType, size.width, size.height, offset.x, offset.y, scale]);
 
   const handleWheel = useCallback((event: WheelEvent) => {
     event.preventDefault();
@@ -1276,6 +1285,15 @@ const Map2D: React.FC<{
       {!world && (
         <div className="absolute inset-0 flex items-center justify-center text-ink-strong/50">
           Forging World...
+        </div>
+      )}
+      {scaleBar && (
+        <div className="absolute bottom-11 right-4 flex items-center gap-2 text-[10px] bg-black/60 border border-white/10 px-2 py-1 text-ink-soft">
+          <span
+            className="inline-block border-x border-b border-current h-1.5"
+            style={{ width: `${scaleBar.px}px` }}
+          />
+          <span>{scaleBar.km.toLocaleString()} km at {scaleBar.lat}</span>
         </div>
       )}
       {world && (

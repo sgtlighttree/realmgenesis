@@ -77,3 +77,35 @@ describe('exportSVG with the parchment style', () => {
     expect(a).toBe(b);
   });
 });
+
+// An SVG carries no stylesheet and cannot reach the app's fonts, so a
+// `font-family` written by name falls back to a system serif on any machine
+// without Cinzel and IM Fell installed — the export then does not look like the
+// map that produced it. `downloadSVG` inlines the woff2 as @font-face; exportSVG
+// takes the CSS as an argument so it stays pure and synchronous.
+describe('exportSVG font embedding', () => {
+  let world: WorldData;
+
+  beforeAll(async () => {
+    world = await generateWorld(makeParams({ points: 1500 }));
+  }, 60000);
+
+  it('emits no <style> when given no font CSS', () => {
+    const svg = exportSVG(world, 'biome', 'equirectangular', 512, 'parchment');
+    expect(svg).not.toContain('<style>');
+  });
+
+  it('inlines the CSS it is handed, before any content', () => {
+    const css = "@font-face{font-family:'Cinzel';src:url(data:font/woff2;base64,AAAA) format('woff2');}";
+    const svg = exportSVG(world, 'biome', 'equirectangular', 512, 'parchment', css);
+    expect(svg).toContain(`<style>${css}</style>`);
+    // Before the first drawn element, or a renderer may lay out text without it.
+    expect(svg.indexOf('<style>')).toBeLessThan(svg.indexOf('<rect'));
+  });
+
+  it('letters labels in the style’s own faces, not Inter', () => {
+    const svg = exportSVG(world, 'biome', 'equirectangular', 512, 'parchment');
+    expect(svg).toContain('Cinzel');
+    expect(svg).not.toContain('Inter');
+  });
+});
