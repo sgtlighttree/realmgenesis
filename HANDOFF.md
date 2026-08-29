@@ -18,7 +18,7 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
       everywhere; unclaimed peaks only ever sit on isolated masses. C5b closed.**
 - [ ] Make a true vector 2D mode instead of raster, but keep it optimized
 - [~] V3 of terrain generation algorithm. Goal is to make plate boundaries far more realistic, make part of Milestone D. — *V3 shipped & live; D7 part 1 (enclaves/exclaves killed, connected plates) done Session 9. D7 part 2 (grounded geophysics, non-Voronoi boundaries) still open.*
-- [ ] Major UI/frontend/rendering overhaul (Milestone F), use skill `/impeccable` for visual UI review
+- [~] Major UI/frontend/rendering overhaul (Milestone F), use skill `/impeccable` for visual UI review — *view strip reorganised into one captioned row of dropdowns, S27h (`8885f76`); the rest of F is open.*
 - - [ ] F1b: Further refine things for brand identity
 - - [ ] Mobile: Minimize the padding and card-inside-card design but that's for later.
 - [ ] Major feature, for much, MUCH later: World Formats: Planet, Flat Earth (Disc, Rectangle, etc.)
@@ -38,7 +38,103 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## S27g (2026-08-29) — NEXT SESSION STARTS HERE
+## S27h (2026-08-29) — NEXT SESSION STARTS HERE
+
+Branch `a3-map-style`, **NOT pushed, NOT merged**. Gates: typecheck 0 · lint 0
+errors / 29 warnings · targeted suites green. **The full suite has NOT been run
+this session** — ask before running it (`CLAUDE.md` run policy).
+
+All three things S27g handed over are done. Commits, oldest first:
+
+| What | Commit |
+|---|---|
+| Desk on every style, plus a vignette and a texture slot | `ca4f8a0` |
+| Blueprint style | `798454f` |
+| Ink & Wash style | `1e4c946` |
+| Boardgame style | `3e54fa1` |
+| Five-style doc table | `1db2753` |
+| One captioned row of dropdowns in the view strip | `8885f76` |
+
+### What the next session should know
+
+**The desk is not a pass and never will be.** `paintDesk` (`utils/mapStyle/desk.ts`)
+runs in Map2D's display effect, in screen space, for every style including
+`default`, and never in an export. `styled` gates the style PASSES; the desk is
+outside that machinery for the reason S27f recorded (the offscreen bitmap is
+blitted under the pan/zoom transform). Dymaxion's raw black went with it.
+
+**`palette.deskTexture` exists and nothing sets it.** It is a URL for a tileable
+image, loaded through `useDeskTexture` — which exists because an undecoded
+`HTMLImageElement` draws nothing and reports nothing, the same silent failure as
+the webfonts. If Matt supplies the stock graphic, drop it in `public/`, set the
+field on one palette, and that is the whole change.
+
+**Five styles ship.** `docs/map-styles.md` now carries the table and the rule
+that keeps them apart: each drawn style imitates a different physical object
+(engraved plate / cyanotype / wash drawing / printed board). A sixth that is a
+palette swap of an existing one is not worth a slot.
+
+**Two pass parameters landed, both defaulted:** `paperPass(…, grainOpacity)` and
+`coastlinePass(…, weight)`. The grain one early-returns at zero rather than
+passing zero through — a substrate may emit a zero-opacity element instead of
+skipping it.
+
+**`usePopoverMenu` is now the one dropdown implementation.** `Select` (listbox)
+and `CheckboxMenu` (multi-select) both sit on it. It carries positioning,
+dismissal and the S27b scroll-containment fix. Listbox semantics stayed in
+`Select` deliberately. `shouldCloseOnScroll` is re-exported from `Select` so
+`tests/select.test.ts` keeps its import — do not "tidy" that re-export away.
+
+### Findings, at the confidence they deserve
+
+- **The polar hatch rosette and the short dark line stubs on the globe are
+  pre-existing, not style-specific.** Rendered Blueprint and Parchment at lat 90
+  and they are identical in both. n=2 styles, one seed. The stubs are NOT the
+  coastline — Blueprint's coast is pure white and its stubs are still dark, so
+  something on the globe draws a line in a colour the style does not supply.
+  Worth a look; nobody has traced it.
+- **Water hillshading on a paper style produces stains, on neutral paper too.**
+  `hillshadePass` recorded this for Parchment; Ink & Wash was built to test
+  whether a neutral palette rescued it. It does not — the sea came out mottled.
+  Confirmed by render, n=1 seed. Land only is the rule for any paper style.
+- **A near-white sheet needs a WEAKER shading tone, not a stronger one.** At
+  `#454a47` on `#f4f1ea` the per-cell contrast made the Voronoi polygons the
+  dominant texture and the land read as a honeycomb. Parchment's beige paper is
+  what lets it carry a darker shadow. Diluted to `#646b67` at 0.6.
+
+### Still open
+
+- **Exports get no desk backdrop**, deliberately. One flag if that is wrong.
+- **The scale bar still changes as you pan north/south**, and reads "500 km at
+  34°N" so the change is information. Matt's call if he wants it pinned anyway.
+- **Dymaxion has no scale bar** (net distortion varies per face). It now has a
+  desk.
+- **VOLCANIC has no glyph** — a `bare` fill policy claims glyphs carry every
+  terrain, and that claim wants checking against the whole `BiomeType` list.
+  Boardgame sidesteps it (no `bare` branch); Blueprint and Ink & Wash inherit it.
+- **Mid-ocean mesh seams on the globe** (S27c) — pre-existing, `CELL_OVERHANG`
+  1.03 too small. Raising it changes how every height step reads: Matt's call.
+- `exportSVG` still ignores the `showHillshade` toggle the PNG path threads.
+- **Label density.** At 1400px with 12000 cells the names overlap badly in every
+  style. Visible in every preview render this session. Not style-specific and
+  not touched.
+- **Backlog styles that are real work, not presets:** Antique Nautical needs
+  rhumb-line and compass-rose passes; Topographic wants a contour pass, and
+  contours are an overlay today.
+
+### Instruments
+
+    node scripts/renderMapPreview.mjs --style=blueprint,inkwash,boardgame --mode=biome --png --out=tmp
+    node scripts/renderGlobePreview.mjs --style=blueprint --views=90,0 --out=tmp --label=bp
+
+`renderMapPreview` drives the real `exportSVG`, so it CANNOT see the desk —
+exports have none by design. The desk needs a browser pixel probe:
+`getImageData` at a canvas corner in Mercator, which letterboxes. Corners must
+read the desk colour, never `rgba(0,0,0,0)`.
+
+---
+
+## S27g (2026-08-29)
 
 Branch `a3-map-style`, pushed, **NOT merged**. Gates: typecheck 0 · lint 0
 errors / 29 warnings · targeted suites green. The full suite has NOT been run
