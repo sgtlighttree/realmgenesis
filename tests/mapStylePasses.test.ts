@@ -8,7 +8,7 @@ import { PlacedGlyph, StyleRenderContext } from '../utils/mapStyle/types';
 
 // Recording substrate: every pass writes through this interface, so asserting
 // on the call log tests the passes without a canvas or an SVG serializer.
-interface Call { op: string; arg?: unknown; opacity?: number; count?: number }
+interface Call { op: string; arg?: unknown; opacity?: number; count?: number; spacing?: number }
 
 const recorder = () => {
   const calls: Call[] = [];
@@ -20,7 +20,11 @@ const recorder = () => {
     hatchRect: (_x, _y, _w, _h, spec: HatchSpec) => { calls.push({ op: 'hatchRect', arg: spec.color }); },
     hatchFeatures: (features, spec: HatchSpec) => {
       calls.push({
-        op: 'hatchFeatures', arg: spec.color, count: features.length, opacity: spec.opacity,
+        op: 'hatchFeatures',
+        arg: spec.color,
+        count: features.length,
+        opacity: spec.opacity,
+        spacing: spec.spacingPx,
       });
     },
     grain: (spec: GrainSpec) => { calls.push({ op: 'grain', arg: spec.seed }); },
@@ -256,5 +260,39 @@ describe('oceanHatchPass polar fade', () => {
       polarHatchFadeDeg: [66, 82],
     });
     expect(south.map(h => h.opacity)).toEqual(north.map(h => h.opacity));
+  });
+});
+
+// The globe joins the bake's left and right edges. A hatch is drawn in output
+// pixels, so unless its pattern repeats a whole number of times across the
+// width, the phase differs either side of the join and the diagonals jog down
+// the antimeridian as a thin vertical line. Found by screenshotting at lon 180
+// — every earlier screenshot was at lon 0, which is 180 degrees from the seam.
+describe('oceanHatchPass seam alignment', () => {
+  const spacingFor = (over: Partial<StyleRenderContext>) => {
+    const { sub, calls } = recorder();
+    runStyle(parchment, makeCtx('biome', over), sub);
+    return calls.find(c => c.op === 'hatchFeatures')!.spacing!;
+  };
+
+  it('leaves the spacing alone for a flat map, which has no join', () => {
+    // 2000px does not divide evenly, so the wrapped case must differ.
+    expect(spacingFor({ widthPx: 2000, wrapsHorizontally: true }))
+      .not.toBe(spacingFor({ widthPx: 2000 }));
+  });
+
+  it('makes the 45-degree hatch repeat a whole number of times across the width', () => {
+    for (const widthPx of [1024, 2000, 2048, 4096, 8192]) {
+      const spacing = spacingFor({ widthPx, wrapsHorizontally: true, lineScale: 0.5 });
+      // A 45-degree hatch repeats every spacing / sin(45) pixels horizontally.
+      const repeats = (widthPx * Math.SQRT1_2) / spacing;
+      expect(repeats).toBeCloseTo(Math.round(repeats), 6);
+    }
+  });
+
+  it('barely moves the density — it is the phase that matters, not the spacing', () => {
+    const flat = spacingFor({ widthPx: 2048, lineScale: 0.5 });
+    const wrapped = spacingFor({ widthPx: 2048, wrapsHorizontally: true, lineScale: 0.5 });
+    expect(Math.abs(wrapped - flat) / flat).toBeLessThan(0.02);
   });
 });
