@@ -1,4 +1,4 @@
-import { Point3 } from '../geo';
+import { Point3, toLonLat } from '../geo';
 import { glyphPathData } from './glyphPaths';
 import { GeoFeatureLike, GrainSpec, HatchSpec, Substrate } from './substrate';
 import { PlacedGlyph } from './types';
@@ -44,6 +44,12 @@ export class Canvas2DSubstrate implements Substrate {
     this.path(feature);
     this.ctx.fillStyle = fill;
     this.ctx.fill();
+    // Stroke as well as fill, matching SvgSubstrate: the hairline closes the
+    // antialiasing seam between adjacent Voronoi polygons, and both surfaces
+    // must do it or the raster and vector maps differ. globalAlpha covers both.
+    this.ctx.strokeStyle = fill;
+    this.ctx.lineWidth = 0.5;
+    this.ctx.stroke();
     this.ctx.restore();
   }
 
@@ -69,6 +75,10 @@ export class Canvas2DSubstrate implements Substrate {
   }
 
   strokeSegments(segments: Array<[Point3, Point3]>, stroke: string, width: number): void {
+    // Point3 is a UNIT VECTOR; GeoJSON coordinates are [lon, lat] in DEGREES.
+    // Passing the vector straight through made d3 read [x, y] as degrees, so
+    // every segment collapsed to a dot near the origin and the coastline simply
+    // did not appear. 352 passing tests did not catch it — a screenshot did.
     if (!segments.length) return;
     this.ctx.strokeStyle = stroke;
     this.ctx.lineWidth = width;
@@ -76,7 +86,7 @@ export class Canvas2DSubstrate implements Substrate {
     this.ctx.lineJoin = 'round';
     this.ctx.beginPath();
     for (const [a, b] of segments) {
-      this.path({ type: 'LineString', coordinates: [a, b] });
+      this.path({ type: 'LineString', coordinates: [toLonLat(a), toLonLat(b)] });
     }
     this.ctx.stroke();
   }

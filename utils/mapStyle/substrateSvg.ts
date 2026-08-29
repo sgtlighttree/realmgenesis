@@ -1,4 +1,4 @@
-import { Point3 } from '../geo';
+import { Point3, toLonLat } from '../geo';
 import { glyphPathData } from './glyphPaths';
 import { GeoFeatureLike, GrainSpec, HatchSpec, Substrate } from './substrate';
 import { PlacedGlyph } from './types';
@@ -49,7 +49,15 @@ export class SvgSubstrate implements Substrate {
     const d = this.path(feature);
     if (!d) return;
     // fill-opacity, NOT an rgba() fill — SVG 1.1 has no rgba() colour syntax.
-    const op = opacity < 1 ? ` fill-opacity="${opacity.toFixed(3)}"` : '';
+    //
+    // The hairline stroke closes the antialiasing seam between adjacent Voronoi
+    // polygons (the pre-A3 renderCellPaths does the same). It MUST carry the
+    // same opacity as the fill: without stroke-opacity a translucent pass drew
+    // a full-strength outline on every cell, which rendered the whole map as a
+    // dark honeycomb mesh — most visible where hillshade fills at 5% opacity.
+    const op = opacity < 1
+      ? ` fill-opacity="${opacity.toFixed(3)}" stroke-opacity="${opacity.toFixed(3)}"`
+      : '';
     this.bodyParts.push(
       `<path d="${d}" fill="${esc(fill)}"${op} stroke="${esc(fill)}" stroke-width="0.5"/>`,
     );
@@ -76,9 +84,13 @@ export class SvgSubstrate implements Substrate {
   }
 
   strokeSegments(segments: Array<[Point3, Point3]>, stroke: string, width: number): void {
+    // Point3 is a UNIT VECTOR; GeoJSON coordinates are [lon, lat] in DEGREES.
+    // Passing the vector straight through made d3 read [x, y] as degrees, so
+    // every segment collapsed to a dot near the origin and the coastline simply
+    // did not appear. 352 passing tests did not catch it — a screenshot did.
     const ds: string[] = [];
     for (const [a, b] of segments) {
-      const d = this.path({ type: 'LineString', coordinates: [a, b] });
+      const d = this.path({ type: 'LineString', coordinates: [toLonLat(a), toLonLat(b)] });
       if (d) ds.push(d);
     }
     if (!ds.length) return;

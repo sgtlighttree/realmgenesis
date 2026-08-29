@@ -71,6 +71,15 @@ describe('SvgSubstrate', () => {
     expect(mirrored.body()).toContain('90');
   });
 
+  it('applies opacity to the seam stroke as well as the fill', () => {
+    // Without stroke-opacity a translucent pass drew a FULL-strength outline on
+    // every cell, turning the map into a dark honeycomb mesh.
+    const s = new SvgSubstrate((() => 'M0 0L1 1') as never, 100, 50);
+    s.fillFeature({ type: 'Feature', geometry: {} }, '#000000', 0.05);
+    expect(s.body()).toContain('stroke-opacity="0.050"');
+    expect(s.body()).toContain('fill-opacity="0.050"');
+  });
+
   it('reuses one pattern id for identical hatch specs', () => {
     const s = new SvgSubstrate((() => '') as never, 100, 50);
     const spec = { color: '#000', spacingPx: 8, widthPx: 1, angleDeg: 45 };
