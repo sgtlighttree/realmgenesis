@@ -38,9 +38,105 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## S27g (2026-08-29) — NEXT SESSION STARTS HERE
+
+Branch `a3-map-style`, pushed, **NOT merged**. Gates: typecheck 0 · lint 0
+errors / 29 warnings · targeted suites green. The full suite has NOT been run
+this session — see the run policy in `CLAUDE.md` and **ask before running it**.
+
+### The three things Matt asked for next, in his order
+
+**1. Improve the desk design — and put it on the DEFAULT view too.**
+
+Today the desk is a flat `#20180f` fill plus a drop shadow, painted in screen
+space in `Map2D`'s display effect (search `style.palette.desk`). It is gated on
+`styled`, so the default style still gets raw black. Matt wants it on both.
+
+- Matt may supply a stock graphic; design for an IMAGE as well as a colour.
+  `StylePalette.desk` is a colour string today — a texture needs either a second
+  field or a small union, and it must be a **screen-space** fill (see the trap
+  below) that does not pan or zoom with the paper.
+- The default style has an EMPTY `passes` array, and that emptiness is a
+  load-bearing invariant ("an empty pass list is the signal a render path uses
+  to run its legacy loop"). Do NOT add a pass to it. Give it desk colours in its
+  palette and let Map2D read them unconditionally instead of `if (styled)`.
+
+**2. More look presets.** The registry is ready: a style is an id, a
+`StylePalette`, a `LabelTheme`, an `OverlayInk`, a `fillPolicy` and a `passes`
+array. `docs/map-styles.md` "Adding a style" has the checklist. Ideas were
+logged in the A3 spec §9. Two things a new style inherits without asking, which
+are documented there but easy to miss: `polarHatchFadeDeg` and
+`wrapsHorizontally` are set by the globe bake for any style that hatches.
+
+**3. Top bar reorg.** Matt: "I guess it's all dropdowns now? One for map
+projection, one for overlays, and another for view styles, with proper labels on
+top, same for the play/pause rotation button."
+
+The forcing function is real: `DISPLAY_MODES` is five entries now
+(3D / Equirect / Mercator / Winkel / Dymaxion) and the segmented control is
+cramped. Everything lives in `components/ViewControls.tsx`; the overlay chips use
+`useCompactStrip` against the row-2 container. **`components/Select.tsx` already
+exists** and has a hard-won scroll-containment fix (S27b `544889b`) — use it
+rather than writing another dropdown.
+
+### Traps this branch has already paid for — do not re-derive these
+
+1. **Canvas2D does not wait for webfonts.** `ctx.font` accepts an unloaded
+   family, falls back, and draws WITHOUT ERROR, so the map looks unstyled and
+   nothing reports anything. Anything that draws text must go through
+   `useLabelFonts`, which returns a theme whose identity changes when the faces
+   land.
+2. **A projection does not fill its canvas.** Mercator clipped at +/-85 degrees
+   is square. Anything painted in raw canvas coordinates spills into the
+   letterbox — use `Substrate.withSphereClip`.
+3. **`Map2D`'s offscreen bitmap is blitted UNDER the pan/zoom transform.**
+   Anything drawn into it zooms and pans with the paper. Viewport furniture goes
+   in SCREEN space in the display effect, beside the scale bar.
+4. **The R3F scene is unreachable from the DOM fiber tree** — `<Canvas>` runs
+   its own reconciler root. Don't spend an hour on it again.
+5. **`geoPath({type:'Sphere'})` is the map's outline** for any projection. That
+   is the primitive for clips, neatlines and vignettes.
+
+`Substrate.withOutsideSphereClip` and `strokeSphere` were written for the
+backdrop and then REMOVED when it moved to screen space. The neatline will want
+them back; re-add rather than assuming they exist.
+
+### Smaller things left open
+
+- **Exports get no desk backdrop**, deliberately — a dark border baked into an
+  exported file is rarely wanted. One flag if that is wrong.
+- **The scale bar still changes as you pan north/south**, and that is correct:
+  Mercator and equirectangular stretch with latitude, so a bar valid at the
+  equator is wrong at 60 degrees. It now reads "500 km at 34°N" so the change is
+  information. Matt asked for it to change on zoom only — that was answered with
+  the label rather than by pinning it, because pinning makes it wrong
+  off-centre. **His call if he wants it pinned anyway; one line.**
+- **Dymaxion has no scale bar** (net distortion varies per face) and gets no
+  furniture. Its 2D view also still shows raw black around the net.
+- **VOLCANIC has no glyph** — a `bare` fill policy claims glyphs carry every
+  terrain, and that claim wants checking against the whole `BiomeType` list.
+- **Mid-ocean mesh seams on the globe** (S27c) — pre-existing, visible in every
+  style and view mode, `CELL_OVERHANG = 1.03` too small to close a large
+  seafloor height step. Raising it changes how every height step reads, so it is
+  Matt's call, not a drive-by.
+- `exportSVG` still ignores the `showHillshade` toggle the PNG path threads.
+
+### Instruments
+
+    node scripts/renderGlobePreview.mjs --views=90,45,0 --texture
+    node scripts/renderGlobePreview.mjs --views=0 --lon=180 --hatch=0
+    node scripts/renderMapPreview.mjs --style=parchment --mode=biome --png
+
+`renderGlobePreview` reuses the dev server on :3000 when one is up. `--marker`
+paints the bake's top red and bottom blue to settle orientation in one run;
+`--hatch=0` makes the ocean hatch horizontal, which turns any misregistration
+into a readable ruled grid. **Pixel-probing the canvas with `getImageData`
+located a bug two rounds of screenshots could not** — reach for it earlier.
+
+---
+
 ## S27f (2026-08-29) — parchment art direction: type, ink, desk, projections
 
-**START THE NEXT SESSION HERE.** Branch `a3-map-style`, pushed, NOT merged.
 Plan: `docs/superpowers/plans/2026-08-29-parchment-art-direction.md`.
 
 ### Shipped
