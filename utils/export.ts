@@ -7,6 +7,11 @@ import { buildDymaxionNet } from './dymaxion';
 import { insideTri, barycentric, normalizeVec, toLonLat, projectToDymaxionNet, Point2 } from './geo';
 import { collectLabels, drawMapLabels } from './labels';
 import { computeShadeMap, computeContourSegments, drawContourPaths, contourInterval } from './shading';
+import { computeCoastlineSegments } from './boundaries';
+import { getMapStyle, MapStyleId } from './mapStyle';
+import { runStyle } from './mapStyle/passes';
+import { placeGlyphs } from './mapStyle/placeGlyphs';
+import { Canvas2DSubstrate } from './mapStyle/substrateCanvas';
 import { computeScaleBar, niceScaleBarLength, drawScaleBar } from './measure';
 import { NAME_STYLES, NameStyle } from './namegen';
 import { DEFAULT_MAX_ELEVATION_M } from './datum';
@@ -80,6 +85,57 @@ const drawRoutesOnCtx = (
   ctx.restore();
 };
 
+/**
+ * Paint a styled map onto an already-mirrored export canvas.
+ *
+ * Every export canvas in this file applies `translate(width,0); scale(-1,1)`
+ * before drawing cells, so the substrate is constructed with `mirrored: true`
+ * and compensates for glyphs only — see Canvas2DSubstrate.drawGlyph.
+ *
+ * `placeGlyphs` receives the OUTPUT width, not a screen width: glyph size and
+ * spacing both scale by `widthPx / 1024`, which is what makes an 8192px export
+ * the same map as a 1024px one at higher resolution rather than a denser map.
+ *
+ * Returns false when the style draws nothing, so the caller runs its own
+ * per-cell loop instead.
+ */
+const runStyledExport = (
+  world: WorldData,
+  viewMode: ViewMode,
+  mapStyleId: MapStyleId,
+  ctx: CanvasRenderingContext2D,
+  pathGenerator: unknown,
+  projection: d3.GeoProjection,
+  width: number,
+  height: number,
+  showHillshade: boolean,
+): boolean => {
+  const style = getMapStyle(mapStyleId);
+  if (style.passes.length === 0) return false;
+  const glyphs = style.fillPolicy(viewMode) === 'ramp'
+    ? []
+    : placeGlyphs(world.cells, projection, width, {
+      seaLevel: world.params.seaLevel,
+      seed: world.params.seed,
+    });
+  const sub = new Canvas2DSubstrate(
+    ctx, pathGenerator as (o: unknown) => unknown, width, height, true,
+  );
+  runStyle(style, {
+    world, viewMode, widthPx: width, heightPx: height,
+    glyphs,
+    shadeMap: showHillshade ? computeShadeMap(world.cells, world.params.seaLevel) : null,
+    coastlines: computeCoastlineSegments(world),
+    colorCtx: {
+      seaLevel: world.params.seaLevel,
+      factionColors: buildFactionColorMap(world.civData),
+      cultureColors: buildCultureColorMap(world.cultures),
+      religionColors: buildReligionColorMap(world.religions),
+    },
+  }, sub);
+  return true;
+};
+
 const renderEquirectangular = (
   world: WorldData,
   viewMode: ViewMode,
@@ -87,7 +143,8 @@ const renderEquirectangular = (
   height: number,
   showHillshade = false,
   showContours = false,
-  showRoutes = false
+  showRoutes = false,
+  mapStyleId: MapStyleId = 'default',
 ) => {
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -95,8 +152,13 @@ const renderEquirectangular = (
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
 
-  ctx.fillStyle = viewMode === 'satellite' || viewMode === 'biome' ? '#050505' : '#000000';
-  ctx.fillRect(0, 0, width, height);
+  // A style paints its own ground (paperPass), so the hardcoded background must
+  // not also draw — the paper and its grain would sit on top of a black page.
+  const styled = getMapStyle(mapStyleId).passes.length > 0;
+  if (!styled) {
+    ctx.fillStyle = viewMode === 'satellite' || viewMode === 'biome' ? '#050505' : '#000000';
+    ctx.fillRect(0, 0, width, height);
+  }
 
   ctx.save();
   ctx.translate(width, 0);
@@ -109,7 +171,11 @@ const renderEquirectangular = (
   const religionColors = buildReligionColorMap(world.religions);
   const shadeMap = showHillshade ? computeShadeMap(world.cells, world.params.seaLevel) : null;
 
-  world.cells.forEach((cell, i) => {
+  const drewStyled = runStyledExport(
+    world, viewMode, mapStyleId, ctx, pathGenerator, projection, width, height, showHillshade,
+  );
+
+  if (!drewStyled) world.cells.forEach((cell, i) => {
     const feature = world.geoJson.features[i];
     if (!feature) return;
     const threeColor = getCellColor(cell, viewMode, {
@@ -322,7 +388,8 @@ export const exportMap = async (
   labelVisibility: LabelVisibility = DEFAULT_LABEL_VISIBILITY,
   showHillshade = false,
   showContours = false,
-  showRoutes = false
+  showRoutes = false,
+  mapStyleId: MapStyleId = 'default',
 ) => {
   const width = resolution;
   let height = resolution / 2;
@@ -343,13 +410,17 @@ export const exportMap = async (
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
 
-  // Background color depending on mode
-  if (viewMode === 'satellite' || viewMode === 'biome') {
-     ctx.fillStyle = '#050505'; // Space/Dark
-  } else {
-     ctx.fillStyle = '#000000';
+  // A style paints its own ground (paperPass); the hardcoded background would
+  // otherwise sit under the paper and show through its grain.
+  const styled = getMapStyle(mapStyleId).passes.length > 0;
+  if (!styled) {
+    if (viewMode === 'satellite' || viewMode === 'biome') {
+       ctx.fillStyle = '#050505'; // Space/Dark
+    } else {
+       ctx.fillStyle = '#000000';
+    }
+    ctx.fillRect(0, 0, width, height);
   }
-  ctx.fillRect(0, 0, width, height);
 
   ctx.save();
   ctx.translate(width, 0);
@@ -372,7 +443,11 @@ export const exportMap = async (
   const religionColors = buildReligionColorMap(world.religions);
   const shadeMap = showHillshade ? computeShadeMap(world.cells, world.params.seaLevel) : null;
 
-  world.cells.forEach((cell, i) => {
+  const drewStyled = runStyledExport(
+    world, viewMode, mapStyleId, ctx, pathGenerator, projection, width, height, showHillshade,
+  );
+
+  if (!drewStyled) world.cells.forEach((cell, i) => {
     const feature = world.geoJson.features[i];
     if (!feature) return;
     const threeColor = getCellColor(cell, viewMode, {
