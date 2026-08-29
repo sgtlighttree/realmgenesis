@@ -38,7 +38,7 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## S27b (2026-08-29) — A3 map style system (parchment) — 🟡 IN PROGRESS
+## S27b (2026-08-29) — A3 map style system (parchment) — ✅ COMPLETE, branch not merged
 
 Branch `a3-map-style` off pushed `main` @ `4881231`. **Spec:**
 `docs/superpowers/specs/2026-08-28-a3-map-style-system-design.md`. **Plan:**
@@ -121,22 +121,83 @@ is null when the listener fires, the predicate returns `true` and the menu close
 — same symptom, different path. Not worth jsdom; recorded so a recurrence is not
 re-diagnosed from scratch.
 
-### OPEN — read before writing Task 7
+### All 10 tasks done. Gates: typecheck 0 · lint 0/29 · **353 tests / 52 files**
 
-Two design problems in the plan's `passes.ts` code, found in review:
+`a3-map-style`, not merged, not pushed. Tasks 7-10 were done by the orchestrator
+(mirror handling and pass ordering are where wrong answers live); 1-6 were
+delegated and every gate re-run independently rather than taken on report.
 
-1. **`hillshadePass` hardcodes `#000000`/`#ffffff`** — the only colours in the
-   file not drawn from `StylePalette`. On bare paper that reads as dirt, not
-   relief. Hillshade SHOULD apply to bare land (spec §1: "glyphs over a soft
-   hillshade") but the ink must be warm sepia from the palette.
-2. **Per-cell ocean hatching does not scale.** There are 13k-17k ocean cells at
-   20k points (measured in D10), and `hatchFeature` does save→clip→full-canvas
-   hatch→restore each time, ~400 clipped lines per cell, on every Map2D
-   re-render. Hatch ONCE over a composite clip region built from all ocean cells.
-   `hatchFeature` (singular) is being replaced by `hatchFeatures` (plural).
+### THE LESSON OF THIS SESSION: 352 tests passed while the map was broken
 
-Also: `runStyle` and Task 8's call site both encode "is this the default style".
-Use one test — `style.passes.length > 0` — not an id comparison in two places.
+Every unit was tested in isolation and all of them passed. Two serious bugs
+survived, and **both were found in one look at a rendered SVG**:
+
+1. **Coastlines were invisible.** Both substrates passed `Point3` unit vectors
+   straight into GeoJSON `coordinates`, which d3 reads as `[lon, lat]` in
+   DEGREES — every segment collapsed to a dot near the origin. The pre-A3
+   `renderSegmentPathData` converts with `toLonLat`; the substrates did not.
+2. **The map rendered as a dark honeycomb.** `SvgSubstrate.fillFeature` emits a
+   hairline stroke to close the antialiasing seam between Voronoi polygons but
+   applied `fill-opacity` only, so `hillshadePass` at ~5% opacity drew a
+   FULL-strength outline on every cell. Canvas2D meanwhile did not stroke at all
+   — a real raster/vector divergence in the one place the substrate exists to
+   prevent it.
+
+**Method that found them, reuse it:** `tmp/renderSvg.mjs` writes real
+`exportSVG` output to a file; `tmp/shot.mjs` opens it in headless Chromium and
+screenshots it; then LOOK at the PNG. No dev server, no R3F, no auto-rotate CPU
+trap. Far cheaper than driving the app, and it exercises the true export path.
+
+### Bugs caught in review before they shipped (kept so nobody re-derives them)
+
+Six, all from reading the plan's own code — subagents copy it verbatim:
+full-bleed ocean hatch covering bare land · per-cell `seasonalDelta` (would have
+silently killed D1 seasons + D3 sea ice under parchment) · `rgba()` into SVG
+(1.1 has no such syntax) · `from 'd3-geo'` (transitive only; works by accident)
+· hillshade hardcoding `#000`/`#fff` (reads as dirt on paper) · per-cell ocean
+hatching (~15k clipped full-canvas sweeps per re-render).
+
+### Deviations from the plan, all deliberate
+
+- **`utils/boundaries.ts`**, not `shading.ts`, for the coastline scan — it is
+  generic boundary geometry serving coastlines AND faction borders, while
+  shading.ts is about light and contours.
+- **Mirror handled inside the substrates**, not by hoisting glyphs into a
+  separate group. Every 2D path here mirrors — Map2D's main render too, not just
+  the Dymaxion buffer the plan flagged. Applying the same flip again composes to
+  the identity. The plan's Task 9 text was corrected mid-flight because it had
+  become actively harmful.
+- **Parchment shades LAND ONLY.** D10 made water hillshade, right for diagnostic
+  views; on a drawn map sea-bed relief reads as grey stains. The hatch carries
+  the sea.
+- **Palette strengthened after seeing it.** sea `#c9bf9a` vs paper `#e8d9b5` was
+  a few percent of luminance apart — the map read as one beige field.
+
+### Verified BY EYE (vector path)
+
+biome mode: bare parchment land, mountain/forest glyphs, clean hatched sea,
+strong coastlines. political mode: muted faction fills on paper with glyphs
+reading through — the money shot the fill-policy rule was designed for.
+
+### OUTSTANDING
+
+1. **The RASTER path has not been looked at.** Only the SVG export was rendered
+   and screenshotted. Map2D on screen and the PNG export share the passes and
+   the now-fixed coordinate conversion, so the risk is much lower than it was —
+   but it is not zero, and the Canvas2D seam-stroke change is untested by eye.
+   Load Map2D, switch Map Style to Parchment, and export a PNG.
+2. **D10's browser check is still outstanding** and is now on `origin`.
+3. **Pre-existing:** the SVG export has emitted `rgba()` STROKES since before A3
+   (`exportVector.ts` ~85, ~95, ~193 — river and label groups). SVG 1.1 has no
+   `rgba()` colour syntax, so those may render inconsistently in Illustrator and
+   Inkscape. Out of scope for A3; worth a small follow-up.
+4. **Select fix known gap** (see above): the predicate is tested, the wiring is
+   not. A null `menuRef` at listener time reproduces the symptom by another path.
+
+### NEXT
+
+Merge + push are Matt's call. After that, section A is complete — A3 was its
+last unstarted item. **Do NOT start F3.** Preset backlog is in ROADMAP §A3.
 
 ---
 

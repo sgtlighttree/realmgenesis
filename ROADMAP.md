@@ -81,13 +81,43 @@ that trains a small char-level Markov model.
   named world.
 - New `nameStyle` param + Civ-tab selector.
 
-### A3. Map style system (fantasy rendering)  —  ⬜ TODO
+### A3. Map style system (fantasy rendering)  —  ✅ DONE (parchment)
+> _shipped 2026-08-29 (Session 27b). Spec + plan in `docs/superpowers/`; reference doc `docs/map-styles.md`._
 
-A style layer over the existing view modes: parchment/hand-drawn preset with
-coastline outline strokes, ocean hatching or stipple patterns, paper texture,
-and either relief glyphs (mountain/hill/forest icons) or hillshading. Styles
-apply to Map2D, the globe texture path, and PNG export. This is what makes
-output pinboard-worthy rather than diagnostic.
+A style layer **orthogonal to `ViewMode`** — `viewMode` decides what the map
+shows, a style decides how it is drawn, so parchment + political is a valid and
+intended combination.
+
+**Shipped:** one **Parchment** preset — paper tone and grain, hatched ocean,
+strong ink coastlines, procedural relief glyphs (mountain / hill / forest /
+conifer / dune / marsh) over a soft land-only hillshade, bare-paper land.
+Selected from a **Map Style** control; Map2D, PNG export and SVG export all
+drive the same pass list.
+
+**Scope taken deliberately:** Map2D + exports only. The **3D globe is
+excluded** — it paints per-cell vertex colours, so hatching and paper grain
+would need a baked texture or custom shaders: roughly double the work, with M1
+performance risk, for a view used to inspect rather than to publish.
+
+**Architecture:** a style is an ordered list of passes written once against a
+`Substrate` adapter with Canvas2D and SVG implementations, so the raster and
+vector maps cannot drift. Glyph placement is a pure function of
+`(cells, projection, widthPx)` — screen-space decisions kept out of drawing.
+Full detail, including the mirror trap that affects **every** 2D render path,
+is in `docs/map-styles.md`.
+
+**Fill-policy rule (the non-obvious part):** continuous-ramp modes (`height`,
+`temperature`, `moisture`, `population`) keep their own fill and suppress
+glyphs. A ramp's entire information content *is* its fill, so bare paper would
+render those modes blank.
+
+**Preset backlog — logged, not built:**
+- **Blueprint** — cyan paper, white line work, technical annotation, grid always on.
+- **Ink & wash** — monochrome linework with a single wash colour for elevation.
+- **Antique nautical** — rhumb lines, compass roses, sea monsters, heavy graticule.
+- **Satellite-clean** — the current satellite look with better typography and no chrome.
+- **Risk/boardgame** — flat saturated territory fills, thick black borders, province numbers.
+- **Topographic** — contour-led (A4 contours exist), minimal fill, survey typography.
 
 ### A4. Hillshading & contour lines  —  ✅ DONE
 
