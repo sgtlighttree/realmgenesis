@@ -38,63 +38,126 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## S27b (2026-08-29) — A3 map style system (parchment) — 🟡 SHIPPED except the GLOBE POLES
+## S27c (2026-08-29) — the globe poles, fixed properly
 
-**START THE NEXT SESSION HERE.** Everything below is done and gated except one
-open visual defect, described immediately under this block. Branch
-`a3-map-style`, 23 commits, not merged, not pushed.
+**START THE NEXT SESSION HERE.** Branch `a3-map-style`, not merged, not pushed.
 
-### ⚠ OPEN — the globe pinches and swirls at the poles
+### The polar defect is CLOSED — and the earlier diagnosis was half wrong
 
-**Matt's verdict after three attempts: "still not fixed."** Do not treat the
-earlier polar entry as resolved; it is not.
+S27b recorded the pole as one open defect. It was **two**, with different causes,
+and three failed attempts came from treating them as one.
 
-**What it looks like now:** a spiral rosette at the north pole — concentric rings
-converging to a point — where the ocean hatch bends around the singularity.
-Away from the poles the parchment globe reads correctly.
+1. **Interpolation error (geometry).** An equirectangular `u` IS a longitude, and
+   longitude is not linear across a triangle on a sphere. A per-vertex `uv`
+   attribute is interpolated linearly, so it is wrong by construction —
+   `buildGlobeUVs` needed a seam wrap AND a polar collapse just to survive that,
+   and the collapse is what replaced polar streaks with the spiral rosette.
+   **Per-vertex UVs could only ever trade one artifact for another.**
+   Fixed by computing the coordinate in the FRAGMENT SHADER
+   (`createStyledGlobeMaterial`, `onBeforeCompile` on `MeshBasicMaterial`).
+   `buildGlobeUVs` is gone; `buildGlobeDirs` replaces it with the UNDISPLACED
+   unit sphere direction per vertex.
+2. **The projection singularity (content).** Every longitude converges at the
+   pole. Nothing about a texture coordinate changes that. What made it read as a
+   defect was the ocean hatch — a fixed-frequency pattern wound round the
+   singularity. `oceanHatchPass` now fades it out over 66-82 deg for the globe
+   bake only, so the pole is plain paper. Coastlines and fills still pinch, which
+   is geographically honest.
 
-**Why the current approach cannot fix it.** The texture is baked
-equirectangular and sampled through PER-VERTEX UVs. That has two distinct
-failure modes and I have only addressed the first:
+**Both were needed.** The shader alone leaves a blurred rosette, which is what
+S27b predicted and correctly refused to call a fix.
 
-1. *Interpolation error* (fixed): a triangle's three UVs are interpolated
-   linearly across a curved surface. Wrapping each vertex to the u nearest the
-   cell centre, plus collapsing polar cells, took the measured worst u-span from
-   0.633 to 0.000.
-2. *The projection singularity* (NOT fixed, and not fixable this way): every
-   longitude converges at the pole in equirectangular. Collapsing polar cells to
-   one longitude removed the streaks but replaced them with the swirl — each
-   polar cell now samples a thin vertical strip of a texture whose content is
-   itself smeared there. **Trading one artifact for another is all per-vertex
-   UVs can do.**
+### Three traps in the shader route, all of which cost something
 
-**Recommended fix for the next session — compute UV in the SHADER, not per
-vertex.** Use `material.onBeforeCompile` (or a custom ShaderMaterial) to derive
-`uv` from the normalized world-space direction in the FRAGMENT shader:
-`u = atan2(z, x) / 2π + 0.5`, `v = 0.5 − asin(y)/π`. That removes interpolation
-error entirely — no seam handling, no polar collapse, no `buildGlobeUVs` at all —
-because every fragment computes its own exact spherical coordinate.
+- **The direction must NOT come from `position`.** Position carries per-cell
+  height, so `normalize(position)` makes two neighbours at different heights
+  sample different content across their shared edge — a UV jog on every cell
+  boundary, a new artifact everywhere in exchange for fixing one at the pole.
+  Hence a separate `sphereDir` attribute from the undisplaced sphere.
+- **`customProgramCacheKey` is required.** Without it three.js can hand back a
+  cached program compiled from the same material feature set but without the
+  injection. Same family as S27b's material-`key` trap.
+- **Mipmaps had to go.** `atan` jumps a full turn across the antimeridian, so the
+  screen-space derivative explodes on that one line and mip selection falls to
+  the coarsest level — a blurred band down the seam. `textureGrad` with a
+  min-of-two-gradients trick is the textbook answer; **linear filtering with no
+  mipmaps was tried first and was enough**, because the globe sits near 1:1
+  against a 2048-wide texture. Do not reach for `textureGrad` unless aliasing
+  actually shows up.
 
-The antimeridian then needs handling in the shader (use `dFdx`-aware sampling or
-`textureGrad`, since `atan2` wraps and the derivative explodes on the seam line).
-The pole still pinches, because that is inherent to equirectangular content, but
-it becomes a texture-content problem rather than a geometry one: it degrades to
-a smooth blur instead of a rosette.
+### The SEAM had never been looked at, in either session
 
-**If the shader route is rejected**, the honest alternatives are a cube-map bake
-(six faces, no singularity, more memory) or accepting a pinched pole and simply
-suppressing the ocean hatch above ~75° latitude so there is no pattern to swirl.
+Every screenshot in S27b and most of S27c was taken at **longitude 0** — 180
+degrees from the antimeridian, on the far side of the globe in every frame. Six
+runs of a purpose-built globe screenshotter, and the one place the shader route
+has a failure mode the old code did not was never in shot.
 
-**Cheap instrument that located the earlier bug:** generate a world, run
-`buildGlobeUVs`, histogram per-triangle u-span, and print the LATITUDES of the
-outliers. Printing latitudes is what proved they were polar rather than seam
-cells and changed the fix. Screenshots showed the symptom; only measurement
-located it.
+Rendered at lon 180 the hatch jogs down a vertical line. **Not** a shader or
+filtering defect: the hatch is drawn in output PIXELS, and its horizontal period
+(`spacing / sin 45`) did not divide the 2048px texture width, so its phase at
+`u = 0` did not match its phase at `u = 1`. `oceanHatchPass` now snaps the
+spacing when `ctx.wrapsHorizontally` says the two edges meet. Under a percent of
+density change; the phase is the point.
+
+**Rule for anything drawn into the bake in pixel units:** it must tile the width
+a whole number of times, or it seams. The paper grain already does (a 64px tile
+into 2048). Check any new pattern pass against this.
+
+### The instrument, and the diagnosis it corrected
+
+`scripts/renderGlobePreview.mjs` — screenshots the REAL styled globe from fixed
+camera latitudes, using the same bake, buffer and material as `WorldViewer`, with
+no app UI and no OrbitControls so the camera can sit exactly on a pole.
+`--texture` dumps the flat equirectangular bake.
+
+    node scripts/renderGlobePreview.mjs --views=90,45,0 --texture
+    node scripts/renderGlobePreview.mjs --views=0 --lon=180 --dist=1.25
+
+`renderMapPreview.mjs` renders the flat SVG and is **blind to this entire class
+of defect.** The polar rosette survived three rounds partly because nothing was
+looking at the globe.
+
+**It also produced a false finding, worth keeping.** The first run showed dark
+dashes scattered over open ocean, which read as a texture or UV defect. It was
+neither: the harness rebuilt the cell mesh without `CELL_OVERHANG`, so the seams
+between cells at different heights stayed open and the background showed through.
+`--texture` settled it in one look — the flat bake was clean. `CELL_OVERHANG` now
+lives in `utils/displayRadius.ts` so a rebuilt mesh cannot miss it.
+
+### FINDING (n=1, unconfirmed): those seams exist in the PRODUCT too
+
+With the harness corrected the dashes shrank but did not vanish, and they appear
+on the **unstyled** globe as well (`--style=default`) — so they are not an A3
+regression and not a texture issue. They trace cell edges in mid-ocean, where the
+sea floor has real height steps, which is consistent with `CELL_OVERHANG = 1.03`
+being too small to close a large step. Visible in the running app at 5,000 cells.
+
+Not fixed here: it is pre-existing, it shows in every style and view mode, and
+raising the overhang changes the globe's whole look (the overhang is what makes a
+height step read as a cliff). That is a call for Matt, not a drive-by. Evidence:
+`tmp/globe-plain-lat20.png` vs `tmp/globe-fix-lat20.png`.
+
+### Verification
+
+Screenshots at camera latitudes 90, 75, 60, 45, 20 **and at lon 180, both wide
+and at close zoom**, on the harness — plus the real app driven through Playwright
+to confirm the wiring: `<primitive attach="material">` does work in R3F 9, the
+parchment globe renders, 0 console errors.
+
+Gates: typecheck 0 · lint 0 errors / 29 warnings · tests below.
+
+**`tests/paramLiveness.test.ts` times out at 120s under load.** It takes ~130s
+alone on this M1 and failed only while a dev server, a Chromium and the suite ran
+together. Not caused by this work — it touches nothing in `worldGen`. If it
+recurs on an idle machine, the timeout needs raising, not the test changing.
 
 ### Also worth a look next session
 
-- **Coastline weight on the globe is still slightly heavy** at cell scale even
-  after `lineScale = 0.5`. Judge it again once the polar fix lands.
+- **Cell seams on the globe** — see the n=1 finding above. Pre-existing, not A3.
+- **Coastline weight on the globe** was to be re-judged once the polar fix
+  landed. Looked at in S27c at `lineScale = 0.5` and it now reads as a drawn
+  coastline, not a blob — but that is one seed at 8k, so leave the item open
+  until Matt agrees.
 - `exportSVG` ignores the `showHillshade` toggle the PNG path threads.
 - **VOLCANIC has no glyph** — like ICE_CAP before it, it will render as bare
   paper. Far rarer than ice, but the same class of gap: a `bare` fill policy
