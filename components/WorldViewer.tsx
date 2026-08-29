@@ -578,6 +578,7 @@ const WorldMesh: React.FC<{
   // resolve; it is in the tenant deps so the overlay repaints then. Without it
   // the first paint silently keeps the fallback face — Canvas2D does not wait.
   const labelTheme = useLabelFonts(getMapStyle(mapStyleId).labelTheme);
+  const overlayInk = getMapStyle(mapStyleId).overlayInk;
 
   // Refill runs synchronously before the next painted frame so a fresh
   // geometry is never displayed with empty buffers
@@ -839,23 +840,26 @@ const WorldMesh: React.FC<{
 
   const overlayTenants = useMemo<OverlayTenant[]>(() => [
     { id: 'rivers', visible: showRivers && riverPolylines.length > 0,
-      draw: (ctx, _proj, _world, project, smooth) => drawRiversTenant(ctx, riverPolylines, project, smooth) },
+      draw: (ctx, _proj, _world, project, smooth) => drawRiversTenant(ctx, riverPolylines, project, smooth, overlayInk) },
     { id: 'contours', visible: showContours && contourSegments.length > 0,
-      draw: (ctx, _proj, _world, project, smooth) => drawContoursTenant(ctx, contourSegments, project, smooth) },
-    { id: 'currents', visible: showCurrents && !!world.currents, draw: drawCurrentsTenant },
+      draw: (ctx, _proj, _world, project, smooth) => drawContoursTenant(ctx, contourSegments, project, smooth, overlayInk) },
+    { id: 'currents', visible: showCurrents && !!world.currents,
+      draw: (ctx, proj, w, project, smooth) => drawCurrentsTenant(ctx, proj, w, project, smooth, overlayInk) },
     // Routes above the current field so dashed sea routes read over the arrows.
-    { id: 'routes', visible: showRoutes && !!world.routes, draw: drawRoutesTenant },
+    { id: 'routes', visible: showRoutes && !!world.routes,
+      draw: (ctx, proj, w, project, smooth) => drawRoutesTenant(ctx, proj, w, project, smooth, overlayInk) },
     // Borders above the routes they cut across, below the reference grid.
     { id: 'borders', visible: labelVisibility.borders && borderSegments.length > 0,
-      draw: (ctx, _proj, _world, project, smooth) => drawBordersTenant(ctx, borderSegments, project, smooth) },
-    { id: 'graticule', visible: showGrid, draw: drawGraticuleTenant },
+      draw: (ctx, _proj, _world, project, smooth) => drawBordersTenant(ctx, borderSegments, project, smooth, overlayInk) },
+    { id: 'graticule', visible: showGrid,
+      draw: (ctx, proj, w, project, smooth) => drawGraticuleTenant(ctx, proj, w, project, smooth, overlayInk) },
     // Dymaxion reference cage. Fixed radius (clears peaks), not draped; see
     // drawDymaxionTenant. lon/lat/roll are folded into the id so the redraw
     // gate fires when the cage is rotated with the globe paused — the same
     // many-state-in-the-draw-closure trap the labels tenant hit (S22).
     { id: `dymaxion:${dymaxionSettings.lon},${dymaxionSettings.lat},${dymaxionSettings.roll}`,
       visible: dymaxionSettings.showOverlay && dymaxionEdges.length > 0,
-      draw: (ctx, _proj, _world, project, smooth) => drawDymaxionTenant(ctx, dymaxionEdges, project, smooth) },
+      draw: (ctx, _proj, _world, project, smooth) => drawDymaxionTenant(ctx, dymaxionEdges, project, smooth, overlayInk) },
     // Labels last, on top of everything (plan §5). camDist is read live at
     // draw time (camera is a stable reference from useThree, not a memo dep)
     // so it never goes stale between redraws — same as the old PointLabels.
@@ -878,8 +882,8 @@ const WorldMesh: React.FC<{
     // Ruler on top of everything — it is an active measurement affordance. Fixed
     // radius (clears peaks), not draped; see drawRulerTenant.
     { id: 'ruler', visible: !!rulerArc && rulerArc.length > 1,
-      draw: (ctx, _proj, _world, project, smooth) => drawRulerTenant(ctx, rulerArc!, project, smooth) },
-  ], [showRivers, riverPolylines, showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, labelVisibility, borderSegments, showGrid, dymaxionSettings.showOverlay, dymaxionSettings.lon, dymaxionSettings.lat, dymaxionSettings.roll, dymaxionEdges, labelAnchors, camera, rulerArc, labelTheme]);
+      draw: (ctx, _proj, _world, project, smooth) => drawRulerTenant(ctx, rulerArc!, project, smooth, overlayInk) },
+  ], [showRivers, riverPolylines, showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, labelVisibility, borderSegments, showGrid, dymaxionSettings.showOverlay, dymaxionSettings.lon, dymaxionSettings.lat, dymaxionSettings.roll, dymaxionEdges, labelAnchors, camera, rulerArc, labelTheme, overlayInk]);
 
   return (
     <Group>
