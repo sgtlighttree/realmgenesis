@@ -1015,8 +1015,31 @@ const Map2D: React.FC<{
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // The desk the map lies on. SCREEN SPACE, like the scale bar below — the
+    // offscreen bitmap is blitted under the pan/zoom transform just after this,
+    // so a backdrop painted into it would shrink and slide with the paper
+    // instead of filling the viewport. (It was a style pass first, for exactly
+    // one round; this is why it is not.) A projection rarely fills its canvas —
+    // Mercator clipped at +/-85 degrees is square — and the raw black in that
+    // margin reads as a rendering failure rather than a choice.
+    if (styled) {
+      ctx.fillStyle = style.palette.desk;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
     ctx.setTransform(displayDpr * scale, 0, 0, displayDpr * scale, displayDpr * offset.x, displayDpr * offset.y);
+    // Drop shadow under the sheet, so it rests on the desk rather than floating
+    // in it. Set on the blit itself: canvas shadows apply to drawImage.
+    if (styled) {
+      ctx.shadowColor = style.palette.deskShadow;
+      ctx.shadowBlur = 28;
+      ctx.shadowOffsetY = 6;
+    }
     ctx.drawImage(offscreen, 0, 0, size.width, size.height);
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
 
     // Scale bar: fixed screen-space overlay (not part of the offscreen bitmap,
     // so it never grows/shrinks or pans with the map). pixelsPerKm is scaled
@@ -1041,7 +1064,7 @@ const Map2D: React.FC<{
         }
       }
     }
-  }, [size.width, size.height, scale, offset.x, offset.y, qualityDpr, viewMode, world?.params.seed, world, projectionType, renderCount, projection, rulerArc]);
+  }, [size.width, size.height, scale, offset.x, offset.y, qualityDpr, viewMode, world?.params.seed, world, projectionType, renderCount, projection, rulerArc, styled, style.palette.desk, style.palette.deskShadow]);
 
   const handleWheel = useCallback((event: WheelEvent) => {
     event.preventDefault();
