@@ -94,3 +94,75 @@ export const PARCHMENT_OVERLAY_INK: OverlayInk = {
   contour: '#8a7550',
   currents: '#7c8f8a',
 };
+
+/**
+ * Blueprint: white line work on cyanotype blue, with a red-pencil annotation.
+ *
+ * A drawing office marks up in one colour, so the ruler and the unfold cage —
+ * both of them measurement furniture rather than map content — take the pencil,
+ * and everything else stays in the drawing's own white-to-blue range.
+ *
+ * The graticule is deliberately the strongest it is in any style: a grid is
+ * native to a technical drawing, not an optional overlay on top of one.
+ */
+export const BLUEPRINT_OVERLAY_INK: OverlayInk = {
+  river: '#7fc4e8',
+  riverWidthScale: 0.75,
+  border: '#dce9f4',
+  borderCasing: '#1a5183',
+  borderWidthScale: 0.9,
+  borderDash: [6, 4],
+  road: '#9fc0da',
+  seaRoute: '#5f93b8',
+  graticule: '#4c81ab',
+  ruler: '#ff9e6b',
+  cage: '#ff9e6b',
+  contour: '#5e93bd',
+  currents: '#5f93b8',
+};
+
+/**
+ * Ink & wash: one grey-black plate, thinner than parchment's throughout.
+ *
+ * A wash drawing carries its elevation in the wash, so its lines do less work
+ * and run lighter. Borders are dashed for the same reason parchment's are.
+ */
+export const INKWASH_OVERLAY_INK: OverlayInk = {
+  river: '#5c6a70',
+  riverWidthScale: 0.65,
+  border: '#3a3a36',
+  borderCasing: '#f4f1ea',
+  borderWidthScale: 0.85,
+  borderDash: [6, 4],
+  road: '#7a7368',
+  seaRoute: '#8d9a98',
+  graticule: '#b4b1a8',
+  ruler: '#8c3b1c',
+  cage: '#8c3b1c',
+  contour: '#6f6f68',
+  currents: '#8d9a98',
+};
+
+/**
+ * Boardgame: heavy black rules, and a border that is SOLID rather than dashed.
+ *
+ * This is the one style where that is right. Everywhere else a dashed border
+ * says "a claim, not a fact"; on a board the territory outline IS the fact —
+ * it is the line you move pieces across — so it gets the same weight and
+ * treatment as the coast.
+ */
+export const BOARDGAME_OVERLAY_INK: OverlayInk = {
+  river: '#4a7f9e',
+  riverWidthScale: 0.8,
+  border: '#141414',
+  borderCasing: '#f2e9d5',
+  borderWidthScale: 1.6,
+  borderDash: [],
+  road: '#8a5a2a',
+  seaRoute: '#3f6b85',
+  graticule: '#c3b795',
+  ruler: '#b3401c',
+  cage: '#b3401c',
+  contour: '#a89670',
+  currents: '#3f6b85',
+};

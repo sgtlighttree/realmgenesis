@@ -97,3 +97,74 @@ export const ensureLabelFonts = async (theme: LabelTheme): Promise<void> => {
   if (typeof document === 'undefined' || !document.fonts || theme.faces.length === 0) return;
   await Promise.all(theme.faces.map(f => document.fonts.load(f).catch(() => [])));
 };
+
+/**
+ * Blueprint lettering: a draughtsman's hand, which on a drawing board means a
+ * monospaced technical face and nothing else. One family for everything —
+ * a drawing office does not switch typefaces between a mountain range and a
+ * country, it changes size and spacing.
+ *
+ * `faces` is EMPTY on purpose. The stack is the system's own monospace, so
+ * there is nothing to await and nothing to embed: an exported SVG will letter
+ * itself in whatever monospace the reader's machine has, which is the correct
+ * trade for a look that does not depend on one specific face.
+ */
+export const BLUEPRINT_LABEL_THEME: LabelTheme = {
+  displayFamily: "ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace",
+  geoFamily: "ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace",
+  ink: '#e6f0f8',
+  waterInk: '#9dc2de',
+  markerInk: '#ff9e6b',
+  // The paper tone, so a name knocks a clean hole in the hatch and the
+  // graticule rather than gaining a dark outline over them.
+  halo: '#1a5183',
+  haloScale: 0.36,
+  trackingEm: 0.16,
+  faces: [],
+};
+
+/**
+ * Ink & wash lettering: IM Fell English throughout, no display face.
+ *
+ * Parchment spends its Roman caps on territory; this look has no engraved
+ * plate to imitate, so it letters everything in the one text face and leans on
+ * the roman/italic split alone — upright for land, italic for water.
+ *
+ * Both faces are already loaded and already in `EMBEDDABLE_FACES`, so this
+ * theme costs the bundle nothing and exports carry it.
+ */
+export const INKWASH_LABEL_THEME: LabelTheme = {
+  displayFamily: "'IM Fell English', 'Times New Roman', Georgia, serif",
+  geoFamily: "'IM Fell English', 'Times New Roman', Georgia, serif",
+  ink: '#22221f',
+  waterInk: '#6f7472',
+  markerInk: '#8c3b1c',
+  halo: '#f4f1ea',
+  haloScale: 0.34,
+  trackingEm: 0.14,
+  faces: [
+    '400 16px "IM Fell English"',
+    'italic 400 16px "IM Fell English"',
+  ],
+};
+
+/**
+ * Boardgame lettering: the system sans, set heavy and wide.
+ *
+ * A printed board is read from a metre away across a table, so its names are
+ * short, uppercase and generously tracked. `faces` is empty for the same reason
+ * as Blueprint's — the stack is the system's own.
+ */
+export const BOARDGAME_LABEL_THEME: LabelTheme = {
+  displayFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
+  geoFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
+  ink: '#1a1a18',
+  waterInk: '#2f4a5c',
+  markerInk: '#8c2f1c',
+  halo: '#f2e9d5',
+  // Wide: these sit on saturated territory fills, and a thin halo leaves the
+  // letterforms fighting the colour underneath.
+  haloScale: 0.42,
+  trackingEm: 0.2,
+  faces: [],
+};
