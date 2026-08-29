@@ -56,6 +56,21 @@ describe('SvgSubstrate', () => {
     expect(s.body()).toBe('');
   });
 
+  it('counter-transforms glyphs on a mirrored surface', () => {
+    // Map2D and exportSVG both draw inside a horizontal flip. A glyph drawn
+    // straight into that comes out backwards; a nested flip composes to the
+    // identity, and the x-flip puts it back over its own cell.
+    const plain = new SvgSubstrate((() => 'M0 0') as never, 100, 50, false);
+    plain.drawGlyph(glyph, '#000', 1);
+    expect(plain.body()).not.toContain('<g transform=');
+
+    const mirrored = new SvgSubstrate((() => 'M0 0') as never, 100, 50, true);
+    mirrored.drawGlyph(glyph, '#000', 1);
+    expect(mirrored.body()).toContain('<g transform="translate(100,0) scale(-1,1)">');
+    // glyph.x is 10, so the flipped anchor is 100 - 10 = 90.
+    expect(mirrored.body()).toContain('90');
+  });
+
   it('reuses one pattern id for identical hatch specs', () => {
     const s = new SvgSubstrate((() => '') as never, 100, 50);
     const spec = { color: '#000', spacingPx: 8, widthPx: 1, angleDeg: 45 };

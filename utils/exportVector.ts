@@ -1,9 +1,10 @@
 import * as d3 from 'd3';
 import { geoWinkel3, geoRobinson, geoMollweide } from 'd3-geo-projection';
-import { WorldData, ViewMode, Cell, BiomeType, Point } from '../types';
+import { WorldData, ViewMode, Point } from '../types';
 import { buildFactionColorMap, buildCultureColorMap, buildReligionColorMap, getCellColor } from './colors';
 import { seasonalTemperatureDelta } from './seasons';
 import { toLonLat, Point3 } from './geo';
+import { computeCoastlineSegments, computeFactionBorderSegments } from './boundaries';
 import { collectLabels, LABEL_CONFIG } from './labels';
 import { ProjectionType } from './export';
 import { elevationMetres } from './datum';
@@ -22,55 +23,6 @@ const escapeXml = (value: string): string =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
-
-const isLandCell = (cell: Cell, seaLevel: number): boolean =>
-  cell.height >= seaLevel && cell.biome !== BiomeType.LAKE && cell.biome !== BiomeType.SALT_LAKE;
-
-// Shared Voronoi edges between neighbor cells whose `differs` predicate is
-// true — the same shared-vertex adjacency scan as Map2D's getFactionBorders
-// (copied rather than imported: utils/ must never import from components/),
-// generalized so both coastlines and faction borders can reuse it.
-const computeBoundarySegments = (
-  world: WorldData,
-  differs: (a: Cell, b: Cell) => boolean,
-): Array<[Point3, Point3]> => {
-  const segments: Array<[Point3, Point3]> = [];
-  const threshold = 0.000001;
-  world.cells.forEach((cellA) => {
-    cellA.neighbors.forEach((nId) => {
-      const cellB = world.cells[nId];
-      if (!cellB || cellA.id >= cellB.id) return;
-      if (!differs(cellA, cellB)) return;
-
-      const shared: Point3[] = [];
-      for (const vA of cellA.vertices) {
-        for (const vB of cellB.vertices) {
-          const distSq = (vA.x - vB.x) ** 2 + (vA.y - vB.y) ** 2 + (vA.z - vB.z) ** 2;
-          if (distSq < threshold) {
-            shared.push(toPoint3(vA));
-            break;
-          }
-        }
-        if (shared.length === 2) break;
-      }
-      if (shared.length === 2) segments.push([shared[0], shared[1]]);
-    });
-  });
-  return segments;
-};
-
-const computeCoastlineSegments = (world: WorldData): Array<[Point3, Point3]> => {
-  const seaLevel = world.params.seaLevel;
-  return computeBoundarySegments(world, (a, b) => isLandCell(a, seaLevel) !== isLandCell(b, seaLevel));
-};
-
-const computeFactionBorderSegments = (world: WorldData): Array<[Point3, Point3]> => {
-  if (!world.civData) return [];
-  return computeBoundarySegments(
-    world,
-    (a, b) => a.regionId !== b.regionId && !(a.regionId === undefined && b.regionId === undefined),
-  );
-};
 
 // --- SVG EXPORT ---
 

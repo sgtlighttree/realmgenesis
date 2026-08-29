@@ -22,10 +22,15 @@ export class SvgSubstrate implements Substrate {
   private patternIds = new Map<string, string>();
   private grainId: string | null = null;
 
+  /**
+   * `mirrored` says the caller wraps `body()` in Map2D's/exportSVG's horizontal
+   * flip group. Only glyphs care — see `drawGlyph`.
+   */
   constructor(
     private path: PathStringGenerator,
     private width: number,
     private height: number,
+    private mirrored = false,
   ) {}
 
   defs(): string {
@@ -126,9 +131,17 @@ export class SvgSubstrate implements Substrate {
   }
 
   drawGlyph(g: PlacedGlyph, ink: string, width: number): void {
+    // Mirror handling matches Canvas2DSubstrate: a nested flip composes with the
+    // caller's outer flip to the identity, and the x-flip puts the glyph back
+    // over its own cell. Without it every glyph renders backwards.
+    const glyph = this.mirrored ? { ...g, x: this.width - g.x } : g;
+    const path =
+      `<path d="${glyphPathData(glyph)}" fill="none" stroke="${esc(ink)}" stroke-width="${width}" ` +
+      `stroke-linecap="round" stroke-linejoin="round"/>`;
     this.bodyParts.push(
-      `<path d="${glyphPathData(g)}" fill="none" stroke="${esc(ink)}" stroke-width="${width}" ` +
-      `stroke-linecap="round" stroke-linejoin="round"/>`,
+      this.mirrored
+        ? `<g transform="translate(${this.width},0) scale(-1,1)">${path}</g>`
+        : path,
     );
   }
 }

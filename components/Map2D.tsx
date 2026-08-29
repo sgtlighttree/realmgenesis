@@ -2,6 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as d3 from 'd3';
 import { WorldData, ViewMode, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, Point, MarkerData } from '../types';
 import { getCellColor } from '../utils/colors';
+import { computeCoastlineSegments } from '../utils/boundaries';
+import { getMapStyle, MapStyleId } from '../utils/mapStyle';
+import { runStyle } from '../utils/mapStyle/passes';
+import { placeGlyphs } from '../utils/mapStyle/placeGlyphs';
+import { Canvas2DSubstrate } from '../utils/mapStyle/substrateCanvas';
 import { seasonalTemperatureDelta } from '../utils/seasons';
 import { insideTri, barycentric, normalizeVec, toLonLat, getDymaxionNetTransform, projectDymaxionPoint, Point2, Point3 } from '../utils/geo';
 import { collectLabels, drawMapLabels } from '../utils/labels';
@@ -217,6 +222,7 @@ const Map2D: React.FC<{
   showRivers?: boolean;
   showRoutes?: boolean;
   showHillshade?: boolean;
+  mapStyleId?: MapStyleId;
   showContours?: boolean;
   showCurrents?: boolean;
   labelVisibility?: LabelVisibility;
@@ -227,7 +233,7 @@ const Map2D: React.FC<{
   religionColors?: Map<number, string>;
   brushSize?: number;
   rulerArc?: Point[] | null;
-}> = ({ world, viewMode, inspectMode, onInspect, highlightCellId = null, projectionType = 'mercator', dymaxionSettings, showGrid = false, showRivers = true, showRoutes = false, showHillshade = false, showContours = false, showCurrents = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, editMode = 'off', onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null }) => {
+}> = ({ world, viewMode, inspectMode, onInspect, highlightCellId = null, projectionType = 'mercator', dymaxionSettings, showGrid = false, showRivers = true, showRoutes = false, showHillshade = false, mapStyleId = 'default', showContours = false, showCurrents = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, editMode = 'off', onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
@@ -336,6 +342,49 @@ const Map2D: React.FC<{
     return d3.geoMercator().fitSize([size.width, size.height], { type: 'Sphere' } as d3.GeoPermissibleObjects);
   }, [size.width, size.height, projectionType]);
 
+  const style = useMemo(() => getMapStyle(mapStyleId), [mapStyleId]);
+
+  // A style with no passes draws nothing, so the legacy per-cell loop runs
+  // instead. This is the ONE test for that — never a comparison against the
+  // style id, which would put the same invariant in two places.
+  const styled = style.passes.length > 0;
+
+  // Coastline geometry is only needed by a style, and the scan is O(cells x
+  // neighbours), so it stays behind that flag.
+  const coastlines = useMemo(
+    () => (world && styled ? computeCoastlineSegments(world) : []),
+    [world, styled],
+  );
+
+  // Placement depends on the projection and the output width, so it re-runs
+  // when either changes — but not per frame. Ramp modes get an empty list:
+  // glyphs would fight a continuous fill.
+  const glyphs = useMemo(() => {
+    if (!world || !styled || !projection) return [];
+    if (style.fillPolicy(viewMode) === 'ramp') return [];
+    return placeGlyphs(world.cells, projection, size.width, {
+      seaLevel: world.params.seaLevel,
+      seed: world.params.seed,
+    });
+  }, [world, styled, style, viewMode, projection, size.width]);
+
+  // The Dymaxion path rasterizes an equirectangular SOURCE buffer at its own
+  // width, then re-projects it onto triangles. Glyphs must be placed against
+  // THAT projection and THAT width, not the screen's Mercator — otherwise they
+  // land in the wrong place and at the wrong size.
+  const dymaxionGlyphs = useMemo(() => {
+    if (!world || !styled || projectionType !== 'dymaxion') return [];
+    if (style.fillPolicy(viewMode) === 'ramp') return [];
+    const srcWidth = Math.max(1, Math.floor(size.width * qualityDpr));
+    const srcHeight = Math.max(1, Math.round(srcWidth / 2));
+    const srcProjection = d3.geoEquirectangular()
+      .fitSize([srcWidth, srcHeight], { type: 'Sphere' } as d3.GeoPermissibleObjects);
+    return placeGlyphs(world.cells, srcProjection, srcWidth, {
+      seaLevel: world.params.seaLevel,
+      seed: world.params.seed,
+    });
+  }, [world, styled, style, viewMode, projectionType, size.width, qualityDpr]);
+
   useEffect(() => {
     if (!world || !size.width || !size.height) return;
     const offscreen = offscreenRef.current ?? document.createElement('canvas');
@@ -366,6 +415,18 @@ const Map2D: React.FC<{
       srcCtx.save();
       srcCtx.translate(srcWidth, 0);
       srcCtx.scale(-1, 1);
+      if (styled) {
+        const srcSub = new Canvas2DSubstrate(
+          srcCtx, pathGenerator as unknown as (o: unknown) => unknown, srcWidth, srcHeight, true,
+        );
+        runStyle(style, {
+          world, viewMode, widthPx: srcWidth, heightPx: srcHeight,
+          glyphs: dymaxionGlyphs, shadeMap, coastlines,
+          colorCtx: {
+            seaLevel: world.params.seaLevel, factionColors, cultureColors, religionColors,
+          },
+        }, srcSub);
+      } else {
       for (let i = 0; i < world.cells.length; i++) {
         const feature = world.geoJson?.features?.[i];
         if (!feature || !feature.geometry) continue;
@@ -385,6 +446,7 @@ const Map2D: React.FC<{
         srcCtx.lineWidth = 1;
         srcCtx.fill();
         srcCtx.stroke();
+      }
       }
 
       drawContourPaths(srcCtx, pathGenerator, contourSegments, Math.max(1, renderDpr));
@@ -603,6 +665,20 @@ const Map2D: React.FC<{
     
     const pathGenerator = d3.geoPath(projection, ctx);
 
+    if (styled) {
+      // The context carries the horizontal flip applied just above, so the
+      // substrate is told it is mirrored — only glyphs need to compensate.
+      const sub = new Canvas2DSubstrate(
+        ctx, pathGenerator as unknown as (o: unknown) => unknown, size.width, size.height, true,
+      );
+      runStyle(style, {
+        world, viewMode, widthPx: size.width, heightPx: size.height,
+        glyphs, shadeMap, coastlines,
+        colorCtx: {
+          seaLevel: world.params.seaLevel, factionColors, cultureColors, religionColors,
+        },
+      }, sub);
+    } else {
     for (let i = 0; i < world.cells.length; i++) {
         const feature = world.geoJson?.features?.[i];
       if (!feature || !feature.geometry) continue;
@@ -622,6 +698,7 @@ const Map2D: React.FC<{
       ctx.lineWidth = 1;
       ctx.fill();
       ctx.stroke();
+    }
     }
 
     drawContourPaths(ctx, pathGenerator, contourSegments, Math.max(0.75, 1.5 / qualityDpr));
@@ -791,6 +868,13 @@ const Map2D: React.FC<{
     // rivers, …) redraw the offscreen but never reach the screen until a pan/zoom.
     setRenderCount(c => c + 1);
   }, [
+    // A3: without these the canvas keeps the previous style's pixels — the
+    // offscreen buffer is redrawn only when this effect re-runs.
+    style,
+    styled,
+    glyphs,
+    dymaxionGlyphs,
+    coastlines,
     projection,
     size.width,
     size.height,
