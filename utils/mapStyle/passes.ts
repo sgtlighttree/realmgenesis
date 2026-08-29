@@ -130,7 +130,7 @@ export const oceanHatchPass = (palette: StylePalette): StylePass =>
     // bake got corduroy — the same "denser map at higher resolution" mistake
     // placeGlyphs already avoids.
     const k = (ctx.widthPx / 1024) * (ctx.lineScale ?? 1);
-    const angleDeg = 45;
+    const angleDeg = ctx.hatchAngleDeg ?? 45;
     const spec = {
       color: palette.seaHatch,
       spacingPx: snapHatchToWrap(Math.max(3, 6 * k), angleDeg, ctx),

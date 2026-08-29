@@ -14,6 +14,10 @@
 //        [--lon=0] [--dist=2.6]   (camera longitude; lon 180 is the SEAM)
 //        [--texture]              (also dump the flat equirectangular bake)
 //        [--port=3000]            (dev server to reuse; 0 forces a private one)
+//        [--marker]               (paint the canvas top RED / bottom BLUE, to
+//                                  see which pole each edge lands on)
+//        [--hatch=0]              (ocean hatch angle; 0 = horizontal, which
+//                                  makes any offset or skew read off a grid)
 //
 // --texture is how you tell a TEXTURE defect from a SAMPLING one: if the mark
 // is in the flat bake it is a style-pass bug, not a globe bug.
@@ -132,7 +136,9 @@ page.on('console', m => { if (m.type() === 'error') console.error('  page error:
 page.on('pageerror', e => console.error('  page error:', e.message));
 
 const url = `${base}/scripts/preview/globe.html?style=${style}&mode=${mode}`
-  + `&seed=${encodeURIComponent(seed)}&points=${points}&size=${size}`;
+  + `&seed=${encodeURIComponent(seed)}&points=${points}&size=${size}`
+  + (flags.marker ? '&marker=1' : '')
+  + (flags.hatch !== undefined ? `&hatch=${flags.hatch}` : '');
 console.log(`loading ${url}`);
 await page.goto(url, { waitUntil: 'load' });
 await page.waitForFunction('window.__ready === true', null, { timeout: 180000 });
