@@ -87,12 +87,19 @@ dismissal and the S27b scroll-containment fix. Listbox semantics stayed in
 
 ### Findings, at the confidence they deserve
 
-- **The polar hatch rosette and the short dark line stubs on the globe are
-  pre-existing, not style-specific.** Rendered Blueprint and Parchment at lat 90
-  and they are identical in both. n=2 styles, one seed. The stubs are NOT the
-  coastline — Blueprint's coast is pure white and its stubs are still dark, so
-  something on the globe draws a line in a colour the style does not supply.
-  Worth a look; nobody has traced it.
+- **The short dark line stubs all over the globe's ocean ARE the S27c mesh
+  seams — traced, not guessed.** Three pieces of evidence: they are identical in
+  Parchment, Blueprint and Boardgame; the FLAT BAKE is clean (`--texture`), which
+  by `renderGlobePreview`'s own diagnostic rule makes it a globe defect rather
+  than a style-pass one; and `scripts/preview/globe.html` mounts no overlay
+  tenants at all — no rivers, no borders — so nothing but the mesh and the
+  texture is on screen. They are the dark background showing through open cell
+  seams, which is exactly what that file's own `CELL_OVERHANG` comment predicts.
+  **Boardgame makes them far worse**, because a flat pale printed sea has no
+  hatch or grain to hide them. That is a real argument for raising
+  `CELL_OVERHANG` above 1.03, which is still Matt's call.
+- **The polar hatch rosette is pre-existing too.** Blueprint and Parchment at
+  lat 90 are identical. n=2 styles, one seed.
 - **Water hillshading on a paper style produces stains, on neutral paper too.**
   `hillshadePass` recorded this for Parchment; Ink & Wash was built to test
   whether a neutral palette rescued it. It does not — the sea came out mottled.
@@ -101,6 +108,24 @@ dismissal and the S27b scroll-containment fix. Listbox semantics stayed in
   `#454a47` on `#f4f1ea` the per-cell contrast made the Voronoi polygons the
   dominant texture and the land read as a honeycomb. Parchment's beige paper is
   what lets it carry a darker shadow. Diluted to `#646b67` at 0.6.
+
+### Verified in the browser, not just by render
+
+`renderMapPreview` drives `exportSVG`, which has no desk and no Canvas2D
+substrate, so the three new styles were also cycled in the running app:
+
+- All five styles paint a desk in Map2D under 2D Mercator. Corner probes:
+  Parchment `#1b140d`, Blueprint `#101318`, Ink & Wash `#15171a`, Boardgame
+  `#261c12`. None is `rgba(0,0,0,0)` or `#000000`.
+- **`palette.deskTexture` was exercised once and works.** A 16px checked data
+  URI was set on Parchment temporarily: the desk came back alternating every 8
+  device pixels in BOTH axes, with the vignette composited over it, then the
+  patch was reverted. So `useDeskTexture` decodes, `createPattern(…, 'repeat')`
+  tiles, and the layer order is right. The slot is not cold.
+- The view strip holds at 1600, 1440, 1024 and 768 in `WideShell`, **and at
+  390 in `NarrowShell`**, which renders the SAME `ViewStrip` node inside its
+  bottom sheet. Four fields fit one row there; rotation is not passed when
+  narrow, which is what makes it fit.
 
 ### Still open
 
