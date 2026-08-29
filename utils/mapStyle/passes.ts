@@ -62,11 +62,23 @@ const oceanFeaturesByHatchOpacity = (
   return bands;
 };
 
-/** Full-bleed paper tone plus grain. Always first — everything sits on it. */
+/**
+ * Paper tone plus grain, over the MAP, not over the canvas. Always first —
+ * everything else sits on it.
+ *
+ * Clipped to the projected sphere. A projection does not necessarily fill its
+ * viewport: Mercator clipped at +/-85 degrees is square, so a wide canvas gets
+ * a margin down each side, and paper painted by raw canvas coordinates spilled
+ * into it — parchment then showed a band of blank land off each edge of the
+ * world, which is what Matt reported against the Mercator view. For
+ * equirectangular the sphere is the whole canvas and the clip changes nothing.
+ */
 export const paperPass = (palette: StylePalette, seed: string): StylePass =>
   (ctx, sub) => {
-    sub.fillRect(0, 0, ctx.widthPx, ctx.heightPx, palette.paper);
-    sub.grain({ seed, opacity: 0.10, scale: 1 });
+    sub.withSphereClip(() => {
+      sub.fillRect(0, 0, ctx.widthPx, ctx.heightPx, palette.paper);
+      sub.grain({ seed, opacity: 0.10, scale: 1 });
+    });
   };
 
 /**

@@ -28,6 +28,10 @@ const recorder = () => {
       });
     },
     grain: (spec: GrainSpec) => { calls.push({ op: 'grain', arg: spec.seed }); },
+    // Records the clip AND runs the body, so a pass that paints inside it is
+    // still observed. A stub that swallowed `draw` would make paperPass look
+    // like it drew nothing.
+    withSphereClip: (draw: () => void) => { calls.push({ op: 'withSphereClip' }); draw(); },
     drawGlyph: (g: PlacedGlyph, ink) => { calls.push({ op: 'drawGlyph', arg: ink }); void g; },
   };
   return { sub, calls };
@@ -190,12 +194,16 @@ describe('parchment passes', () => {
     expect(drawn.every(c => c.arg === parchment.palette.ink)).toBe(true);
   });
 
+  // The clip in front of the paper is the sphere clip added when parchment
+  // started spilling off the edge of the Mercator view; the intent of this test
+  // — paper first, then grain, then everything else — is unchanged.
   it('lays paper down before anything else', () => {
     const { sub, calls } = recorder();
     runStyle(parchment, makeCtx('biome'), sub);
-    expect(calls[0].op).toBe('fillRect');
-    expect(calls[0].arg).toBe(parchment.palette.paper);
-    expect(calls[1].op).toBe('grain');
+    expect(calls[0].op).toBe('withSphereClip');
+    expect(calls[1].op).toBe('fillRect');
+    expect(calls[1].arg).toBe(parchment.palette.paper);
+    expect(calls[2].op).toBe('grain');
   });
 });
 
@@ -294,5 +302,30 @@ describe('oceanHatchPass seam alignment', () => {
     const flat = spacingFor({ widthPx: 2048, lineScale: 0.5 });
     const wrapped = spacingFor({ widthPx: 2048, wrapsHorizontally: true, lineScale: 0.5 });
     expect(Math.abs(wrapped - flat) / flat).toBeLessThan(0.02);
+  });
+});
+
+// Reported by Matt: parchment showed a band of blank land off each edge of the
+// Mercator view. A projection does not necessarily fill its canvas — Mercator
+// clipped at +/-85 degrees is square, so a wide viewport leaves a margin down
+// each side — and the paper tone was painted in raw canvas coordinates.
+describe('paperPass stays inside the map', () => {
+  it('paints the paper and its grain under a sphere clip', () => {
+    const { sub, calls } = recorder();
+    runStyle(parchment, makeCtx('biome'), sub);
+    const clipAt = calls.findIndex(c => c.op === 'withSphereClip');
+    const paperAt = calls.findIndex(c => c.op === 'fillRect');
+    const grainAt = calls.findIndex(c => c.op === 'grain');
+    expect(clipAt).toBeGreaterThanOrEqual(0);
+    // The clip is recorded when it opens, so both must follow it.
+    expect(paperAt).toBeGreaterThan(clipAt);
+    expect(grainAt).toBeGreaterThan(clipAt);
+  });
+
+  it('never fills the raw canvas outside the clip', () => {
+    const { sub, calls } = recorder();
+    runStyle(parchment, makeCtx('biome'), sub);
+    // Exactly one fillRect in the whole style, and it is the clipped paper.
+    expect(calls.filter(c => c.op === 'fillRect').length).toBe(1);
   });
 });

@@ -21,6 +21,7 @@ export class SvgSubstrate implements Substrate {
   private bodyParts: string[] = [];
   private patternIds = new Map<string, string>();
   private grainId: string | null = null;
+  private sphereClipId: string | null = null;
 
   /**
    * `mirrored` says the caller wraps `body()` in Map2D's/exportSVG's horizontal
@@ -126,6 +127,20 @@ export class SvgSubstrate implements Substrate {
       );
     }
     return id;
+  }
+
+  withSphereClip(draw: () => void): void {
+    const d = this.path({ type: 'Sphere' });
+    // No sphere path (a degenerate projection) means nothing to clip TO, not
+    // "clip everything away" — draw unclipped rather than blanking the map.
+    if (!d) { draw(); return; }
+    if (!this.sphereClipId) {
+      this.sphereClipId = 'sphereClip';
+      this.defsParts.push(`<clipPath id="${this.sphereClipId}"><path d="${d}"/></clipPath>`);
+    }
+    this.bodyParts.push(`<g clip-path="url(#${this.sphereClipId})">`);
+    draw();
+    this.bodyParts.push('</g>');
   }
 
   grain(spec: GrainSpec): void {
