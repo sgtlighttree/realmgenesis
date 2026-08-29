@@ -1,0 +1,86 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>globe preview</title>
+<style>html,body{margin:0;background:#111}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script type="module">
+// Harness for scripts/renderGlobePreview.mjs. Renders the REAL styled globe —
+// same bake, same sphereDir buffer, same material — with no app UI and no
+// OrbitControls, so a camera can be put exactly on a pole and held there.
+import * as THREE from 'three';
+import { generateWorld } from '/utils/worldGen.ts';
+import { makeParams } from '/tests/helpers.ts';
+import { bakeStyleTexture, buildGlobeDirs } from '/utils/mapStyle/bakeTexture.ts';
+import { createStyleTexture, createStyledGlobeMaterial } from '/utils/mapStyle/globeMaterial.ts';
+import { getMapStyle } from '/utils/mapStyle/index.ts';
+import { displayRadius } from '/utils/displayRadius.ts';
+import { getCellColor } from '/utils/colors.ts';
+
+const q = new URLSearchParams(location.search);
+const size = Number(q.get('size') ?? 900);
+const style = q.get('style') ?? 'parchment';
+const mode = q.get('mode') ?? 'biome';
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.setSize(size, size, false);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#111111');
+const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
+
+const world = await generateWorld(makeParams({
+  seed: q.get('seed') ?? 'realmgenesis',
+  points: Number(q.get('points') ?? 8000),
+  erosionIterations: 3,
+}));
+
+// Same triangle-fan layout as WorldViewer's refill loop.
+let triCount = 0;
+for (const cell of world.cells) triCount += cell.vertices.length;
+const pos = new Float32Array(triCount * 9);
+const col = new Float32Array(triCount * 9);
+let o = 0;
+for (const cell of world.cells) {
+  const c = getCellColor(cell, mode, { seaLevel: world.params.seaLevel });
+  const h = displayRadius(cell.height, false);
+  const uc = cell.center;
+  for (let i = 0; i < cell.vertices.length; i++) {
+    const v1 = cell.vertices[i];
+    const v2 = cell.vertices[(i + 1) % cell.vertices.length];
+    pos[o] = uc.x * h; pos[o + 1] = uc.y * h; pos[o + 2] = uc.z * h;
+    pos[o + 3] = v1.x * h; pos[o + 4] = v1.y * h; pos[o + 5] = v1.z * h;
+    pos[o + 6] = v2.x * h; pos[o + 7] = v2.y * h; pos[o + 8] = v2.z * h;
+    for (let k = 0; k < 9; k += 3) { col[o + k] = c.r; col[o + k + 1] = c.g; col[o + k + 2] = c.b; }
+    o += 9;
+  }
+}
+const geo = new THREE.BufferGeometry();
+geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+geo.setAttribute('sphereDir', new THREE.BufferAttribute(buildGlobeDirs(world), 3));
+
+const baked = bakeStyleTexture(world, mode, getMapStyle(style), true);
+const material = baked
+  ? createStyledGlobeMaterial(createStyleTexture(baked))
+  : new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
+scene.add(new THREE.Mesh(geo, material));
+
+// latDeg 90 = straight down on the north pole; 0 = equator.
+window.__look = (latDeg, lonDeg = 0, dist = 2.6) => {
+  const la = (latDeg * Math.PI) / 180;
+  const lo = (lonDeg * Math.PI) / 180;
+  camera.position.set(
+    Math.cos(la) * Math.cos(lo) * dist,
+    Math.sin(la) * dist,
+    Math.cos(la) * Math.sin(lo) * dist,
+  );
+  camera.up.set(0, Math.abs(latDeg) > 80 ? 0 : 1, Math.abs(latDeg) > 80 ? -1 : 0);
+  camera.lookAt(0, 0, 0);
+  renderer.render(scene, camera);
+};
+
+window.__look(90);
+window.__ready = true;
+</script>
