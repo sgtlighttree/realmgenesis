@@ -71,8 +71,16 @@ export const oceanFillPass = (palette: StylePalette): StylePass =>
  */
 export const oceanHatchPass = (palette: StylePalette): StylePass =>
   (ctx, sub) => {
+    // Spacing and width scale with output, like glyphs. They were fixed pixel
+    // values, which meant an 8192 export got hair-fine hatching and the globe
+    // bake got corduroy — the same "denser map at higher resolution" mistake
+    // placeGlyphs already avoids.
+    const k = (ctx.widthPx / 1024) * (ctx.lineScale ?? 1);
     sub.hatchFeatures(oceanFeatures(ctx), {
-      color: palette.seaHatch, spacingPx: 6, widthPx: 0.9, angleDeg: 45,
+      color: palette.seaHatch,
+      spacingPx: Math.max(3, 6 * k),
+      widthPx: Math.max(0.4, 0.9 * k),
+      angleDeg: 45,
     });
   };
 
@@ -159,13 +167,13 @@ export const hillshadePass = (
 /** Heavy ink coastline plus a lighter offset swash line just inside it. */
 export const coastlinePass = (palette: StylePalette): StylePass =>
   (ctx, sub) => {
-    const w = Math.max(1, (ctx.widthPx / 1024) * 2.0);
+    const w = Math.max(0.6, (ctx.widthPx / 1024) * 2.0 * (ctx.lineScale ?? 1));
     sub.strokeSegments(ctx.coastlines, palette.coast, w);
   };
 
 /** Relief and vegetation glyphs. Empty when the fill policy suppressed them. */
 export const glyphPass = (palette: StylePalette): StylePass =>
   (ctx, sub) => {
-    const w = Math.max(0.6, (ctx.widthPx / 1024) * 1.1);
+    const w = Math.max(0.4, (ctx.widthPx / 1024) * 1.1 * (ctx.lineScale ?? 1));
     for (const g of ctx.glyphs) sub.drawGlyph(g, palette.ink, w);
   };

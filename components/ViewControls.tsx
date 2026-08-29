@@ -361,12 +361,18 @@ export const ViewStrip: React.FC<ViewControlsProps & { rotation?: RotationContro
   const toggles = [...layers.slice(0, at), buildBordersToggle(p), ...layers.slice(at)];
   const { containerRef, chipsRef, mirrorRef, compact } = useCompactStrip();
 
-  // `flex-1` on the root is load-bearing for the compact measurement, not
-  // cosmetic: without it the root sizes to its own CONTENT, so clientWidth
-  // reported the content width rather than the space available and the
-  // full-label branch could never win. `min-w-0` keeps it able to shrink.
+  // TWO ROWS. Row 1 is "what am I looking at" — projection, view layer, style.
+  // Row 2 is the overlay toggles. One row had grown past the available width and
+  // the chips scrolled horizontally, hiding toggles behind a scrollbar.
+  //
+  // `containerRef` measures ROW 2, not the root: `useCompactStrip` compares the
+  // available width against the chips' full-label mirror, so it must measure the
+  // row the chips actually live in. `flex-1`/`min-w-0` stay load-bearing — without
+  // them the row sizes to its own CONTENT, clientWidth reports content rather
+  // than available space, and the full-label branch can never win.
   return (
-  <div ref={containerRef} className="relative flex flex-1 flex-nowrap items-center gap-2 min-w-0 overflow-hidden">
+  <div className="flex flex-1 flex-col gap-1.5 min-w-0">
+  <div className="flex flex-nowrap items-center gap-2 min-w-0">
     <div className="inline-flex overflow-hidden border border-edge shrink-0">
       {DISPLAY_MODES.map(m => (
         <button
@@ -433,6 +439,10 @@ export const ViewStrip: React.FC<ViewControlsProps & { rotation?: RotationContro
       triggerClassName="min-w-[6.5rem] justify-between"
     />
 
+  </div>
+
+  {/* Row 2 — overlay toggles, now with the full strip width to themselves. */}
+  <div ref={containerRef} className="relative flex flex-nowrap items-center gap-1 min-w-0 overflow-hidden">
     {/* Hidden full-label mirror: the yardstick useCompactStrip measures against.
         Never reflows with `compact`, so the measurement cannot oscillate.
         aria-hidden + inert keeps it out of the a11y tree and tab order. */}
@@ -445,13 +455,12 @@ export const ViewStrip: React.FC<ViewControlsProps & { rotation?: RotationContro
       {toggles.map(t => <LayerChip key={t.key} toggle={t} />)}
     </div>
 
-    {/* Below ~500px of strip width even icon-only chips exceed the row (the wide
-        shell runs down to 768px viewport). The constraint is ONE row, so the
-        chips scroll horizontally rather than wrapping or being clipped
-        unreachable. overflow-x-auto shows no scrollbar until it is needed. */}
+    {/* With a row of its own the chips almost always fit; the scroll stays as
+        the last resort at very narrow widths rather than the normal case. */}
     <div ref={chipsRef} className="flex flex-nowrap items-center gap-1 min-w-0 overflow-x-auto">
       {toggles.map(t => <LayerChip key={t.key} toggle={t} compact={compact} />)}
     </div>
+  </div>
   </div>
   );
 };

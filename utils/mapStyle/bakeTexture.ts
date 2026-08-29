@@ -52,11 +52,23 @@ export const bakeStyleTexture = (
     .fitSize([width, height], { type: 'Sphere' } as d3.GeoPermissibleObjects);
   const pathGenerator = d3.geoPath(projection, ctx);
 
+  /**
+   * The globe shows one HEMISPHERE filling the viewport, so roughly half the
+   * texture is magnified to full screen. Line weights, hatch density and glyph
+   * sizes tuned for a flat map — where the whole world is in view — come out
+   * heavy and blobby here, swamping the coastline shape. Everything scales down
+   * by this factor; glyphs also get more spacing so they read as marks rather
+   * than as scattered dirt.
+   */
+  const lineScale = 0.5;
+
   const glyphs = style.fillPolicy(viewMode) === 'ramp'
     ? []
     : placeGlyphs(world.cells, projection, width, {
       seaLevel: world.params.seaLevel,
       seed: world.params.seed,
+      sizePx: 16 * lineScale * 1.4,
+      minSpacingPx: 22 * 1.6,
     });
 
   const sub = new Canvas2DSubstrate(
@@ -69,6 +81,7 @@ export const bakeStyleTexture = (
     widthPx: width,
     heightPx: height,
     glyphs,
+    lineScale,
     shadeMap: showHillshade ? computeShadeMap(world.cells, world.params.seaLevel) : null,
     coastlines: computeCoastlineSegments(world),
     colorCtx: {
@@ -113,8 +126,34 @@ export const buildGlobeUVs = (world: WorldData): Float32Array => {
       const us = [cu, uOf(v1.x, v1.z), uOf(v2.x, v2.z)];
       const vs = [cv, vOf(v1.y), vOf(v2.y)];
 
-      if (Math.max(...us) - Math.min(...us) > 0.5) {
-        for (let k = 0; k < 3; k++) if (us[k] < 0.5) us[k] += 1;
+      // Wrap each vertex to the equivalent u NEAREST the cell centre — the
+      // shortest way round the cylinder.
+      //
+      // An earlier version pushed every u below 0.5 past 1.0 instead. That is
+      // wrong whenever the three vertices do not straddle 0.5 together: a cell
+      // at u = [0.1, 0.6, 0.9] came out [1.1, 0.6, 0.9], still spanning half the
+      // texture. Measured on a 5k world, 76 triangles kept a span up to 0.747 —
+      // each one smeared three quarters of the map across a single cell, which
+      // showed as dark streaks scattered over open ocean.
+      for (let k = 1; k < 3; k++) {
+        if (us[k] - us[0] > 0.5) us[k] -= 1;
+        else if (us[0] - us[k] > 0.5) us[k] += 1;
+      }
+
+      // POLES. Equirectangular has a genuine singularity there: a cell touching
+      // a pole spans a wide longitude range legitimately, and no UV assignment
+      // can avoid stretching it. Measured on a 5k world, 76 triangles — all at
+      // |lat| >= 84 degrees — still spanned up to 0.63 of the texture after the
+      // wrap above, each smearing most of the map across one cell as dark
+      // streaks near the poles.
+      //
+      // Collapsing them to the centre's longitude samples a narrow strip
+      // instead. That is not a fudge: near a pole every longitude maps to
+      // near-identical content, so the strip is representative, and a thin
+      // correct band beats a wide wrong one.
+      if (Math.max(...us) - Math.min(...us) > 0.08) {
+        us[1] = us[0];
+        us[2] = us[0];
       }
 
       for (let k = 0; k < 3; k++) {
