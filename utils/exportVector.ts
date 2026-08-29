@@ -1,5 +1,4 @@
 import * as d3 from 'd3';
-import { geoWinkel3, geoRobinson, geoMollweide } from 'd3-geo-projection';
 import { WorldData, ViewMode, Point } from '../types';
 import { buildFactionColorMap, buildCultureColorMap, buildReligionColorMap, getCellColor } from './colors';
 import { seasonalTemperatureDelta } from './seasons';
@@ -7,18 +6,22 @@ import { toLonLat, Point3 } from './geo';
 import { computeCoastlineSegments, computeFactionBorderSegments } from './boundaries';
 import { computeShadeMap } from './shading';
 import { getMapStyle, MapStyleId } from './mapStyle';
+import { buildProjection, FlatProjectionType } from './projections';
 import { OverlayInk } from './mapStyle/overlayInk';
 import { runStyle } from './mapStyle/passes';
 import { placeGlyphs } from './mapStyle/placeGlyphs';
 import { SvgSubstrate } from './mapStyle/substrateSvg';
 import { collectLabels, LABEL_CONFIG } from './labels';
-import { ProjectionType } from './export';
 import { elevationMetres } from './datum';
 
 // 'dymaxion' is a raster-only path (triangular net rasterization, not a
 // d3 projection) — SVG export reuses the same projection select as PNG
 // export but excludes it at the type level.
-export type VectorProjectionType = Exclude<ProjectionType, 'dymaxion'>;
+/**
+ * @deprecated Alias of `FlatProjectionType` in utils/projections.ts, kept so
+ * existing importers still compile. Prefer the canonical name.
+ */
+export type VectorProjectionType = FlatProjectionType;
 
 const toPoint3 = (p: Point): Point3 => [p.x, p.y, p.z];
 
@@ -31,20 +34,6 @@ const escapeXml = (value: string): string =>
     .replace(/'/g, '&apos;');
 
 // --- SVG EXPORT ---
-
-const buildProjection = (projectionType: VectorProjectionType, width: number, height: number): d3.GeoProjection => {
-  let projection: d3.GeoProjection;
-  switch (projectionType) {
-    case 'mercator': projection = d3.geoMercator(); break;
-    case 'winkeltripel': projection = geoWinkel3(); break;
-    case 'robinson': projection = geoRobinson(); break;
-    case 'mollweide': projection = geoMollweide(); break;
-    case 'orthographic': projection = d3.geoOrthographic(); break;
-    case 'equirectangular': default: projection = d3.geoEquirectangular(); break;
-  }
-  projection.fitSize([width, height], { type: 'Sphere' as const });
-  return projection;
-};
 
 const renderCellPaths = (world: WorldData, viewMode: ViewMode, pathGenerator: d3.GeoPath): string => {
   const factionColors = buildFactionColorMap(world.civData);

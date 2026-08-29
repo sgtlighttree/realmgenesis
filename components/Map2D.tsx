@@ -5,6 +5,8 @@ import { getCellColor } from '../utils/colors';
 import { computeCoastlineSegments } from '../utils/boundaries';
 import { getMapStyle, MapStyleId } from '../utils/mapStyle';
 import { OverlayInk } from '../utils/mapStyle/overlayInk';
+import { buildProjection, FlatProjectionType } from '../utils/projections';
+import { DISPLAY_MODES } from './ViewControls';
 import { useLabelFonts } from '../utils/mapStyle/useLabelFonts';
 import { runStyle } from '../utils/mapStyle/passes';
 import { placeGlyphs } from '../utils/mapStyle/placeGlyphs';
@@ -261,7 +263,11 @@ const Map2D: React.FC<{
   inspectMode: InspectMode;
   onInspect: (cellId: number | null) => void;
   highlightCellId?: number | null;
-  projectionType?: 'mercator' | 'dymaxion';
+  /**
+   * Which flat view to draw. Everything except `dymaxion` is a d3 projection
+   * from `utils/projections.ts`; Dymaxion is an unfolded net with its own path.
+   */
+  projectionType?: FlatProjectionType | 'dymaxion';
   dymaxionSettings?: DymaxionSettings;
   showGrid?: boolean;
   showRivers?: boolean;
@@ -384,7 +390,8 @@ const Map2D: React.FC<{
   const projection = useMemo(() => {
     if (!size.width || !size.height) return null;
     if (projectionType === 'dymaxion') return null;
-    return d3.geoMercator().fitSize([size.width, size.height], { type: 'Sphere' } as d3.GeoPermissibleObjects);
+    // Same factory the exports use, so screen and file cannot drift apart.
+    return buildProjection(projectionType, size.width, size.height);
   }, [size.width, size.height, projectionType]);
 
   const style = useMemo(() => getMapStyle(mapStyleId), [mapStyleId]);
@@ -1273,7 +1280,7 @@ const Map2D: React.FC<{
       )}
       {world && (
         <div className="absolute bottom-4 right-4 text-[10px] bg-black/60 border border-white/10 px-2 py-1 text-ink-soft">
-          {projectionType === 'dymaxion' ? '2D Dymaxion' : '2D Mercator'} • Scroll to zoom, drag to pan
+          {DISPLAY_MODES.find(m => m.mode === projectionType)?.label ?? '2D Map'} • Scroll to zoom, drag to pan
         </div>
       )}
     </div>

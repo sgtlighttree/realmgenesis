@@ -60,7 +60,12 @@ export interface ViewControlsProps {
 
 export const DISPLAY_MODES: { mode: DisplayMode; label: string; short: string }[] = [
   { mode: 'globe', label: '3D Globe', short: '3D' },
+  // Equirectangular first among the flat ones: it is the projection the whole
+  // pipeline is expressed in (the globe texture is baked in it, and every
+  // lon/lat mapping assumes it), so it is the least surprising default 2D view.
+  { mode: 'equirectangular', label: '2D Equirectangular', short: 'Equirect' },
   { mode: 'mercator', label: '2D Mercator', short: 'Mercator' },
+  { mode: 'winkeltripel', label: '2D Winkel Tripel', short: 'Winkel' },
   { mode: 'dymaxion', label: '2D Dymaxion', short: 'Dymaxion' },
 ];
 
