@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 
 import { WorldData } from '../types';
+import { getMapStyle } from '../utils/mapStyle';
 import { exportSVG } from '../utils/exportVector';
 import { generateWorld } from '../utils/worldGen';
 import { makeParams } from './helpers';
@@ -37,7 +38,9 @@ describe('exportSVG with the parchment style', () => {
     // must not, or the paper and its grain sit on top of a black page.
     expect(plain).toContain('fill="#050505"');
     expect(styled).not.toContain('fill="#050505"');
-    expect(styled).toContain('#e8d9b5'); // parchment paper
+    // Read from the palette, never a literal — a palette tweak must not
+    // break a test that is about the background rect.
+    expect(styled).toContain(getMapStyle('parchment').palette.paper);
   });
 
   it('counter-transforms glyphs so they are not mirrored', () => {

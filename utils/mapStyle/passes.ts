@@ -55,7 +55,7 @@ export const oceanFillPass = (palette: StylePalette): StylePass =>
 export const oceanHatchPass = (palette: StylePalette): StylePass =>
   (ctx, sub) => {
     sub.hatchFeatures(oceanFeatures(ctx), {
-      color: palette.seaHatch, spacingPx: 7, widthPx: 0.6, angleDeg: 45,
+      color: palette.seaHatch, spacingPx: 6, widthPx: 0.9, angleDeg: 45,
     });
   };
 
@@ -107,12 +107,23 @@ export const landPass = (
  *
  * D10 made water shade too, so this covers the sea bed as well as the land.
  */
-export const hillshadePass = (palette: StylePalette, opacityScale: number): StylePass =>
+export const hillshadePass = (
+  palette: StylePalette,
+  opacityScale: number,
+  landOnly = false,
+): StylePass =>
   (ctx, sub) => {
     if (!ctx.shadeMap) return;
-    const { world } = ctx;
+    const { world, colorCtx } = ctx;
     for (let i = 0; i < world.cells.length; i++) {
-      const s = ctx.shadeMap[world.cells[i].id];
+      const cell = world.cells[i];
+      // D10 made water hillshade, which is right for the diagnostic views. On a
+      // DRAWN map it fights the look: sea-bed relief renders as mottled grey
+      // blotches that read as stains on the paper rather than as bathymetry.
+      // Parchment shades land only and lets the hatch carry the sea, the way a
+      // period map does.
+      if (landOnly && cell.height < colorCtx.seaLevel) continue;
+      const s = ctx.shadeMap[cell.id];
       if (s === 1) continue; // flat ground contributes nothing
       const feature = world.geoJson?.features?.[i];
       if (!feature) continue;
@@ -124,9 +135,8 @@ export const hillshadePass = (palette: StylePalette, opacityScale: number): Styl
 /** Heavy ink coastline plus a lighter offset swash line just inside it. */
 export const coastlinePass = (palette: StylePalette): StylePass =>
   (ctx, sub) => {
-    const w = Math.max(0.75, (ctx.widthPx / 1024) * 1.4);
+    const w = Math.max(1, (ctx.widthPx / 1024) * 2.0);
     sub.strokeSegments(ctx.coastlines, palette.coast, w);
-    sub.strokeSegments(ctx.coastlines, palette.inkLight, w * 0.5);
   };
 
 /** Relief and vegetation glyphs. Empty when the fill policy suppressed them. */
