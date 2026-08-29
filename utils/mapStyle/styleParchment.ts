@@ -1,6 +1,7 @@
 import { ViewMode } from '../../types';
 import {
-  coastlinePass, glyphPass, hillshadePass, landPass, oceanFillPass, oceanHatchPass, paperPass,
+  coastlinePass, glyphPass, hillshadePass, landPass, oceanFillPass, oceanHatchPass,
+  paperPass,
 } from './passes';
 import { PARCHMENT_LABEL_THEME } from './labelTheme';
 import { PARCHMENT_OVERLAY_INK } from './overlayInk';
@@ -24,6 +25,12 @@ const PARCHMENT_PALETTE: StylePalette = {
   shadow: '#5c4a2e',
   highlight: '#fdf6e4',
   ice: '#e9f0f2',
+  // A dark table, warm rather than neutral so it reads as wood or leather next
+  // to the paper instead of as an empty viewport. Kept far darker and far less
+  // saturated than the map: the eye should land on the map, and a busy desk
+  // competes with the thing it is supporting.
+  desk: '#20180f',
+  deskShadow: '#0d0906',
 };
 
 const BARE: ViewMode[] = ['satellite', 'biome', 'height_bw'];

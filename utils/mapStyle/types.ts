@@ -47,6 +47,14 @@ export interface StylePalette {
    * not blank.
    */
   ice: string;
+  /**
+   * What fills the viewport OUTSIDE the map — the desk the paper lies on. A
+   * projection rarely fills its canvas, and raw black in that margin reads as a
+   * rendering failure rather than a choice. 2D only; see `backdropPass`.
+   */
+  desk: string;
+  /** Shadow hugging the map's edge, so the paper rests rather than floats. */
+  deskShadow: string;
 }
 
 /**

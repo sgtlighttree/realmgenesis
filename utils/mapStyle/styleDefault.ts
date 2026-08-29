@@ -20,6 +20,10 @@ export const styleDefault: MapStyle = {
     shadow: '#000000',
     highlight: '#ffffff',
     ice: '#ffffff',
+    // The pre-A3 look had no backdrop and this style draws nothing anyway (its
+    // pass list is empty by design); these exist to satisfy the palette.
+    desk: '#000000',
+    deskShadow: '#000000',
   },
   labelTheme: DEFAULT_LABEL_THEME,
   overlayInk: DEFAULT_OVERLAY_INK,
