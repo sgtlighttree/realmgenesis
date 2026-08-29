@@ -67,6 +67,27 @@ The param-liveness test (`tests/paramLiveness.test.ts`) fails if any `WorldParam
 
 Vitest suite in `tests/` covers the pure engine (RNG, biomes, generation determinism, param liveness, paint utils, import validation). Rendering behavior is verified manually in the browser.
 
+### When to run which tests — THIS MACHINE IS ALSO A WORKSTATION
+
+The full suite is CPU-bound world generation: 21 of 54 files call `generateWorld`, the real 7-stage pipeline, in-process. Measured on this 8-core M1 Air: **992 seconds of test time in 218 seconds of wall clock.** That is several cores pinned for minutes on a fanless laptop that is often running After Effects at the same time. A frozen render costs more than a fast gate.
+
+`vite.config.ts` caps local runs at **3 workers** (CI keeps vitest's default). Do not remove the cap to go faster.
+
+Escalate in this order, and stop at the first step that answers the question:
+
+1. **Default — run the files you touched.** `npx vitest run tests/foo.test.ts tests/bar.test.ts`. Seconds, not minutes. This covers almost every edit.
+2. **Related files** when a change crosses modules: pass several paths, still not the whole suite.
+3. **The full suite** — `npm test` — only before a merge or a PR, or when a change touches `utils/worldGen.ts`, `utils/colors.ts`, `types.ts`, or anything else most of the suite imports.
+
+**Rules that are not negotiable:**
+
+- **Ask before running the full suite.** Matt may be mid-render. One sentence: "full suite, ~4 minutes at 3 workers, OK?"
+- **Never run the full suite alongside a dev server plus browser automation.** That combination is what made `paramLiveness` blow its timeout twice — the tests were fine, the machine was not.
+- **Never run two vitest invocations at once**, foreground or background.
+- **`VITEST_WORKERS=1 npm test`** when a render is going. Slower wall clock, one core.
+- **A timeout is not a failure.** These tests generate worlds; under load they run out of clock without anything being wrong. Re-run the single file on an idle machine before reporting a regression, and never "fix" a test by raising its timeout to escape load.
+- **Do not add a test that generates more than one world per case.** `paramLiveness` shares one `beforeAll` baseline across every case for this reason: one slow moment should fail one param, and name it.
+
 ## Deployment
 
 Netlify static SPA. `public/_redirects` handles SPA routing. Optional `GEMINI_API_KEY` env var at build time or BYOK at runtime.

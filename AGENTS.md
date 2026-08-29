@@ -64,7 +64,9 @@ npm run build      # Production build → dist/
 npm run preview    # Preview production build
 npm run lint       # ESLint (flat config, zero errors, --max-warnings ratchet)
 npm run typecheck  # tsc --noEmit (strict mode)
-npm test           # Vitest suite over the pure engine (tests/)
+npm test           # Vitest suite over the pure engine (tests/) — see the run
+                   # policy in CLAUDE.md; prefer naming the files you touched
+                   # (npx vitest run tests/foo.test.ts) over the whole suite
 ```
 
 **No formatter is configured.** Rendering behavior is verified manually in the browser; the pure engine (`utils/`, `services/`) is covered by the Vitest suite in `tests/`. All four gates run in CI (`.github/workflows/ci.yml`) and must pass:
