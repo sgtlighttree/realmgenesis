@@ -6,6 +6,8 @@ import { toLonLat, Point3 } from './geo';
 import { computeCoastlineSegments, computeFactionBorderSegments } from './boundaries';
 import { computeShadeMap } from './shading';
 import { getMapStyle, MapStyleId } from './mapStyle';
+import { embeddedFontCss } from './mapStyle/embedFonts';
+import { LabelTheme } from './mapStyle/labelTheme';
 import { buildProjection, FlatProjectionType } from './projections';
 import { OverlayInk } from './mapStyle/overlayInk';
 import { runStyle } from './mapStyle/passes';
@@ -159,6 +161,7 @@ const buildLabelsGroup = (
   projection: d3.GeoProjection,
   projectionType: VectorProjectionType,
   width: number,
+  theme: LabelTheme,
 ): string => {
   const fontScale = width / 1024;
   const parts: string[] = [];
@@ -175,14 +178,18 @@ const buildLabelsGroup = (
     const config = LABEL_CONFIG[label.kind];
     const fontSize = Math.max(8, config.baseFontSize * fontScale);
     const text = config.uppercase ? label.name.toUpperCase() : label.name;
-    const fill = config.fill ?? '#f8fafc';
+    const family = config.face === 'geo' ? theme.geoFamily : theme.displayFamily;
+    const fill = config.fill
+      ?? (label.kind === 'marker' ? theme.markerInk : config.water ? theme.waterInk : theme.ink);
     const styleAttr = config.italic ? ' font-style="italic"' : '';
+    const tracking = config.uppercase && theme.trackingEm !== 0
+      ? ` letter-spacing="${(theme.trackingEm * fontSize).toFixed(2)}"` : '';
 
     parts.push(
-      `<text x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-family="Inter, ui-sans-serif, sans-serif" ` +
-      `font-size="${fontSize.toFixed(2)}" font-weight="${config.fontWeight}"${styleAttr} ` +
-      `fill="${fill}" fill-opacity="${config.alpha}" stroke="rgba(2,6,23,0.95)" ` +
-      `stroke-width="${Math.max(2, fontSize * 0.22).toFixed(2)}" paint-order="stroke" ` +
+      `<text x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-family="${escapeXml(family)}" ` +
+      `font-size="${fontSize.toFixed(2)}" font-weight="${config.fontWeight}"${styleAttr}${tracking} ` +
+      `fill="${fill}" fill-opacity="${config.alpha}" stroke="${theme.halo}" ` +
+      `stroke-width="${Math.max(2, fontSize * theme.haloScale * 0.8).toFixed(2)}" paint-order="stroke" ` +
       `text-anchor="middle" dominant-baseline="middle">${escapeXml(text)}</text>`,
     );
   });
@@ -197,6 +204,14 @@ export const exportSVG = (
   projectionType: VectorProjectionType = 'equirectangular',
   width = 2048,
   mapStyleId: MapStyleId = 'default',
+  /**
+   * `@font-face` rules with the woff2 inlined, from `embeddedFontCss`. An SVG
+   * carries no stylesheet and cannot reach the app's fonts, so without this
+   * every label falls back to a system serif on any machine that does not
+   * happen to have Cinzel and IM Fell installed. Optional: the string is built
+   * asynchronously and this function stays pure and synchronous.
+   */
+  fontCss = '',
 ): string => {
   let height = width / 2;
   if (projectionType === 'mercator' || projectionType === 'orthographic') height = width;
@@ -207,9 +222,8 @@ export const exportSVG = (
   const background = viewMode === 'satellite' || viewMode === 'biome' ? '#050505' : '#000000';
   const mirror = `translate(${width},0) scale(-1,1)`;
 
-  const labels = buildLabelsGroup(world, projection, projectionType, width);
-
   const style = getMapStyle(mapStyleId);
+  const labels = buildLabelsGroup(world, projection, projectionType, width, style.labelTheme);
   if (style.passes.length > 0) {
     // `mirrored: true` — the body is emitted inside the mirror group below, and
     // the substrate counter-transforms glyphs so they are not drawn backwards.
@@ -242,6 +256,7 @@ export const exportSVG = (
     // it would show through the grain.
     return (
       `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+      (fontCss ? `<style>${fontCss}</style>` : '') +
       sub.defs() +
       `<g id="style" transform="${mirror}">${sub.body()}</g>` +
       labels +
@@ -257,6 +272,7 @@ export const exportSVG = (
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+    (fontCss ? `<style>${fontCss}</style>` : '') +
     `<rect width="${width}" height="${height}" fill="${background}"/>` +
     `<g id="cells" transform="${mirror}">${cellPaths}</g>` +
     coastlines +
@@ -268,14 +284,17 @@ export const exportSVG = (
   );
 };
 
-export const downloadSVG = (
+export const downloadSVG = async (
   world: WorldData,
   viewMode: ViewMode,
   projectionType: VectorProjectionType = 'equirectangular',
   width = 2048,
   mapStyleId: MapStyleId = 'default',
-): void => {
-  const svg = exportSVG(world, viewMode, projectionType, width, mapStyleId);
+): Promise<void> => {
+  // Async only to fetch and inline the webfonts; exportSVG itself stays pure
+  // and synchronous, which is what keeps it testable without a DOM.
+  const fontCss = await embeddedFontCss(getMapStyle(mapStyleId).labelTheme);
+  const svg = exportSVG(world, viewMode, projectionType, width, mapStyleId, fontCss);
   const blob = new Blob([svg], { type: 'image/svg+xml' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');

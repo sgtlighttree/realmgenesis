@@ -1618,7 +1618,7 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                     <h3 className="text-xs font-bold text-ink-muted uppercase tracking-wider mb-2">Vector Export</h3>
                     <p className="text-[10px] text-ink-muted">Editable coastlines, borders, rivers, and labels for Inkscape/Illustrator, or geodesic GeoJSON for QGIS/web-GIS.</p>
                     <button
-                        onClick={() => { if (worldData && expProj !== 'dymaxion') downloadSVG(worldData, viewMode, expProj, 2048, mapStyleId); }}
+                        onClick={() => { if (worldData && expProj !== 'dymaxion') void downloadSVG(worldData, viewMode, expProj, 2048, mapStyleId); }}
                         disabled={!worldData || expProj === 'dymaxion'}
                         title={expProj === 'dymaxion' ? 'SVG export is raster-only for Dymaxion — choose another projection' : undefined}
                         className="w-full flex items-center justify-center gap-2 bg-teal-700 hover:bg-teal-600 text-ink-strong py-2 text-xs disabled:opacity-50 border border-teal-600"
