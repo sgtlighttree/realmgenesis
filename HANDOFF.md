@@ -38,9 +38,89 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## S27d (2026-08-29) — why parchment still looks like "nothing happened"
+
+**START THE NEXT SESSION HERE.** The reprojection is NOT the problem. Verified by
+Playwright against the running app.
+
+### The projection is correct. The style just stops at the texture.
+
+Matt: "reprojection of the parchment view in 3D is still buggy, almost like
+nothing happened." Driven in the real app at 5,000 cells, parchment, 3D:
+
+- With every overlay OFF (`tmp/app-no-overlays.png`) the globe is a **clean
+  parchment map** — crisp coastlines, glyphs, even hatch, white ice cap, no
+  swirl, no smear. The S27c fixes hold in the product, not just the harness.
+- With overlays ON (`tmp/app-pole-1.png`) the same globe reads as the ordinary
+  dark-theme app view, because of what is drawn ON TOP of it.
+
+**Every line and label overlay ignores `mapStyleId`.** The A3 style layer covers
+exactly what `runStyle` paints — paper, ocean fill, hatch, land fill, hillshade,
+coastline, glyphs. Everything else is drawn by code that has never heard of a
+style, in the app's Tailwind palette:
+
+| Where | What | Colour |
+|---|---|---|
+| `components/overlays/tenants.ts:376` | rivers (3D) | `rgba(56,189,248,0.8)` — sky-400 |
+| `components/overlays/tenants.ts:315` | faction borders (3D) | `rgba(255,255,255,0.85)` |
+| `components/overlays/tenants.ts:193-194` | roads / sea routes | `#c8a25a` / `#5eb8c8` |
+| `components/overlays/tenants.ts:147` | graticule | `rgba(255,255,255,0.28)` |
+| `components/overlays/tenants.ts:294` | contours | `contourStroke()` |
+| `components/overlays/tenants.ts:427,480` | ruler / dymaxion cage | `#fbbf24` |
+| `components/Map2D.tsx:480` and `:717` | rivers (2D) | `#38bdf8`, TWICE |
+| `components/Map2D.tsx:76` | faction borders (2D) | own `drawFactionBorders` |
+| `utils/labels.ts` `drawMapLabels` | all point labels | white sans-serif |
+| `utils/export.ts:353` | borders (PNG export) | `rgba(255,255,255,0.85)` |
+| `utils/exportVector.ts:138` | rivers (SVG export) | `#38bdf8` |
+
+`grep -rn "38bdf8\|56,189,248"` finds the river colour hardcoded in **four
+files and five call sites**. That is the real shape of the work: it is not "add
+a palette lookup", it is "there is no single overlay style path to add one to."
+
+2D is worse than 3D, not better (`tmp/app-mercator-parchment.png`): neon cyan
+rivers plus faction names set in white Tailwind sans caps — FORTUM, VESTAD,
+SANIA — over antique paper. Nothing says "modern web app" louder than the type.
+
+### What the fix needs, before anyone starts
+
+Not attempted this session; Matt asked for a diagnosis. Two decisions come
+first, and they are HIS, not implementation details:
+
+1. **What a parchment river, border and label look like.** Probably coastline
+   ink at a thinner weight, a dashed or dotted border, and a serif face for
+   labels — but that is a design call, and picking it in code without asking is
+   how the toolbar ended up needing three rounds.
+2. **Whether overlays get their own palette entries or reuse existing ink.**
+   `StylePalette` currently has paper/ink/inkLight/sea/seaHatch/coast/shadow/
+   highlight/ice. River, border, road, route, label ink, label halo, graticule
+   and contour would all need a home.
+
+The mechanical part after that: thread `mapStyleId` into `OverlayTenant`, into
+`Map2D`'s own draw calls, and into both export paths — and **collapse the five
+river call sites into one** while doing it, or the next style will diverge again
+in exactly the same way.
+
+### Method note
+
+The R3F scene is NOT reachable from the DOM fiber tree — `<Canvas>` runs its own
+reconciler root, so walking `__reactFiber$` from the canvas element finds 649
+fibers and no store. Do not spend time on it again. Two things that DID work:
+
+- `curl http://localhost:3000/components/WorldViewer.tsx | grep buildGlobeDirs`
+  — confirms in one second whether the dev server is serving your new code,
+  before you debug a stale bundle.
+- Toggling overlays off in the UI and re-screenshotting. Subtracting layers
+  until the artifact disappears names the layer that owns it.
+
+The overlay canvas is `pointer-events: none`, so mouse drags DO reach
+OrbitControls; a drag that changes nothing means the polar clamp, not a
+swallowed event.
+
+---
+
 ## S27c (2026-08-29) — the globe poles, fixed properly
 
-**START THE NEXT SESSION HERE.** Branch `a3-map-style`, not merged, not pushed.
+Branch `a3-map-style`, not merged, not pushed.
 
 ### The polar defect is CLOSED — and the earlier diagnosis was half wrong
 
