@@ -1,4 +1,5 @@
 import { DEFAULT_LABEL_THEME } from './labelTheme';
+import { DEFAULT_OVERLAY_INK } from './overlayInk';
 import { MapStyle } from './types';
 
 /**
@@ -21,6 +22,7 @@ export const styleDefault: MapStyle = {
     ice: '#ffffff',
   },
   labelTheme: DEFAULT_LABEL_THEME,
+  overlayInk: DEFAULT_OVERLAY_INK,
   fillPolicy: () => 'ramp',
   // Empty by design: this style IS the pre-A3 look, and every view mode already
   // paints its own fill. An empty pass list is also the signal a render path

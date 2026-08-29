@@ -4,6 +4,7 @@ import { WorldData, ViewMode, InspectMode, DymaxionSettings, EditMode, LabelVisi
 import { getCellColor } from '../utils/colors';
 import { computeCoastlineSegments } from '../utils/boundaries';
 import { getMapStyle, MapStyleId } from '../utils/mapStyle';
+import { OverlayInk } from '../utils/mapStyle/overlayInk';
 import { useLabelFonts } from '../utils/mapStyle/useLabelFonts';
 import { runStyle } from '../utils/mapStyle/passes';
 import { placeGlyphs } from '../utils/mapStyle/placeGlyphs';
@@ -74,7 +75,47 @@ const getFactionBorders = (world: WorldData | null, visible: boolean): Array<[Po
   return borders;
 };
 
-const drawFactionBorders = (ctx: CanvasRenderingContext2D, pathGenerator: d3.GeoPath, borders: Array<[Point3, Point3]>, lineWidth: number) => {
+/**
+ * Rivers, in projected space.
+ *
+ * ONE routine, called by both the Dymaxion source raster and the direct
+ * projection path. It used to be two byte-identical blocks differing only in
+ * their context variable and DPR divisor, each with its own hardcoded
+ * `#38bdf8` — two of the five sites that made the river colour unreachable by
+ * a map style. Collapsed here so the next style cannot diverge the same way.
+ */
+const drawRiverPaths = (
+  ctx: CanvasRenderingContext2D,
+  rivers: Point[][],
+  project: (p: [number, number]) => [number, number] | null,
+  lineWidth: number,
+  ink: OverlayInk,
+) => {
+  ctx.strokeStyle = ink.river;
+  ctx.lineWidth = lineWidth;
+  ctx.globalAlpha = 0.8;
+  for (const path of rivers) {
+    if (path.length < 2) continue;
+    ctx.beginPath();
+    let lastLon: number | null = null;
+    path.forEach((p, i) => {
+      const lon = Math.atan2(p.z, p.x) * (180 / Math.PI);
+      const lat = Math.asin(Math.max(-1, Math.min(1, p.y))) * (180 / Math.PI);
+      // Antimeridian crossing: break the subpath rather than draw across the map.
+      const isJump = lastLon !== null && Math.abs(lon - lastLon) > 180;
+      const pt = project([lon, lat]);
+      if (pt) {
+        if (i === 0 || isJump) ctx.moveTo(pt[0], pt[1]);
+        else ctx.lineTo(pt[0], pt[1]);
+      }
+      lastLon = lon;
+    });
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+};
+
+const drawFactionBorders = (ctx: CanvasRenderingContext2D, pathGenerator: d3.GeoPath, borders: Array<[Point3, Point3]>, lineWidth: number, ink: OverlayInk) => {
   if (borders.length === 0) return;
 
   const drawPass = () => {
@@ -92,12 +133,15 @@ const drawFactionBorders = (ctx: CanvasRenderingContext2D, pathGenerator: d3.Geo
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   ctx.globalAlpha = 0.95;
-  ctx.strokeStyle = 'rgba(2, 6, 23, 0.9)';
-  ctx.lineWidth = lineWidth * 2.5;
+  ctx.strokeStyle = ink.borderCasing;
+  ctx.lineWidth = lineWidth * ink.borderWidthScale * 2.5;
+  ctx.setLineDash([]);
   drawPass();
-  ctx.strokeStyle = 'rgba(248, 250, 252, 0.95)';
-  ctx.lineWidth = lineWidth;
+  ctx.strokeStyle = ink.border;
+  ctx.lineWidth = lineWidth * ink.borderWidthScale;
+  ctx.setLineDash(ink.borderDash);
   drawPass();
+  ctx.setLineDash([]);
   ctx.restore();
 };
 
@@ -347,6 +391,7 @@ const Map2D: React.FC<{
   // Identity changes once the style's webfonts resolve, which repaints the
   // canvas through the ordinary dependency rules. See useLabelFonts.
   const labelTheme = useLabelFonts(style.labelTheme);
+  const overlayInk = style.overlayInk;
 
   // A style with no passes draws nothing, so the legacy per-cell loop runs
   // instead. This is the ONE test for that — never a comparison against the
@@ -481,30 +526,7 @@ const Map2D: React.FC<{
 
       // Draw Rivers on source equirectangular canvas
       if (showRivers && world.rivers) {
-        srcCtx.strokeStyle = '#38bdf8';
-        srcCtx.lineWidth = Math.max(0.5, 1.5 / renderDpr);
-        srcCtx.globalAlpha = 0.8;
-        world.rivers.forEach(path => {
-          if (path.length < 2) return;
-          srcCtx.beginPath();
-          let lastLon: number | null = null;
-          path.forEach((p, i) => {
-            const lon = Math.atan2(p.z, p.x) * (180 / Math.PI);
-            const lat = Math.asin(Math.max(-1, Math.min(1, p.y))) * (180 / Math.PI);
-            
-            // Detect antimeridian crossing
-            const isJump = lastLon !== null && Math.abs(lon - lastLon) > 180;
-            
-            const pt = projection([lon, lat]);
-            if (pt) {
-              if (i === 0 || isJump) srcCtx.moveTo(pt[0], pt[1]);
-              else srcCtx.lineTo(pt[0], pt[1]);
-            }
-            lastLon = lon;
-          });
-          srcCtx.stroke();
-        });
-        srcCtx.globalAlpha = 1.0;
+        drawRiverPaths(srcCtx, world.rivers, projection, Math.max(0.5, 1.5 / renderDpr), overlayInk);
       }
 
       // Draw Routes on source equirectangular canvas (C3)
@@ -540,6 +562,7 @@ const Map2D: React.FC<{
         pathGenerator,
         factionBorders,
         Math.max(1.5, 2 * renderDpr),
+        overlayInk,
       );
 
       srcCtx.restore();
@@ -719,30 +742,7 @@ const Map2D: React.FC<{
 
     // Draw Rivers
     if (showRivers && world.rivers) {
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 1.5 / qualityDpr;
-      ctx.globalAlpha = 0.8;
-      world.rivers.forEach(path => {
-        if (path.length < 2) return;
-        ctx.beginPath();
-        let lastLon: number | null = null;
-        path.forEach((p, i) => {
-          const lon = Math.atan2(p.z, p.x) * (180 / Math.PI);
-          const lat = Math.asin(Math.max(-1, Math.min(1, p.y))) * (180 / Math.PI);
-          
-          // Detect antimeridian crossing
-          const isJump = lastLon !== null && Math.abs(lon - lastLon) > 180;
-          
-          const pt = projection([lon, lat]);
-          if (pt) {
-            if (i === 0 || isJump) ctx.moveTo(pt[0], pt[1]);
-            else ctx.lineTo(pt[0], pt[1]);
-          }
-          lastLon = lon;
-        });
-        ctx.stroke();
-      });
-      ctx.globalAlpha = 1.0;
+      drawRiverPaths(ctx, world.rivers, projection, 1.5 / qualityDpr, overlayInk);
     }
 
     // Draw Routes (C3) — same antimeridian-jump pattern as rivers above.
@@ -804,6 +804,7 @@ const Map2D: React.FC<{
       pathGenerator,
       factionBorders,
       Math.max(1, 2 / qualityDpr),
+      overlayInk,
     );
 
     if (viewMode === 'political') {
@@ -878,6 +879,7 @@ const Map2D: React.FC<{
     // offscreen buffer is redrawn only when this effect re-runs.
     style,
     labelTheme,
+    overlayInk,
     styled,
     glyphs,
     dymaxionGlyphs,

@@ -11,6 +11,7 @@ import { BorderSegment } from '../../utils/borders';
 import { LabelAnchor } from '../../utils/labelAnchors';
 import { MapLabel, drawMapLabels } from '../../utils/labels';
 import { DEFAULT_LABEL_THEME, LabelTheme } from '../../utils/mapStyle/labelTheme';
+import { DEFAULT_OVERLAY_INK, OverlayInk } from '../../utils/mapStyle/overlayInk';
 import { LocalProjector } from './ScreenOverlay';
 
 // ---------------------------------------------------------------------------
@@ -79,6 +80,7 @@ export function drawCurrentsTenant(
   world: WorldData,
   project: LocalProjector,
   smooth = false,
+  ink: OverlayInk = DEFAULT_OVERLAY_INK,
 ): void {
   const cur = world.currents;
   if (!cur) return;
@@ -100,7 +102,7 @@ export function drawCurrentsTenant(
     // surface exactly like the arrow base (see LocalProjector radius contract).
     const r = displayRadius(cells[i].height, smooth);
     if (!project((c.x + cur.vx[i] * k) * r, (c.y + cur.vy[i] * k) * r, (c.z + cur.vz[i] * k) * r, tip)) continue;
-    const color = currentTint(cur.sst[i]);
+    const color = ink.currents ?? currentTint(cur.sst[i]);
     ctx.strokeStyle = color;
     ctx.beginPath();
     ctx.moveTo(proj.x[i], proj.y[i]);
@@ -144,8 +146,9 @@ export function drawGraticuleTenant(
   world: WorldData,
   project: LocalProjector,
   smooth = false,
+  ink: OverlayInk = DEFAULT_OVERLAY_INK,
 ): void {
-  ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+  ctx.strokeStyle = ink.graticule;
   ctx.lineWidth = 1;
   const cells = world.cells;
   // Running nearest-cell id carried across the whole draw; -1 = seed via brute
@@ -191,8 +194,6 @@ export function drawGraticuleTenant(
 // --- routes (C3 roads + sea trade routes), migrated off 3D LineSegments ---
 
 export const ROUTE_LIFT = 0.008; // sits just above the surface, over rivers
-const ROAD_COLOR = '#c8a25a';
-const SEAROUTE_COLOR = '#5eb8c8';
 const SEAROUTE_DASH = [4, 3];
 const KINDS = ['road', 'searoute'] as const;
 
@@ -223,6 +224,7 @@ export function drawRoutesTenant(
   world: WorldData,
   project: LocalProjector,
   smooth = false,
+  ink: OverlayInk = DEFAULT_OVERLAY_INK,
 ): void {
   const routes = world.routes;
   if (!routes || routes.length === 0) return;
@@ -233,7 +235,7 @@ export function drawRoutesTenant(
 
   ctx.lineWidth = 1.5;
   for (const kind of KINDS) {
-    ctx.strokeStyle = kind === 'road' ? ROAD_COLOR : SEAROUTE_COLOR;
+    ctx.strokeStyle = kind === 'road' ? ink.road : ink.seaRoute;
     ctx.setLineDash(kind === 'road' ? [] : SEAROUTE_DASH);
     for (const route of routes) {
       if (route.kind !== kind || route.path.length < 2) continue;
@@ -285,6 +287,7 @@ export function drawContoursTenant(
   segments: ContourSegment[],
   project: LocalProjector,
   smooth: boolean,
+  ink: OverlayInk = DEFAULT_OVERLAY_INK,
 ): void {
   if (segments.length === 0) return;
   const p1: [number, number] = [0, 0];
@@ -292,7 +295,7 @@ export function drawContoursTenant(
   ctx.lineCap = 'round';
 
   for (const indexPass of [false, true]) {
-    ctx.strokeStyle = contourStroke(indexPass);
+    ctx.strokeStyle = ink.contour ?? contourStroke(indexPass);
     ctx.lineWidth = indexPass ? CONTOUR_BASE_WIDTH * 2 : CONTOUR_BASE_WIDTH;
     ctx.beginPath();
     for (const seg of segments) {
@@ -313,7 +316,6 @@ export function drawContoursTenant(
 // --- faction borders, migrated off 3D LineSegments ---
 
 export const BORDER_LIFT = 0.002; // clears the terrain step it crowns
-const BORDER_COLOR = 'rgba(255,255,255,0.85)';
 const BORDER_WIDTH = 1.4;
 
 // Faction borders drawn in screen space.
@@ -344,12 +346,16 @@ export function drawBordersTenant(
   segments: BorderSegment[],
   project: LocalProjector,
   smooth: boolean,
+  ink: OverlayInk = DEFAULT_OVERLAY_INK,
 ): void {
   if (segments.length === 0) return;
   const p1: [number, number] = [0, 0];
   const p2: [number, number] = [0, 0];
-  ctx.strokeStyle = BORDER_COLOR;
-  ctx.lineWidth = BORDER_WIDTH;
+  ctx.strokeStyle = ink.border;
+  ctx.lineWidth = BORDER_WIDTH * ink.borderWidthScale;
+  // A border is a claim, not a thing you can see; period maps broke the line to
+  // say so, which also stops it competing with the coastline it often follows.
+  ctx.setLineDash(ink.borderDash);
   ctx.lineCap = 'round';
   ctx.beginPath();
   for (const seg of segments) {
@@ -374,7 +380,6 @@ export const RIVER_LIFT = 0.005;
 // Matches the old LineBasicMaterial in RiverLines, INCLUDING its alpha: that
 // material was `opacity={0.8} transparent`, so a solid stroke here would make
 // every river ~25% more prominent than before the migration.
-const RIVER_COLOR = 'rgba(56,189,248,0.8)'; // #38bdf8 @ 0.8
 const RIVER_WIDTH = 1.2;
 
 // River polylines drawn in screen space. `polylines` is precomputed by
@@ -401,10 +406,11 @@ export function drawRiversTenant(
   polylines: Point[][],
   project: LocalProjector,
   smooth: boolean,
+  ink: OverlayInk = DEFAULT_OVERLAY_INK,
 ): void {
   if (polylines.length === 0) return;
-  ctx.strokeStyle = RIVER_COLOR;
-  ctx.lineWidth = RIVER_WIDTH;
+  ctx.strokeStyle = ink.river;
+  ctx.lineWidth = RIVER_WIDTH * ink.riverWidthScale;
   ctx.lineCap = 'round';
   ctx.beginPath();
   for (const path of polylines) {
@@ -425,7 +431,6 @@ export function drawRiversTenant(
 
 // --- ruler arc (A5 great-circle measurement), migrated off 3D LineSegments ---
 
-const RULER_COLOR = '#fbbf24';
 // Deliberate FIXED radii, not draped: the ruler measures a great circle and
 // must clear the highest peaks (relief tops out at 1.05), so it floats above
 // terrain rather than riding it — the one case where a tenant does NOT track
@@ -445,19 +450,20 @@ export function drawRulerTenant(
   points: Point[],
   project: LocalProjector,
   smooth: boolean,
+  ink: OverlayInk = DEFAULT_OVERLAY_INK,
 ): void {
   if (points.length < 2) return;
   const r = smooth ? RULER_RADIUS_SMOOTH : RULER_RADIUS_RAISED;
   const pt: [number, number] = [0, 0];
 
-  ctx.strokeStyle = RULER_COLOR;
+  ctx.strokeStyle = ink.ruler;
   ctx.lineWidth = 1.4;
   ctx.beginPath();
   strokeBrokenSubpath(ctx, points.length, (i, out) => project(points[i].x * r, points[i].y * r, points[i].z * r, out));
   ctx.stroke();
 
   // Endpoint dots, drawn only when the endpoint is on the near hemisphere.
-  ctx.fillStyle = RULER_COLOR;
+  ctx.fillStyle = ink.ruler;
   for (const end of [points[0], points[points.length - 1]]) {
     if (project(end.x * r, end.y * r, end.z * r, pt)) {
       ctx.beginPath();
@@ -478,7 +484,6 @@ export function drawRulerTenant(
 export const DYMAXION_CAGE_RADIUS = 1.12;
 // Carries the old edge material's alpha: it was `opacity={0.95} transparent`, so
 // a solid stroke would make the cage brighter than before (the S21 rivers lesson).
-const DYMAXION_COLOR = 'rgba(251,191,36,0.95)'; // #fbbf24 @ 0.95
 // Samples per edge. Each icosa edge subtends ~63.4 deg, so per-sample horizon
 // breaking (below) needs several samples to clip cleanly at the limb.
 const DYMAXION_SAMPLES = 16;
@@ -503,10 +508,11 @@ export function drawDymaxionTenant(
   edges: [Point, Point][],
   project: LocalProjector,
   _smooth: boolean, // ignored on purpose: fixed radius, same cage in both modes
+  ink: OverlayInk = DEFAULT_OVERLAY_INK,
 ): void {
   if (edges.length === 0) return;
   const R = DYMAXION_CAGE_RADIUS;
-  ctx.strokeStyle = DYMAXION_COLOR;
+  ctx.strokeStyle = ink.cage;
   ctx.lineWidth = 1;
   ctx.lineCap = 'round';
   ctx.beginPath();

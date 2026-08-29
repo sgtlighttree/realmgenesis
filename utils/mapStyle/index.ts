@@ -4,6 +4,7 @@ import { styleParchment } from './styleParchment';
 
 export * from './types';
 export * from './labelTheme';
+export * from './overlayInk';
 
 export const MAP_STYLES: Record<MapStyleId, MapStyle> = {
   default: styleDefault,

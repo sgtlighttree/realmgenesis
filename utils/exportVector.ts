@@ -7,6 +7,7 @@ import { toLonLat, Point3 } from './geo';
 import { computeCoastlineSegments, computeFactionBorderSegments } from './boundaries';
 import { computeShadeMap } from './shading';
 import { getMapStyle, MapStyleId } from './mapStyle';
+import { OverlayInk } from './mapStyle/overlayInk';
 import { runStyle } from './mapStyle/passes';
 import { placeGlyphs } from './mapStyle/placeGlyphs';
 import { SvgSubstrate } from './mapStyle/substrateSvg';
@@ -126,8 +127,8 @@ const buildRiverPathData = (path: Point[], projection: d3.GeoProjection): string
   return segments.join(' ');
 };
 
-const buildRiversGroup = (world: WorldData, projection: d3.GeoProjection, width: number): string => {
-  const strokeWidth = Math.max(0.5, 1.5 * (width / 2048));
+const buildRiversGroup = (world: WorldData, projection: d3.GeoProjection, width: number, ink: OverlayInk): string => {
+  const strokeWidth = Math.max(0.5, 1.5 * (width / 2048) * ink.riverWidthScale);
   const paths: string[] = [];
   (world.rivers ?? []).forEach(path => {
     if (path.length < 2) return;
@@ -135,12 +136,13 @@ const buildRiversGroup = (world: WorldData, projection: d3.GeoProjection, width:
     if (d) paths.push(`<path d="${d}"/>`);
   });
   return `<g id="rivers" transform="translate(${width},0) scale(-1,1)" fill="none" ` +
-    `stroke="#38bdf8" stroke-width="${strokeWidth}" stroke-opacity="0.8">${paths.join('')}</g>`;
+    // stroke-opacity, never an rgba() stroke: SVG 1.1 has no rgba() syntax.
+    `stroke="${ink.river}" stroke-width="${strokeWidth}" stroke-opacity="0.8">${paths.join('')}</g>`;
 };
 
 // C3: roads (solid tan) and sea routes (dashed teal) as two styled sub-groups,
 // reusing the same antimeridian-aware polyline builder as rivers.
-const buildRoutesGroup = (world: WorldData, projection: d3.GeoProjection, width: number): string => {
+const buildRoutesGroup = (world: WorldData, projection: d3.GeoProjection, width: number, ink: OverlayInk): string => {
   if (!world.routes || world.routes.length === 0) return '';
   const scale = width / 2048;
   const roadWidth = Math.max(0.5, 1.4 * scale);
@@ -154,8 +156,8 @@ const buildRoutesGroup = (world: WorldData, projection: d3.GeoProjection, width:
     (route.kind === 'road' ? roadPaths : seaPaths).push(`<path d="${d}"/>`);
   });
   return `<g id="routes" transform="translate(${width},0) scale(-1,1)" fill="none" stroke-opacity="0.9">` +
-    `<g stroke="#c8a25a" stroke-width="${roadWidth}">${roadPaths.join('')}</g>` +
-    `<g stroke="#5eb8c8" stroke-width="${seaWidth}" stroke-dasharray="${5 * scale} ${4 * scale}">${seaPaths.join('')}</g>` +
+    `<g stroke="${ink.road}" stroke-width="${roadWidth}">${roadPaths.join('')}</g>` +
+    `<g stroke="${ink.seaRoute}" stroke-width="${seaWidth}" stroke-dasharray="${5 * scale} ${4 * scale}">${seaPaths.join('')}</g>` +
     `</g>`;
 };
 
@@ -260,8 +262,8 @@ export const exportSVG = (
 
   const cellPaths = renderCellPaths(world, viewMode, pathGenerator);
   const coastlines = buildCoastlinesGroup(world, pathGenerator, width);
-  const rivers = buildRiversGroup(world, projection, width);
-  const routes = buildRoutesGroup(world, projection, width);
+  const rivers = buildRiversGroup(world, projection, width, style.overlayInk);
+  const routes = buildRoutesGroup(world, projection, width, style.overlayInk);
   const borders = buildBordersGroup(world, pathGenerator, width);
 
   return (

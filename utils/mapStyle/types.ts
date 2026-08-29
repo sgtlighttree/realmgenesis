@@ -1,6 +1,7 @@
 import { ViewMode, WorldData } from '../../types';
 import { ColorContext } from '../colors';
 import { LabelTheme } from './labelTheme';
+import { OverlayInk } from './overlayInk';
 import { Point3 } from '../geo';
 import { Substrate } from './substrate';
 
@@ -117,6 +118,12 @@ export interface MapStyle {
    * `utils/labels.ts`, outside the pass/substrate machinery entirely.
    */
   labelTheme: LabelTheme;
+  /**
+   * Line overlays — rivers, borders, roads, graticule, contours. Drawn outside
+   * the pass machinery by three different renderers, so like `labelTheme` this
+   * is handed to them rather than reached for.
+   */
+  overlayInk: OverlayInk;
   /** Per-view-mode land fill rule. See spec §4. */
   fillPolicy: (mode: ViewMode) => FillPolicy;
   /**
