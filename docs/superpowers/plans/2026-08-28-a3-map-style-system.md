@@ -1746,7 +1746,21 @@ In `exportSVG`, when the style is not `default`, build an `SvgSubstrate(pathGene
     );
 ```
 
-**Glyphs must not go inside the mirrored group** — the same flip as Task 8. Emit them into a second, unmirrored group with x-flipped coordinates, exactly as Map2D does.
+**Do NOT emit glyphs separately.** An earlier draft of this step said to put
+them in a second, unmirrored group. That is now WRONG and actively harmful:
+Task 8 moved mirror handling into the substrates, so `SvgSubstrate.drawGlyph`
+already wraps each glyph in its own counter-transform when constructed with
+`mirrored: true`. Following the old instruction would flip glyphs twice —
+backwards AND mislocated. Construct the substrate with `mirrored: true`, run the
+passes, and emit `sub.body()` inside the single mirror group.
+
+Also: when a style is active, **skip the hardcoded background `<rect>`**.
+`paperPass` paints the ground itself, and leaving the black rect in would put
+the paper and its grain on top of a black page.
+
+And pass the **output** `width` to `placeGlyphs`, not a DPR-scaled screen width —
+glyph size and spacing both scale by `widthPx / 1024`, which is what keeps an
+8192px export the same map as a 1024px one rather than a denser one.
 
 - [ ] **Step 4: Verify by inspection**
 
