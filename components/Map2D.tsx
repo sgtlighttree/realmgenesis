@@ -14,11 +14,11 @@ import { runStyle } from '../utils/mapStyle/passes';
 import { placeGlyphs } from '../utils/mapStyle/placeGlyphs';
 import { Canvas2DSubstrate } from '../utils/mapStyle/substrateCanvas';
 import { seasonalTemperatureDelta } from '../utils/seasons';
-import { insideTri, barycentric, normalizeVec, toLonLat, getDymaxionNetTransform, projectDymaxionPoint, Point2, Point3 } from '../utils/geo';
+import { insideTri, barycentric, normalizeVec, toLonLat, lonLatToPoint3, getDymaxionNetTransform, projectDymaxionPoint, Point2, Point3 } from '../utils/geo';
 import { collectLabels, drawMapLabels } from '../utils/labels';
 import { computeShadeMap, computeContourSegments, drawContourPaths, contourInterval } from '../utils/shading';
 import { drawCurrents2D } from './overlays/currents2D';
-import { computeScaleBar, niceScaleBarLength } from '../utils/measure';
+import { computeScaleBar, computeInterruptedScaleBar, niceScaleBarLength } from '../utils/measure';
 
 type Size = { width: number; height: number };
 
@@ -292,6 +292,19 @@ const Map2D: React.FC<{
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
   const pickCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const pickCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+  /**
+   * Bumped whenever the Dymaxion pick buffer is rebuilt.
+   *
+   * The buffer lives in a REF, filled by an effect — invisible to anything that
+   * reads it during render. The scale bar does exactly that, and without this it
+   * computed once, before the effect had run, saw a null ref, and returned null
+   * for good: nothing in its dependency array ever changed again. The bar simply
+   * never appeared, with no error anywhere.
+   *
+   * Same lesson as `useLabelFonts`: a value produced after the first render has
+   * to change some IDENTITY, or its readers never recompute.
+   */
+  const [pickVersion, setPickVersion] = useState(0);
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -998,6 +1011,7 @@ const Map2D: React.FC<{
       roll: dymaxionRoll,
     });
     ctx.putImageData(output, 0, 0);
+    setPickVersion(v => v + 1); // see the ref's own note: readers cannot see a ref
     // The pick buffer encodes cell IDs from the world's structure (cells +
     // geoJson are stable references across paint strokes), so keying on
     // world.cells instead of world identity skips a full-canvas per-pixel
@@ -1055,6 +1069,25 @@ const Map2D: React.FC<{
   }, [size.width, size.height, scale, offset.x, offset.y, qualityDpr, viewMode, world?.params.seed, world, projectionType, renderCount, projection, rulerArc, styled, style.palette, deskTexture]);
 
   /**
+   * Screen point -> cell id, by reading the Dymaxion pick buffer.
+   *
+   * Declared here, above the scale bar, rather than down with the other pointer
+   * helpers: the scale bar needs it too. It is the ONLY inverse the Dymaxion net
+   * has — see the scale bar's own note.
+   */
+  const getPickBufferCellId = useCallback((mapX: number, mapY: number) => {
+    if (!pickCtxRef.current || !world) return null;
+    const data = pickCtxRef.current.getImageData(Math.floor(mapX), Math.floor(mapY), 1, 1).data;
+    const id = data[0] + (data[1] << 8) + (data[2] << 16);
+    if (id <= 0 || id > world.cells.length) return null;
+    return id - 1;
+    // pickVersion is not read here — it is the whole point. Listing it gives
+    // this callback a new identity when the buffer is rebuilt, which is what
+    // makes the scale bar's memo recompute against a buffer that now exists.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [world, pickVersion]);
+
+  /**
    * Ground scale at the centre of the viewport.
    *
    * Was drawn onto the canvas at a hardcoded x of 224, chosen to clear a
@@ -1064,18 +1097,56 @@ const Map2D: React.FC<{
    * occluded by a panel laid out in the same coordinate space, and it stops
    * being a magic number that goes stale whenever the chrome moves.
    *
-   * Skipped for Dymaxion: net distortion varies per face, so one figure would
-   * be a lie.
-   *
    * The value DOES change as you pan north or south, and that is correct rather
    * than a glitch — Mercator and equirectangular both stretch with latitude, so
    * a bar valid at the equator is wrong at 60 degrees. The latitude it applies
    * to is shown beside it, so the change reads as information.
+   *
+   * **Dymaxion has one too, and this used to say it could not.** The old reason
+   * — "net distortion varies per face, so one figure would be a lie" — had it
+   * backwards. Measured on this app's own net, linear scale varies 13% peak to
+   * peak over the whole globe; Mercator, which already carried a bar, is out by
+   * 100% at 60 degrees. A single figure is MORE defensible on the Dymaxion than
+   * on the view that had one. What actually blocked it was mechanical.
+   * `computeScaleBar` needs a centre lon/lat, every other view gets one from
+   * `projection.invert`, and Dymaxion has no analytic inverse.
+   *
+   * It has a per-pixel one: the pick buffer built for cell selection. Read it at
+   * the viewport centre, take that cell's centre, and the missing lon/lat is
+   * there. The forward direction is `projectDymaxionPoint`, in the same CSS
+   * pixel space the pick buffer and `centerMapX/Y` already use.
+   *
+   * The genuine hazard is the CUT, not the distortion, and it is handled by
+   * `computeInterruptedScaleBar` — see there for why a fold fails quietly rather
+   * than absurdly. Centre the viewport on a fold, or on the background between
+   * faces, and no bar is drawn, which is the honest answer.
    */
   const scaleBar = useMemo(() => {
-    if (!world || !projection || projectionType === 'dymaxion') return null;
+    if (!world) return null;
     const centerMapX = (size.width / 2 - offset.x) / scale;
     const centerMapY = (size.height / 2 - offset.y) / scale;
+
+    if (projectionType === 'dymaxion') {
+      if (centerMapX < 0 || centerMapY < 0 || centerMapX >= size.width || centerMapY >= size.height) return null;
+      const cellId = getPickBufferCellId(centerMapX, centerMapY);
+      if (cellId === null) return null; // background between faces
+      const c = world.cells[cellId].center;
+      const centerLonLat = toLonLat([c.x, c.y, c.z]);
+      const forward = (lonLat: [number, number]): [number, number] | null =>
+        projectDymaxionPoint(
+          lonLatToPoint3(lonLat), dymaxionLayout,
+          size.width, size.height,
+          dymaxionLon, dymaxionLat, dymaxionRoll,
+        );
+      const dymInfo = computeInterruptedScaleBar(forward, centerLonLat, world.params.planetRadius);
+      if (!dymInfo) return null;
+      const dym = niceScaleBarLength(dymInfo.pixelsPerKm * scale, 140);
+      if (dym.km <= 0) return null;
+      const dymLat = Math.round(centerLonLat[1]);
+      return { km: dym.km, px: dym.px, lat: `${Math.abs(dymLat)}\u00b0${dymLat < 0 ? 'S' : 'N'}` };
+    }
+
+    if (!projection) return null;
     const centerLonLat = projection.invert?.([size.width - centerMapX, centerMapY]);
     if (!centerLonLat || !Number.isFinite(centerLonLat[0]) || !Number.isFinite(centerLonLat[1])) return null;
     const info = computeScaleBar(projection, centerLonLat, world.params.planetRadius);
@@ -1084,7 +1155,10 @@ const Map2D: React.FC<{
     if (km <= 0) return null;
     const lat = Math.round(centerLonLat[1]);
     return { km, px, lat: `${Math.abs(lat)}\u00b0${lat < 0 ? 'S' : 'N'}` };
-  }, [world, projection, projectionType, size.width, size.height, offset.x, offset.y, scale]);
+  }, [
+    world, projection, projectionType, size.width, size.height, offset.x, offset.y, scale,
+    getPickBufferCellId, dymaxionLayout, dymaxionLon, dymaxionLat, dymaxionRoll,
+  ]);
 
   const handleWheel = useCallback((event: WheelEvent) => {
     event.preventDefault();
@@ -1123,14 +1197,6 @@ const Map2D: React.FC<{
   }, [handleWheel]);
 
   const isPaintMode = editMode !== 'off' && editMode !== 'world-edit';
-
-  const getPickBufferCellId = useCallback((mapX: number, mapY: number) => {
-    if (!pickCtxRef.current || !world) return null;
-    const data = pickCtxRef.current.getImageData(Math.floor(mapX), Math.floor(mapY), 1, 1).data;
-    const id = data[0] + (data[1] << 8) + (data[2] << 16);
-    if (id <= 0 || id > world.cells.length) return null;
-    return id - 1;
-  }, [world]);
 
   const getCellIdAtMapPoint = useCallback((mapX: number, mapY: number) => {
     if (!world) return null;
