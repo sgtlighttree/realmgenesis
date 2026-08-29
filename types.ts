@@ -310,7 +310,17 @@ export interface TectonicResult {
   plateIds: Int32Array; // per macro-cell, assigned plate ID at end of simulation
 }
 
-export type DisplayMode = 'globe' | 'mercator' | 'dymaxion';
+/**
+ * What the viewport is showing. The flat entries are d3 projections built by
+ * `utils/projections.ts`; `dymaxion` is an unfolded icosahedral net and takes
+ * its own render path.
+ */
+export type DisplayMode =
+  | 'globe'
+  | 'equirectangular'
+  | 'mercator'
+  | 'winkeltripel'
+  | 'dymaxion';
 export type InspectMode = 'click' | 'hover' | 'off';
 export type ViewMode = 'biome' | 'height' | 'height_bw' | 'temperature' | 'moisture' | 'plates' | 'political' | 'population' | 'province' | 'satellite' | 'culture' | 'religion';
 // D5: host star spectral class (hottest → coolest). Scales global insolation.

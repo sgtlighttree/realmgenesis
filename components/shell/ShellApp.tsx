@@ -271,7 +271,7 @@ const ShellApp: React.FC = () => {
           inspectMode={inspectMode}
           onInspect={handleInspect}
           highlightCellId={inspectedCellId}
-          projectionType={displayMode === 'dymaxion' ? 'dymaxion' : 'mercator'}
+          projectionType={displayMode}
           dymaxionSettings={dymaxionSettings}
           showGrid={showGrid}
           showRivers={showRivers}
