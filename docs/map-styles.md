@@ -6,6 +6,22 @@ A **style** changes how the 2D map and its exports are *drawn*. It is a separate
 axis from `ViewMode`: `viewMode` decides what the map shows, a style decides how
 it looks. Parchment + political is a valid, and intended, combination.
 
+Five styles ship. `default` is the pre-A3 look kept as a neutral registry
+member; the other four are each imitating a different physical object, which is
+what keeps them from collapsing into palette swaps of one another:
+
+| Style | Imitates | What sets it apart |
+|---|---|---|
+| Parchment | An engraved plate | Hatched sea, warm paper, shading kept off the water |
+| Blueprint | A cyanotype print | Paper is the DARK tone and ink the light one |
+| Ink & Wash | A wash drawing | No hatch at all; a brush carries the elevation |
+| Boardgame | A screen-printed board | No grain, no hatch, no shading; double-weight rules |
+
+The spec's §9 backlog still holds Antique Nautical (needs rhumb-line and
+compass-rose passes), Topographic (wants a contour pass; contours are an overlay
+today, not a pass) and Satellite-clean. The first two are real work rather than
+new presets.
+
 The 3D globe **is** styled, via a baked texture (see below). It was originally
 out of scope — it paints per-cell vertex colours, so hatching, stroke weights and
 paper grain have nowhere to live, and per-cell colour alone can only ever produce
