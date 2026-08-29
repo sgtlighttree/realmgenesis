@@ -188,6 +188,24 @@ Default bake is 2048×1024 (~8MB) — chosen for a 16GB M1 with tight thermals.
 Nothing else needs to change. `Map2D`, both PNG paths and the SVG export all
 drive the registry.
 
+### The desk
+
+`palette.desk` is not painted by a pass. `paintDesk` (`desk.ts`) runs in Map2D's
+display effect, in SCREEN space, for **every** style — `default` included — and
+never in an export. Three layers: the flat `desk` colour, an optional tiled
+`deskTexture` image, and an optional `deskEdge` vignette.
+
+Two things to know before setting them:
+
+- **The desk is seen in the letterbox margin down each side, not in the corners.**
+  A viewport is wide, so the mid-edge sits at ~0.87 of the corner radius. A
+  vignette that reaches full strength there paints the margin near-black, which
+  is the raw black the desk exists to replace. The stops are late and shallow on
+  purpose.
+- **`deskTexture` must load through `useDeskTexture`.** An undecoded image draws
+  nothing and reports nothing — the same silent failure as the webfonts. It must
+  also tile: it is drawn as a `repeat` pattern in device pixels.
+
 One thing the bake supplies that a flat render does not: `polarHatchFadeDeg` and
 `wrapsHorizontally` on the render context. A new style that hatches the ocean
 inherits both — a polar fade and a seam-aligned spacing — without asking for

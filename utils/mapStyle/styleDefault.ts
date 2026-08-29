@@ -20,9 +20,13 @@ export const styleDefault: MapStyle = {
     shadow: '#000000',
     highlight: '#ffffff',
     ice: '#ffffff',
-    // The pre-A3 look had no backdrop and this style draws nothing anyway (its
-    // pass list is empty by design); these exist to satisfy the palette.
-    desk: '#000000',
+    // The desk is NOT a style pass, so this style has one despite its empty pass
+    // list — a projection that letterboxes leaves a margin in every style, and
+    // raw black there reads as a rendering failure. Neutral slate rather than
+    // parchment's warm wood: this look is not paper, and the near-black map
+    // needs the desk a step LIGHTER than itself to sit on it at all.
+    desk: '#161a20',
+    deskEdge: '#080a0d',
     deskShadow: '#000000',
   },
   labelTheme: DEFAULT_LABEL_THEME,
