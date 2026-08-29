@@ -38,7 +38,73 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## S27b (2026-08-29) — A3 map style system (parchment) — ✅ COMPLETE, branch not merged
+## S27b (2026-08-29) — A3 map style system (parchment) — 🟡 SHIPPED except the GLOBE POLES
+
+**START THE NEXT SESSION HERE.** Everything below is done and gated except one
+open visual defect, described immediately under this block. Branch
+`a3-map-style`, 23 commits, not merged, not pushed.
+
+### ⚠ OPEN — the globe pinches and swirls at the poles
+
+**Matt's verdict after three attempts: "still not fixed."** Do not treat the
+earlier polar entry as resolved; it is not.
+
+**What it looks like now:** a spiral rosette at the north pole — concentric rings
+converging to a point — where the ocean hatch bends around the singularity.
+Away from the poles the parchment globe reads correctly.
+
+**Why the current approach cannot fix it.** The texture is baked
+equirectangular and sampled through PER-VERTEX UVs. That has two distinct
+failure modes and I have only addressed the first:
+
+1. *Interpolation error* (fixed): a triangle's three UVs are interpolated
+   linearly across a curved surface. Wrapping each vertex to the u nearest the
+   cell centre, plus collapsing polar cells, took the measured worst u-span from
+   0.633 to 0.000.
+2. *The projection singularity* (NOT fixed, and not fixable this way): every
+   longitude converges at the pole in equirectangular. Collapsing polar cells to
+   one longitude removed the streaks but replaced them with the swirl — each
+   polar cell now samples a thin vertical strip of a texture whose content is
+   itself smeared there. **Trading one artifact for another is all per-vertex
+   UVs can do.**
+
+**Recommended fix for the next session — compute UV in the SHADER, not per
+vertex.** Use `material.onBeforeCompile` (or a custom ShaderMaterial) to derive
+`uv` from the normalized world-space direction in the FRAGMENT shader:
+`u = atan2(z, x) / 2π + 0.5`, `v = 0.5 − asin(y)/π`. That removes interpolation
+error entirely — no seam handling, no polar collapse, no `buildGlobeUVs` at all —
+because every fragment computes its own exact spherical coordinate.
+
+The antimeridian then needs handling in the shader (use `dFdx`-aware sampling or
+`textureGrad`, since `atan2` wraps and the derivative explodes on the seam line).
+The pole still pinches, because that is inherent to equirectangular content, but
+it becomes a texture-content problem rather than a geometry one: it degrades to
+a smooth blur instead of a rosette.
+
+**If the shader route is rejected**, the honest alternatives are a cube-map bake
+(six faces, no singularity, more memory) or accepting a pinched pole and simply
+suppressing the ocean hatch above ~75° latitude so there is no pattern to swirl.
+
+**Cheap instrument that located the earlier bug:** generate a world, run
+`buildGlobeUVs`, histogram per-triangle u-span, and print the LATITUDES of the
+outliers. Printing latitudes is what proved they were polar rather than seam
+cells and changed the fix. Screenshots showed the symptom; only measurement
+located it.
+
+### Also worth a look next session
+
+- **Coastline weight on the globe is still slightly heavy** at cell scale even
+  after `lineScale = 0.5`. Judge it again once the polar fix lands.
+- `exportSVG` ignores the `showHillshade` toggle the PNG path threads.
+- **VOLCANIC has no glyph** — like ICE_CAP before it, it will render as bare
+  paper. Far rarer than ice, but the same class of gap: a `bare` fill policy
+  claims glyphs carry every terrain, and that claim needs checking against the
+  full `BiomeType` list.
+- D10's browser check is still outstanding and is now on `origin`.
+
+---
+
+## S27b detail — A3, what shipped
 
 Branch `a3-map-style` off pushed `main` @ `4881231`. **Spec:**
 `docs/superpowers/specs/2026-08-28-a3-map-style-system-design.md`. **Plan:**
