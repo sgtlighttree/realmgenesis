@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as d3 from 'd3';
-import { greatCircleDistanceKm, sampleGreatCircleArc, computeScaleBar, niceScaleBarLength } from '../utils/measure';
+import { greatCircleDistanceKm, sampleGreatCircleArc, computeScaleBar, computeInterruptedScaleBar, niceScaleBarLength } from '../utils/measure';
 import { Point } from '../types';
 
 const R = 6371;
@@ -134,5 +134,56 @@ describe('computeScaleBar', () => {
     const failingProjection = () => null;
     const result = computeScaleBar(failingProjection, [0, 0], 6371);
     expect(result).toBeNull();
+  });
+});
+
+describe('computeInterruptedScaleBar', () => {
+  const width = 2000;
+  const height = 1000;
+  const smooth = d3.geoEquirectangular().fitSize([width, height], { type: 'Sphere' } as d3.GeoPermissibleObjects);
+
+  it('agrees with computeScaleBar where the plane is not cut', () => {
+    const plain = computeScaleBar(smooth, [0, 0], 6371);
+    const guarded = computeInterruptedScaleBar(smooth, [0, 0], 6371);
+    expect(guarded).not.toBeNull();
+    expect(guarded!.pixelsPerKm).toBeCloseTo(plain!.pixelsPerKm, 9);
+  });
+
+  it('rejects a centre sitting on a cut', () => {
+    // A seam at lon 0: everything east of it is displaced by a face width. This
+    // is what a Dymaxion fold does to two points half a degree apart.
+    const cut = (lonLat: [number, number]): [number, number] => {
+      const [lon, lat] = lonLat;
+      const p = smooth(lonLat)!;
+      return [p[0] + (lon > 0 ? 400 : 0), p[1] + lat * 0];
+    };
+    expect(computeInterruptedScaleBar(cut, [0, 0], 6371)).toBeNull();
+  });
+
+  it('accepts a centre near, but not on, the same cut', () => {
+    const cut = (lonLat: [number, number]): [number, number] => {
+      const p = smooth(lonLat)!;
+      return [p[0] + (lonLat[0] > 0 ? 400 : 0), p[1]];
+    };
+    // Both probes land east of the seam, so the step is smooth again.
+    expect(computeInterruptedScaleBar(cut, [10, 0], 6371)).not.toBeNull();
+  });
+
+  it('catches a fold that leaves the two-point distance looking PLAUSIBLE', () => {
+    // The failure the three-point check exists for. Here the displaced half
+    // lands back near the other, so `computeScaleBar` alone returns a
+    // believable number instead of an absurd one.
+    const foldBack = (lonLat: [number, number]): [number, number] => {
+      const p = smooth(lonLat)!;
+      return [lonLat[0] > 0 ? p[0] - 3 : p[0], p[1]];
+    };
+    const naive = computeScaleBar(foldBack, [0, 0], 6371);
+    expect(naive).not.toBeNull();
+    expect(naive!.pixelsPerKm).toBeGreaterThan(0); // plausible, and wrong
+    expect(computeInterruptedScaleBar(foldBack, [0, 0], 6371)).toBeNull();
+  });
+
+  it('returns null when any of the three samples fails to project', () => {
+    expect(computeInterruptedScaleBar(() => null, [0, 0], 6371)).toBeNull();
   });
 });
