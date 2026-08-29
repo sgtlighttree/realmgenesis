@@ -8,6 +8,8 @@ import { OverlayInk } from '../utils/mapStyle/overlayInk';
 import { buildProjection, FlatProjectionType } from '../utils/projections';
 import { DISPLAY_MODES } from './ViewControls';
 import { useLabelFonts } from '../utils/mapStyle/useLabelFonts';
+import { useDeskTexture } from '../utils/mapStyle/useDeskTexture';
+import { paintDesk } from '../utils/mapStyle/desk';
 import { runStyle } from '../utils/mapStyle/passes';
 import { placeGlyphs } from '../utils/mapStyle/placeGlyphs';
 import { Canvas2DSubstrate } from '../utils/mapStyle/substrateCanvas';
@@ -399,6 +401,9 @@ const Map2D: React.FC<{
   // canvas through the ordinary dependency rules. See useLabelFonts.
   const labelTheme = useLabelFonts(style.labelTheme);
   const overlayInk = style.overlayInk;
+  // null until the image decodes, so the desk falls back to its colour rather
+  // than painting nothing. See useDeskTexture.
+  const deskTexture = useDeskTexture(style.palette.deskTexture);
 
   // A style with no passes draws nothing, so the legacy per-cell loop runs
   // instead. This is the ONE test for that — never a comparison against the
@@ -1027,28 +1032,27 @@ const Map2D: React.FC<{
     // offscreen bitmap is blitted under the pan/zoom transform just after this,
     // so a backdrop painted into it would shrink and slide with the paper
     // instead of filling the viewport. (It was a style pass first, for exactly
-    // one round; this is why it is not.) A projection rarely fills its canvas —
-    // Mercator clipped at +/-85 degrees is square — and the raw black in that
-    // margin reads as a rendering failure rather than a choice.
-    if (styled) {
-      ctx.fillStyle = style.palette.desk;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
+    // one round; this is why it is not.)
+    //
+    // Unconditional: `styled` gates the STYLE PASSES, and the desk is not one.
+    // Every style, `default` included, letterboxes under a projection that does
+    // not fill its canvas, and every style should fill that margin.
+    paintDesk(ctx, style.palette, canvas.width, canvas.height, deskTexture);
 
     ctx.setTransform(displayDpr * scale, 0, 0, displayDpr * scale, displayDpr * offset.x, displayDpr * offset.y);
     // Drop shadow under the sheet, so it rests on the desk rather than floating
-    // in it. Set on the blit itself: canvas shadows apply to drawImage.
-    if (styled) {
-      ctx.shadowColor = style.palette.deskShadow;
-      ctx.shadowBlur = 28;
-      ctx.shadowOffsetY = 6;
-    }
+    // in it. Set on the blit itself: canvas shadows apply to drawImage. Also
+    // unconditional — it is the only thing separating a near-black default map
+    // from the desk it sits on.
+    ctx.shadowColor = style.palette.deskShadow;
+    ctx.shadowBlur = 28;
+    ctx.shadowOffsetY = 6;
     ctx.drawImage(offscreen, 0, 0, size.width, size.height);
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
 
-  }, [size.width, size.height, scale, offset.x, offset.y, qualityDpr, viewMode, world?.params.seed, world, projectionType, renderCount, projection, rulerArc, styled, style.palette.desk, style.palette.deskShadow]);
+  }, [size.width, size.height, scale, offset.x, offset.y, qualityDpr, viewMode, world?.params.seed, world, projectionType, renderCount, projection, rulerArc, styled, style.palette, deskTexture]);
 
   /**
    * Ground scale at the centre of the viewport.

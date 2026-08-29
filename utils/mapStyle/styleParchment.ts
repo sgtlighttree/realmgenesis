@@ -29,7 +29,11 @@ const PARCHMENT_PALETTE: StylePalette = {
   // to the paper instead of as an empty viewport. Kept far darker and far less
   // saturated than the map: the eye should land on the map, and a busy desk
   // competes with the thing it is supporting.
-  desk: '#20180f',
+  desk: '#2a2015',
+  // The vignette does the work the flat fill could not: the surface falls off
+  // to near-black at the corners, so the paper sits in a pool of light instead
+  // of on an even swatch. Kept low-contrast — a busy desk competes with the map.
+  deskEdge: '#0e0a06',
   deskShadow: '#0d0906',
 };
 

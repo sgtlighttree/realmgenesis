@@ -50,11 +50,31 @@ export interface StylePalette {
   /**
    * What fills the viewport OUTSIDE the map — the desk the paper lies on. A
    * projection rarely fills its canvas, and raw black in that margin reads as a
-   * rendering failure rather than a choice. 2D only; see `backdropPass`.
+   * rendering failure rather than a choice.
+   *
+   * 2D only, screen space, and painted by EVERY style including `default` —
+   * see `paintDesk` in `desk.ts`, which is called from Map2D's display effect
+   * rather than from a pass, and never by an export.
    */
   desk: string;
   /** Shadow hugging the map's edge, so the paper rests rather than floats. */
   deskShadow: string;
+  /**
+   * Optional vignette colour at the corners of the viewport, blending out of
+   * `desk` at the centre. A lit surface rather than a flat swatch. Omit for a
+   * plain fill.
+   */
+  deskEdge?: string;
+  /**
+   * Optional repeating image tiled over `desk` — wood, leather, cloth. A URL
+   * (or a data URI) for an asset in `public/`. It must be TILEABLE: it is drawn
+   * as a `repeat` pattern in device pixels.
+   *
+   * Load it through `useDeskTexture`, never with a bare `new Image()`: an
+   * undecoded image draws nothing and reports nothing, which presents as "the
+   * texture did nothing" — the same trap as the webfonts.
+   */
+  deskTexture?: string;
 }
 
 /**
