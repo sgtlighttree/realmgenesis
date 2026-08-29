@@ -5,6 +5,11 @@ import { buildFactionColorMap, buildCultureColorMap, buildReligionColorMap, getC
 import { seasonalTemperatureDelta } from './seasons';
 import { toLonLat, Point3 } from './geo';
 import { computeCoastlineSegments, computeFactionBorderSegments } from './boundaries';
+import { computeShadeMap } from './shading';
+import { getMapStyle, MapStyleId } from './mapStyle';
+import { runStyle } from './mapStyle/passes';
+import { placeGlyphs } from './mapStyle/placeGlyphs';
+import { SvgSubstrate } from './mapStyle/substrateSvg';
 import { collectLabels, LABEL_CONFIG } from './labels';
 import { ProjectionType } from './export';
 import { elevationMetres } from './datum';
@@ -200,6 +205,7 @@ export const exportSVG = (
   viewMode: ViewMode,
   projectionType: VectorProjectionType = 'equirectangular',
   width = 2048,
+  mapStyleId: MapStyleId = 'default',
 ): string => {
   let height = width / 2;
   if (projectionType === 'mercator' || projectionType === 'orthographic') height = width;
@@ -210,12 +216,53 @@ export const exportSVG = (
   const background = viewMode === 'satellite' || viewMode === 'biome' ? '#050505' : '#000000';
   const mirror = `translate(${width},0) scale(-1,1)`;
 
+  const labels = buildLabelsGroup(world, projection, projectionType, width);
+
+  const style = getMapStyle(mapStyleId);
+  if (style.passes.length > 0) {
+    // `mirrored: true` — the body is emitted inside the mirror group below, and
+    // the substrate counter-transforms glyphs so they are not drawn backwards.
+    // Do NOT hoist glyphs into a separate unmirrored group: that would flip
+    // them twice.
+    const sub = new SvgSubstrate(
+      pathGenerator as unknown as (o: unknown) => string | null, width, height, true,
+    );
+    const glyphs = style.fillPolicy(viewMode) === 'ramp'
+      ? []
+      // The OUTPUT width, so a large export is the same map at higher
+      // resolution rather than a denser one.
+      : placeGlyphs(world.cells, projection, width, {
+        seaLevel: world.params.seaLevel,
+        seed: world.params.seed,
+      });
+    runStyle(style, {
+      world, viewMode, widthPx: width, heightPx: height,
+      glyphs,
+      shadeMap: computeShadeMap(world.cells, world.params.seaLevel),
+      coastlines: computeCoastlineSegments(world),
+      colorCtx: {
+        seaLevel: world.params.seaLevel,
+        factionColors: buildFactionColorMap(world.civData),
+        cultureColors: buildCultureColorMap(world.cultures),
+        religionColors: buildReligionColorMap(world.religions),
+      },
+    }, sub);
+    // No background rect: paperPass paints the ground, and a black rect beneath
+    // it would show through the grain.
+    return (
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+      sub.defs() +
+      `<g id="style" transform="${mirror}">${sub.body()}</g>` +
+      labels +
+      `</svg>`
+    );
+  }
+
   const cellPaths = renderCellPaths(world, viewMode, pathGenerator);
   const coastlines = buildCoastlinesGroup(world, pathGenerator, width);
   const rivers = buildRiversGroup(world, projection, width);
   const routes = buildRoutesGroup(world, projection, width);
   const borders = buildBordersGroup(world, pathGenerator, width);
-  const labels = buildLabelsGroup(world, projection, projectionType, width);
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
@@ -235,8 +282,9 @@ export const downloadSVG = (
   viewMode: ViewMode,
   projectionType: VectorProjectionType = 'equirectangular',
   width = 2048,
+  mapStyleId: MapStyleId = 'default',
 ): void => {
-  const svg = exportSVG(world, viewMode, projectionType, width);
+  const svg = exportSVG(world, viewMode, projectionType, width, mapStyleId);
   const blob = new Blob([svg], { type: 'image/svg+xml' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
