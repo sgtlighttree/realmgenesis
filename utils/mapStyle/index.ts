@@ -3,6 +3,7 @@ import { styleDefault } from './styleDefault';
 import { styleParchment } from './styleParchment';
 
 export * from './types';
+export * from './labelTheme';
 
 export const MAP_STYLES: Record<MapStyleId, MapStyle> = {
   default: styleDefault,

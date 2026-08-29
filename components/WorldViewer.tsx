@@ -7,6 +7,7 @@ import { getCellColor } from '../utils/colors';
 import { getMapStyle, MapStyleId } from '../utils/mapStyle';
 import { bakeStyleTexture, buildGlobeDirs } from '../utils/mapStyle/bakeTexture';
 import { createStyleTexture, createStyledGlobeMaterial } from '../utils/mapStyle/globeMaterial';
+import { useLabelFonts } from '../utils/mapStyle/useLabelFonts';
 import { seasonalTemperatureDelta } from '../utils/seasons';
 import { displayRadius, CELL_OVERHANG } from '../utils/displayRadius';
 import { computeShadeMap, computeContourSegments, contourInterval } from '../utils/shading';
@@ -540,6 +541,12 @@ const WorldMesh: React.FC<{
     [world],
   );
 
+  // Lettering for the active style. `fontsTick` changes once the webfonts
+  // resolve; it is in the tenant deps so the overlay repaints then. Without it
+  // the first paint silently keeps the fallback face — Canvas2D does not wait.
+  const labelTheme = getMapStyle(mapStyleId).labelTheme;
+  const fontsTick = useLabelFonts(labelTheme);
+
   // Refill runs synchronously before the next painted frame so a fresh
   // geometry is never displayed with empty buffers
   useLayoutEffect(() => {
@@ -835,12 +842,18 @@ const WorldMesh: React.FC<{
     { id: `labels:${[labelVisibility.capitals, labelVisibility.towns, labelVisibility.provinces, labelVisibility.geography, labelVisibility.markers].map(Number).join('')}`,
       visible: labelAnchors.length > 0,
       draw: (ctx, _proj, _world, project, smooth) =>
-        drawLabelsTenant(ctx, labelAnchors, project, smooth, camera.position.length(), labelVisibility) },
+        drawLabelsTenant(ctx, labelAnchors, project, smooth, camera.position.length(), labelVisibility, labelTheme) },
     // Ruler on top of everything — it is an active measurement affordance. Fixed
     // radius (clears peaks), not draped; see drawRulerTenant.
     { id: 'ruler', visible: !!rulerArc && rulerArc.length > 1,
       draw: (ctx, _proj, _world, project, smooth) => drawRulerTenant(ctx, rulerArc!, project, smooth) },
-  ], [showRivers, riverPolylines, showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, labelVisibility, borderSegments, showGrid, dymaxionSettings.showOverlay, dymaxionSettings.lon, dymaxionSettings.lat, dymaxionSettings.roll, dymaxionEdges, labelAnchors, camera, rulerArc]);
+    // `fontsTick` is deliberately unread: it carries no value, it exists to
+    // rebuild this tenant list once the style's webfonts resolve. Canvas2D does
+    // NOT wait for webfonts — it draws in the fallback face without erroring —
+    // so only a repaint replaces that first frame. The rule cannot see a canvas
+    // repaint, so it calls the dependency unnecessary. It is not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [showRivers, riverPolylines, showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, labelVisibility, borderSegments, showGrid, dymaxionSettings.showOverlay, dymaxionSettings.lon, dymaxionSettings.lat, dymaxionSettings.roll, dymaxionEdges, labelAnchors, camera, rulerArc, labelTheme, fontsTick]);
 
   return (
     <Group>

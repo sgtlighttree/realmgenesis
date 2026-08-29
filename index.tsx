@@ -4,6 +4,13 @@ import App from './App';
 import ShellApp from './components/shell/ShellApp';
 import DesignShell from './components/shell/DesignShell';
 import './index.css';
+// Parchment map lettering. Latin subsets only, and only the faces
+// `PARCHMENT_LABEL_THEME.faces` actually asks for — Cinzel roman + bold for
+// territory, IM Fell English roman + italic for geography.
+import '@fontsource/cinzel/latin-400.css';
+import '@fontsource/cinzel/latin-700.css';
+import '@fontsource/im-fell-english/latin-400.css';
+import '@fontsource/im-fell-english/latin-400-italic.css';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

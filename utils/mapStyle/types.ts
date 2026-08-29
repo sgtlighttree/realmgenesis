@@ -1,5 +1,6 @@
 import { ViewMode, WorldData } from '../../types';
 import { ColorContext } from '../colors';
+import { LabelTheme } from './labelTheme';
 import { Point3 } from '../geo';
 import { Substrate } from './substrate';
 
@@ -111,6 +112,11 @@ export interface MapStyle {
   id: MapStyleId;
   name: string;
   palette: StylePalette;
+  /**
+   * Lettering. Separate from `palette` because labels are drawn by
+   * `utils/labels.ts`, outside the pass/substrate machinery entirely.
+   */
+  labelTheme: LabelTheme;
   /** Per-view-mode land fill rule. See spec §4. */
   fillPolicy: (mode: ViewMode) => FillPolicy;
   /**

@@ -219,11 +219,17 @@ const exportDymaxionRaster = (
   labelVisibility: LabelVisibility = DEFAULT_LABEL_VISIBILITY,
   showHillshade = false,
   showContours = false,
-  showRoutes = false
+  showRoutes = false,
+  mapStyleId: MapStyleId = 'default',
 ) => {
   const srcWidth = width;
   const srcHeight = Math.round(width / 2);
-  const source = renderEquirectangular(world, viewMode, srcWidth, srcHeight, showHillshade, showContours, showRoutes);
+  // mapStyleId was NOT passed here, so the Dymaxion PNG rendered unstyled while
+  // every other export honoured the style. renderEquirectangular has always
+  // taken it; the argument was simply never supplied.
+  const source = renderEquirectangular(
+    world, viewMode, srcWidth, srcHeight, showHillshade, showContours, showRoutes, mapStyleId,
+  );
   if (!source) return;
   const srcCtx = source.getContext('2d');
   if (!srcCtx) return;
@@ -343,7 +349,7 @@ const exportDymaxionRaster = (
       },
       2.5,
       labelVisibility,
-      width / 1024,
+      { fontScale: width / 1024, theme: getMapStyle(mapStyleId).labelTheme },
     );
   }
 
@@ -400,7 +406,10 @@ export const exportMap = async (
   }
 
   if (projectionType === 'dymaxion') {
-    exportDymaxionRaster(world, viewMode, width, height, dymaxionSettings, labelVisibility, showHillshade, showContours, showRoutes);
+    exportDymaxionRaster(
+      world, viewMode, width, height, dymaxionSettings, labelVisibility,
+      showHillshade, showContours, showRoutes, mapStyleId,
+    );
     return;
   }
 
@@ -493,7 +502,7 @@ export const exportMap = async (
       },
       2.5,
       labelVisibility,
-      width / 1024,
+      { fontScale: width / 1024, theme: getMapStyle(mapStyleId).labelTheme },
     );
   }
 

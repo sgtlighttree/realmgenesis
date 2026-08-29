@@ -1,5 +1,6 @@
 import { WorldData, Cell, LabelVisibility, GeoFeature } from '../types';
 import { normalizeVec, Point3 } from './geo';
+import { DEFAULT_LABEL_THEME, LabelTheme } from './mapStyle/labelTheme';
 
 export type LabelKind =
   | 'faction' | 'capital' | 'town' | 'province'
@@ -22,25 +23,36 @@ export interface LabelStyleConfig {
   visibilityKey: keyof LabelVisibility;
   italic?: boolean; // cartographic feel for geographic (esp. water) labels
   fill?: string; // override the default light fill (water kinds run slightly blued)
+  /**
+   * Which of the theme's two faces letters this kind.
+   *
+   * `display` is territory and settlement — the political layer. `geo` is the
+   * physical layer. Real maps set those in different faces, and the split is
+   * what carries the hierarchy before you can read any of the names.
+   */
+  face?: 'display' | 'geo';
+  /** Water names take the theme's `waterInk` and run apart from land names. */
+  water?: boolean;
 }
 
 // Exported so vector exporters (SVG/GeoJSON) can mirror the exact per-kind
 // styling used by the canvas label pass instead of duplicating the table.
 export const LABEL_CONFIG: Record<LabelKind, LabelStyleConfig> = {
-  faction: { fontWeight: 700, baseFontSize: 14, alpha: 1.0, uppercase: true, visibilityKey: 'factions' },
-  capital: { fontWeight: 700, baseFontSize: 11, alpha: 0.95, uppercase: false, visibilityKey: 'capitals' },
-  province: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'provinces' },
-  town: { fontWeight: 400, baseFontSize: 9, alpha: 0.75, uppercase: false, visibilityKey: 'towns' },
-  // Geographic features (B3) — one shared visibility toggle. Water kinds italic + blued.
-  ocean: { fontWeight: 400, baseFontSize: 13, alpha: 0.9, uppercase: false, visibilityKey: 'geography', italic: true, fill: '#dbeafe' },
-  sea: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography', italic: true, fill: '#dbeafe' },
-  lake: { fontWeight: 400, baseFontSize: 9, alpha: 0.8, uppercase: false, visibilityKey: 'geography', italic: true, fill: '#dbeafe' },
-  range: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography' },
-  desert: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography' },
-  forest: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography' },
-  island: { fontWeight: 400, baseFontSize: 9, alpha: 0.8, uppercase: false, visibilityKey: 'geography' },
-  // Warm amber, distinct from both civ (blue/white) and geo (light/blued) labels.
-  marker: { fontWeight: 600, baseFontSize: 10, alpha: 0.95, uppercase: false, visibilityKey: 'markers', fill: '#fde68a' },
+  faction: { fontWeight: 700, baseFontSize: 14, alpha: 1.0, uppercase: true, visibilityKey: 'factions', face: 'display' },
+  capital: { fontWeight: 700, baseFontSize: 11, alpha: 0.95, uppercase: false, visibilityKey: 'capitals', face: 'display' },
+  province: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'provinces', face: 'display' },
+  town: { fontWeight: 400, baseFontSize: 9, alpha: 0.75, uppercase: false, visibilityKey: 'towns', face: 'display' },
+  // Geographic features (B3) — one shared visibility toggle. Water kinds italic.
+  ocean: { fontWeight: 400, baseFontSize: 13, alpha: 0.9, uppercase: false, visibilityKey: 'geography', italic: true, face: 'geo', water: true },
+  sea: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography', italic: true, face: 'geo', water: true },
+  lake: { fontWeight: 400, baseFontSize: 9, alpha: 0.8, uppercase: false, visibilityKey: 'geography', italic: true, face: 'geo', water: true },
+  // Land geography stays ROMAN. Italic is the water convention; setting the
+  // mountains in it too throws away the one distinction it buys.
+  range: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography', face: 'geo' },
+  desert: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography', face: 'geo' },
+  forest: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography', face: 'geo' },
+  island: { fontWeight: 400, baseFontSize: 9, alpha: 0.8, uppercase: false, visibilityKey: 'geography', face: 'geo' },
+  marker: { fontWeight: 600, baseFontSize: 10, alpha: 0.95, uppercase: false, visibilityKey: 'markers', face: 'display' },
 };
 
 const ZOOM_THRESHOLDS: Record<LabelKind, number> = {
@@ -231,17 +243,30 @@ export const collectLabels = (world: WorldData): MapLabel[] => {
   return labels;
 };
 
+/**
+ * Trailing options, not more positional arguments — the same call this file
+ * already learned with `getCellColor`'s ColorContext. Both fields are optional,
+ * so an unstyled caller passes nothing.
+ */
+export interface DrawLabelsOptions {
+  /** Override for high-resolution export canvases. */
+  fontScale?: number;
+  /** Lettering; the app's dark-theme default when omitted. */
+  theme?: LabelTheme;
+}
+
 export const drawMapLabels = (
   ctx: CanvasRenderingContext2D,
   labels: MapLabel[],
   project: (position: { x: number; y: number; z: number }) => [number, number] | null,
   scale: number,
   visibility: LabelVisibility,
-  fontScale?: number, // override for high-resolution export canvases
+  opts: DrawLabelsOptions = {},
 ): void => {
   if (labels.length === 0) return;
 
-  const effectiveFontScale = fontScale ?? Math.min(scale, 2);
+  const theme = opts.theme ?? DEFAULT_LABEL_THEME;
+  const effectiveFontScale = opts.fontScale ?? Math.min(scale, 2);
   const placed: LabelRect[] = [];
 
   ctx.save();
@@ -259,7 +284,17 @@ export const drawMapLabels = (
     const padding = Math.max(4, fontSize * 0.3);
 
     const style = config.italic ? 'italic ' : '';
-    ctx.font = `${style}${config.fontWeight} ${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
+    const family = config.face === 'geo' ? theme.geoFamily : theme.displayFamily;
+    ctx.font = `${style}${config.fontWeight} ${fontSize}px ${family}`;
+    // Tracking on the letterspaced territorial caps only. `letterSpacing` is
+    // set BEFORE measureText, or the declutter rectangle is narrower than the
+    // text it is supposed to bound and names overlap. Unsupported in older
+    // engines, where it is simply ignored — the labels render untracked rather
+    // than not at all.
+    const tracking = config.uppercase && theme.trackingEm !== 0
+      ? `${(theme.trackingEm * fontSize).toFixed(2)}px`
+      : '0px';
+    ctx.letterSpacing = tracking;
     const textWidth = ctx.measureText(text).width;
     const textHeight = fontSize * 1.2;
 
@@ -276,9 +311,10 @@ export const drawMapLabels = (
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.lineJoin = 'round';
-    ctx.lineWidth = Math.max(3, fontSize * 0.28);
-    ctx.strokeStyle = 'rgba(2, 6, 23, 0.95)';
-    ctx.fillStyle = config.fill ?? '#f8fafc';
+    ctx.lineWidth = Math.max(3, fontSize * theme.haloScale);
+    ctx.strokeStyle = theme.halo;
+    ctx.fillStyle = config.fill
+      ?? (label.kind === 'marker' ? theme.markerInk : config.water ? theme.waterInk : theme.ink);
     ctx.globalAlpha = config.alpha;
     ctx.strokeText(text, projected[0], projected[1]);
     ctx.fillText(text, projected[0], projected[1]);

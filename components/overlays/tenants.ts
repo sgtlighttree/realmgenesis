@@ -10,6 +10,7 @@ import { ContourSegment, contourStroke } from '../../utils/shading';
 import { BorderSegment } from '../../utils/borders';
 import { LabelAnchor } from '../../utils/labelAnchors';
 import { MapLabel, drawMapLabels } from '../../utils/labels';
+import { DEFAULT_LABEL_THEME, LabelTheme } from '../../utils/mapStyle/labelTheme';
 import { LocalProjector } from './ScreenOverlay';
 
 // ---------------------------------------------------------------------------
@@ -598,6 +599,7 @@ export function drawLabelsTenant(
   smooth: boolean,
   camDist: number,
   visibility: LabelVisibility,
+  theme: LabelTheme = DEFAULT_LABEL_THEME,
 ): void {
   if (anchors.length === 0) return;
 
@@ -625,6 +627,6 @@ export function drawLabelsTenant(
     projectLabel,
     LABEL_SCALE_LOD_OFF,
     visibility,
-    LABEL_FONT_SCALE,
+    { fontScale: LABEL_FONT_SCALE, theme },
   );
 }
