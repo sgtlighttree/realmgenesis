@@ -230,6 +230,40 @@ cover the seam.
 
 The Map Style control now shows in every display mode, not just 2D.
 
+**Follow-up round after Matt looked at it** ("borders are messed up, reprojection
+is a bit of a mess"):
+
+- **The UV seam rule was wrong.** Pushing every u below 0.5 past 1.0 is not the
+  same as wrapping to the nearest equivalent: a cell at `[0.1, 0.6, 0.9]` came
+  out `[1.1, 0.6, 0.9]`, still spanning half the texture. Now each vertex wraps
+  to the u nearest the CELL CENTRE.
+- **The poles are a separate, unfixable-by-wrapping problem.** Equirectangular is
+  singular there. Measured: 76 triangles on a 5k world, ALL at |lat| >= 84,
+  spanned up to 0.63 of the texture and smeared most of the map across one cell
+  as dark streaks. They now collapse to the centre's longitude. After both
+  fixes: **0 triangles with a u-span over 0.08**, worst 0.000.
+- **Line weights were tuned for a flat whole-world view.** The globe shows one
+  hemisphere filling the viewport, so coastlines read as heavy black blobs. Added
+  `lineScale` to `StyleRenderContext`; the bake uses 0.5 with sparser, smaller
+  glyphs.
+- **`oceanHatchPass` used FIXED pixel spacing** — a real bug, not just a globe
+  issue: it contradicted the rule established for glyphs, so an 8192 export got
+  hair-fine hatching and the globe got corduroy. Now scales with output width.
+
+**Method note:** the streaks were diagnosed by measuring UV spans in a script,
+not by staring at screenshots. `tmp/uvcheck.mjs` pattern — generate a real world,
+run `buildGlobeUVs`, histogram the per-triangle u-span, and print the LATITUDES
+of the outliers. That last part is what identified them as polar rather than
+seam cells, which changed the fix entirely.
+
+### Top bar is two rows now
+
+One row had outgrown the width and the overlay chips scrolled horizontally behind
+a scrollbar. Row 1 is projection + view layer + style ("what am I looking at"),
+row 2 is the overlay toggles. `containerRef` for `useCompactStrip` moved to row 2,
+since it must measure the row the chips live in — with a full row to themselves
+the chips now win the full-label branch instead of falling back to icon-only.
+
 ### Ice was invisible under parchment — reported, fixed
 
 Matt: "parchment does eliminate all ice terrain/ice caps from view." Correct, and

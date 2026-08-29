@@ -65,6 +65,21 @@ describe('buildGlobeUVs', () => {
     expect(us.some(u => u > 1)).toBe(true);
   });
 
+  // Equirectangular is singular at the poles: a cell touching one spans a wide
+  // longitude range legitimately. Measured before this guard, 76 triangles on a
+  // 5k world (all |lat| >= 84) still spanned up to 0.63 of the texture and
+  // smeared most of the map across a single cell as dark polar streaks.
+  it('collapses polar cells rather than stretching them across the texture', () => {
+    const world = worldWith([
+      { center: pt(0, 89.5), vertices: [pt(0, 89), pt(120, 89), pt(-120, 89)] },
+    ]);
+    const uv = buildGlobeUVs(world);
+    for (let t = 0; t < uv.length; t += 6) {
+      const us = [uv[t], uv[t + 2], uv[t + 4]];
+      expect(Math.max(...us) - Math.min(...us)).toBeLessThanOrEqual(0.08);
+    }
+  });
+
   it('leaves ordinary triangles untouched', () => {
     const world = worldWith([
       { center: pt(10, 10), vertices: [pt(9, 9), pt(11, 9), pt(10, 11)] },

@@ -59,6 +59,13 @@ export interface StyleRenderContext {
   /** Pre-computed by placeGlyphs; empty when the fill policy suppresses glyphs. */
   glyphs: PlacedGlyph[];
   shadeMap: Float32Array | null;
+  /**
+   * Multiplier on line weights, hatch density and glyph size, on top of the
+   * widthPx scaling. 1 suits a view showing the WHOLE world; the globe shows one
+   * hemisphere at a time, so weights tuned for a flat map read as heavy blobs
+   * there and it bakes at a lower value.
+   */
+  lineScale?: number;
   colorCtx: ColorContext;
   coastlines: Array<[Point3, Point3]>;
 }

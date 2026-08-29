@@ -119,9 +119,21 @@ Three things are load-bearing:
   puts the world back to front.
 - **The antimeridian seam.** A cell straddling lon ±180 has vertices at u ≈ 0.99
   and u ≈ 0.01; interpolated as-is, that triangle samples the entire texture
-  backwards and draws a bright smear down the seam. `buildGlobeUVs` pushes the
-  low values past 1.0 instead, which is correct only because the texture uses
-  `RepeatWrapping`.
+  backwards and smears down the seam. `buildGlobeUVs` wraps each vertex to the
+  equivalent u NEAREST the cell centre — the shortest way round the cylinder —
+  which is correct only because the texture uses `RepeatWrapping`. Wrapping
+  everything below 0.5 instead is *not* equivalent and leaves cells like
+  `[0.1, 0.6, 0.9]` still spanning half the texture.
+- **The poles are a separate problem.** Equirectangular is singular there, so a
+  cell touching a pole spans a wide longitude range legitimately and no UV
+  assignment avoids stretching it. Those triangles collapse to the centre's
+  longitude: near a pole every longitude maps to near-identical content, so a
+  thin correct band beats a wide wrong one.
+- **Line weights scale by `lineScale`.** The globe shows one hemisphere filling
+  the viewport, so weights tuned for a whole-world flat map read as heavy blobs.
+  The bake halves them. Hatch spacing scales with output width for the same
+  reason glyph size does — a fixed pixel spacing gives an 8192 export hair-fine
+  hatching and the globe corduroy.
 - **The material is UNLIT and its JSX `key` matters.** Unlit because the baked
   texture already contains the hillshade pass — a lit material shades it twice
   and warm paper renders as dark grey-brown. The `key` because two branches are
