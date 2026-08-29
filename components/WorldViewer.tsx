@@ -4,6 +4,8 @@ import { OrbitControls, Stars, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, MarkerData } from '../types';
 import { getCellColor } from '../utils/colors';
+import { getMapStyle, MapStyleId } from '../utils/mapStyle';
+import { bakeStyleTexture, buildGlobeUVs } from '../utils/mapStyle/bakeTexture';
 import { seasonalTemperatureDelta } from '../utils/seasons';
 import { displayRadius } from '../utils/displayRadius';
 import { computeShadeMap, computeContourSegments, contourInterval } from '../utils/shading';
@@ -441,6 +443,7 @@ const WorldMesh: React.FC<{
   showRivers: boolean,
   showRoutes: boolean,
   showHillshade: boolean,
+  mapStyleId: MapStyleId,
   showContours: boolean,
   showCurrents: boolean,
   showCellEdges: boolean,
@@ -456,7 +459,7 @@ const WorldMesh: React.FC<{
   selectedCellId?: number | null;
   labelVisibility: LabelVisibility;
   rulerArc?: Point[] | null;
-}> = ({ world, viewMode, onHover, paused, showGrid, smoothGlobe, showRivers, showRoutes, showHillshade, showContours, showCurrents, showCellEdges, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize, selectedCellId = null, labelVisibility, rulerArc = null }) => {
+}> = ({ world, viewMode, onHover, paused, showGrid, smoothGlobe, showRivers, showRoutes, showHillshade, mapStyleId, showContours, showCurrents, showCellEdges, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize, selectedCellId = null, labelVisibility, rulerArc = null }) => {
   const spinRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const lastUpdate = useRef<number>(0);
@@ -493,13 +496,36 @@ const WorldMesh: React.FC<{
     colAttr.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute('position', posAttr);
     geo.setAttribute('color', colAttr);
+    // UVs are static for a given cell set — they depend only on cell geometry,
+    // not on style or view mode — so they are built once with the buffer.
+    geo.setAttribute('uv', new THREE.BufferAttribute(buildGlobeUVs(world), 2));
     // The globe always fits inside r = 1.05 + margin; a fixed bounding sphere
     // avoids an O(vertices) recomputation on every refill and keeps raycasts valid
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 1.1);
     return geo;
-  }, [world.cells]);
+  }, [world]);
 
   useEffect(() => () => { geometry.dispose(); }, [geometry]);
+
+  // A3: baked style texture for the globe. The cell mesh paints flat per-cell
+  // colour, so hatching, paper grain and glyphs have nowhere to live; the real
+  // 2D style is rendered to an equirectangular canvas and wrapped instead, with
+  // the mesh keeping its displacement so relief still reads.
+  const styleTexture = useMemo(() => {
+    const style = getMapStyle(mapStyleId);
+    const canvas = bakeStyleTexture(world, viewMode, style, showHillshade);
+    if (!canvas) return null;
+    const tex = new THREE.CanvasTexture(canvas);
+    // RepeatWrapping is what makes the antimeridian seam fix in buildGlobeUVs
+    // work: triangles straddling lon 180 carry u values past 1.0.
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    return tex;
+  }, [world, viewMode, mapStyleId, showHillshade]);
+
+  // Every useMemo GPU resource in this file has a matching disposal effect.
+  useEffect(() => () => { styleTexture?.dispose(); }, [styleTexture]);
 
   // Per-cell hillshade relief factor. Keyed on world identity (heights mutate in
   // place on paint, WorldData shallow-copied) so it refreshes exactly like colors.
@@ -825,10 +851,31 @@ const WorldMesh: React.FC<{
             onPointerMove={tracksPointerMove ? handlePointerMove : undefined}
             onPointerOut={tracksPointerMove ? handlePointerOut : undefined}
             >
-                {viewMode === 'political' ? (
-                    <MeshBasicMaterial vertexColors toneMapped={false} side={THREE.FrontSide} />
+                {/* The `key` on each branch is LOAD-BEARING, not tidiness.
+                    Two of these are `meshStandardMaterial`, so without distinct
+                    keys React reconciles them as one element and patches props
+                    onto the SAME material instance. three.js compiles its shader
+                    from the material's feature set, so adding `map` to a
+                    material that never had one does nothing until the program is
+                    rebuilt — the globe kept its vertex colours and silently
+                    ignored the texture. Distinct keys remount instead. */}
+                {styleTexture ? (
+                    /* A styled globe samples the baked map instead of per-cell
+                       vertex colour — the whole point, since flat cell colour
+                       cannot carry hatching, grain or glyphs.
+                       UNLIT, like political mode, and for the same reason: the
+                       baked texture ALREADY contains the hillshade pass, so a
+                       lit material shades it a second time and a warm paper
+                       renders as dark grey-brown. Unlit also makes the globe
+                       match the 2D map and the exports exactly, which is the
+                       point of putting the style here. Relief still reads —
+                       the mesh keeps its displacement, and the baked shading
+                       travels with the texture. */
+                    <MeshBasicMaterial key="styled" map={styleTexture} toneMapped={false} side={THREE.FrontSide} />
+                ) : viewMode === 'political' ? (
+                    <MeshBasicMaterial key="political" vertexColors toneMapped={false} side={THREE.FrontSide} />
                 ) : (
-                    <MeshStandardMaterial vertexColors roughness={0.8} metalness={0.1} flatShading side={THREE.FrontSide} />
+                    <MeshStandardMaterial key="plain" vertexColors roughness={0.8} metalness={0.1} flatShading side={THREE.FrontSide} />
                 )}
                 <CityMarkers world={world} viewMode={viewMode} smoothGlobe={smoothGlobe} />
                 <MarkerPins markers={world.markers ?? []} visible={labelVisibility.markers} />
@@ -870,7 +917,7 @@ const WorldMesh: React.FC<{
   );
 };
 
-const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; smoothGlobe?: boolean; showRivers?: boolean; showRoutes?: boolean; showHillshade?: boolean; showContours?: boolean; showCurrents?: boolean; showCellEdges?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; cultureColors?: Map<number, string>; religionColors?: Map<number, string>; brushSize?: number; rulerArc?: Point[] | null; overlayClassName?: string; paused?: boolean; onPausedChange?: (v: boolean) => void; showPauseControl?: boolean; }> = ({ world, viewMode, showGrid = false, smoothGlobe = false, showRivers = true, showRoutes = false, showHillshade = false, showContours = false, showCurrents = false, showCellEdges = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null, overlayClassName = 'absolute top-4 right-4 z-overlay flex gap-2', paused: pausedProp, onPausedChange, showPauseControl = true }) => {
+const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; smoothGlobe?: boolean; showRivers?: boolean; showRoutes?: boolean; showHillshade?: boolean; mapStyleId?: MapStyleId; showContours?: boolean; showCurrents?: boolean; showCellEdges?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; cultureColors?: Map<number, string>; religionColors?: Map<number, string>; brushSize?: number; rulerArc?: Point[] | null; overlayClassName?: string; paused?: boolean; onPausedChange?: (v: boolean) => void; showPauseControl?: boolean; }> = ({ world, viewMode, showGrid = false, smoothGlobe = false, showRivers = true, showRoutes = false, showHillshade = false, mapStyleId = 'default', showContours = false, showCurrents = false, showCellEdges = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null, overlayClassName = 'absolute top-4 right-4 z-overlay flex gap-2', paused: pausedProp, onPausedChange, showPauseControl = true }) => {
   const [hoveredCell, setHoveredCell] = useState<Cell | null>(null);
   // Rotation pause is controlled-OPTIONAL, the same contract as a native input:
   // pass `paused` + `onPausedChange` to own it from outside (the shell lifts it
@@ -1014,6 +1061,7 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
              <WorldMesh
                world={world}
                viewMode={viewMode}
+               mapStyleId={mapStyleId}
                onHover={setHoveredCell}
                paused={paused}
                showGrid={showGrid}
