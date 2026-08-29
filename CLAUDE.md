@@ -71,7 +71,15 @@ Vitest suite in `tests/` covers the pure engine (RNG, biomes, generation determi
 
 The full suite is CPU-bound world generation: 21 of 54 files call `generateWorld`, the real 7-stage pipeline, in-process. Measured on this 8-core M1 Air: **992 seconds of test time in 218 seconds of wall clock.** That is several cores pinned for minutes on a fanless laptop that is often running After Effects at the same time. A frozen render costs more than a fast gate.
 
-`vite.config.ts` caps local runs at **3 workers** (CI keeps vitest's default). Do not remove the cap to go faster.
+`vite.config.ts` caps local runs at **3 workers** (CI keeps vitest's default). Do not remove the cap to go faster — override it per run instead. Three speeds, and the choice is Matt's, not yours:
+
+| Speed | Command | When |
+|---|---|---|
+| **Full** | `VITEST_WORKERS=8 npx vitest run` | Nothing else needs the CPU. ~196s wall for 906s of test time. |
+| **Capped (default)** | `npm test` | Normal working conditions. Keeps a performance core free for the app in front of you. |
+| **Single** | `VITEST_WORKERS=1 npm test` | A render is going. Slowest wall clock, one core. |
+
+Full speed is a legitimate choice on an idle machine and Matt has asked for it by name — offer it, do not quietly default to the cap when he has said the box is free.
 
 Escalate in this order, and stop at the first step that answers the question:
 
@@ -81,11 +89,11 @@ Escalate in this order, and stop at the first step that answers the question:
 
 **Rules that are not negotiable:**
 
-- **Ask before running the full suite.** Matt may be mid-render. One sentence: "full suite, ~4 minutes at 3 workers, OK?"
+- **Ask before running the full suite, and offer all three speeds.** Matt may be mid-render, and he may equally have an idle box. One sentence, with the options: "full suite — full speed (~3 min), capped (~4 min), or single-worker?"
 - **Never run the full suite alongside browser automation.** That is what made `paramLiveness` blow its timeout twice — the tests were fine, the machine was not. Note that **vitest does NOT need a dev server**: it runs Vite in `middlewareMode` and only calls `listen()` when `test.api.port` is set, which this repo does not. Its whole cost is world generation.
 - **Reuse the dev server; never start a second Vite.** `scripts/renderGlobePreview.mjs` needs an HTTP origin to serve its page to Chromium, and it probes port 3000 and reuses whatever is there, starting a private server only when nothing answers. A second Vite is a second full module graph. Never kill a server you did not start.
 - **Never run two vitest invocations at once**, foreground or background.
-- **`VITEST_WORKERS=1 npm test`** when a render is going. Slower wall clock, one core.
+- **Never run the full suite alongside a render, at any speed.** The worker count is the knob for how much of the machine you take, not permission to take it.
 - **A timeout is not a failure.** These tests generate worlds; under load they run out of clock without anything being wrong. Re-run the single file on an idle machine before reporting a regression, and never "fix" a test by raising its timeout to escape load.
 - **Do not add a test that generates more than one world per case.** `paramLiveness` shares one `beforeAll` baseline across every case for this reason: one slow moment should fail one param, and name it.
 
