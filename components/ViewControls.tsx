@@ -420,20 +420,18 @@ export const ViewStrip: React.FC<ViewControlsProps & { rotation?: RotationContro
     {/* Style sits next to the view layer because it is the SIBLING axis, not a
         setting: viewMode picks what the map shows, style picks how it is drawn.
         It lived in the Sys tab under Auto-Update and was reported as missing —
-        a display control filed among system options is a hidden one. Only
-        rendered for the 2D modes: the 3D globe is deliberately out of scope for
-        styles, so offering the control there would promise something it cannot
-        do. */}
-    {p.displayMode !== 'globe' && (
-      <Select
-        value={p.mapStyleId}
-        options={MAP_STYLE_OPTIONS}
-        onChange={p.setMapStyleId}
-        label="Map style"
-        className="shrink-0"
-        triggerClassName="min-w-[6.5rem] justify-between"
-      />
-    )}
+        a display control filed among system options is a hidden one.
+        Shown in every display mode: the globe was originally out of scope, but
+        it now samples a baked texture of the same style, so the control applies
+        there too. */}
+    <Select
+      value={p.mapStyleId}
+      options={MAP_STYLE_OPTIONS}
+      onChange={p.setMapStyleId}
+      label="Map style"
+      className="shrink-0"
+      triggerClassName="min-w-[6.5rem] justify-between"
+    />
 
     {/* Hidden full-label mirror: the yardstick useCompactStrip measures against.
         Never reflows with `compact`, so the measurement cannot oscillate.

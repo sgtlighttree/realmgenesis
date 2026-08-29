@@ -200,6 +200,36 @@ The test for it needs a **DOM stub**, not optionally: without `document` the til
 builder returns null and `grain` early-returns, so the assertion would pass
 vacuously on 0 === 0.
 
+### Globe now styled too — scope changed by Matt
+
+Matt asked for the style on the 3D viewport after all, and chose the **baked
+texture** route over palette-only. `bakeStyleTexture` renders the real 2D style
+to an equirectangular canvas and the cell mesh samples it through UVs
+(`buildGlobeUVs`), so the globe shows the actual drawn map rather than beige
+cells, and keeps its displacement so relief still reads. Default 2048x1024
+(~8MB), sized for the M1.
+
+**Two traps, both cost a debugging round:**
+
+1. **The material `key` is load-bearing.** Two branches are both
+   `meshStandardMaterial`, so React reconciled them as ONE element and patched
+   props onto the same material instance. three.js compiles its shader from the
+   material's feature set, so setting `map` on a material that never had one does
+   nothing until the program is rebuilt — the texture baked fine (verified by
+   instrumenting) and the globe silently kept its vertex colours. Distinct keys
+   force a remount.
+2. **The material must be UNLIT.** The baked texture already contains the
+   hillshade pass, so a lit material shades it twice and warm paper renders dark
+   grey-brown. Political mode already used `MeshBasicMaterial` for the same
+   reason. Unlit also makes the globe match the 2D map and exports exactly.
+
+Also: the bake is deliberately NOT mirrored (2D paths flip; UVs come from
+longitude), and `buildGlobeUVs` pushes antimeridian u values past 1.0 rather than
+clamping — correct only because the texture uses `RepeatWrapping`. Six unit tests
+cover the seam.
+
+The Map Style control now shows in every display mode, not just 2D.
+
 ### Ice was invisible under parchment — reported, fixed
 
 Matt: "parchment does eliminate all ice terrain/ice caps from view." Correct, and

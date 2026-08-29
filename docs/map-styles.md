@@ -6,10 +6,10 @@ A **style** changes how the 2D map and its exports are *drawn*. It is a separate
 axis from `ViewMode`: `viewMode` decides what the map shows, a style decides how
 it looks. Parchment + political is a valid, and intended, combination.
 
-The 3D globe is **out of scope by design**. It paints per-cell vertex colours,
-so hatching, stroke weights and paper grain have no natural home there — they
-would need a baked equirectangular texture or custom shaders. The globe is the
-inspection view; styles serve the output.
+The 3D globe **is** styled, via a baked texture (see below). It was originally
+out of scope — it paints per-cell vertex colours, so hatching, stroke weights and
+paper grain have nowhere to live, and per-cell colour alone can only ever produce
+a beige globe rather than a drawn map.
 
 ## The problem the architecture solves
 
@@ -105,6 +105,32 @@ geometry.
 
 Do **not** hoist glyphs into a separate unmirrored group. They would be flipped
 twice.
+
+## The globe
+
+`bakeStyleTexture` renders the real 2D style to an equirectangular canvas, and
+the cell mesh samples it through UVs. The mesh keeps its displacement, so relief
+still reads; the look is identical to the 2D map because it IS the 2D map.
+
+Three things are load-bearing:
+
+- **The bake is NOT mirrored.** The 2D screen and export paths flip horizontally
+  for their own reasons, but UVs come straight from longitude, so a flip here
+  puts the world back to front.
+- **The antimeridian seam.** A cell straddling lon ±180 has vertices at u ≈ 0.99
+  and u ≈ 0.01; interpolated as-is, that triangle samples the entire texture
+  backwards and draws a bright smear down the seam. `buildGlobeUVs` pushes the
+  low values past 1.0 instead, which is correct only because the texture uses
+  `RepeatWrapping`.
+- **The material is UNLIT and its JSX `key` matters.** Unlit because the baked
+  texture already contains the hillshade pass — a lit material shades it twice
+  and warm paper renders as dark grey-brown. The `key` because two branches are
+  both `meshStandardMaterial`: without distinct keys React patches props onto one
+  material instance, and three.js compiles its shader from the material's feature
+  set, so adding `map` to a material that never had one does nothing until the
+  program is rebuilt. The globe silently kept its vertex colours.
+
+Default bake is 2048×1024 (~8MB) — chosen for a 16GB M1 with tight thermals.
 
 ## Adding a style
 
