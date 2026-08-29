@@ -69,7 +69,22 @@ geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
 geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
 geo.setAttribute('sphereDir', new THREE.BufferAttribute(buildGlobeDirs(world), 3));
 
-const baked = bakeStyleTexture(world, mode, getMapStyle(style), true);
+const hatch = q.get('hatch');
+const baked = bakeStyleTexture(
+  world, mode, getMapStyle(style), true, undefined, hatch === null ? undefined : Number(hatch),
+);
+
+// ORIENTATION MARKER (?marker=1). Paints the canvas's TOP rows red — the top of
+// an equirectangular canvas is the NORTH pole. Render --views=90,-90 and see
+// which pole it lands on. This tests the canvas -> GL upload directly, instead
+// of reasoning about UNPACK_FLIP_Y_WEBGL.
+if (baked && q.get('marker')) {
+  const mc = baked.getContext('2d');
+  mc.fillStyle = '#ff0000';
+  mc.fillRect(0, 0, baked.width, baked.height * 0.06);
+  mc.fillStyle = '#0000ff';
+  mc.fillRect(0, baked.height * 0.94, baked.width, baked.height * 0.06);
+}
 const material = baked
   ? createStyledGlobeMaterial(createStyleTexture(baked))
   : new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });

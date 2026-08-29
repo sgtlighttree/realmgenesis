@@ -37,6 +37,8 @@ export const bakeStyleTexture = (
   style: MapStyle,
   showHillshade: boolean,
   width: number = BAKE_WIDTH,
+  /** DEBUG only — see `StyleRenderContext.hatchAngleDeg`. */
+  hatchAngleDeg?: number,
 ): HTMLCanvasElement | null => {
   if (style.passes.length === 0) return null;
   if (typeof document === 'undefined') return null;
@@ -90,6 +92,7 @@ export const bakeStyleTexture = (
     // ocean hatch's phase does not match across the join and the diagonals jog
     // down the antimeridian as a thin vertical line.
     wrapsHorizontally: true,
+    hatchAngleDeg,
     shadeMap: showHillshade ? computeShadeMap(world.cells, world.params.seaLevel) : null,
     coastlines: computeCoastlineSegments(world),
     colorCtx: {

@@ -91,6 +91,16 @@ export interface StyleRenderContext {
    * `Map2D` and the exports leave this unset.
    */
   wrapsHorizontally?: boolean;
+  /**
+   * DEBUG. Ocean hatch angle in degrees; 45 when unset.
+   *
+   * Set it to 0 to get horizontal lines. A diagonal hatch hides a vertical
+   * offset or a skew inside its own slope — horizontal lines are a ruled grid,
+   * and any misregistration between the baked texture and the cell mesh reads
+   * off them at a glance. That is how the flipY inversion should have been
+   * caught, instead of surviving three sessions of UV fixes.
+   */
+  hatchAngleDeg?: number;
   colorCtx: ColorContext;
   coastlines: Array<[Point3, Point3]>;
 }

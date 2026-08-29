@@ -87,9 +87,28 @@ export const createStyledGlobeMaterial = (map: THREE.Texture): THREE.MeshBasicMa
  * RepeatWrapping on u so the antimeridian blends across the seam instead of
  * clamping: the texel at u = 0 is the neighbour of the texel at u = 1.
  * ClampToEdge on v — the default — is correct, because the poles ARE the edge.
+ *
+ * **`flipY = false` is the whole ball game.** three.js sets
+ * `UNPACK_FLIP_Y_WEBGL` from `texture.flipY`, which defaults to TRUE, so the
+ * canvas's top row is uploaded to v = 1. Row 0 of an equirectangular canvas is
+ * the NORTH pole, and both `d3.geoEquirectangular` and `toLonLat` put north at
+ * v = 0 — so the default flip renders the world UPSIDE DOWN, with the southern
+ * hemisphere painted over the northern mesh.
+ *
+ * It had been that way since `buildGlobeUVs`, whose `vOf` used the same
+ * (correct) formula, which is why no UV fix ever touched it: coastlines sat on
+ * the wrong hemisphere, mountain glyphs landed on ocean, and the "polar swirl"
+ * chased across three sessions was the SOUTH pole's content drawn on the north.
+ * Proved with `renderGlobePreview --marker --views=90,-90`, which paints the
+ * canvas top red and bottom blue: blue came out on the north pole.
+ *
+ * Corrected here, at the upload, rather than by negating v in the shader. The
+ * shader's `v = 0.5 - asin(y)/PI` agrees with the projection it mirrors; a
+ * negated copy would disagree with it, and the next person re-derives the lot.
  */
 export const createStyleTexture = (canvas: HTMLCanvasElement): THREE.CanvasTexture => {
   const tex = new THREE.CanvasTexture(canvas);
+  tex.flipY = false;
   tex.wrapS = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.generateMipmaps = false;
