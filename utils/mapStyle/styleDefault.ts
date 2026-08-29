@@ -15,6 +15,12 @@ export const styleDefault: MapStyle = {
     sea: '#050505',
     seaHatch: '#050505',
     coast: '#ffffff',
+    shadow: '#000000',
+    highlight: '#ffffff',
   },
   fillPolicy: () => 'ramp',
+  // Empty by design: this style IS the pre-A3 look, and every view mode already
+  // paints its own fill. An empty pass list is also the signal a render path
+  // uses to run its legacy loop instead — see MapStyle.passes.
+  passes: [],
 };
