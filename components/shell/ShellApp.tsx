@@ -132,6 +132,7 @@ const ShellApp: React.FC = () => {
   const view = (
     <ViewStrip
       viewMode={viewMode} setViewMode={setViewMode}
+      mapStyleId={mapStyleId} setMapStyleId={setMapStyleId}
       displayMode={displayMode} setDisplayMode={setDisplayMode}
       showGrid={showGrid} setShowGrid={setShowGrid}
       smoothGlobe={smoothGlobe} setSmoothGlobe={setSmoothGlobe}
