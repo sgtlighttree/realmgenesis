@@ -109,16 +109,19 @@ export class SvgSubstrate implements Substrate {
 
   /** One <pattern> per distinct spec, shared by hatchRect and hatchFeatures. */
   private hatchPatternId(spec: HatchSpec): string {
-    const key = `${spec.color}|${spec.spacingPx}|${spec.widthPx}|${spec.angleDeg}`;
+    const opacity = spec.opacity ?? 1;
+    const key = `${spec.color}|${spec.spacingPx}|${spec.widthPx}|${spec.angleDeg}|${opacity}`;
     let id = this.patternIds.get(key);
     if (!id) {
       id = `hatch${this.patternIds.size}`;
       this.patternIds.set(key, id);
+      // stroke-opacity, not an rgba() stroke: SVG 1.1 has no rgba() syntax.
       this.defsParts.push(
         `<pattern id="${id}" width="${spec.spacingPx}" height="${spec.spacingPx}" ` +
         `patternUnits="userSpaceOnUse" patternTransform="rotate(${spec.angleDeg})">` +
         `<line x1="0" y1="0" x2="0" y2="${spec.spacingPx}" ` +
-        `stroke="${esc(spec.color)}" stroke-width="${spec.widthPx}"/>` +
+        `stroke="${esc(spec.color)}" stroke-width="${spec.widthPx}"` +
+        `${opacity < 1 ? ` stroke-opacity="${opacity}"` : ''}/>` +
         `</pattern>`,
       );
     }

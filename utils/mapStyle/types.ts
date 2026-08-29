@@ -66,6 +66,21 @@ export interface StyleRenderContext {
    * there and it bakes at a lower value.
    */
   lineScale?: number;
+  /**
+   * `[startDeg, endDeg]` latitude band over which the ocean hatch fades to
+   * nothing, or undefined for no fade. Set by the GLOBE BAKE only.
+   *
+   * Equirectangular content converges at the poles, and no texture coordinate
+   * scheme changes that. A fixed-frequency screen pattern is what turns the
+   * convergence into a visible defect: the ocean hatch wound round the
+   * singularity as a spiral rosette. Fading it out leaves plain paper there,
+   * which reads as paper. Coastlines and fills still pinch, which is
+   * geographically honest.
+   *
+   * A flat map has no singularity, so `Map2D` and the exports leave this unset
+   * and keep hatching to the pole.
+   */
+  polarHatchFadeDeg?: [number, number];
   colorCtx: ColorContext;
   coastlines: Array<[Point3, Point3]>;
 }

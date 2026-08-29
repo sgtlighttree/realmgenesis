@@ -56,6 +56,29 @@ describe('SvgSubstrate', () => {
     expect(s.body()).toBe('');
   });
 
+  // Same trap as fillFeature: SVG 1.1 has no rgba() colour syntax, and an
+  // rgba() stroke renders inconsistently in Illustrator and Inkscape.
+  it('emits stroke-opacity on a faded hatch rather than an rgba() stroke', () => {
+    const s = new SvgSubstrate((() => 'M0 0L1 1') as never, 100, 50);
+    s.hatchFeatures([{ type: 'Feature', geometry: {} }], {
+      color: '#000', spacingPx: 8, widthPx: 1, angleDeg: 45, opacity: 0.5,
+    });
+    expect(s.defs()).toContain('stroke-opacity="0.5"');
+    expect(s.defs()).not.toContain('rgba(');
+  });
+
+  // Opacity is part of a pattern's identity. Sharing one <pattern> across two
+  // opacities would silently paint the whole polar fade at one strength.
+  it('gives each hatch opacity its own pattern', () => {
+    const s = new SvgSubstrate((() => 'M0 0L1 1') as never, 100, 50);
+    const spec = { color: '#000', spacingPx: 8, widthPx: 1, angleDeg: 45 };
+    const f = [{ type: 'Feature', geometry: {} }];
+    s.hatchFeatures(f, { ...spec, opacity: 1 });
+    s.hatchFeatures(f, { ...spec, opacity: 0.5 });
+    s.hatchFeatures(f, { ...spec, opacity: 0.5 });
+    expect(s.defs().match(/<pattern/g)?.length).toBe(2);
+  });
+
   it('counter-transforms glyphs on a mirrored surface', () => {
     // Map2D and exportSVG both draw inside a horizontal flip. A glyph drawn
     // straight into that comes out backwards; a nested flip composes to the
