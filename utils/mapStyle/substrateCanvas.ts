@@ -17,11 +17,19 @@ const hash01 = (x: number, y: number, seed: string): number => {
 };
 
 export class Canvas2DSubstrate implements Substrate {
+  /**
+   * `mirrored` says the context already carries Map2D's horizontal flip
+   * (`translate(width,0); scale(-1,1)`). Only glyphs care: polygons and strokes
+   * come from the same mirrored path generator and land correctly, but a glyph
+   * is drawn from its own coordinates and would come out backwards. See
+   * `drawGlyph`.
+   */
   constructor(
     private ctx: CanvasRenderingContext2D,
     private path: PathGeneratorLike,
     private width: number,
     private height: number,
+    private mirrored = false,
   ) {}
 
   fillRect(x: number, y: number, w: number, h: number, fill: string): void {
@@ -115,11 +123,25 @@ export class Canvas2DSubstrate implements Substrate {
   drawGlyph(g: PlacedGlyph, ink: string, width: number): void {
     // Path2D accepts SVG path syntax, so glyphs use the SAME path string the
     // SVG substrate embeds. One shape definition, two surfaces.
-    const p = new Path2D(glyphPathData(g));
+    //
+    // On a mirrored surface a glyph would render backwards — a mountain's
+    // shading flick on the wrong side, and any future lettering unreadable.
+    // Applying the SAME flip again composes to the identity, so the glyph draws
+    // unmirrored; flipping its x puts it back over its own cell. Doing this
+    // here keeps every pass free of surface geometry.
+    this.ctx.save();
+    let glyph = g;
+    if (this.mirrored) {
+      this.ctx.translate(this.width, 0);
+      this.ctx.scale(-1, 1);
+      glyph = { ...g, x: this.width - g.x };
+    }
+    const p = new Path2D(glyphPathData(glyph));
     this.ctx.strokeStyle = ink;
     this.ctx.lineWidth = width;
     this.ctx.lineCap = 'round';
     this.ctx.lineJoin = 'round';
     this.ctx.stroke(p);
+    this.ctx.restore();
   }
 }

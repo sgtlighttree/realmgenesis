@@ -275,6 +275,7 @@ const ShellApp: React.FC = () => {
           showRivers={showRivers}
           showRoutes={showRoutes}
           showHillshade={showHillshade}
+          mapStyleId={mapStyleId}
           showContours={showContours}
           showCurrents={showCurrents}
           labelVisibility={labelVisibility}
