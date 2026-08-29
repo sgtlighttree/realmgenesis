@@ -1,4 +1,7 @@
-import { ViewMode } from '../../types';
+import { ViewMode, WorldData } from '../../types';
+import { ColorContext } from '../colors';
+import { Point3 } from '../geo';
+import { Substrate } from './substrate';
 
 /** How a style paints the land fill for a given view mode. See spec §4. */
 export type FillPolicy =
@@ -27,7 +30,32 @@ export interface StylePalette {
   sea: string;
   seaHatch: string;
   coast: string;
+  /**
+   * Hillshade tints. These exist as palette entries rather than hardcoded
+   * black/white because on bare parchment a neutral grey shadow reads as dirt
+   * on the paper rather than as relief — a drawn map shades in its own ink.
+   */
+  shadow: string;
+  highlight: string;
 }
+
+/**
+ * Everything a style pass needs. Assembled once per render by the caller
+ * (Map2D, the PNG export, the SVG export) and handed to every pass.
+ */
+export interface StyleRenderContext {
+  world: WorldData;
+  viewMode: ViewMode;
+  widthPx: number;
+  heightPx: number;
+  /** Pre-computed by placeGlyphs; empty when the fill policy suppresses glyphs. */
+  glyphs: PlacedGlyph[];
+  shadeMap: Float32Array | null;
+  colorCtx: ColorContext;
+  coastlines: Array<[Point3, Point3]>;
+}
+
+export type StylePass = (ctx: StyleRenderContext, sub: Substrate) => void;
 
 export interface MapStyle {
   id: MapStyleId;
@@ -35,4 +63,10 @@ export interface MapStyle {
   palette: StylePalette;
   /** Per-view-mode land fill rule. See spec §4. */
   fillPolicy: (mode: ViewMode) => FillPolicy;
+  /**
+   * Ordered draw passes. EMPTY means "this style draws nothing" — that is the
+   * single test for whether a render path should run its own legacy fill loop
+   * instead. Do not compare against `id`; one invariant, one place.
+   */
+  passes: StylePass[];
 }
