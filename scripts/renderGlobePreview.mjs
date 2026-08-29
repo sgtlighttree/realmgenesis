@@ -11,13 +11,17 @@
 //   node scripts/renderGlobePreview.mjs [--style=parchment] [--mode=biome]
 //        [--seed=S] [--points=N] [--size=N] [--out=DIR] [--label=NAME]
 //        [--views=90,45,0]        (camera latitudes, degrees)
+//        [--texture]              (also dump the flat equirectangular bake)
+//
+// --texture is how you tell a TEXTURE defect from a SAMPLING one: if the mark
+// is in the flat bake it is a style-pass bug, not a globe bug.
 //
 // Writes <out>/globe-<label>-lat<NN>.png. Read the PNGs afterwards and look.
 //
 // Uses its own throwaway Vite server on an ephemeral port; it never touches a
 // dev server you already have running.
 import { createServer } from 'vite';
-import { mkdirSync, existsSync, readdirSync, statSync } from 'fs';
+import { mkdirSync, existsSync, readdirSync, statSync, writeFileSync } from 'fs';
 
 const flags = Object.fromEntries(
   process.argv.slice(2).filter(a => a.startsWith('--')).map(a => {
@@ -108,6 +112,17 @@ for (const lat of views) {
   const file = `${outDir}/globe-${label}-lat${lat}.png`;
   await page.locator('#c').screenshot({ path: file });
   console.log(`  ${file}`);
+}
+
+if (flags.texture) {
+  const dataUrl = await page.evaluate('window.__texture()');
+  if (dataUrl) {
+    const file = `${outDir}/globe-${label}-texture.png`;
+    writeFileSync(file, Buffer.from(dataUrl.split(',')[1], 'base64'));
+    console.log(`  ${file}`);
+  } else {
+    console.log('  (no baked texture — this style draws nothing)');
+  }
 }
 
 await browser.close();
