@@ -13,14 +13,19 @@
 //        [--views=90,45,0]        (camera latitudes, degrees)
 //        [--lon=0] [--dist=2.6]   (camera longitude; lon 180 is the SEAM)
 //        [--texture]              (also dump the flat equirectangular bake)
+//        [--port=3000]            (dev server to reuse; 0 forces a private one)
 //
 // --texture is how you tell a TEXTURE defect from a SAMPLING one: if the mark
 // is in the flat bake it is a style-pass bug, not a globe bug.
 //
 // Writes <out>/globe-<label>-lat<NN>.png. Read the PNGs afterwards and look.
 //
-// Uses its own throwaway Vite server on an ephemeral port; it never touches a
-// dev server you already have running.
+// It REUSES the dev server on port 3000 if one is already up, and only starts a
+// private one when there is none. Vite serves any file under the repo root, so
+// the harness page loads straight off it. A second Vite is a second full module
+// graph on a laptop that may also be rendering — and starting one while yours
+// was running is exactly what made the test suite time out. It never kills a
+// server it did not start.
 import { createServer } from 'vite';
 import { mkdirSync, existsSync, readdirSync, statSync, writeFileSync } from 'fs';
 
@@ -92,10 +97,29 @@ if (!executablePath) {
 }
 const { chromium } = await import(playwrightPath);
 
-const server = await createServer({ server: { port: 0, strictPort: false } });
-await server.listen();
-const port = server.config.server.port ?? server.httpServer.address().port;
-const base = `http://localhost:${port}`;
+// Reuse the running dev server if there is one. --port=0 forces a private
+// server (use it when the dev server is mid-restart or serving another branch).
+const wanted = Number(flags.port ?? 3000);
+const probe = async (url) => {
+  try {
+    const res = await fetch(`${url}/scripts/preview/globe.html`, { method: 'HEAD' });
+    return res.ok;
+  } catch {
+    return false;
+  }
+};
+
+let base = wanted ? `http://localhost:${wanted}` : '';
+let server = null;
+if (base && await probe(base)) {
+  console.log(`reusing the dev server on ${base}`);
+} else {
+  server = await createServer({ server: { port: 0, strictPort: false } });
+  await server.listen();
+  const port = server.config.server.port ?? server.httpServer.address().port;
+  base = `http://localhost:${port}`;
+  console.log(`no dev server on ${wanted}; started a private one on ${port}`);
+}
 
 const browser = await chromium.launch({
   executablePath,
@@ -132,5 +156,6 @@ if (flags.texture) {
 }
 
 await browser.close();
-await server.close();
+// Only ever close a server this script started.
+if (server) await server.close();
 console.log('\nNow LOOK at the PNGs. Test counts cannot see this class of bug.');

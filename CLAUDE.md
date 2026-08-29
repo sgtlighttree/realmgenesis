@@ -82,7 +82,8 @@ Escalate in this order, and stop at the first step that answers the question:
 **Rules that are not negotiable:**
 
 - **Ask before running the full suite.** Matt may be mid-render. One sentence: "full suite, ~4 minutes at 3 workers, OK?"
-- **Never run the full suite alongside a dev server plus browser automation.** That combination is what made `paramLiveness` blow its timeout twice — the tests were fine, the machine was not.
+- **Never run the full suite alongside browser automation.** That is what made `paramLiveness` blow its timeout twice — the tests were fine, the machine was not. Note that **vitest does NOT need a dev server**: it runs Vite in `middlewareMode` and only calls `listen()` when `test.api.port` is set, which this repo does not. Its whole cost is world generation.
+- **Reuse the dev server; never start a second Vite.** `scripts/renderGlobePreview.mjs` needs an HTTP origin to serve its page to Chromium, and it probes port 3000 and reuses whatever is there, starting a private server only when nothing answers. A second Vite is a second full module graph. Never kill a server you did not start.
 - **Never run two vitest invocations at once**, foreground or background.
 - **`VITEST_WORKERS=1 npm test`** when a render is going. Slower wall clock, one core.
 - **A timeout is not a failure.** These tests generate worlds; under load they run out of clock without anything being wrong. Re-run the single file on an idle machine before reporting a regression, and never "fix" a test by raising its timeout to escape load.
