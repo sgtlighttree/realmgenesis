@@ -13,7 +13,7 @@ import { makeParams } from '/tests/helpers.ts';
 import { bakeStyleTexture, buildGlobeDirs } from '/utils/mapStyle/bakeTexture.ts';
 import { createStyleTexture, createStyledGlobeMaterial } from '/utils/mapStyle/globeMaterial.ts';
 import { getMapStyle } from '/utils/mapStyle/index.ts';
-import { displayRadius } from '/utils/displayRadius.ts';
+import { displayRadius, CELL_OVERHANG } from '/utils/displayRadius.ts';
 import { getCellColor } from '/utils/colors.ts';
 
 const q = new URLSearchParams(location.search);
@@ -49,9 +49,16 @@ for (const cell of world.cells) {
   for (let i = 0; i < cell.vertices.length; i++) {
     const v1 = cell.vertices[i];
     const v2 = cell.vertices[(i + 1) % cell.vertices.length];
+    // CELL_OVERHANG is not optional. Without it the cell seams stay open and
+    // the dark background shows through as dashes all over the ocean — which
+    // reads exactly like a texture defect, and was mistaken for one once.
     pos[o] = uc.x * h; pos[o + 1] = uc.y * h; pos[o + 2] = uc.z * h;
-    pos[o + 3] = v1.x * h; pos[o + 4] = v1.y * h; pos[o + 5] = v1.z * h;
-    pos[o + 6] = v2.x * h; pos[o + 7] = v2.y * h; pos[o + 8] = v2.z * h;
+    pos[o + 3] = (uc.x + (v1.x - uc.x) * CELL_OVERHANG) * h;
+    pos[o + 4] = (uc.y + (v1.y - uc.y) * CELL_OVERHANG) * h;
+    pos[o + 5] = (uc.z + (v1.z - uc.z) * CELL_OVERHANG) * h;
+    pos[o + 6] = (uc.x + (v2.x - uc.x) * CELL_OVERHANG) * h;
+    pos[o + 7] = (uc.y + (v2.y - uc.y) * CELL_OVERHANG) * h;
+    pos[o + 8] = (uc.z + (v2.z - uc.z) * CELL_OVERHANG) * h;
     for (let k = 0; k < 9; k += 3) { col[o + k] = c.r; col[o + k + 1] = c.g; col[o + k + 2] = c.b; }
     o += 9;
   }
@@ -80,6 +87,10 @@ window.__look = (latDeg, lonDeg = 0, dist = 2.6) => {
   camera.lookAt(0, 0, 0);
   renderer.render(scene, camera);
 };
+
+// The flat equirectangular bake, for checking whether an artifact is in the
+// TEXTURE or in the way the globe samples it.
+window.__texture = () => (baked ? baked.toDataURL('image/png') : null);
 
 window.__look(90);
 window.__ready = true;

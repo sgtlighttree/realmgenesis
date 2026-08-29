@@ -7,3 +7,19 @@
 export function displayRadius(height: number, smooth: boolean, offset = 0): number {
   return (smooth ? 1 : 1 + height * 0.05) + offset;
 }
+
+/**
+ * How far each cell's rim is pushed out from its own centre on the 3D globe.
+ *
+ * Cell "outlines" there are open SEAMS, not lines: neighbours sit at different
+ * radii, so they do not share an edge and the background shows through the gap
+ * as dark dashes. Widening every cell about its own centre makes neighbours
+ * overlap, so the taller one overhangs the shorter — which is what a cliff looks
+ * like. Only the rim moves; the centre and the radius are untouched, so the
+ * drape invariant (overlay radius == cell radius) is unaffected.
+ *
+ * Lives here rather than in `WorldViewer` because anything that rebuilds the
+ * globe mesh needs it. `scripts/preview/globe.html` omitted it once and the
+ * resulting seams were read as a rendering defect that did not exist.
+ */
+export const CELL_OVERHANG = 1.03;

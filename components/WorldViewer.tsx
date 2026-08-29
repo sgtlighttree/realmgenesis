@@ -8,7 +8,7 @@ import { getMapStyle, MapStyleId } from '../utils/mapStyle';
 import { bakeStyleTexture, buildGlobeDirs } from '../utils/mapStyle/bakeTexture';
 import { createStyleTexture, createStyledGlobeMaterial } from '../utils/mapStyle/globeMaterial';
 import { seasonalTemperatureDelta } from '../utils/seasons';
-import { displayRadius } from '../utils/displayRadius';
+import { displayRadius, CELL_OVERHANG } from '../utils/displayRadius';
 import { computeShadeMap, computeContourSegments, contourInterval } from '../utils/shading';
 import { computeBorderSegments } from '../utils/borders';
 import { collectLabels } from '../utils/labels';
@@ -74,7 +74,6 @@ const CaptureFrame: React.FC<{
 
 // Plate widening used to close the seams between cells of differing height.
 // 1 = untouched (seams visible, the pre-existing look).
-const CELL_OVERHANG = 1.03;
 
 const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode; smoothGlobe?: boolean }> = ({ world, viewMode, smoothGlobe = false }) => {
     const capitalsRef = useRef<THREE.InstancedMesh>(null);
@@ -548,12 +547,8 @@ const WorldMesh: React.FC<{
     const colAttr = geometry.getAttribute('color') as THREE.BufferAttribute;
     const pos = posAttr.array as Float32Array;
     const col = colAttr.array as Float32Array;
-    // Cell "outlines" are open seams, not lines: neighbours at different radii
-    // do not share an edge, so the inner sphere shows through the gap. Widening
-    // each plate about its own centre makes neighbours overlap, so the taller
-    // one overhangs the shorter — which is what a cliff looks like. Only the
-    // rim moves; the centre and hMult are untouched, so the drape invariant
-    // (overlay radius == cell radius) is unaffected.
+    // showCellEdges deliberately drops the overhang so the seams reopen and the
+    // tessellation shows. See CELL_OVERHANG.
     const inflate = showCellEdges ? 1 : CELL_OVERHANG;
     let o = 0;
     for (const cell of world.cells) {
