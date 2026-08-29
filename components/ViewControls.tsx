@@ -7,6 +7,7 @@ import {
 
 import { ViewMode, DisplayMode, LabelVisibility } from '../types';
 import Select, { SelectOption } from './Select';
+import CheckboxMenu from './CheckboxMenu';
 import { MAP_STYLES, MapStyleId } from '../utils/mapStyle';
 
 /** Lucide icons take size/className; React.ElementType is too loose to accept them. */
@@ -90,6 +91,15 @@ export const MAP_STYLE_OPTIONS: SelectOption<MapStyleId>[] =
 
 export const VIEW_LAYER_OPTIONS: SelectOption<ViewMode>[] =
   VIEW_LAYERS.map(l => ({ value: l.mode, label: l.label }));
+
+/**
+ * DISPLAY_MODES shaped for the themed Select, using the FULL label rather than
+ * the segmented control's `short`. The 2D/3D prefix is the load-bearing part —
+ * it is the difference between a globe and a flat map, not decoration — and a
+ * menu row has the width for it where a five-way segmented control did not.
+ */
+export const PROJECTION_OPTIONS: SelectOption<DisplayMode>[] =
+  DISPLAY_MODES.map(m => ({ value: m.mode, label: m.label }));
 
 export const OVERLAY_KEYS: [keyof LabelVisibility, string][] = [
   ['borders', 'Faction Borders'],
@@ -250,93 +260,48 @@ export const ViewLayerGrid: React.FC<Pick<ViewControlsProps, 'viewMode' | 'setVi
  *  Compositions
  * ------------------------------------------------------------------ */
 
-const CHIP_BASE = 'inline-flex items-center gap-1 text-[10px] px-2 py-1 border whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70';
-
 /**
- * Compact chip form of a layer toggle — the strip shape.
+ * A control with a visible caption above it.
  *
- * `compact` drops the label to icon-only. The name still reaches the user two
- * ways: `title` (hover tooltip) and `aria-label` (screen readers, which cannot
- * read a tooltip). Both are set in BOTH modes, so the accessible name never
- * depends on available width.
+ * The caption is the control's accessible name — it is passed down as
+ * `labelledBy`, and `Select`/`CheckboxMenu` drop their `aria-label` when they
+ * receive one. Two accessible names on one control is worse than none: a screen
+ * reader announces whichever wins, and it is not necessarily the visible text
+ * the user is looking at.
  */
-const LayerChip: React.FC<{ toggle: LayerToggle; compact?: boolean }> = ({ toggle, compact = false }) => {
-  const Icon = toggle.icon;
+/**
+ * Sizing shared by every dropdown field.
+ *
+ * `flex-1` between a floor and a cap, rather than `shrink-0` at a fixed width.
+ * The wide shell starts at 768px, where a left rail, a right panel and an Edit
+ * button leave the strip a couple of hundred pixels, and the three sizings that
+ * do NOT work were each tried in the browser:
+ *
+ * - Fixed `min-w` per trigger: the row overflowed and pushed Overlays under the
+ *   right panel at 1024px.
+ * - `min-w-0` with no floor: at 768px the four controls squeezed to empty stubs
+ *   with their captions overlapping. Legible truncation needs a floor.
+ * - No cap: four controls stretched across a 2560px display.
+ *
+ * So they share what there is, down to a floor, and the ROW scrolls below that
+ * — the same last-resort the chip row used to have. A scroll there closes any
+ * open menu, which is correct: the trigger has moved out from under it.
+ */
+const FIELD = 'flex-1 min-w-[5rem] max-w-[11rem]';
+
+const Field: React.FC<{
+  caption: string;
+  children: (captionId: string) => React.ReactNode;
+  className?: string;
+}> = ({ caption, children, className = '' }) => {
+  const id = React.useId();
   return (
-    <button
-      onClick={() => { toggle.onChange(!toggle.checked); }}
-      aria-pressed={toggle.checked}
-      aria-label={toggle.label}
-      title={toggle.label}
-      className={`${CHIP_BASE} ${compact ? 'px-1.5' : ''} ${toggle.checked
-        ? 'border-brand bg-brand-strong text-ink-strong'
-        : 'border-edge bg-surface-raised text-ink-muted hover:border-edge-strong hover:text-ink-strong'}`}
-    >
-      <Icon size={11} />{compact ? null : <> {toggle.label}</>}
-    </button>
+    <div className={`flex flex-col gap-0.5 ${className}`}>
+      <span id={id} className="text-[9px] uppercase tracking-wider text-ink-faint">{caption}</span>
+      {children(id)}
+    </div>
   );
 };
-
-/**
- * Collapses the strip to icon-only chips when the full-label form would not fit
- * on ONE row, which is the constraint: the strip must never wrap.
- *
- * The decision is content-driven, not a hard breakpoint, because the toggle list
- * grows (it gained Cell Edges this session) and any pixel threshold would rot
- * the next time one is added. A hidden mirror of the full-label row is measured
- * against the live container: the mirror never changes with `compact`, so the
- * measurement cannot oscillate the way `scrollWidth` on the live row would.
- */
-function useCompactStrip(): {
-  containerRef: React.RefObject<HTMLDivElement | null>;
-  chipsRef: React.RefObject<HTMLDivElement | null>;
-  mirrorRef: React.RefObject<HTMLDivElement | null>;
-  compact: boolean;
-} {
-  const containerRef = React.useRef<HTMLDivElement | null>(null);
-  const chipsRef = React.useRef<HTMLDivElement | null>(null);
-  const mirrorRef = React.useRef<HTMLDivElement | null>(null);
-  const [compact, setCompact] = React.useState(false);
-
-  React.useLayoutEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const measure = (): void => {
-      const chips = chipsRef.current;
-      const mirror = mirrorRef.current;
-      if (!chips || !mirror) return;
-
-      // Sum the strip's other children explicitly — render-mode buttons,
-      // rotation, the view-layer select. Deriving this by subtracting the chip
-      // row from container.scrollWidth does NOT work: the mirror is absolutely
-      // positioned but still counts toward scrollWidth, which inflated the
-      // result enough to force compact mode at any width.
-      const gap = parseFloat(getComputedStyle(container).columnGap) || 0;
-      let others = 0;
-      let laidOut = 0;
-      for (const el of Array.from(container.children) as HTMLElement[]) {
-        if (el === mirror) continue; // out of flow — never occupies a row slot
-        laidOut++;
-        if (el === chips) continue;
-        others += el.offsetWidth;
-      }
-
-      // What one row would cost with every label shown. The mirror never
-      // reflows with `compact`, so this total is invariant and cannot oscillate.
-      const needed = others + mirror.scrollWidth + gap * Math.max(0, laidOut - 1);
-      setCompact(needed > container.clientWidth + 1); // 1px absorbs rounding
-    };
-
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(container);
-    if (mirrorRef.current) ro.observe(mirrorRef.current);
-    return () => { ro.disconnect(); };
-  }, []);
-
-  return { containerRef, chipsRef, mirrorRef, compact };
-}
 
 /**
  * Rotation control for the strip. Scoped to `ViewStrip` rather than added to
@@ -352,120 +317,126 @@ export interface RotationControl {
 
 /**
  * ViewStrip — the horizontal composition for the wide shell's top strip.
- * Render mode as a segmented control, the 12 view layers as a select (a
- * 12-button grid does not fit a strip), and the layer toggles as chips.
+ *
+ * ONE row of captioned dropdowns: projection, layer, style, overlays, rotation.
+ *
+ * It was two rows — a five-way segmented control for the projection, three
+ * selects, and a row of nine overlay chips. The forcing function was the
+ * projection: it grew from three entries to five (Equirectangular and Winkel
+ * Tripel landed in S27f) and a segmented control does not have five slots in a
+ * strip that also has to hold everything else. Making that a dropdown and
+ * leaving the chips would have left one row of dropdowns above one row of
+ * chips, which is two grammars for the same job, so the chips became a
+ * multi-select menu at the same time.
+ *
+ * What that costs, and what pays it back: the chips showed which overlays were
+ * ON without being opened. `CheckboxMenu` puts the active count on its trigger
+ * for exactly that reason — see its doc.
+ *
+ * `useCompactStrip` and its hidden measuring mirror went with the chips. The
+ * whole apparatus existed to decide whether nine labelled chips fitted on one
+ * row; five dropdowns always do.
  */
 export const ViewStrip: React.FC<ViewControlsProps & { rotation?: RotationControl }> = ({ rotation, ...p }) => {
+  const rotationId = React.useId();
   // Borders sits next to Roads & Routes rather than at the end: both are
-  // cell-bound line overlays, and a trailing chip is the first thing lost when
-  // the row starts scrolling. The strip order therefore diverges from the Sys
+  // cell-bound line overlays. The strip order therefore diverges from the Sys
   // tab's on purpose — see buildBordersToggle for why it is composed in here.
   const layers = buildLayerToggles(p);
   const routeAt = layers.findIndex(t => t.key === 'routes');
   const at = routeAt < 0 ? layers.length : routeAt + 1;
   const toggles = [...layers.slice(0, at), buildBordersToggle(p), ...layers.slice(at)];
-  const { containerRef, chipsRef, mirrorRef, compact } = useCompactStrip();
 
-  // TWO ROWS. Row 1 is "what am I looking at" — projection, view layer, style.
-  // Row 2 is the overlay toggles. One row had grown past the available width and
-  // the chips scrolled horizontally, hiding toggles behind a scrollbar.
-  //
-  // `containerRef` measures ROW 2, not the root: `useCompactStrip` compares the
-  // available width against the chips' full-label mirror, so it must measure the
-  // row the chips actually live in. `flex-1`/`min-w-0` stay load-bearing — without
-  // them the row sizes to its own CONTENT, clientWidth reports content rather
-  // than available space, and the full-label branch can never win.
   return (
-  <div className="flex flex-1 flex-col gap-1.5 min-w-0">
-  <div className="flex flex-nowrap items-center gap-2 min-w-0">
-    <div className="inline-flex overflow-hidden border border-edge shrink-0">
-      {DISPLAY_MODES.map(m => (
-        <button
-          key={m.mode}
-          onClick={() => { p.setDisplayMode(m.mode); }}
-          aria-pressed={p.displayMode === m.mode}
-          className={`px-2.5 py-1.5 text-[11px] transition-colors ${p.displayMode === m.mode
-            ? 'bg-brand-strong text-ink-strong'
-            : 'bg-surface-raised text-ink-muted hover:bg-surface-hover hover:text-ink-strong'}`}
-        >
-          {m.short}
-        </button>
-      ))}
+    <div className="flex flex-1 flex-nowrap items-end gap-2 min-w-0 overflow-x-auto">
+      <Field caption="Projection" className={FIELD}>
+        {id => (
+          <Select
+            value={p.displayMode}
+            options={PROJECTION_OPTIONS}
+            onChange={p.setDisplayMode}
+            label="Map projection"
+            labelledBy={id}
+            triggerClassName="w-full justify-between"
+          />
+        )}
+      </Field>
+
+      <Field caption="Layer" className={FIELD}>
+        {id => (
+          <Select
+            value={p.viewMode}
+            options={VIEW_LAYER_OPTIONS}
+            onChange={p.setViewMode}
+            label="View layer"
+            labelledBy={id}
+            triggerClassName="w-full justify-between"
+          />
+        )}
+      </Field>
+
+      {/* Style sits next to the view layer because it is the SIBLING axis, not a
+          setting: viewMode picks what the map shows, style picks how it is drawn.
+          Shown in every projection: the globe samples a baked texture of the
+          same style, so the control applies there too. */}
+      <Field caption="Style" className={FIELD}>
+        {id => (
+          <Select
+            value={p.mapStyleId}
+            options={MAP_STYLE_OPTIONS}
+            onChange={p.setMapStyleId}
+            label="Map style"
+            labelledBy={id}
+            triggerClassName="w-full justify-between"
+          />
+        )}
+      </Field>
+
+      <Field caption="Overlays" className={FIELD}>
+        {id => (
+          <CheckboxMenu
+            items={toggles.map(t => ({
+              key: t.key, label: t.label, icon: t.icon,
+              checked: t.checked, onChange: t.onChange,
+            }))}
+            label="Map overlays"
+            labelledBy={id}
+            triggerClassName="w-full justify-between"
+          />
+        )}
+      </Field>
+
+      {/* Rotation last rather than beside the projection it modifies: it is the
+          only control here that is not a choice, and putting a lone icon button
+          between two dropdowns broke the row's rhythm. It disappears entirely in
+          every projection but the globe, so a trailing slot also means the other
+          four never shift position when it goes. */}
+      {rotation && (
+        <Field caption="Rotation" className="shrink-0">
+          {id => (
+            <button
+              id={rotationId}
+              onClick={rotation.onToggle}
+              disabled={rotation.disabled}
+              aria-pressed={rotation.paused}
+              // Caption AND the button's own text, so the accessible name is
+              // "Rotation Playing" rather than a caption with no state in it.
+              aria-labelledby={`${id} ${rotationId}`}
+              title={rotation.paused ? 'Resume rotation' : 'Pause rotation'}
+              className={`inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 border text-[11px] transition-colors ${
+                rotation.disabled
+                  ? 'bg-surface-raised text-ink-faint border-edge opacity-40 cursor-not-allowed'
+                  : rotation.paused
+                    ? 'bg-surface-raised text-ink-strong border-edge-strong hover:bg-surface-hover'
+                    : 'bg-surface-raised text-ink-muted border-edge hover:bg-surface-hover hover:text-ink-strong'
+              }`}
+            >
+              {rotation.paused ? <Play size={12} /> : <Pause size={12} />}
+              {rotation.paused ? 'Paused' : 'Playing'}
+            </button>
+          )}
+        </Field>
+      )}
     </div>
-
-    {/* Rotation sits immediately after render mode because it modifies that
-        choice — it is a property of how the globe is PRESENTED, not something
-        you do to the world, so it does not belong with Edit. Leading the strip
-        with it would put a secondary control ahead of the primary one.
-        It previously lived as a canvas overlay anchored to the viewer's own
-        corner, which the wide shell's left-shifted canvas clipped out of view
-        entirely — the reason it appeared to vanish. */}
-    {rotation && (
-      <button
-        onClick={rotation.onToggle}
-        disabled={rotation.disabled}
-        aria-pressed={rotation.paused}
-        aria-label={rotation.paused ? 'Resume globe rotation' : 'Pause globe rotation'}
-        title={rotation.paused ? 'Resume rotation' : 'Pause rotation'}
-        className={`shrink-0 inline-flex items-center justify-center px-2.5 py-1.5 border transition-colors ${
-          rotation.disabled
-            ? 'bg-surface-raised text-ink-faint border-edge opacity-40 cursor-not-allowed'
-            : rotation.paused
-              ? 'bg-surface-raised text-ink-strong border-edge-strong hover:bg-surface-hover'
-              : 'bg-surface-raised text-ink-muted border-edge hover:bg-surface-hover hover:text-ink-strong'
-        }`}
-      >
-        {rotation.paused ? <Play size={12} /> : <Pause size={12} />}
-      </button>
-    )}
-
-    <Select
-      value={p.viewMode}
-      options={VIEW_LAYER_OPTIONS}
-      onChange={p.setViewMode}
-      label="View layer"
-      className="shrink-0"
-      triggerClassName="min-w-[7.5rem] justify-between"
-    />
-
-    {/* Style sits next to the view layer because it is the SIBLING axis, not a
-        setting: viewMode picks what the map shows, style picks how it is drawn.
-        It lived in the Sys tab under Auto-Update and was reported as missing —
-        a display control filed among system options is a hidden one.
-        Shown in every display mode: the globe was originally out of scope, but
-        it now samples a baked texture of the same style, so the control applies
-        there too. */}
-    <Select
-      value={p.mapStyleId}
-      options={MAP_STYLE_OPTIONS}
-      onChange={p.setMapStyleId}
-      label="Map style"
-      className="shrink-0"
-      triggerClassName="min-w-[6.5rem] justify-between"
-    />
-
-  </div>
-
-  {/* Row 2 — overlay toggles, now with the full strip width to themselves. */}
-  <div ref={containerRef} className="relative flex flex-nowrap items-center gap-1 min-w-0 overflow-hidden">
-    {/* Hidden full-label mirror: the yardstick useCompactStrip measures against.
-        Never reflows with `compact`, so the measurement cannot oscillate.
-        aria-hidden + inert keeps it out of the a11y tree and tab order. */}
-    <div
-      ref={mirrorRef}
-      aria-hidden="true"
-      inert
-      className="pointer-events-none invisible absolute left-0 top-0 -z-10 flex flex-nowrap items-center gap-1"
-    >
-      {toggles.map(t => <LayerChip key={t.key} toggle={t} />)}
-    </div>
-
-    {/* With a row of its own the chips almost always fit; the scroll stays as
-        the last resort at very narrow widths rather than the normal case. */}
-    <div ref={chipsRef} className="flex flex-nowrap items-center gap-1 min-w-0 overflow-x-auto">
-      {toggles.map(t => <LayerChip key={t.key} toggle={t} compact={compact} />)}
-    </div>
-  </div>
-  </div>
   );
 };

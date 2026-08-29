@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown } from 'lucide-react';
+
+import { usePopoverMenu } from './usePopoverMenu';
 
 /**
  * Select — a themed listbox replacing the native `<select>`.
@@ -22,30 +24,11 @@ import { Check, ChevronDown } from 'lucide-react';
  */
 
 /**
- * Should a scroll event close the menu?
- *
- * The scroll listener is registered in the CAPTURE phase, deliberately: the menu
- * is portaled and positioned `fixed`, so a scroll in ANY ancestor scroll
- * container can move the trigger out from under it and leave the menu stranded
- * in mid-air. Capture is the only way to see those scrolls.
- *
- * The cost of capture is that it also sees the menu scrolling ITSELF — the
- * option list is `overflow-y-auto`. Without this guard, trackpad-scrolling the
- * options or dragging their scrollbar closed the dropdown instantly, and the
- * remainder of the gesture fell through to the 2D/3D viewport underneath,
- * rotating the globe or panning the map.
- *
- * A scroll inside the menu never moves the trigger, so it must never close.
- * The sibling `pointerdown` handler already applies the same containment test;
- * this brings the scroll handler in line with it.
+ * Re-exported from `usePopoverMenu`, where it now lives alongside the scroll
+ * listener that uses it. Kept here because this is the module that documented
+ * the fix and the module its test imports from.
  */
-export const shouldCloseOnScroll = (
-  target: unknown,
-  menu: { contains: (node: never) => boolean } | null,
-): boolean => {
-  if (!menu || target == null) return true;
-  return !menu.contains(target as never);
-};
+export { shouldCloseOnScroll } from './usePopoverMenu';
 
 export interface SelectOption<T extends string> {
   value: T;
@@ -56,25 +39,25 @@ interface SelectProps<T extends string> {
   value: T;
   options: SelectOption<T>[];
   onChange: (value: T) => void;
-  /** Accessible name — there is no visible <label> in the compact strip. */
+  /**
+   * Accessible name. Used as `aria-label` UNLESS `labelledBy` is given: a
+   * control with a visible caption must take its name from that caption, or it
+   * has two accessible names and a screen reader announces the wrong one.
+   */
   label: string;
+  /** Id of a visible caption element. Replaces `aria-label` when present. */
+  labelledBy?: string;
   className?: string;
   /** Extra classes for the trigger button. */
   triggerClassName?: string;
 }
 
-const MENU_MAX_H = 320;
-const GAP = 4;
-
 function Select<T extends string>({
-  value, options, onChange, label, className = '', triggerClassName = '',
+  value, options, onChange, label, labelledBy, className = '', triggerClassName = '',
 }: SelectProps<T>) {
-  const [open, setOpen] = useState(false);
+  const { open, close, setOpen, triggerRef, menuRef, menuStyle } = usePopoverMenu();
   const [activeIndex, setActiveIndex] = useState(0);
-  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
 
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
   const optionRefs = useRef<(HTMLDivElement | null)[]>([]);
   const typeahead = useRef({ query: '', at: 0 });
 
@@ -82,67 +65,17 @@ function Select<T extends string>({
   const selected = options[selectedIndex];
   const listId = React.useId();
 
-  const position = useCallback(() => {
-    const trigger = triggerRef.current;
-    if (!trigger) return;
-    const r = trigger.getBoundingClientRect();
-    const below = window.innerHeight - r.bottom - GAP;
-    const above = r.top - GAP;
-    // Flip up when the space below cannot hold a usefully tall menu.
-    const flip = below < Math.min(MENU_MAX_H, 160) && above > below;
-    const maxHeight = Math.min(MENU_MAX_H, (flip ? above : below) - 4);
-    setMenuStyle({
-      position: 'fixed',
-      left: Math.round(Math.min(r.left, window.innerWidth - r.width - 8)),
-      minWidth: Math.round(r.width),
-      maxHeight: Math.max(96, Math.round(maxHeight)),
-      ...(flip
-        ? { bottom: Math.round(window.innerHeight - r.top + GAP) }
-        : { top: Math.round(r.bottom + GAP) }),
-    });
-  }, []);
-
-  useLayoutEffect(() => {
-    if (open) position();
-  }, [open, position]);
-
-  // Close on outside interaction; reposition-by-closing on scroll/resize so the
-  // menu can never detach from a trigger that has moved out from under it.
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (menuRef.current?.contains(t) || triggerRef.current?.contains(t)) return;
-      setOpen(false);
-    };
-    const onScroll = (e: Event) => {
-      if (shouldCloseOnScroll(e.target, menuRef.current)) setOpen(false);
-    };
-    const onResize = () => { setOpen(false); };
-    document.addEventListener('pointerdown', onPointerDown, true);
-    window.addEventListener('resize', onResize);
-    window.addEventListener('scroll', onScroll, true);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown, true);
-      window.removeEventListener('resize', onResize);
-      window.removeEventListener('scroll', onScroll, true);
-    };
-  }, [open]);
-
   // Keep the active option in view during keyboard navigation.
   useEffect(() => {
     if (!open) return;
     optionRefs.current[activeIndex]?.scrollIntoView({ block: 'nearest' });
   }, [open, activeIndex]);
 
+  // Seeds the active index, which is listbox behaviour and so stays here rather
+  // than in the shared hook.
   const openMenu = (index = selectedIndex) => {
     setActiveIndex(index);
     setOpen(true);
-  };
-
-  const close = (refocus = true) => {
-    setOpen(false);
-    if (refocus) triggerRef.current?.focus();
   };
 
   const commit = (index: number) => {
@@ -210,7 +143,8 @@ function Select<T extends string>({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
-        aria-label={label}
+        aria-label={labelledBy ? undefined : label}
+        aria-labelledby={labelledBy}
         onClick={() => { open ? close(false) : openMenu(); }}
         onKeyDown={onKeyDown}
         className={`inline-flex items-center gap-1.5 border border-edge bg-surface-raised px-2 py-1.5 text-[11px] text-ink transition-colors hover:border-edge-strong hover:text-ink-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 ${triggerClassName}`}
