@@ -73,11 +73,20 @@ const oceanFeaturesByHatchOpacity = (
  * world, which is what Matt reported against the Mercator view. For
  * equirectangular the sphere is the whole canvas and the clip changes nothing.
  */
-export const paperPass = (palette: StylePalette, seed: string): StylePass =>
+export const paperPass = (
+  palette: StylePalette,
+  seed: string,
+  grainOpacity = 0.10,
+): StylePass =>
   (ctx, sub) => {
     sub.withSphereClip(() => {
       sub.fillRect(0, 0, ctx.widthPx, ctx.heightPx, palette.paper);
-      sub.grain({ seed, opacity: 0.10, scale: 1 });
+      // An explicit early return, not a zero passed through to `grain`: a
+      // substrate is free to emit a zero-opacity element rather than skip it,
+      // which would put a full grain layer into every export of a flat style
+      // for no visible gain.
+      if (grainOpacity <= 0) return;
+      sub.grain({ seed, opacity: grainOpacity, scale: 1 });
     });
   };
 
@@ -243,10 +252,17 @@ export const hillshadePass = (
     }
   };
 
-/** Heavy ink coastline plus a lighter offset swash line just inside it. */
-export const coastlinePass = (palette: StylePalette): StylePass =>
+/**
+ * Heavy ink coastline plus a lighter offset swash line just inside it.
+ *
+ * `weight` scales the line. It exists for styles whose whole look is the
+ * outline — a printed board reads its coasts from a metre away — and it is a
+ * multiplier on the resolution-scaled width, never a pixel count, so an 8192
+ * export does not come out with hair-fine coasts.
+ */
+export const coastlinePass = (palette: StylePalette, weight = 1): StylePass =>
   (ctx, sub) => {
-    const w = Math.max(0.6, (ctx.widthPx / 1024) * 2.0 * (ctx.lineScale ?? 1));
+    const w = Math.max(0.6, (ctx.widthPx / 1024) * 2.0 * weight * (ctx.lineScale ?? 1));
     sub.strokeSegments(ctx.coastlines, palette.coast, w);
   };
 

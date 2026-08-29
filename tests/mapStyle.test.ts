@@ -8,7 +8,7 @@ describe('map style registry', () => {
     // and this is the line that makes an accidental one visible. Adding a style
     // means updating this list — that is the test working, not the test being
     // in the way.
-    expect(Object.keys(MAP_STYLES).sort()).toEqual(['blueprint', 'default', 'inkwash', 'parchment']);
+    expect(Object.keys(MAP_STYLES).sort()).toEqual(['blueprint', 'boardgame', 'default', 'inkwash', 'parchment']);
   });
 
   it('inks every line overlay in an OPAQUE colour', () => {
