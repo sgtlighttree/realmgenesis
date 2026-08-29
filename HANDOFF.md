@@ -87,6 +87,19 @@ dismissal and the S27b scroll-containment fix. Listbox semantics stayed in
 
 ### Findings, at the confidence they deserve
 
+- **A ref filled by an effect is invisible to a memo, and it fails silently.**
+  The Dymaxion scale bar computed once before the pick-buffer effect ran, saw a
+  null ref, and never recomputed — nothing in its dependency array changed
+  again. No error anywhere; the bar just never appeared. Fixed with a version
+  token (`pickVersion`). This is the SAME shape as the webfont trap and the desk
+  texture: a value produced after the first render has to change some identity,
+  or its readers never look again. Three instances now — treat it as the house
+  pattern, not a one-off.
+- **The Playwright harness cannot deliver wheel events to the map canvas.**
+  Mercator's shipped scale bar does not respond to `page.mouse.wheel` either, so
+  this is the instrument, not the code. Test zoom-dependent behaviour by
+  resizing the viewport instead — that path works and does recompute.
+
 - **The short dark line stubs all over the globe's ocean ARE the S27c mesh
   seams — traced, not guessed.** Three pieces of evidence: they are identical in
   Parchment, Blueprint and Boardgame; the FLAT BAKE is clean (`--texture`), which
@@ -132,8 +145,15 @@ substrate, so the three new styles were also cycled in the running app:
 - **Exports get no desk backdrop**, deliberately. One flag if that is wrong.
 - **The scale bar still changes as you pan north/south**, and reads "500 km at
   34°N" so the change is information. Matt's call if he wants it pinned anyway.
-- **Dymaxion has no scale bar** (net distortion varies per face). It now has a
-  desk.
+- ~~**Dymaxion has no scale bar**~~ — **it does now** (`4b315e5`), and the reason
+  it did not was wrong. "Net distortion varies per face" is backwards: measured
+  over 1207 points on this app's net, linear scale varies **13% peak to peak**
+  globally, against Mercator's 100% error at 60 degrees. The block was
+  mechanical — no analytic inverse — and the pick buffer is the per-pixel one.
+  `computeInterruptedScaleBar` handles the real hazard, the cut, which fails
+  QUIETLY: a fold's two halves often land near each other, so the naive
+  two-point sample returns a believable wrong number. Three points, compare the
+  steps, reject on a jump. 1.7% of those points rejected.
 - **VOLCANIC has no glyph** — a `bare` fill policy claims glyphs carry every
   terrain, and that claim wants checking against the whole `BiomeType` list.
   Boardgame sidesteps it (no `bare` branch); Blueprint and Ink & Wash inherit it.
