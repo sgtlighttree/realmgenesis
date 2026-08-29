@@ -3,6 +3,7 @@ import { styleDefault } from './styleDefault';
 import { styleParchment } from './styleParchment';
 import { styleBlueprint } from './styleBlueprint';
 import { styleInkWash } from './styleInkWash';
+import { styleBoardgame } from './styleBoardgame';
 
 export * from './types';
 export * from './labelTheme';
@@ -13,6 +14,7 @@ export const MAP_STYLES: Record<MapStyleId, MapStyle> = {
   parchment: styleParchment,
   blueprint: styleBlueprint,
   inkwash: styleInkWash,
+  boardgame: styleBoardgame,
 };
 
 /** Unknown ids fall back to `default` — a saved/stale id must never blank the map. */
