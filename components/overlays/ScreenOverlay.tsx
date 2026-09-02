@@ -3,7 +3,9 @@ import { useThree, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
 import { WorldData } from '../../types';
-import { isVisible, ProjectedCells } from '../../utils/screenProject';
+import {
+  ProjectedCells, StagedCells, stageCellPoints, projectStaged, projectLocalPoint,
+} from '../../utils/screenProject';
 import { displayRadius } from '../../utils/displayRadius';
 
 // F2 screen-space overlay layer. Mounted INSIDE the R3F <Canvas>; it owns a
@@ -58,12 +60,15 @@ export const ScreenOverlay: React.FC<{ world: WorldData; tenants: OverlayTenant[
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const projRef = useRef<ProjectedCells | null>(null);
+  const stagedRef = useRef<StagedCells | null>(null);
+  const staleRef = useRef<boolean>(true);
   const globeRef = useRef<THREE.Object3D | null>(null);
   const lastKey = useRef<string>('');
 
-  const scratch = useMemo(() => new THREE.Vector3(), []);
-  const projScratch = useMemo(() => new THREE.Vector3(), []);
   const camPos = useMemo(() => new THREE.Vector3(), []);
+  const camLocal = useMemo(() => new THREE.Vector3(), []);
+  const mvp = useMemo(() => new THREE.Matrix4(), []);
+  const gmInv = useMemo(() => new THREE.Matrix4(), []);
 
   // Create the sibling 2D canvas over the WebGL canvas.
   useEffect(() => {
@@ -85,7 +90,11 @@ export const ScreenOverlay: React.FC<{ world: WorldData; tenants: OverlayTenant[
     };
   }, [gl]);
 
-  // (Re)allocate the projection buffers when the cell count changes.
+  // (Re)allocate the projection buffers when the cell count changes, and mark the
+  // staged point cache stale. Any height mutation (paint, undo) ends in
+  // setWorld({...world}) — a fresh `world` ref — so this fires before the next
+  // frame and the cache can never silently decouple from the terrain radius (the
+  // historical parallax failure mode). smoothGlobe toggles are handled below.
   const nCells = world.cells.length;
   useEffect(() => {
     projRef.current = {
@@ -93,8 +102,16 @@ export const ScreenOverlay: React.FC<{ world: WorldData; tenants: OverlayTenant[
       visible: new Uint8Array(nCells), n: nCells,
     };
     globeRef.current = null; // world changed → re-find the globe
+    staleRef.current = true;
     lastKey.current = '';
   }, [nCells, world]);
+
+  // Smooth toggle changes every cell's rendered radius (displayRadius) without a
+  // new `world`, so it must invalidate the staged cache AND force a redraw.
+  useEffect(() => {
+    staleRef.current = true;
+    lastKey.current = '';
+  }, [smoothGlobe]);
 
   useFrame(() => {
     const ctx = ctxRef.current;
@@ -148,37 +165,37 @@ export const ScreenOverlay: React.FC<{ world: WorldData; tenants: OverlayTenant[
     ctx.clearRect(0, 0, cssW, cssH);
     if (active.length === 0) return;
 
+    // Rebuild the staged rendered-radius points only when the world or smooth
+    // flag changed (marked by the effects above). They depend on cell.height +
+    // smooth, never the camera, so this is per-world, not per-frame (~0.5 ms).
+    if (staleRef.current || !stagedRef.current || stagedRef.current.n !== nCells) {
+      stagedRef.current = stageCellPoints(world.cells, displayRadius, smoothGlobe, stagedRef.current);
+      staleRef.current = false;
+    }
+    const staged = stagedRef.current;
+
+    // Fold the whole projection into one MVP matrix + the camera expressed in the
+    // globe's LOCAL frame, both hoisted out of the per-cell loop. The naive form
+    // transformed each cell local→world then world→NDC (two matrix ops per cell);
+    // this is one. mvp = projection · matrixWorldInverse · globe. Reads the SAME
+    // freshly-updated matrices as the renderer (camera.updateMatrixWorld and
+    // globe.updateWorldMatrix above) — identical frame, only faster math.
+    mvp.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    if (gm) mvp.multiply(gm);
     camera.getWorldPosition(camPos);
-    for (let i = 0; i < nCells; i++) {
-      const cell = world.cells[i];
-      const c = cell.center;
-      // Scale to the cell's rendered radius (matches the globe mesh exactly:
-      // WorldViewer refill uses displayRadius(height, smooth)). This is what
-      // pins the overlay to the terrain surface — no zoom parallax — and lets
-      // the per-point horizon test occlude at the true limb. When smooth, every
-      // cell collapses to r=1 so overlay + flat terrain share one sphere.
-      const r = displayRadius(cell.height, smoothGlobe);
-      scratch.set(c.x * r, c.y * r, c.z * r);
-      if (gm) scratch.applyMatrix4(gm); // local → world (tracks spin)
-      if (!isVisible(scratch.x, scratch.y, scratch.z, camPos.x, camPos.y, camPos.z)) {
-        proj.visible[i] = 0;
-        continue;
-      }
-      scratch.project(camera); // world → NDC
-      proj.x[i] = (scratch.x + 1) / 2 * cssW;
-      proj.y[i] = (1 - (scratch.y + 1) / 2) * cssH;
-      proj.visible[i] = 1;
+    if (gm) {
+      gmInv.copy(gm).invert();
+      camLocal.copy(camPos).applyMatrix4(gmInv);
+    } else {
+      camLocal.copy(camPos);
     }
 
-    const project: LocalProjector = (x, y, z, out) => {
-      projScratch.set(x, y, z);
-      if (gm) projScratch.applyMatrix4(gm);
-      if (!isVisible(projScratch.x, projScratch.y, projScratch.z, camPos.x, camPos.y, camPos.z)) return false;
-      projScratch.project(camera);
-      out[0] = (projScratch.x + 1) / 2 * cssW;
-      out[1] = (1 - (projScratch.y + 1) / 2) * cssH;
-      return true;
-    };
+    projectStaged(staged, mvp.elements, camLocal.x, camLocal.y, camLocal.z, cssW, cssH, proj);
+
+    // LocalProjector for tenant-projected points (velocity tips, graticule
+    // samples): same fused mvp + camLocal, points already in the LOCAL frame.
+    const project: LocalProjector = (x, y, z, out) =>
+      projectLocalPoint(x, y, z, mvp.elements, camLocal.x, camLocal.y, camLocal.z, cssW, cssH, out);
 
     for (const t of active) t.draw(ctx, proj, world, project, smoothGlobe);
   });
