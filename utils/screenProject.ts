@@ -22,11 +22,13 @@ export function isVisible(
   eps = 0.005,
 ): boolean {
   let dx = camx - px, dy = camy - py, dz = camz - pz;
-  const len = Math.hypot(dx, dy, dz);
+  // sqrt, not Math.hypot: hypot's overflow-safe scaling is ~11x slower in V8 and
+  // buys nothing here — all inputs are near-unit sphere/camera coords (F4, S29).
+  const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
   if (len < 1e-9) return true;
   dx /= len; dy /= len; dz /= len;
   // outward normal at P is P̂ = P/|P| (P at its TRUE radius, not unit)
-  const pl = Math.hypot(px, py, pz);
+  const pl = Math.sqrt(px * px + py * py + pz * pz);
   if (pl < 1e-9) return true;
   return (dx * px + dy * py + dz * pz) / pl > eps;
 }
