@@ -24,6 +24,16 @@ const HILL: UnitSubpath[] = [
   [[-1, 0], [-0.55, -0.55], [0, -0.7], [0.55, -0.55], [1, 0]],
 ];
 
+/**
+ * A cone with a notched crater and a wisp of smoke. Deliberately squatter than
+ * MOUNTAIN (apex -0.7 rather than -1) so the plume has room inside the unit box
+ * and the silhouette still reads as a different thing at glyph size.
+ */
+const VOLCANO: UnitSubpath[] = [
+  [[-1, 0], [-0.34, -0.7], [-0.14, -0.55], [0.14, -0.55], [0.34, -0.7], [1, 0]],
+  [[-0.1, -0.8], [0.1, -0.9], [-0.05, -1]], // smoke curl
+];
+
 const FOREST: UnitSubpath[] = [
   [[-0.55, 0], [-0.55, -0.4]],
   [[-0.9, -0.4], [-0.55, -0.95], [-0.2, -0.4]],
@@ -58,6 +68,7 @@ const ICE: UnitSubpath[] = [
 const SHAPES: Record<GlyphKind, UnitSubpath[]> = {
   mountain: MOUNTAIN,
   hill: HILL,
+  volcano: VOLCANO,
   forest: FOREST,
   conifer: CONIFER,
   dune: DUNE,

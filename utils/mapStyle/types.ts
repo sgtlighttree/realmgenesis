@@ -13,7 +13,17 @@ export type FillPolicy =
 
 export type MapStyleId = 'default' | 'parchment' | 'blueprint' | 'inkwash' | 'boardgame';
 
-export type GlyphKind = 'mountain' | 'hill' | 'forest' | 'conifer' | 'dune' | 'marsh' | 'ice';
+/**
+ * The runtime list is the source of truth and the type is derived from it, so
+ * a new glyph cannot be added to one and forgotten in the other. `SHAPES` is a
+ * `Record<GlyphKind, …>` and so gets a compile-time gate for free; the test
+ * suite iterates this array for the same reason.
+ */
+export const GLYPH_KINDS = [
+  'mountain', 'hill', 'volcano', 'forest', 'conifer', 'dune', 'marsh', 'ice',
+] as const;
+
+export type GlyphKind = (typeof GLYPH_KINDS)[number];
 
 /** A glyph resolved to output pixels. Both substrates just draw this. */
 export interface PlacedGlyph {

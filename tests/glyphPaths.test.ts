@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 
 import { glyphPathData } from '../utils/mapStyle/glyphPaths';
-import { GlyphKind, PlacedGlyph } from '../utils/mapStyle/types';
+import { GLYPH_KINDS, GlyphKind, PlacedGlyph } from '../utils/mapStyle/types';
 
-const KINDS: GlyphKind[] = ['mountain', 'hill', 'forest', 'conifer', 'dune', 'marsh', 'ice'];
+// Derived, never hand-listed: a hand-maintained copy silently omits any glyph
+// added later, which is exactly how `volcano` could have shipped untested.
+const KINDS: readonly GlyphKind[] = GLYPH_KINDS;
 
 const glyph = (kind: GlyphKind, over: Partial<PlacedGlyph> = {}): PlacedGlyph => ({
   x: 100, y: 200, kind, scale: 16, seedRot: 0, cellId: 1, ...over,
