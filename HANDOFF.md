@@ -51,6 +51,9 @@ Three commits on `main`, tree clean. Gates: typecheck 0 · lint 0 errors /
 | Volcano glyph + `marsh` wired up after never firing | `6eb0506` |
 | VOLCANIC extinction + two refuted fixes recorded | `c910b52` |
 | `CELL_OVERHANG` 1.03 → 1.10, globe seams closed | `cadbcf3` |
+| Salvaged bucket-grid nearest-macro lookup, 54–118x | `e890463` |
+| Salvaged the three F4 measurement harnesses | `1af5d42` |
+| `docs/performance-workflow.md` — the F4 method | `119cd8a` |
 
 ### VOLCANIC is EXTINCT at default params — regression, NOT fixed
 
@@ -153,8 +156,54 @@ This is **not** evidence about Opus's parallel throughput — they never got pas
 reading the repo. What it shows is that four cold contexts each paying full
 orientation cost *before* producing anything is the wrong shape when a hard
 ceiling exists anywhere in the run. Agents fed a written plan rather than "go
-investigate" would have had a far better chance. Unfinished lead recorded by the
-globe agent before it died: *typed-array staging and `hypot`→`sqrt`*.
+investigate" would have had a far better chance.
+
+**SALVAGED — all of it, later the same session.** The method is now written up in
+`docs/performance-workflow.md`; do not re-derive it.
+
+- **`e890463` — the bucket-grid nearest-macro lookup is REAL and landed.** The
+  generation agent wrote it correctly and ran zero verification. Verified here
+  two ways: index-for-index against the brute-force argmin (**0 mismatches**,
+  including `jitter=0`, the maximum-tie lattice) and a **byte-identical
+  full-world digest** on 3 worlds. **54x at 20k display cells, 118x at 80k**,
+  against the production `simulationResolution` of 10000. Guarded by
+  `tests/macroPointGrid.test.ts`.
+- **`1af5d42` — all three harnesses landed**, converted where needed. The globe
+  bench arrived as `tests/f4bench.test.ts` and would have added a 30k world
+  generation plus a 15-minute timeout to every `npm test`; it is now a script.
+
+**First real F4 numbers, from the salvaged bench at 6k cells** (re-measure at
+30k+ before acting — these do not all scale alike):
+
+| Lead | Number |
+|---|---|
+| Graticule tenant | **1.282 ms/frame** vs 0.05–0.33 for every other tenant; **0.818 ms is the walk**, not the projection |
+| Geometry refill | colour math is **1.662 ms of 2.234 ms** — a position/colour split alone will disappoint |
+| Fused MVP projector | 0.642 → 0.460 ms/frame; still needs its screen-error / visibility-flip numbers |
+| `computeShadeMap` | 2.160 ms, comparable to a whole refill |
+
+### The V3 tectonic fields are LOST across the worker boundary
+
+Found while salvaging, by adding `crustType` / `crustThickness` / `upliftAccum`
+to `CELL_FIELDS` and watching `tests/worldTransfer.test.ts` fail:
+`expected [ 'cell.crustThickness', 'cell.crustType', 'cell.upliftAccum' ] to
+deeply equal []`. Generation runs in a Web Worker, so **in the running app those
+three fields are `undefined` on every cell** — only the in-process test path has
+them.
+
+**Currently harmless: nothing outside generation reads them.** It is a latent
+trap, not a live bug. But it directly affects the VOLCANIC forward path above —
+the `upliftAccum` evidence was gathered in-process, and any *post-worker*
+consumer (an Inspector crust readout, say) would get `undefined` while passing
+every test.
+
+**Not fixed, deliberately.** `WorldPayload.presence` is a `Uint8Array` and all
+eight bits are already taken (`P_FLUX`…`P_TOWN`), so carrying three more optional
+fields means widening the worker wire format. That is a serialization change and
+Matt's call, not a tack-on. The `CELL_FIELDS` edit was reverted so the suite
+stays green — **which means the standard digest still cannot see changes to the
+coarse→fine tectonic projection.** Hash those fields by hand when touching that
+stage, as `e890463` did.
 
 ### Still open from S27h
 
