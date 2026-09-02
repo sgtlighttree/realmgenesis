@@ -55,6 +55,11 @@ budget at 60 fps. That is the whole problem in one line.
 
 ### The validated ladder — do this first
 
+> **Rung 1 SHIPPED (S29, `9bc20fe`):** the `hypot`→`sqrt` swap is now in
+> `utils/screenProject.ts`. The per-tenant speedups below are realised. The
+> remaining rung is the staged typed-array projector (the jump to 0.320 ms) —
+> still to be ported from `scripts/perf/globeBench.ts` into the app.
+
 The globe agent's last words before it died were *"typed-array staging and
 hypot→sqrt"*. Both are **already implemented and correctness-checked** in
 `scripts/perf/globeBench.ts`. Three steps, each measured:

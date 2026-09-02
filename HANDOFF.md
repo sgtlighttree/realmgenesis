@@ -38,7 +38,50 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## S28 (2026-09-02) — NEXT SESSION STARTS HERE
+## S29 (2026-09-03) — NEXT SESSION STARTS HERE
+
+F4 globe ladder, rung 1: **`Math.hypot` → `Math.sqrt` in `isVisible`
+(`utils/screenProject.ts:25,29`) SHIPPED** (`9bc20fe`). This was S28's "**Start
+here**" — the single largest, lowest-risk globe lever, root-caused and
+bench-validated by the salvaged instruments.
+
+**What landed.** Both `hypot` calls in the projector's occlusion test replaced
+with `Math.sqrt(x*x+y*y+z*z)`. hypot's overflow-safe scaling is ~11x slower in
+V8 and buys nothing here (all inputs near-unit sphere/camera coords). A comment
+in the file now says so, so nobody reverts it. Gates: typecheck 0; 80 tests
+across 15 files green (`screenProject`, `routesTenant`, `graticuleDrape` + their
+import graph), `VITEST_WORKERS=1`.
+
+**Measured this machine (20k, `renderGlobeBench.mjs`), sqrt vs baseline:** max
+screen error **4.55e-13 px, 0 visibility flips** — floating-point noise, not a
+behaviour change. Every ScreenOverlay tenant projects through `isVisible`, so the
+win cascades: contours 0.483→0.301, borders 0.208→0.096, rivers 0.252→0.119,
+graticule smooth 0.370→0.212 ms/frame. Matches S28's 30k ratios (3.5–4.9x).
+
+**Deliberately NOT done — the rest of the ladder is separate work.** The full
+11.5x in `docs/performance-findings.md` needs the **staged typed-array
+projector** (`stage()` builds per-world scratch arrays, then a fused-MVP loop
+projects all cells at 0.24 ms vs 1.37 baseline). That is a real refactor of the
+per-frame projection path, not a two-liner, and it is the correct next rung.
+The candidate is already written and correctness-checked inside
+`scripts/perf/globeBench.ts` (`stage()` + the fused loop, lines ~320-350) — port
+it into the app's projection path, don't re-derive it.
+
+**Next-best F4 levers after that (from `docs/performance-findings.md`, unchanged):**
+- **Map2D pan/zoom ~2.2 s blocked at 30k** — still the worst number in the
+  project, still un-investigated. The cost is the two DPR-switch redraws, not the
+  drag. Highest payoff, highest unknowns.
+- **`computeShadeMap` 12.768 ms** — memoisation status still unchecked.
+- **Geometry-refill colour cache** — colour math is 87% of the 11.7 ms refill;
+  cache the colour buffer, refill positions only (do NOT split position/colour).
+- **Graticule adaptive subdivision** — 79% of its cost is the drape walk, not
+  projection; the sqrt swap already took the projection slice.
+
+Everything in S28 below still stands.
+
+---
+
+## S28 (2026-09-02)
 
 Three commits on `main`, tree clean. Gates: typecheck 0 · lint 0 errors /
 **29 warnings** (the baseline — see the worktree trap below) · 290 tests across
