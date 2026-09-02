@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { BiomeType } from '../types';
+import { BiomeType, Cell } from '../types';
 import { generateWorld } from '../utils/worldGen';
 import { makeParams } from './helpers';
 
@@ -14,10 +14,8 @@ import { makeParams } from './helpers';
 // world rather than more unit tests: a biome can be unreachable while the
 // function that returns it is perfectly correct.
 const PTS = 12000;
-const landCells = (cells: { height: number }[], seaLevel: number) =>
-  cells.filter(c => c.height >= seaLevel);
-const share = (cells: { height: number; biome: BiomeType }[], seaLevel: number) => {
-  const land = landCells(cells, seaLevel);
+const share = (cells: Cell[], seaLevel: number): number => {
+  const land = cells.filter(c => c.height >= seaLevel);
   return land.filter(c => c.biome === BiomeType.VOLCANIC).length / land.length;
 };
 
@@ -50,17 +48,18 @@ describe('volcanism', () => {
     expect(share(w.cells, w.params.seaLevel)).toBeLessThan(0.15);
   }, 120000);
 
-  it('never claims ocean or lake cells', async () => {
+  it('only ever claims land cells that carry high uplift', async () => {
     const w = await generateWorld(makeParams({ seed: 'volc-a', points: PTS }));
     const sea = w.params.seaLevel;
-    // The pass runs before the lake pass precisely so standing water wins.
-    for (const c of w.cells) {
-      if (c.biome === BiomeType.VOLCANIC) expect(c.height).toBeGreaterThanOrEqual(sea);
+    const volcanic = w.cells.filter(c => c.biome === BiomeType.VOLCANIC);
+    expect(volcanic.length).toBeGreaterThan(0);
+    for (const c of volcanic) {
+      expect(c.height).toBeGreaterThanOrEqual(sea);
+      // The threshold at volcanism = 1. Asserting the CONTRACT rather than the
+      // absence of lakes: "no volcanic cell is also a lake" is vacuous, since a
+      // cell holds exactly one biome — the lake pass simply overwrites it, and
+      // a test cannot distinguish that from the lake never overlapping.
+      expect(c.upliftAccum ?? 0).toBeGreaterThanOrEqual(2.5);
     }
-    const lakeIsLake = w.cells.every(
-      c => !(c.biome === BiomeType.LAKE || c.biome === BiomeType.SALT_LAKE)
-        || c.biome !== BiomeType.VOLCANIC,
-    );
-    expect(lakeIsLake).toBe(true);
   }, 120000);
 });
