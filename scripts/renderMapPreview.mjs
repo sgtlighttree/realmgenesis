@@ -52,7 +52,10 @@ const world = await generateWorld(makeParams({ seed, points }));
 const written = [];
 for (const style of styles) {
   for (const mode of modes) {
-    const svg = exportSVG(world, mode, 'equirectangular', width, style);
+    // `true` for hillshade: exportSVG now defaults it OFF to agree with the PNG
+    // path, but this instrument shaded unconditionally before that change, and
+    // renders have to stay comparable with earlier sessions'.
+    const svg = exportSVG(world, mode, 'equirectangular', width, style, '', true);
     const file = `${outDir}/${style}-${mode}.svg`;
     writeFileSync(file, svg);
     written.push(file);

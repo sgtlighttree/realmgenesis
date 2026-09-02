@@ -37,7 +37,12 @@ const escapeXml = (value: string): string =>
 
 // --- SVG EXPORT ---
 
-const renderCellPaths = (world: WorldData, viewMode: ViewMode, pathGenerator: d3.GeoPath): string => {
+const renderCellPaths = (
+  world: WorldData,
+  viewMode: ViewMode,
+  pathGenerator: d3.GeoPath,
+  shadeMap: Float32Array | null,
+): string => {
   const factionColors = buildFactionColorMap(world.civData);
   const cultureColors = buildCultureColorMap(world.cultures);
   const religionColors = buildReligionColorMap(world.religions);
@@ -48,13 +53,15 @@ const renderCellPaths = (world: WorldData, viewMode: ViewMode, pathGenerator: d3
     if (!feature?.geometry) return;
     const d = pathGenerator(feature);
     if (!d) return;
-    const hex = '#' + getCellColor(cell, viewMode, {
+    const color = getCellColor(cell, viewMode, {
       seaLevel,
       factionColors,
       cultureColors,
       religionColors,
       seasonalDelta: seasonalTemperatureDelta(cell, world.params),
-    }).getHexString();
+    });
+    if (shadeMap) color.multiplyScalar(shadeMap[cell.id]);
+    const hex = '#' + color.getHexString();
     parts.push(`<path d="${d}" fill="${hex}" stroke="${hex}" stroke-width="1"/>`);
   });
   return parts.join('');
@@ -212,6 +219,15 @@ export const exportSVG = (
    * asynchronously and this function stays pure and synchronous.
    */
   fontCss = '',
+  /**
+   * Relief shading, matching the PNG path's `showHillshade` (`utils/export.ts`).
+   * Appended LAST and defaulted so the existing positional callers — the app,
+   * `scripts/renderMapPreview.mjs`, `tests/exportVectorStyled.test.ts` — keep
+   * compiling. The default is `false` to agree with `exportMap`; SVG used to
+   * shade unconditionally, so any instrument that wants the old picture must
+   * now ask for it (the preview script does).
+   */
+  showHillshade = false,
 ): string => {
   let height = width / 2;
   if (projectionType === 'mercator' || projectionType === 'orthographic') height = width;
@@ -243,7 +259,7 @@ export const exportSVG = (
     runStyle(style, {
       world, viewMode, widthPx: width, heightPx: height,
       glyphs,
-      shadeMap: computeShadeMap(world.cells, world.params.seaLevel),
+      shadeMap: showHillshade ? computeShadeMap(world.cells, world.params.seaLevel) : null,
       coastlines: computeCoastlineSegments(world),
       colorCtx: {
         seaLevel: world.params.seaLevel,
@@ -264,7 +280,11 @@ export const exportSVG = (
     );
   }
 
-  const cellPaths = renderCellPaths(world, viewMode, pathGenerator);
+  // The legacy path shades too, so `default` matches the PNG export cell for
+  // cell. It was the second half of the same gap: the toggle was threaded into
+  // `exportMap` and nowhere in this file.
+  const legacyShade = showHillshade ? computeShadeMap(world.cells, world.params.seaLevel) : null;
+  const cellPaths = renderCellPaths(world, viewMode, pathGenerator, legacyShade);
   const coastlines = buildCoastlinesGroup(world, pathGenerator, width);
   const rivers = buildRiversGroup(world, projection, width, style.overlayInk);
   const routes = buildRoutesGroup(world, projection, width, style.overlayInk);
@@ -290,11 +310,12 @@ export const downloadSVG = async (
   projectionType: VectorProjectionType = 'equirectangular',
   width = 2048,
   mapStyleId: MapStyleId = 'default',
+  showHillshade = false,
 ): Promise<void> => {
   // Async only to fetch and inline the webfonts; exportSVG itself stays pure
   // and synchronous, which is what keeps it testable without a DOM.
   const fontCss = await embeddedFontCss(getMapStyle(mapStyleId).labelTheme);
-  const svg = exportSVG(world, viewMode, projectionType, width, mapStyleId, fontCss);
+  const svg = exportSVG(world, viewMode, projectionType, width, mapStyleId, fontCss, showHillshade);
   const blob = new Blob([svg], { type: 'image/svg+xml' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
