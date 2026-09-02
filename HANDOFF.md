@@ -88,6 +88,8 @@ dead, not miscalibrated. This is the same class as the C5b territorial-waters
 bug (a constant outliving the scale it was calibrated against) but it does not
 have C5b's cheap fix.
 
+**FIXED later the same session — see "VOLCANIC, fixed" below.**
+
 **Forward path, with its evidence.** Altitude is the wrong predictor for
 volcanism anyway; this engine already carries the right one. `upliftAccum` (V3
 kinematic uplift, the convergent-boundary signal) is populated on **every** land
@@ -97,11 +99,17 @@ top-2% uplift cells span landFrac **0.04..1.00, median ~0.5–0.6**, with
 temperatures reaching **+27 °C**. So it is a real predictor, not a proxy for
 height, and a temperature guard can survive against it.
 
-Cost, so it is scoped honestly: `determineBiome(height, temp, moisture,
-seaLevel)` has no access to `upliftAccum`, so this changes its signature and
-touches every caller plus the biome tests. It also relocates the biome from
-peaks to mid-elevation arcs — a new spatial signature, i.e. **a D-tier feature
-with a spec, not a bugfix.** Seed breakage is authorised (ROADMAP:34).
+**CORRECTION — the cost estimate written here was WRONG.** It said this changes
+`determineBiome`'s signature, touches every caller and the biome tests, and is
+therefore "a D-tier feature with a spec, not a bugfix". That was written before
+noticing that **LAKE and SALT_LAKE are not classified by `determineBiome` at
+all** — they are assigned in a pass after it, and `getCellColor` excludes them
+from seasonal re-derivation (`colors.ts:120`) as "hydrology-derived and outside
+determineBiome's remit". VOLCANIC is the same kind of thing, and following that
+existing pattern costs **no signature change, no caller churn, and two
+assertions in `biomes.test.ts`**. Trying to express volcanism inside
+`determineBiome(height, temp, moisture, seaLevel)` was the original sin — it is
+what made an altitude gate look reasonable in the first place.
 
 ### The volcano glyph shipped in `6eb0506` is DORMANT at default params
 
@@ -192,10 +200,15 @@ three fields are `undefined` on every cell** — only the in-process test path h
 them.
 
 **Currently harmless: nothing outside generation reads them.** It is a latent
-trap, not a live bug. But it directly affects the VOLCANIC forward path above —
-the `upliftAccum` evidence was gathered in-process, and any *post-worker*
-consumer (an Inspector crust readout, say) would get `undefined` while passing
-every test.
+trap, not a live bug.
+
+**It nearly stopped being latent.** Under the rejected signature-change design
+for VOLCANIC it was a hard PREREQUISITE, not a cleanup: `colors.ts:122` and
+`paintUtils.ts:121` both call `determineBiome` **in the app, post-worker**, where
+`upliftAccum` is `undefined` — so they would have silently produced a different
+biome than generation did, and only in the running app. Assigning VOLCANIC
+before serialization sidesteps it entirely. Any future feature reading these
+fields outside the worker still has to deal with it.
 
 **Not fixed, deliberately.** `WorldPayload.presence` is a `Uint8Array` and all
 eight bits are already taken (`P_FLUX`…`P_TOWN`), so carrying three more optional
