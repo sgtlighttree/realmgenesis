@@ -385,6 +385,52 @@ async function generateRivers(cells: Cell[], seaLevel: number, params: WorldPara
 
 // --- BIOME ---
 
+/**
+ * Uplift at which a land cell becomes VOLCANIC at `volcanism` = 1.
+ *
+ * Calibrated, not guessed: at 20k over 5 seeds this yields a MEDIAN of 1.08% of
+ * land, ranging 0.51%-3.00%. An ABSOLUTE threshold is the point — a percentile
+ * would hand every world the same volcanic share, whereas what we want is a
+ * tectonically quiet world getting few volcanoes and an active one getting
+ * many. The spread above is that behaviour, not noise.
+ *
+ *     threshold      0.5    0.8    1.0   1.25    1.5    2.0    2.5
+ *     median % land 9.41   6.74   5.76   4.31   3.67   2.11   1.08
+ */
+const VOLCANIC_UPLIFT_BASE = 2.5;
+
+/**
+ * VOLCANIC as a post-classification pass, keyed on convergent uplift.
+ *
+ * Volcanism is tectonic, not climatic. `upliftAccum` is the V3 kinematic uplift
+ * accumulated at convergent boundaries, so thresholding it puts volcanic ground
+ * along subduction arcs — which is where most subaerial volcanism actually is.
+ * Measured, it genuinely separates from elevation rather than proxying it: the
+ * field is zero-inflated (p50 = 0) and its top 2% spans landFrac 0.04-1.00 with
+ * a median near 0.5, i.e. mid-elevation arcs, not summits.
+ *
+ * `volcanism` scales the bar INVERSELY, so the slider reads the way a user
+ * expects: turn it up, get more volcanoes. 0 disables the pass, which is also
+ * the only way to get a world with no volcanic ground at all.
+ *
+ * Runs after climatic classification and before the lake pass, so it overrides
+ * every climate biome (ICE_CAP included — Erebus is real) but never standing
+ * water. Note this makes such cells marginally costlier to cross:
+ * `pathfinding.ts` charges VOLCANIC x5 against ICE_CAP's x4. Intended.
+ *
+ * NOT a `physicalClimate` branch: the old altitude gate was climate-coupled by
+ * accident and that is exactly what broke it. This reads no temperature at all.
+ */
+function assignVolcanicBiome(cells: Cell[], params: WorldParams): void {
+  const volcanism = params.volcanism ?? 1.0;
+  if (volcanism <= 0) return;
+  const threshold = VOLCANIC_UPLIFT_BASE / volcanism;
+  for (const c of cells) {
+    if (c.height < params.seaLevel) continue;
+    if ((c.upliftAccum ?? 0) >= threshold) c.biome = BiomeType.VOLCANIC;
+  }
+}
+
 export function determineBiome(height: number, temp: number, moisture: number, seaLevel: number): BiomeType {
   if (height < seaLevel) {
     if (height < seaLevel * 0.6) return BiomeType.DEEP_OCEAN;
@@ -392,7 +438,17 @@ export function determineBiome(height: number, temp: number, moisture: number, s
   }
   const landH = (height - seaLevel) / (1 - seaLevel);
   if (landH < 0.02 && temp > 15) return BiomeType.BEACH;
-  if (landH > 0.85 && temp > -5) return BiomeType.VOLCANIC;
+  // VOLCANIC is NOT classified here. It is tectonic, not climatic — a function
+  // of convergent uplift, which is not among this function's arguments — so it
+  // is assigned in its own pass after classification, the way LAKE and
+  // SALT_LAKE are. See the volcanic pass in `generateWorld`.
+  //
+  // It used to live here as `landH > 0.85 && temp > -5`, and D8b's real lapse
+  // rate silently killed it: landH 0.85 is ~6.5 km, which at 6.5 C/km is ~42 C
+  // of cooling, so every cell that cleared the altitude bar was far below the
+  // temperature one. Measured at 20k on 2 seeds: ZERO volcanic cells. The two
+  // conditions had become mutually exclusive by construction, which is why no
+  // threshold tweak or reordering could recover it. See HANDOFF S28.
   if (temp < -10) return BiomeType.ICE_CAP;
   if (temp < 0) return BiomeType.TUNDRA;
   
@@ -722,7 +778,13 @@ export async function generateWorld(params: WorldParams, onLog?: (msg: string) =
       c.biome = determineBiome(c.height, c.temperature, c.moisture, params.seaLevel);
   });
 
+  assignVolcanicBiome(cells, params);
+
   progress();
+  // Lakes are assigned inside generateRivers, i.e. AFTER the volcanic pass, so
+  // a lake covering a volcanic cell wins. That ordering is deliberate: volcanic
+  // rock overrides every climatic biome including ICE_CAP, but not standing
+  // water.
   const { rivers, lakes } = await generateRivers(cells, params.seaLevel, params, onLog);
   const world: WorldData = { cells, params, geoJson: polygons, rivers, lakes };
   if (currentField && sstAnomaly) {

@@ -42,6 +42,11 @@ export const withParamDefaults = (params: WorldParams): WorldParams => ({
   // damping site (the macro hill term also gained octaves, so no value reproduces
   // pre-D10 output exactly — seed movement was authorized).
   seafloorRelief: typeof params.seafloorRelief === 'number' && isFinite(params.seafloorRelief) ? params.seafloorRelief : 1.0,
+  // S28: pre-volcanism saves lack the key. Default 1.0 rather than 0 — a save
+  // made before the pass existed came from a world whose volcanic ground was
+  // broken, not deliberately absent, so reloading it should give the fixed
+  // behaviour.
+  volcanism: typeof params.volcanism === 'number' && isFinite(params.volcanism) ? params.volcanism : 1.0,
 });
 
 // Matches the options offered in the Export tab. 16K+ exceeded browser
@@ -582,6 +587,7 @@ export const validateWorldParams = (params: unknown): params is Record<string, u
         warpStrength: [0, 2.0],
         tectonicStrength: [0, 2.0],
         seafloorRelief: [0, 2.0],
+        volcanism: [0, 2.0],
         erosionIterations: [0, 50],
         baseTemperature: [-10, 50],
         poleTemperature: [-50, 20],

@@ -118,6 +118,7 @@ export interface WorldParams {
   spreadRate: number; // 0.004-0.02, chord-per-Ma seafloor spreading rate; smaller = older/deeper floor
   seafloorDepth: number; // 0.3-2.0, linear ocean-floor depth datum (mean water depth); 1.0 = unchanged, <1 shallower seas, >1 deeper abyss. Coastline (seaLevel) held fixed.
   seafloorRelief: number; // 0-2.0, bathymetric relief (roughness) of the sea bed. Scales abyssal-hill amplitude at macro scale AND the deep-ocean structural-noise damping at display scale, in the SAME direction. 0 = near-flat abyssal plains, 2 = rugged. Distinct from seafloorDepth, which is a mean-depth datum.
+  volcanism: number; // 0-2.0, how readily convergent uplift produces VOLCANIC land cover. Scales the `upliftAccum` threshold INVERSELY (higher = lower bar = more volcanic terrain); 0 disables the pass entirely. Not an altitude gate — see the volcanic pass in worldGen.ts.
   microplateIntensity: number; // 0-1, how many shear-driven microplates to inject (0 = none, byte-identical)
   plateElongation: number; // 0–1: seed-chain length → plate elongation (0 = round blobs)
 
