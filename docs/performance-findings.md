@@ -56,9 +56,16 @@ budget at 60 fps. That is the whole problem in one line.
 ### The validated ladder — do this first
 
 > **Rung 1 SHIPPED (S29, `9bc20fe`):** the `hypot`→`sqrt` swap is now in
-> `utils/screenProject.ts`. The per-tenant speedups below are realised. The
-> remaining rung is the staged typed-array projector (the jump to 0.320 ms) —
-> still to be ported from `scripts/perf/globeBench.ts` into the app.
+> `utils/screenProject.ts`. The per-tenant speedups below are realised.
+>
+> **Rung 2 SHIPPED (S29, `2342249`):** the staged typed-array + fused-MVP
+> projector is ported into the app. It lives as pure functions
+> (`stageCellPoints`/`projectStaged`/`projectLocalPoint`) in
+> `utils/screenProject.ts`, wired into `ScreenOverlay`; guarded by
+> `tests/screenProjectStaged.test.ts` (parity vs the naive path, 0 flips). Bench
+> 1.373 → 0.242 ms/frame at 20k. **The globe projection ladder is complete** —
+> the remaining globe levers below are the graticule drape walk and the
+> geometry-refill colour cache, not projection.
 
 The globe agent's last words before it died were *"typed-array staging and
 hypot→sqrt"*. Both are **already implemented and correctness-checked** in

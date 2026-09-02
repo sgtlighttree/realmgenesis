@@ -58,14 +58,32 @@ behaviour change. Every ScreenOverlay tenant projects through `isVisible`, so th
 win cascades: contours 0.483→0.301, borders 0.208→0.096, rivers 0.252→0.119,
 graticule smooth 0.370→0.212 ms/frame. Matches S28's 30k ratios (3.5–4.9x).
 
-**Deliberately NOT done — the rest of the ladder is separate work.** The full
-11.5x in `docs/performance-findings.md` needs the **staged typed-array
-projector** (`stage()` builds per-world scratch arrays, then a fused-MVP loop
-projects all cells at 0.24 ms vs 1.37 baseline). That is a real refactor of the
-per-frame projection path, not a two-liner, and it is the correct next rung.
-The candidate is already written and correctness-checked inside
-`scripts/perf/globeBench.ts` (`stage()` + the fused loop, lines ~320-350) — port
-it into the app's projection path, don't re-derive it.
+**Rung 2 ALSO SHIPPED this session (`2342249`): staged + fused globe projector,
+11.5x.** The per-frame `ScreenOverlay` loop no longer re-derives each cell's
+radius and does two THREE matrix ops per cell. `stageCellPoints()` precomputes
+each cell's rendered-radius LOCAL point + `|P|` once per world; `projectStaged()`
+/ `projectLocalPoint()` apply one fused MVP matrix (`projection·viewInverse·
+globe`) with the camera transformed into the globe's LOCAL frame, both hoisted
+out of the loop. Bench (20k): **1.373 → 0.242 ms/frame**; `stage()` 0.56 ms per
+world.
+
+- **Staleness is handled by a stale flag**, not effect-ordering luck: set in the
+  `[nCells, world]` and `[smoothGlobe]` effects. Every height mutation (paint,
+  undo) ends in `setWorld({...world})` — verified `useWorldEngine.ts:592-598` and
+  every sibling path — so a fresh `world` ref always precedes the next frame and
+  the staged cache cannot decouple from the terrain radius (the S18/S19b parallax
+  class).
+- **The projection is now pure importable functions in `utils/screenProject.ts`**
+  (was inline in the React `useFrame`, which is exactly why the bench had to keep
+  a copy). `tests/screenProjectStaged.test.ts` A/Bs the fused path vs a naive
+  THREE reference across 5 camera/globe/smooth scenarios: **0 flips, sub-pixel
+  error.** Frame-timing is preserved by construction — the two matrix-update
+  calls are untouched and `mvp` is built from those same refreshed matrices.
+- **Verified live in-app** (Matt's dev server, HMR): overlay canvas draws 14.3k
+  px, no console errors. Full-app zoom/spin drift not screenshot-verified this
+  session (MCP screenshots weren't retrievable + Matt was in a class) — the
+  parity test + untouched timing cover the math; a quick visual glance on the
+  globe with overlays on is the one loose end if you want belt-and-suspenders.
 
 **Next-best F4 levers after that (from `docs/performance-findings.md`, unchanged):**
 - **Map2D pan/zoom ~2.2 s blocked at 30k** — still the worst number in the
