@@ -32,8 +32,21 @@ const glyphFor = (cell: Cell, seaLevel: number): GlyphKind | null => {
   // Ice outranks relief: a glaciated peak reads as ice on a drawn map, and
   // without this an ice cap carries mountain glyphs and no sign of being ice.
   if (cell.biome === BiomeType.ICE_CAP) return 'ice';
+  // Volcanic outranks relief for the same reason ice does. `determineBiome`
+  // only assigns VOLCANIC above landH 0.85, so every volcanic cell would
+  // otherwise fall through to the `f > 0.45` branch and draw as a generic peak
+  // — which is what it did until now: not a missing glyph, a wrong one.
+  if (cell.biome === BiomeType.VOLCANIC) return 'volcano';
   if (f > 0.45) return 'mountain';
   if (f > 0.22) return 'hill';
+  // Very wet ground barely above sea level reads as marsh rather than the
+  // forest its biome would otherwise claim. The elevation gate is what makes
+  // this selective, NOT the moisture one: land moisture in this engine
+  // SATURATES at 1.0 (measured at 20k, 3 seeds: p90 = 1.000), so `> 0.8` alone
+  // matches roughly a third of all land. Adding a local-relief test as well was
+  // tried and produced 12 / 0 / 0 cells across those seeds — a second dead
+  // glyph — so flatness is deliberately not part of the rule.
+  if (f < 0.05 && cell.moisture > 0.8) return 'marsh';
   switch (cell.biome) {
     case BiomeType.BOREAL_FOREST:
       return 'conifer';
@@ -55,8 +68,16 @@ const glyphFor = (cell: Cell, seaLevel: number): GlyphKind | null => {
  */
 const prominence = (cell: Cell, kind: GlyphKind, seaLevel: number): number => {
   const f = landFrac(cell, seaLevel);
+  // Above every relief band (mountain tops out at 2000), so a volcano is never
+  // thinned away by an adjacent ordinary peak. A glyph that loses its thinning
+  // contest is a glyph nobody ever sees.
+  if (kind === 'volcano') return 3000 + f * 100;
   if (kind === 'ice') return 2000 + f * 100; // never thinned away by relief
   if (kind === 'mountain' || kind === 'hill') return 1000 + f * 1000;
+  // Above the other vegetation but below all relief. Marsh is by definition the
+  // LOWEST land, so it scores near zero on the `f * 100` vegetation ramp and
+  // loses every thinning contest to an ordinary forest without this band.
+  if (kind === 'marsh') return 500 + f * 100;
   return f * 100;
 };
 
