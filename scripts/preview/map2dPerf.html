@@ -1,0 +1,210 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Map2D redraw perf</title>
+<link rel="icon" href="data:,">
+<style>
+  html,body{margin:0;background:#000;overflow:hidden}
+  #host{position:absolute;left:0;top:0}
+  #log{position:absolute;right:0;bottom:0;z-index:9;font:11px monospace;color:#9f9;background:#000a;padding:4px}
+</style>
+<div id="host"></div>
+<div id="log">booting…</div>
+<script type="module">
+// Harness for scripts/renderMap2DPerf.mjs — F4.
+//
+// Mounts the REAL Map2D component (not a copy of its render body) so a redraw
+// measured here is the redraw the app performs. Duplicating the pass sequence
+// into a benchmark would drift from the component the moment either changed,
+// and the whole point of the exercise is to know what the component costs.
+//
+// Timing is by a MessageChannel jank sampler rather than PerformanceObserver:
+// `longtask` only reports above 50ms and the per-frame blit costs less than
+// that. The delay between posting a port message and receiving it IS the time
+// the main thread spent blocked, at sub-millisecond resolution.
+//
+// EVERY import here is RELATIVE. The dev server this page is loaded from is
+// rooted at the main checkout, so an absolute '/utils/...' would silently
+// measure main's code instead of this worktree's.
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import '../../index.css';
+import Map2D from '../../components/Map2D.tsx';
+import { generateWorld } from '../../utils/worldGen.ts';
+import { makeParams } from '../../tests/helpers.ts';
+
+const q = new URLSearchParams(location.search);
+const width = Number(q.get('width') ?? 1400);
+const height = Number(q.get('height') ?? 700);
+const points = Number(q.get('points') ?? 30000);
+const seed = q.get('seed') ?? 'realmgenesis';
+const style = q.get('style') ?? 'parchment';
+const mode = q.get('mode') ?? 'biome';
+const hillshade = q.get('hillshade') !== '0';
+
+const logEl = document.getElementById('log');
+const log = (s) => { logEl.textContent = s; };
+
+const host = document.getElementById('host');
+host.style.width = `${width}px`;
+host.style.height = `${height}px`;
+
+const raf = () => new Promise((r) => requestAnimationFrame(() => r()));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Blocking-time sampler. Each loop is one macrotask; the gap between posting
+ * and receiving is whatever else the main thread ran in between.
+ */
+const makeSampler = () => {
+  const samples = [];
+  let last = performance.now();
+  let running = true;
+  const ch = new MessageChannel();
+  ch.port1.onmessage = () => {
+    const now = performance.now();
+    const d = now - last;
+    if (d > 0.6) samples.push({ t: last, d });
+    last = now;
+    if (running) ch.port2.postMessage(0);
+  };
+  ch.port2.postMessage(0);
+  return { samples, stop: () => { running = false; } };
+};
+
+log(`generating ${points} points…`);
+const t0 = performance.now();
+const world = await generateWorld(makeParams({ seed, points, erosionIterations: 3 }));
+const genMs = performance.now() - t0;
+log(`world ready in ${(genMs / 1000).toFixed(1)}s — ${world.cells.length} cells`);
+
+const canvasEl = () => host.querySelector('canvas');
+
+const props = {
+  world,
+  viewMode: mode,
+  inspectMode: 'off',
+  onInspect: () => {},
+  projectionType: q.get('projection') ?? 'mercator',
+  showRivers: true,
+  showHillshade: hillshade,
+  mapStyleId: style,
+  labelVisibility: {
+    factions: true, capitals: true, provinces: true, towns: true,
+    geography: true, borders: true, markers: true,
+  },
+};
+
+createRoot(host).render(React.createElement(Map2D, props));
+
+// Let the mount, the webfont resolve and the DPR settle timer all land.
+await sleep(2500);
+await raf();
+
+const centre = { x: width / 2, y: height / 2 };
+const mouse = (type, x, y, extra = {}) => {
+  canvasEl().dispatchEvent(new MouseEvent(type, {
+    bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: 1, ...extra,
+  }));
+};
+
+/** One drag gesture: press, N moves each given a frame, release, settle. */
+const panGesture = async (steps = 30, dx = 6, dy = 3) => {
+  const s = makeSampler();
+  const marks = { start: performance.now() };
+  mouse('mousedown', centre.x, centre.y);
+  await raf();
+  marks.afterDown = performance.now();
+  let x = centre.x, y = centre.y;
+  for (let i = 0; i < steps; i++) {
+    x += dx; y += dy;
+    mouse('mousemove', x, y);
+    await raf();
+  }
+  marks.afterMoves = performance.now();
+  mouse('mouseup', x, y, { buttons: 0 });
+  await raf();
+  marks.afterUp = performance.now();
+  await sleep(1200); // SETTLE_MS is 200; leave room for the settled redraw
+  marks.end = performance.now();
+  s.stop();
+  return { samples: s.samples, marks };
+};
+
+const zoomGesture = async (steps = 12) => {
+  const s = makeSampler();
+  const marks = { start: performance.now() };
+  for (let i = 0; i < steps; i++) {
+    canvasEl().dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true, cancelable: true, clientX: centre.x, clientY: centre.y,
+      deltaY: i < steps / 2 ? -100 : 100,
+    }));
+    await raf();
+  }
+  marks.afterWheels = performance.now();
+  await sleep(1400);
+  marks.end = performance.now();
+  s.stop();
+  return { samples: s.samples, marks };
+};
+
+const inRange = (samples, a, b) => samples.filter((v) => v.t >= a && v.t < b).map((v) => v.d);
+const stat = (xs) => {
+  if (!xs.length) return { n: 0, sum: 0, max: 0, p50: 0 };
+  const sorted = [...xs].sort((p, r) => p - r);
+  return {
+    n: xs.length,
+    sum: +xs.reduce((p, r) => p + r, 0).toFixed(1),
+    max: +sorted[sorted.length - 1].toFixed(2),
+    p50: +sorted[Math.floor(sorted.length / 2)].toFixed(2),
+  };
+};
+
+// FNV-1a over the settled canvas PNG, so before/after can be compared without
+// shipping megabytes back through CDP on every run.
+const hashCanvas = () => {
+  const url = canvasEl().toDataURL('image/png');
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < url.length; i++) { h ^= url.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return { hash: (h >>> 0).toString(16), bytes: url.length };
+};
+
+log('measuring pan…');
+const pan = await panGesture();
+log('measuring zoom…');
+const zoom = await zoomGesture();
+
+// Return to the settled home state so the pixel hash is comparable run to run.
+// A pan leaves an offset and a zoom leaves a scale; a resize of the host resets
+// both through Map2D's own size effect.
+host.style.width = `${width + 1}px`;
+await sleep(400);
+host.style.width = `${width}px`;
+await sleep(2000);
+
+const settled = hashCanvas();
+
+window.__perf = {
+  cells: world.cells.length,
+  genMs: +genMs.toFixed(0),
+  dpr: window.devicePixelRatio,
+  canvas: { w: canvasEl().width, h: canvasEl().height },
+  pan: {
+    // The mousedown redraw: isInteracting flips qualityDpr down, which the
+    // offscreen effect depends on, so the whole map is redrawn before the
+    // first move frame is served.
+    press: stat(inRange(pan.samples, pan.marks.start, pan.marks.afterDown)),
+    // Per-frame cost while dragging. The offscreen is NOT redrawn here; this is
+    // the display effect (canvas resize + desk + shadowed blit).
+    moves: stat(inRange(pan.samples, pan.marks.afterDown, pan.marks.afterMoves)),
+    // The settle redraw, at the higher quality DPR.
+    settle: stat(inRange(pan.samples, pan.marks.afterUp, pan.marks.end)),
+  },
+  zoom: {
+    wheels: stat(inRange(zoom.samples, zoom.marks.start, zoom.marks.afterWheels)),
+    settle: stat(inRange(zoom.samples, zoom.marks.afterWheels, zoom.marks.end)),
+  },
+  settled,
+};
+window.__perfDone = true;
+log('done');
+</script>
