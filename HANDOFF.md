@@ -49,6 +49,8 @@ Three commits on `main`, tree clean. Gates: typecheck 0 · lint 0 errors /
 | Agent worktrees kept out of the lint gate | `f1130e5` |
 | SVG export honours the hillshade toggle, both paths | `5f4db6b` |
 | Volcano glyph + `marsh` wired up after never firing | `6eb0506` |
+| VOLCANIC extinction + two refuted fixes recorded | `c910b52` |
+| `CELL_OVERHANG` 1.03 → 1.10, globe seams closed | `cadbcf3` |
 
 ### VOLCANIC is EXTINCT at default params — regression, NOT fixed
 
@@ -154,9 +156,19 @@ ceiling exists anywhere in the run. Agents fed a written plan rather than "go
 investigate" would have had a far better chance. Unfinished lead recorded by the
 globe agent before it died: *typed-array staging and `hypot`→`sqrt`*.
 
-### Still open from S27h, untouched
+### Still open from S27h
 
-- **`CELL_OVERHANG`** — Matt approved raising it this session; sweep not yet run.
+- ~~**`CELL_OVERHANG`**~~ — **DONE, raised 1.03 → 1.10** (`cadbcf3`). Seam
+  density in the ocean went 0.283% → 0.000% in the disc core and 0.316% →
+  0.000% at the limb; the darkest ocean pixel went 17 (background showing
+  through an open seam) → 168 (no gap left). Measured on Boardgame at 20k,
+  the worst case. **The counter-cost was the surprise: there isn't one.**
+  Raising it was expected to fatten cliff overlap; land came out CLEANER,
+  because the dark dashes over land had been read as terrain detail and were
+  the same seams. Full table and rationale in the `utils/displayRadius.ts`
+  comment. Still a fixed constant where a count-derived one is principled —
+  closure is lateral ∝ cell radius ∝ sqrt(1/N), so it weakens as cell count
+  rises.
 - Exports get no desk backdrop (deliberate). Scale bar changes with latitude
   (Matt's call to pin). `palette.deskTexture` awaits a graphic.
 - **Label density** — names overlap badly at 1400px / 12000 cells, every style.
