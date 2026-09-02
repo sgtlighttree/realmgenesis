@@ -225,15 +225,18 @@ investigate" would have had a far better chance.
   bench arrived as `tests/f4bench.test.ts` and would have added a 30k world
   generation plus a 15-minute timeout to every `npm test`; it is now a script.
 
-**First real F4 numbers, from the salvaged bench at 6k cells** (re-measure at
-30k+ before acting — these do not all scale alike):
+**F4 is now measured at 30k and written up — read
+[`docs/performance-findings.md`](docs/performance-findings.md) before touching
+perf.** It carries the baseline, the ranked queue, and the two intuitive fixes
+the numbers already kill. Headlines:
 
-| Lead | Number |
+| | |
 |---|---|
-| Graticule tenant | **1.282 ms/frame** vs 0.05–0.33 for every other tenant; **0.818 ms is the walk**, not the projection |
-| Geometry refill | colour math is **1.662 ms of 2.234 ms** — a position/colour split alone will disappoint |
-| Fused MVP projector | 0.642 → 0.460 ms/frame; still needs its screen-error / visibility-flip numbers |
-| `computeShadeMap` | 2.160 ms, comparable to a whole refill |
+| **Map2D pan/zoom at 30k** | **~2.2 s of blocked main thread at EACH end of the gesture.** Dragging is free (0.7 ms, it blits) — the cost is the two DPR-switch redraws. Worst number in the project; **nobody has looked at where it goes.** |
+| **Globe projector** | 3.680 → **0.320 ms/frame** (11.5x), already written AND validated in the bench at **4.55e-13 px error, 0 visibility flips**. Root cause is `Math.hypot` in `utils/screenProject.ts:25,29` — the swap to `Math.sqrt` alone is 3.5–4.9x on most tenants and is a two-line change. **Start here.** |
+| `computeShadeMap` | **12.768 ms — more than an entire geometry refill.** Memoisation status unchecked. |
+| Geometry refill | colour math is **10.140 of 11.692 ms**, so a position/colour split saves ~13%. Cache the colour buffer instead. |
+| Graticule | priciest tenant at 2.375 ms, but **79% is the drape walk**, not projection. Adaptive subdivision is the lever, not a faster projector. |
 
 ### The V3 tectonic fields are LOST across the worker boundary
 
