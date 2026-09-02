@@ -19,8 +19,13 @@ describe('determineBiome', () => {
 
   it('classifies extreme elevations as volcanic unless frozen', () => {
     const high = SL + 0.9 * (1 - SL); // landH = 0.9 > 0.85
-    expect(determineBiome(high, 10, 0.5, SL)).toBe(BiomeType.VOLCANIC);
-    expect(determineBiome(high, -20, 0.5, SL)).toBe(BiomeType.ICE_CAP); // temp < -5 skips volcanic
+    // VOLCANIC left determineBiome in S28 — it is tectonic, assigned from
+    // `upliftAccum` in its own pass, so high warm land is now just land. The
+    // old gate (landH > 0.85 && temp > -5) had become unsatisfiable under D8b's
+    // lapse rate and produced ZERO volcanic cells; see tests/volcanism.test.ts
+    // for the replacement's coverage.
+    expect(determineBiome(high, 10, 0.5, SL)).not.toBe(BiomeType.VOLCANIC);
+    expect(determineBiome(high, -20, 0.5, SL)).toBe(BiomeType.ICE_CAP);
   });
 
   it('classifies polar bands by temperature', () => {

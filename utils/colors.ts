@@ -115,10 +115,18 @@ export const getCellColor = (cell: Cell, mode: ViewMode, ctx: ColorContext): THR
   // biome is re-derived from it for land cells only (never for water/lakes,
   // which are hydrology-derived and outside determineBiome's remit). cell.biome
   // and cell.temperature themselves are never mutated — civs/export stay canonical.
+  //
+  // VOLCANIC joins that exclusion list: it is TECTONIC, assigned from
+  // `upliftAccum` in its own pass, and `determineBiome` cannot reproduce it from
+  // (height, temp, moisture). Without this a volcanic field would silently
+  // revert to whatever the climate says the moment the season slider left
+  // neutral — and it would do so ONLY in the app, since `upliftAccum` does not
+  // survive the worker boundary. Same trap as lakes, same fix.
   const seasonalTemp = cell.temperature + (seasonalDelta ?? 0);
   const displayBiome =
     seasonalDelta && cell.height >= seaLevel &&
-    cell.biome !== BiomeType.LAKE && cell.biome !== BiomeType.SALT_LAKE
+    cell.biome !== BiomeType.LAKE && cell.biome !== BiomeType.SALT_LAKE &&
+    cell.biome !== BiomeType.VOLCANIC
       ? determineBiome(cell.height, seasonalTemp, cell.moisture, seaLevel)
       : cell.biome;
 

@@ -58,6 +58,22 @@ inline-comment source: `types.ts`. Defaults: `DEFAULT_PARAMS` in
 | `spreadRate` | `0.008` | 0.004–0.02 | Chord-per-Ma seafloor spreading rate; smaller = older/deeper floor (GDH1). |
 | `microplateIntensity` | `0.35` | 0–1 | Shear-driven microplates injected along high-strain boundaries. 0 = none (plate layout byte-identical). |
 | `plateElongation` | `0.4` | 0–1 | Seed-chain length → mild plate elongation. **Near-inert at the macro silhouette** — kept cheap; see [ENGINEERING-NOTES.md](ENGINEERING-NOTES.md). |
+| `volcanism` | `1.0` | 0–2.0 | How readily convergent uplift produces VOLCANIC land cover. Scales the `upliftAccum` threshold **inversely** (`2.5 / volcanism`), so higher = more volcanic ground; 0 disables the pass. Listed under Tectonics, not Climate, on purpose — it reads no temperature at all. |
+
+> **`volcanism` is not an altitude gate**, and this is the whole point of it.
+> VOLCANIC used to be classified inside `determineBiome` as
+> `landH > 0.85 && temp > -5`, which D8b's 6.5 °C/km lapse rate silently made
+> unsatisfiable — landH 0.85 is ~6.5 km, i.e. ~42 °C of cooling, so the biome
+> went **extinct** at default params and no test noticed. It is now assigned in
+> its own pass after climatic classification, the way `LAKE`/`SALT_LAKE` are,
+> keyed on the V3 convergent-uplift field. Calibrated to a **median 1.08% of
+> land** across 5 seeds at 20k (range 0.51–3.00%); the threshold is absolute, so
+> a tectonically quiet world genuinely gets fewer volcanoes than an active one.
+
+> **This table is behind the code.** `seafloorRelief` (D10), `physicalClimate`
+> and `maxElevationM` (D8) are live `WorldParams` keys with no row here. Adding
+> them is a docs task nobody has done; do not read an absence here as evidence a
+> param does not exist.
 
 ## Climate
 | Param | Default | Range | Effect |

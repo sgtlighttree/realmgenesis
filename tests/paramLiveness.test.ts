@@ -68,6 +68,9 @@ const V3_PERTURBATIONS: Record<string, Perturbation> = {
   // 2.0, not 0 — at 0 the Stage-9c block is skipped entirely, so a broken
   // amplitude term would still pass. 2.0 exercises the live path.
   seafloorRelief: { seafloorRelief: 2.0 },
+  // 2.0 halves the uplift threshold, roughly quadrupling volcanic land share
+  // (median 1.08% -> 4.31% at 20k over 5 seeds), so the change is unmissable.
+  volcanism: { volcanism: 2.0 },
   microplateIntensity: { microplateIntensity: 0.9 },
 };
 

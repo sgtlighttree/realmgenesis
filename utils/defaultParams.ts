@@ -33,6 +33,7 @@ export const DEFAULT_PARAMS: WorldParams = {
   spreadRate: 0.008,
   seafloorDepth: 1.0,
   seafloorRelief: 1.0,
+  volcanism: 1.0,
   microplateIntensity: 0.35,
   plateElongation: 0.4,
   baseTemperature: 30,

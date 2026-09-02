@@ -56,9 +56,24 @@ mis-wire an edge — unlikely at default density, probability grows toward the
 ### Biome classification
 `determineBiome(height, temp, moisture, seaLevel)`: below `seaLevel` →
 `OCEAN`/`DEEP_OCEAN` (< `seaLevel·0.6`); above, a Köppen-ish decision tree on
-normalized land elevation + temperature + moisture, with `BEACH`/`VOLCANIC` as
-elevation-band overrides. `LAKE`/`SALT_LAKE` are assigned **later** by the
-drainage solve, never here.
+normalized land elevation + temperature + moisture, with `BEACH` as the one
+elevation-band override.
+
+**Three biomes are NOT classified here**, and the pattern is the same for all
+three: they are not functions of `(height, temp, moisture)`, so they are
+assigned in later passes and `getCellColor` excludes them from D1's seasonal
+re-derivation (`colors.ts`).
+
+| Biome | Assigned by | Because |
+|---|---|---|
+| `LAKE` / `SALT_LAKE` | the drainage solve, inside `generateRivers` | hydrology-derived |
+| `VOLCANIC` | `assignVolcanicBiome`, between classification and the drainage solve | **tectonic** — thresholds the V3 `upliftAccum` field, scaled by the `volcanism` param |
+
+`VOLCANIC` was an elevation-band override until S28, and that is precisely how
+it broke: `landH > 0.85 && temp > -5` became unsatisfiable once D8b introduced a
+real lapse rate, and the biome went extinct at default params. Ordering matters —
+the volcanic pass runs **before** the drainage solve, so volcanic rock overrides
+every climatic biome (`ICE_CAP` included) but a lake still wins over it.
 
 ## Civilization half
 
