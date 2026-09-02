@@ -165,8 +165,13 @@ globe agent before it died: *typed-array staging and `hypot`→`sqrt`*.
   the worst case. **The counter-cost was the surprise: there isn't one.**
   Raising it was expected to fatten cliff overlap; land came out CLEANER,
   because the dark dashes over land had been read as terrain detail and were
-  the same seams. Full table and rationale in the `utils/displayRadius.ts`
-  comment. Still a fixed constant where a count-derived one is principled —
+  the same seams. **Verified on n=2 styles, one seed:** the sweep ran on
+  Boardgame (worst case for seams — flat pale sea, nothing to hide them), then
+  Parchment was rendered separately because it is the style best able to SHOW
+  the counter-cost, having hillshade and relief glyphs where fattened overlap
+  would read. Parchment at 1.10 has a continuous ocean hatch where 1.03 breaks
+  it up, with coastline ink and relief glyphs unchanged. Full table and
+  rationale in the `utils/displayRadius.ts` comment. Still a fixed constant where a count-derived one is principled —
   closure is lateral ∝ cell radius ∝ sqrt(1/N), so it weakens as cell count
   rises.
 - Exports get no desk backdrop (deliberate). Scale bar changes with latitude
