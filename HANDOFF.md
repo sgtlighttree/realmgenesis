@@ -38,7 +38,133 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## S27h (2026-08-29) — NEXT SESSION STARTS HERE
+## S28 (2026-09-02) — NEXT SESSION STARTS HERE
+
+Three commits on `main`, tree clean. Gates: typecheck 0 · lint 0 errors /
+**29 warnings** (the baseline — see the worktree trap below) · 290 tests across
+30 files, `VITEST_WORKERS=1`. The full suite was NOT run.
+
+| What | Commit |
+|---|---|
+| Agent worktrees kept out of the lint gate | `f1130e5` |
+| SVG export honours the hillshade toggle, both paths | `5f4db6b` |
+| Volcano glyph + `marsh` wired up after never firing | `6eb0506` |
+
+### VOLCANIC is EXTINCT at default params — regression, NOT fixed
+
+**The finding, verified.** `determineBiome` (`utils/worldGen.ts:395`) gates
+VOLCANIC on `landH > 0.85 && temp > -5`. D8b's 6.5 °C/km lapse rate puts every
+cell in that elevation band far below the guard. Measured at 20k, 2 seeds:
+
+| `physicalClimate` | cells `landH > 0.85` | of those, `temp > -5` | temp range on that band |
+|---|---|---|---|
+| **true (default)** | 72 / 66 | **0 / 0** | −51.3..−14.1 · −55.3..−10.7 |
+| false | 72 / 66 | 39 / 36 | −22.2..+7.0 · −23.9..+8.8 |
+
+D8b deleted a biome and nothing caught it, because **no test asserts biome
+presence** — `tests/biomes.test.ts` unit-tests `determineBiome` with synthetic
+inputs (`temp 10`), which still passes. A biome-presence assertion over a
+generated world is the missing guard.
+
+**REFUTED — "reorder VOLCANIC below ICE_CAP and relax the guard."** This is the
+obvious fix and it does not work; it was refuted by measurement before being
+written, so do not spend an hour rediscovering it. VOLCANIC is currently checked
+BEFORE `temp < -10`, so merely relaxing its guard would strip the ice off every
+peak — hence the appeal of reordering first. But max temperature on the
+`landH > 0.85` band is **−10.7 °C**, which is already below ICE_CAP's own −10
+threshold. After a reorder, ICE_CAP claims 100% of the band and VOLCANIC is
+still 0. No ordering and no threshold value recovers it.
+
+**Why there is no minimal fix.** `landH 0.85` through the `frac²` hypsometric
+curve against `maxElevationM` 9000 is ~6.5 km; at 6.5 °C/km that is ~42 °C of
+cooling. Under D8b's datum, "high enough to be volcanic" and "warm enough not to
+be glaciated" are mutually exclusive BY CONSTRUCTION. The altitude predictor is
+dead, not miscalibrated. This is the same class as the C5b territorial-waters
+bug (a constant outliving the scale it was calibrated against) but it does not
+have C5b's cheap fix.
+
+**Forward path, with its evidence.** Altitude is the wrong predictor for
+volcanism anyway; this engine already carries the right one. `upliftAccum` (V3
+kinematic uplift, the convergent-boundary signal) is populated on **every** land
+cell — 5150/5150 and 6335/6335 — is zero-inflated (**p50 = 0.0000**, p90 0.65 /
+0.31, max 8.04 / 3.77), and critically it **separates from elevation**: the
+top-2% uplift cells span landFrac **0.04..1.00, median ~0.5–0.6**, with
+temperatures reaching **+27 °C**. So it is a real predictor, not a proxy for
+height, and a temperature guard can survive against it.
+
+Cost, so it is scoped honestly: `determineBiome(height, temp, moisture,
+seaLevel)` has no access to `upliftAccum`, so this changes its signature and
+touches every caller plus the biome tests. It also relocates the biome from
+peaks to mid-elevation arcs — a new spatial signature, i.e. **a D-tier feature
+with a spec, not a bugfix.** Seed breakage is authorised (ROADMAP:34).
+
+### The volcano glyph shipped in `6eb0506` is DORMANT at default params
+
+Direct consequence of the above, and the one thing a reader of that commit would
+otherwise get wrong. It is reachable only with `physicalClimate` **off** (it is
+a user toggle, `components/Controls.tsx:1076`) or on a pre-D8b saved world. It
+is not dead code, but it draws nothing on a default world until VOLCANIC is
+fixed. Exactly the shape of the `marsh` trap that same commit closed.
+
+### `marsh` had never been drawn on any map
+
+In `GlyphKind`, shapes in `glyphPaths.ts`, listed as shipped in ROADMAP A3 — and
+`glyphFor` never returned it. Now fires on `f < 0.05 && moisture > 0.8`;
+measured after thinning: **20 / 9 / 26** glyphs per world.
+
+**Land moisture SATURATES at 1.0 in this engine** (20k, 3 seeds: p50 0.53–0.90,
+**p90 = 1.000**). So the moisture threshold is NOT what makes the rule
+selective — the elevation gate is; `moisture > 0.8` alone matches roughly a
+third of all land. This saturation is worth someone's attention on its own: D8b
+tuned against the low tail (`moisture < 0.15`) and the high tail is pinned.
+
+**REFUTED — adding a local-relief (flatness) test to the marsh rule.** Measured
+12 / 0 / 0 cells across 3 seeds at 20k. It would have shipped a second dead
+glyph. Flatness is deliberately excluded.
+
+Marsh also needed its own `prominence` band (500 + f*100, above vegetation and
+below all relief): it is by definition the lowest land, so on the plain
+`f * 100` vegetation ramp it scored near zero and lost every thinning contest to
+an ordinary forest. **A glyph that loses its thinning contest is a glyph nobody
+ever sees** — check placement AND survival when adding one.
+
+### Agent worktrees nested in the repo break `npm run lint`
+
+`.claude/worktrees/` holds full git-worktree checkouts of this repo, inside it.
+ESLint walked all of them: **146 warnings against a 29 ratchet** with four agents
+running — five copies of the same 29, not one real finding. Ignored in
+`eslint.config.js` and `.gitignore` (`f1130e5`). Any gate that globs the tree
+has this problem; `tsc` did not, but check before trusting a count.
+
+### The parallel-Opus experiment failed — what it does and does not show
+
+Four `opus-high` agents were dispatched at once on F4 workstreams (generation,
+globe, Map2D, React). **All four died on the same HTTP 429 monthly spend
+limit**, mid-orientation. **Zero commits.** Salvage left uncommitted in their
+worktrees: 122 unverified lines in `utils/tectonicsV3.ts` (no determinism check
+run — that was its hard gate, so do not merge it without one), plus three
+benchmark harnesses (`tests/f4bench.test.ts`,
+`scripts/renderMap2DPerf.mjs` + `scripts/preview/map2dPerf.html`,
+`hooks/renderProbe.ts`).
+
+This is **not** evidence about Opus's parallel throughput — they never got past
+reading the repo. What it shows is that four cold contexts each paying full
+orientation cost *before* producing anything is the wrong shape when a hard
+ceiling exists anywhere in the run. Agents fed a written plan rather than "go
+investigate" would have had a far better chance. Unfinished lead recorded by the
+globe agent before it died: *typed-array staging and `hypot`→`sqrt`*.
+
+### Still open from S27h, untouched
+
+- **`CELL_OVERHANG`** — Matt approved raising it this session; sweep not yet run.
+- Exports get no desk backdrop (deliberate). Scale bar changes with latitude
+  (Matt's call to pin). `palette.deskTexture` awaits a graphic.
+- **Label density** — names overlap badly at 1400px / 12000 cells, every style.
+- Backlog styles (Antique Nautical, Topographic) are real pass work.
+
+---
+
+## S27h (2026-08-29)
 
 **MERGED to `main` and pushed** (fast-forward, `4881231..28e1903`). Branch
 `a3-map-style` pushed and now identical to main.
@@ -159,9 +285,12 @@ substrate, so the three new styles were also cycled in the running app:
   QUIETLY: a fold's two halves often land near each other, so the naive
   two-point sample returns a believable wrong number. Three points, compare the
   steps, reject on a jump. 1.7% of those points rejected.
-- **VOLCANIC has no glyph** — a `bare` fill policy claims glyphs carry every
-  terrain, and that claim wants checking against the whole `BiomeType` list.
-  Boardgame sidesteps it (no `bare` branch); Blueprint and Ink & Wash inherit it.
+- ~~**VOLCANIC has no glyph**~~ — **CORRECTED S28.** It was never blank: it fell
+  through to the `f > 0.45` branch and drew as a generic mountain, so the `bare`
+  fill policy's claim that glyphs carry every terrain HELD all along. The
+  concern attached to this item was unfounded. It has its own glyph now
+  (`6eb0506`) — but see the VOLCANIC regression in S28: the biome itself is
+  extinct at default params, so the new glyph is dormant there.
 - **Mid-ocean mesh seams on the globe** (S27c) — pre-existing, `CELL_OVERHANG`
   1.03 too small. Raising it changes how every height step reads: Matt's call.
 - `exportSVG` still ignores the `showHillshade` toggle the PNG path threads.
