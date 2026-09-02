@@ -30,3 +30,6 @@ dist-ssr
 
 .playwright-mcp/
 tmp/
+
+# Agent git worktrees (full repo checkouts nested in the repo)
+.claude/
