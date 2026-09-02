@@ -54,8 +54,53 @@ Three commits on `main`, tree clean. Gates: typecheck 0 · lint 0 errors /
 | Salvaged bucket-grid nearest-macro lookup, 54–118x | `e890463` |
 | Salvaged the three F4 measurement harnesses | `1af5d42` |
 | `docs/performance-workflow.md` — the F4 method | `119cd8a` |
+| **VOLCANIC revived: tectonic pass + `volcanism` param** | `20992cd` |
 
-### VOLCANIC is EXTINCT at default params — regression, NOT fixed
+### VOLCANIC — FIXED (`20992cd`). Tectonic now, not an altitude band
+
+**Shipped.** `assignVolcanicBiome` runs after climatic classification and before
+the drainage solve, thresholding the V3 `upliftAccum` field. New **`volcanism`**
+param (0–2, default 1.0) scales the threshold **inversely** (`2.5 / volcanism`);
+0 disables the pass.
+
+Measured output at 20k over 5 seeds — **median 1.08% of land, range 0.51–3.00%**,
+volcanic cells spanning landFrac 0.00–1.00 with per-seed medians 0.39–0.83. That
+last number is the one that matters: it is **mid-elevation arc geometry, not
+summits**, which is what says the predictor is real and not an elevation proxy.
+The volcano glyph shipped dormant in `6eb0506` now draws **5–20 per world**.
+
+**The threshold is ABSOLUTE, not a percentile,** deliberately. A percentile hands
+every world the same volcanic share; an absolute bar lets a tectonically quiet
+world have few volcanoes and an active one many. The 0.51–3.00% spread is the
+feature, so do not "stabilise" it.
+
+**Why it is not in `determineBiome`.** Volcanism is not a function of
+`(height, temp, moisture)`. Expressing it there is what made an altitude gate look
+reasonable in the first place. It follows the LAKE/SALT_LAKE pattern instead, and
+**`getCellColor` must exclude it from D1 seasonal re-derivation** — without that
+a volcanic field reverts to its climate biome the moment the season slider leaves
+neutral, and **only in the running app**, because `upliftAccum` does not cross the
+worker boundary. That same fact is why this design needed no worker-transfer fix
+while the rejected one did.
+
+**Ordering is load-bearing:** volcanic overrides every climate biome including
+ICE_CAP, but the drainage solve runs after it so a lake still wins. Former ice
+cells become marginally costlier to cross (`pathfinding.ts` charges VOLCANIC ×5
+vs ICE_CAP ×4) — intended, not an oversight.
+
+**Gates:** typecheck 0 · lint 0 errors / 29 warnings · **20 files / 306 tests
+green in 845s** at `VITEST_WORKERS=1`, covering `paramLiveness` (with the new
+param), `lakes`, `features`, `civClaim`, `volcanism` and `biomes`. `lakes`'
+pinned salt-lake seed survived the generation change untouched.
+
+**Still open, phase 2:** `upliftAccum` is convergence-only, so there is **no
+intraplate volcanism** — no Hawaii, no Iceland, no hotspot island chains. That is
+a clean additive feature (seed N hotspots from an RNG side-stream, mark cells
+within a radius) with its own param, deliberately kept out of v1. Also open:
+named volcanoes as B3 GeoFeatures, reusing the existing peak clustering — that is
+the bigger *map* payoff now that VOLCANIC cells exist.
+
+### VOLCANIC is EXTINCT at default params — the regression, kept for the record
 
 **The finding, verified.** `determineBiome` (`utils/worldGen.ts:395`) gates
 VOLCANIC on `landH > 0.85 && temp > -5`. D8b's 6.5 °C/km lapse rate puts every
