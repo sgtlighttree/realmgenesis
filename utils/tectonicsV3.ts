@@ -819,6 +819,122 @@ export function simulateTectonics(
 
 // --- 4. Coarse→fine projection ---
 
+// Uniform 3D bucket grid over [-1,1]^3, used to answer "which macro point is
+// nearest to this display point" without the O(display x macro) brute-force
+// scan that used to dominate generation (measured: 60% of a 80k-point world).
+//
+// EXACTNESS CONTRACT. The brute-force loop it replaces was
+//   `for (j = 0..m) { d = chordDistance(dp, macroPoints[j]); if (d < minDist) ... }`
+// which returns the minimum chord distance and, on an exact tie, the LOWEST
+// index. Two properties are therefore load-bearing and must not be "tidied":
+//
+//   1. The distance expression is byte-identical to `chordDistance` — same
+//      operand order (query minus candidate), same association
+//      (dx*dx + dy*dy + dz*dz), same `Math.sqrt`. Squared distances would be a
+//      different (more discriminating) comparison and could move a tie.
+//   2. `nearestIndex` breaks ties toward the lower index, matching the strict
+//      `<` of the scan.
+//
+// The ring walk is bounded conservatively: after every bucket at Chebyshev ring
+// <= r has been visited, any unvisited point sits at least `r * cell` away
+// (the query can sit flush against its own bucket wall, which is where the
+// (r-1) shrink comes from). We keep expanding while that floor is <= the best
+// distance found so far, with a relative slack so a candidate at EXACTLY the
+// current best — the tie case, where a lower index could still win — is never
+// pruned.
+export class MacroPointGrid {
+  private readonly cell: number;
+  private readonly dim: number;
+  private readonly start: Int32Array;   // CSR bucket offsets, length dim^3 + 1
+  private readonly ids: Int32Array;     // point ids, grouped by bucket
+  readonly xs: Float64Array;
+  readonly ys: Float64Array;
+  readonly zs: Float64Array;
+
+  constructor(points: Point[]) {
+    const n = points.length;
+    this.xs = new Float64Array(n);
+    this.ys = new Float64Array(n);
+    this.zs = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      this.xs[i] = points[i].x;
+      this.ys[i] = points[i].y;
+      this.zs[i] = points[i].z;
+    }
+
+    // ~1.5x the mean point spacing on the unit sphere: a 3x3x3 neighbourhood
+    // then almost always contains the answer, while staying sparse enough that
+    // a bucket holds only a handful of points.
+    const spacing = Math.sqrt((4 * Math.PI) / Math.max(1, n));
+    this.cell = Math.min(2, Math.max(0.02, spacing * 1.5));
+    this.dim = Math.max(1, Math.ceil(2 / this.cell));
+
+    const nb = this.dim * this.dim * this.dim;
+    const counts = new Int32Array(nb + 1);
+    const bucketOf = new Int32Array(n);
+    for (let i = 0; i < n; i++) {
+      const b = this.bucketIndex(this.xs[i], this.ys[i], this.zs[i]);
+      bucketOf[i] = b;
+      counts[b + 1]++;
+    }
+    for (let b = 0; b < nb; b++) counts[b + 1] += counts[b];
+    this.start = counts;
+    this.ids = new Int32Array(n);
+    const cursor = Int32Array.from(counts.subarray(0, nb));
+    for (let i = 0; i < n; i++) this.ids[cursor[bucketOf[i]]++] = i;
+  }
+
+  private axis(v: number): number {
+    const g = Math.floor((v + 1) / this.cell);
+    return g < 0 ? 0 : g >= this.dim ? this.dim - 1 : g;
+  }
+
+  private bucketIndex(x: number, y: number, z: number): number {
+    return (this.axis(x) * this.dim + this.axis(y)) * this.dim + this.axis(z);
+  }
+
+  // Nearest point index by chord distance; ties resolved toward the lower index.
+  nearestIndex(qx: number, qy: number, qz: number): number {
+    const { dim, xs, ys, zs, start, ids } = this;
+    const gx = this.axis(qx), gy = this.axis(qy), gz = this.axis(qz);
+    let bestD = Infinity;
+    let bestI = 0;
+
+    for (let r = 0; r < dim; r++) {
+      // Everything still unvisited is at least this far away.
+      if (r > 0 && (r - 1) * this.cell > bestD * (1 + 1e-12) + 1e-12) break;
+
+      const xLo = gx - r < 0 ? 0 : gx - r;
+      const xHi = gx + r >= dim ? dim - 1 : gx + r;
+      const yLo = gy - r < 0 ? 0 : gy - r;
+      const yHi = gy + r >= dim ? dim - 1 : gy + r;
+      const zLo = gz - r < 0 ? 0 : gz - r;
+      const zHi = gz + r >= dim ? dim - 1 : gz + r;
+
+      for (let bx = xLo; bx <= xHi; bx++) {
+        const onXShell = bx === gx - r || bx === gx + r;
+        for (let by = yLo; by <= yHi; by++) {
+          const onYShell = by === gy - r || by === gy + r;
+          // Buckets strictly inside the shell were covered by an earlier ring.
+          const zStep = onXShell || onYShell ? 1 : Math.max(1, zHi - zLo);
+          const rowBase = (bx * dim + by) * dim;
+          for (let bz = zLo; bz <= zHi; bz += zStep) {
+            const b = rowBase + bz;
+            const end = start[b + 1];
+            for (let t = start[b]; t < end; t++) {
+              const j = ids[t];
+              const dx = qx - xs[j], dy = qy - ys[j], dz = qz - zs[j];
+              const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+              if (d < bestD || (d === bestD && j < bestI)) { bestD = d; bestI = j; }
+            }
+          }
+        }
+      }
+    }
+    return bestI;
+  }
+}
+
 export function projectTectonicsToDisplay(
   displayCells: Cell[],
   displayPoints: Point[],
@@ -831,17 +947,17 @@ export function projectTectonicsToDisplay(
   const octaves = Math.min(8, Math.max(1, Math.round(params.detailLevel ?? 3)));
   const tectonicStrength = params.tectonicStrength ?? 0.5;
 
+  // Bucket grid over the macro points. Returns exactly what the old
+  // brute-force argmin returned (see MacroPointGrid's exactness contract) for
+  // a fraction of the work.
+  const macroGrid = new MacroPointGrid(macroPoints);
+
   for (let i = 0; i < displayCells.length; i++) {
     const dp = displayPoints[i];
     const dc = displayCells[i];
 
     // 1. Find nearest macro-cell
-    let nearest = 0;
-    let minDist = Infinity;
-    for (let j = 0; j < macroPoints.length; j++) {
-      const d = chordDistance(dp, macroPoints[j]);
-      if (d < minDist) { minDist = d; nearest = j; }
-    }
+    const nearest = macroGrid.nearestIndex(dp.x, dp.y, dp.z);
 
     // 2. Copy tectonic values
     dc.crustType = macroResult.crustTypes[nearest];
