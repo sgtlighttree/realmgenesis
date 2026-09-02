@@ -164,6 +164,10 @@ of 30 with four agents running. `.claude/**` is now ignored in
 
 ## Open leads, with numbers
 
+**Superseded — see [performance-findings.md](performance-findings.md)** for the
+30k baseline and the ranked queue. The 6k figures below are kept only because
+they are what the first run produced.
+
 Measured, not guessed. None of these are started.
 
 | Lead | Evidence |

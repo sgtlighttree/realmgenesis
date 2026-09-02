@@ -37,6 +37,7 @@ convention entrypoints, not reference docs.
 | [civilization.md](civilization.md) | Cultures → religions → factions → provinces → towns → routes → markers → AI lore | ✅ current |
 | [export.md](export.md) | PNG raster, SVG, GeoJSON, GLB, and save/load persistence | ✅ current |
 | [dymaxion.md](dymaxion.md) | Dymaxion projection, the classic vs Blender net layouts, and the Blender-UV interop (extraction script + why exports drop on cleanly) | ✅ current |
+| [performance-findings.md](performance-findings.md) | The F4 **measured baseline** and ranked implementation queue — globe tenant costs, the 2.2 s Map2D gesture, and three optimisations whose correctness numbers already exist | ✅ current |
 | [performance-workflow.md](performance-workflow.md) | The F4 method: the four measurement harnesses, the before/after/**correctness** rule, and how to delegate perf work without paying orientation cost N times | ✅ current |
 | [invariants.md](invariants.md) | Non-obvious facts that break things if violated — each re-verified against current code | ✅ current |
 | [testing.md](testing.md) | Test philosophy, the three determinism instruments, why there is no golden fixture, the param-liveness contract | ✅ current |
