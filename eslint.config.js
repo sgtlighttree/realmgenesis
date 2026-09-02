@@ -5,7 +5,12 @@ import reactHooks from 'eslint-plugin-react-hooks';
 export default [
   {
     files: ['**/*.{ts,tsx}'],
-    ignores: ['dist/**', 'node_modules/**', 'vite.config.ts'],
+    // `.claude/**` holds agent git worktrees — full checkouts of this repo
+    // nested inside it. Without this, ESLint lints every worktree as well as
+    // the real tree and the warning count multiplies by the number of agents
+    // running, blowing the --max-warnings ratchet for reasons that have nothing
+    // to do with the code under review.
+    ignores: ['dist/**', 'node_modules/**', 'vite.config.ts', '.claude/**'],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
