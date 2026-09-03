@@ -16,7 +16,7 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
       is gone. Lakes 100% → 0% unclaimed, ocean 0% → 9.8% claimed. **Peaks half
       VERIFIED not-reproduced at 200k across 5 seeds (S25) — `reachableGaps=0`
       everywhere; unclaimed peaks only ever sit on isolated masses. C5b closed.**
-- [ ] Make a true vector 2D mode instead of raster, but keep it optimized
+- [~] Make a true vector 2D mode instead of raster, but keep it optimized — *F3 Phase 1 (cached-Canvas2D + reusable vector groundwork: mapCache/mapColorCache/mapPick/boundaries/simplify) shipped S30; the 2.2s pan/zoom stall is dead (→~6ms). Phase 2 = WebGL surface consuming `cellVerts/cellOffsets`. See ROADMAP F3.*
 - [~] V3 of terrain generation algorithm. Goal is to make plate boundaries far more realistic, make part of Milestone D. — *V3 shipped & live; D7 part 1 (enclaves/exclaves killed, connected plates) done Session 9. D7 part 2 (grounded geophysics, non-Voronoi boundaries) still open.*
 - [~] Major UI/frontend/rendering overhaul (Milestone F), use skill `/impeccable` for visual UI review — *view strip reorganised into one captioned row of dropdowns, S27h (`8885f76`); the rest of F is open.*
 - - [ ] F1b: Further refine things for brand identity

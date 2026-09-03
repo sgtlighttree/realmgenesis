@@ -684,8 +684,34 @@ Part of redesign is figuring out how the planet is presented; overlays like bord
   `<GlobeSpin/>`'s mount position — three sessions of radius fixes chased a
   symptom whose real cause was a one-frame lag in the render loop.
 
-# F3. True 2D vector map  —  ⬜ TODO
-Make it a true vector map like most web mapping apps, but keep it as optimized as possible
+# F3. True 2D vector map  —  🟡 PARTIAL
+> _Phase 1 (cached-Canvas2D + reusable vector groundwork) shipped 2026-09-03 (Session 30, branch `f3-phase1-vector-groundwork`). Phase 2 = WebGL vector surface. Spec: `docs/superpowers/specs/2026-09-03-f3-phase1-vector-groundwork-design.md`._
+
+Make it a true vector map like most web mapping apps, but keep it as optimized as possible.
+
+**Direction (chosen after research):** the industry (Google 2019, Apple, Bing,
+OSM.org since Jul 2025) is all **WebGL vector tiles**; SVG-DOM dies past ~10k
+nodes, so it's off the table. Plan is phased.
+
+**Phase 1 — DONE (S30).** Cached-Canvas2D groundwork that also kills the headline
+stall: the ~2.2s Map2D pan/zoom settle at 30k → **~6.9ms pan / ~5.3ms zoom** (max
+158ms), measured via `scripts/renderMap2DPerf.mjs`. The decisive finding was that
+the stall was **not** the land fill — it was `oceanHatchPass` reprojecting ~15k
+ocean cells via d3.geoPath every redraw. The fix unions the cached per-cell
+`Path2D`s (`Substrate.hatchCells`, a memcpy — no reprojection), clips once, sweeps
+once. Shipped alongside reusable vector primitives sized for Phase 2:
+- `utils/mapCache.ts` — projects every cell ring to CSS-px once; `Path2D` per cell
+  + flat `cellVerts/cellOffsets` typed buffers (**the Phase-2 WebGL vertex buffers**).
+- `utils/mapColorCache.ts` — per-cell `#rrggbb` colour cache.
+- `utils/mapPick.ts` — d3-quadtree pick over projected centres (O(cells) scan gone).
+- `utils/boundaries.ts` — `chainSegments` (contiguous coastline/border rings) +
+  `computeLakeOutlineSegments`, plus a correctness fix to shared
+  `computeBoundarySegments` (degenerate-Voronoi double-match).
+- `utils/simplify.ts` — Douglas–Peucker.
+
+**Phase 2 — TODO.** A WebGL vector surface consuming
+`MapGeometryCache.cellVerts/cellOffsets` directly (the flat buffers already exist
+for exactly this). Dymaxion path stays on its pick-buffer/raster route.
 
 # F4. Performance Optimizations  —  ⬜ TODO
 Self-explanatory, optimize wherever while keeping visual fidelity. Can come last, but better to make efficient renderers/frontends and code wherever possible.
