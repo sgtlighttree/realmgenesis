@@ -2,7 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as d3 from 'd3';
 import { WorldData, ViewMode, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, Point, MarkerData } from '../types';
 import { getCellColor } from '../utils/colors';
-import { computeCoastlineSegments } from '../utils/boundaries';
+import { computeCoastlineSegments, computeFactionBorderSegments } from '../utils/boundaries';
+import { buildMapGeometryCache } from '../utils/mapCache';
+import { buildCellColorCache } from '../utils/mapColorCache';
+import { buildCellQuadtree, findCellIdAtPoint } from '../utils/mapPick';
 import { getMapStyle, MapStyleId } from '../utils/mapStyle';
 import { OverlayInk } from '../utils/mapStyle/overlayInk';
 import { buildProjection, FlatProjectionType } from '../utils/projections';
@@ -27,57 +30,6 @@ const INTERACTION_DPR = 1;
 const MAX_SHARP_DPR = 3;
 const MAX_SHARP_SCALE = 2.5;
 const SETTLE_MS = 200;
-
-const getNearestCellId = (world: WorldData, lon: number, lat: number) => {
-  const lonRad = lon * (Math.PI / 180);
-  const latRad = lat * (Math.PI / 180);
-  const cosLat = Math.cos(latRad);
-  const x = cosLat * Math.cos(lonRad);
-  const y = Math.sin(latRad);
-  const z = cosLat * Math.sin(lonRad);
-
-  let bestId: number | null = null;
-  let bestDot = -Infinity;
-  for (const cell of world.cells) {
-    const d = cell.center.x * x + cell.center.y * y + cell.center.z * z;
-    if (d > bestDot) {
-      bestDot = d;
-      bestId = cell.id;
-    }
-  }
-
-  return bestId;
-};
-
-const getFactionBorders = (world: WorldData | null, visible: boolean): Array<[Point3, Point3]> => {
-  if (!world?.civData || !visible) return [];
-
-  const borders: Array<[Point3, Point3]> = [];
-  const threshold = 0.000001;
-  world.cells.forEach((cellA) => {
-    cellA.neighbors.forEach((nId) => {
-      const cellB = world.cells[nId];
-      if (!cellB || cellA.id >= cellB.id) return;
-      if (cellA.regionId === cellB.regionId) return;
-      if (cellA.regionId === undefined && cellB.regionId === undefined) return;
-
-      const shared: Point3[] = [];
-      for (const vA of cellA.vertices) {
-        for (const vB of cellB.vertices) {
-          const distSq = (vA.x - vB.x) ** 2 + (vA.y - vB.y) ** 2 + (vA.z - vB.z) ** 2;
-          if (distSq < threshold) {
-            shared.push([vA.x, vA.y, vA.z]);
-            break;
-          }
-        }
-        if (shared.length === 2) break;
-      }
-      if (shared.length === 2) borders.push([shared[0], shared[1]]);
-    });
-  });
-
-  return borders;
-};
 
 /**
  * Rivers, in projected space.
@@ -319,8 +271,12 @@ const Map2D: React.FC<{
   const dymaxionLon = dymaxionSettings?.lon ?? 0;
   const dymaxionLat = dymaxionSettings?.lat ?? 0;
   const dymaxionRoll = dymaxionSettings?.roll ?? 0;
+  // Sourced from the shared boundary scan (utils/boundaries.ts), matching how
+  // coastlines are sourced — was a byte-for-byte private copy. The
+  // labelVisibility.borders gate is preserved here (computeFactionBorderSegments
+  // has no visibility argument): dropping it would draw borders while toggled off.
   const factionBorders = useMemo(
-    () => getFactionBorders(world, labelVisibility.borders),
+    () => (world && labelVisibility.borders ? computeFactionBorderSegments(world) : []),
     [world, labelVisibility.borders],
   );
   const mapLabels = useMemo(
@@ -408,6 +364,43 @@ const Map2D: React.FC<{
     // Same factory the exports use, so screen and file cannot drift apart.
     return buildProjection(projectionType, size.width, size.height);
   }, [size.width, size.height, projectionType]);
+
+  // F3 Phase 1 caches. Built ONCE per world/projection — NEVER keyed on
+  // scale/offset/qualityDpr — so pan/zoom settle redraws reuse them instead of
+  // reprojecting + recolouring every cell (the ~2.2s stall). Non-dymaxion only:
+  // the Dymaxion path renders a source raster with its own per-feature loop and
+  // pick buffer, and must not receive these (see invariant 1). Built from the
+  // SAME memoized `projection` + `size` the rest of the component uses, so cached
+  // geometry aligns with everything drawn through that projection.
+  const geometryCache = useMemo(
+    () => (world && projection && projectionType !== 'dymaxion'
+      ? buildMapGeometryCache(world, projection, size.width, size.height)
+      : null),
+    [world, projection, projectionType, size.width, size.height],
+  );
+  const colorCache = useMemo(
+    // shadeMap is intentionally NOT baked in (passed null). The ONLY consumer is
+    // landPass's fast path, whose per-cell fallback does not apply shadeMap
+    // either — hillshadePass overlays relief shading separately. Baking it here
+    // would double-shade ramp modes with hillshade on. shadeMap stays in the dep
+    // key (per invariant 4) so a future shaded variant would rebuild correctly.
+    () => (world ? buildCellColorCache(world, viewMode, {
+      seaLevel: world.params.seaLevel, factionColors, cultureColors, religionColors,
+    }, null) : null),
+    // shadeMap/season/seaLevel are kept in the key deliberately (invariant 4):
+    // shadeMap is not read here today (passed null) but must trigger a rebuild if
+    // a future shaded variant bakes it in; season/seaLevel change the seasonal
+    // delta and sea/land split the cache depends on, even though `world` usually
+    // co-changes. The lint rule sees these as redundant; they are intentional.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [world, viewMode, factionColors, cultureColors, religionColors, shadeMap,
+     world?.params.season, world?.params.seaLevel],
+  );
+  const pickQuadtree = useMemo(
+    () => (world && projection && projectionType !== 'dymaxion'
+      ? buildCellQuadtree(world, projection, size.width, size.height) : null),
+    [world, projection, projectionType, size.width, size.height],
+  );
 
   const style = useMemo(() => getMapStyle(mapStyleId), [mapStyleId]);
   // Identity changes once the style's webfonts resolve, which repaints the
@@ -720,9 +713,13 @@ const Map2D: React.FC<{
 
     if (styled) {
       // The context carries the horizontal flip applied just above, so the
-      // substrate is told it is mirrored — only glyphs need to compensate.
+      // substrate is told it is mirrored — only glyphs need to compensate. The
+      // cached cellPaths are un-flipped CSS-px and drawn THROUGH this same
+      // flipped/DPR context, so the mirror and DPR apply automatically (see
+      // invariant 2 — no flip is baked into the cache).
       const sub = new Canvas2DSubstrate(
         ctx, pathGenerator as unknown as (o: unknown) => unknown, size.width, size.height, true,
+        geometryCache?.cellPaths,
       );
       runStyle(style, {
         world, viewMode, widthPx: size.width, heightPx: size.height,
@@ -730,6 +727,8 @@ const Map2D: React.FC<{
         colorCtx: {
           seaLevel: world.params.seaLevel, factionColors, cultureColors, religionColors,
         },
+        geometryCache: geometryCache ?? undefined,
+        colorCache: colorCache ?? undefined,
       }, sub);
     } else {
     for (let i = 0; i < world.cells.length; i++) {
@@ -934,6 +933,8 @@ const Map2D: React.FC<{
     cultureColors,
     religionColors,
     rulerArc,
+    geometryCache,
+    colorCache,
   ]);
 
   useEffect(() => {
@@ -1205,13 +1206,12 @@ const Map2D: React.FC<{
       return getPickBufferCellId(mapX, mapY);
     }
 
-    if (!projection) return null;
-    const lonLat = projection.invert?.([size.width - mapX, mapY]);
-    if (!lonLat) return null;
-    const [lon, lat] = lonLat;
-    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
-    return getNearestCellId(world, lon, lat);
-  }, [getPickBufferCellId, projection, projectionType, size.width, world]);
+    if (!projection || !pickQuadtree) return null;
+    // Un-flip x the same way the old invert path did (size.width - mapX), then
+    // query the quadtree of projected cell centres. Nearest-projected-centre
+    // replaces the O(cells) geodesic scan (getNearestCellId).
+    return findCellIdAtPoint(pickQuadtree, size.width - mapX, mapY);
+  }, [getPickBufferCellId, projection, projectionType, size.width, world, pickQuadtree]);
 
   const paintPickAt = useCallback((clientX: number, clientY: number, phase: 'start' | 'stroke' | 'end') => {
     if (!canvasRef.current || !onPaint) return;
