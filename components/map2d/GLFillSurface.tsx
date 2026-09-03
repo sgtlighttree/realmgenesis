@@ -18,6 +18,8 @@ export interface GLFillSurfaceProps {
   handleRef?: React.MutableRefObject<GLFillHandle | null>;
 }
 
+type FillMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+
 // Expand tessellator output (2-component [x,y] pairs, CSS px) into a
 // 3-component [x,y,0] position buffer for BufferGeometry — the ortho camera
 // lives in the z=0 plane, so this is a one-time upload-time expansion rather
@@ -33,6 +35,16 @@ const expandPositions = (flat: Float32Array): Float32Array => {
   return out;
 };
 
+// Pure helper (no refs/closures) so it's callable identically from both the
+// geometry-rebuild effect's initial upload and the imperative handle's
+// setColors — a single colour-upload code path either way.
+const uploadColorAttribute = (mesh: FillMesh | null, nextColors: Float32Array): void => {
+  if (!mesh) return;
+  const colorAttribute = mesh.geometry.getAttribute('color') as THREE.BufferAttribute;
+  (colorAttribute.array as Float32Array).set(nextColors);
+  colorAttribute.needsUpdate = true;
+};
+
 export const GLFillSurface: React.FC<GLFillSurfaceProps> = ({
   positions,
   colors,
@@ -46,9 +58,10 @@ export const GLFillSurface: React.FC<GLFillSurfaceProps> = ({
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
-  const meshRef = useRef<THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> | null>(null);
+  const meshRef = useRef<FillMesh | null>(null);
   const contextLostRef = useRef<boolean>(false);
   const widthRef = useRef<number>(width);
+  const colorsRef = useRef<Float32Array>(colors);
   const onContextLostRef = useRef<(() => void) | undefined>(onContextLost);
 
   useEffect(() => {
@@ -56,12 +69,18 @@ export const GLFillSurface: React.FC<GLFillSurfaceProps> = ({
   }, [width]);
 
   useEffect(() => {
+    colorsRef.current = colors;
+  }, [colors]);
+
+  useEffect(() => {
     onContextLostRef.current = onContextLost;
   }, [onContextLost]);
 
-  // Owns the full GPU-resource lifecycle: renderer, scene, camera, mesh,
-  // geometry, and material are built together and torn down together, both
-  // on unmount and whenever `positions` (the geometry prop) changes.
+  // Mount-only: renderer, scene, camera, the webglcontextlost listener, and
+  // the imperative handle. This is a scarce resource (browsers cap ~16 live
+  // WebGL contexts) so it must NOT be recreated on every `positions`/size
+  // change — only on unmount. Geometry/material/mesh live in the effect
+  // below and get added into this persisted scene.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
@@ -73,25 +92,11 @@ export const GLFillSurface: React.FC<GLFillSurfaceProps> = ({
     const camera = new THREE.OrthographicCamera(0, width, 0, height, -1, 1);
     camera.position.z = 1;
 
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(expandPositions(positions), 3));
-    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-
-    const material = new THREE.MeshBasicMaterial({ vertexColors: true });
-
-    const mesh = new THREE.Mesh(geometry, material);
-    // Mirror the 2D Canvas2D map's X flip (translate(width,0); scale(-1,1))
-    // as a mesh transform; positions themselves stay un-flipped.
-    mesh.scale.x = -1;
-    mesh.position.x = width;
-
     const scene = new THREE.Scene();
-    scene.add(mesh);
 
     rendererRef.current = renderer;
     sceneRef.current = scene;
     cameraRef.current = camera;
-    meshRef.current = mesh;
     contextLostRef.current = false;
 
     const handleContextLost = (event: Event): void => {
@@ -100,8 +105,6 @@ export const GLFillSurface: React.FC<GLFillSurfaceProps> = ({
       onContextLostRef.current?.();
     };
     canvas.addEventListener('webglcontextlost', handleContextLost);
-
-    renderer.render(scene, camera);
 
     const redraw = (): void => {
       if (!rendererRef.current || !sceneRef.current || !cameraRef.current) return;
@@ -119,11 +122,7 @@ export const GLFillSurface: React.FC<GLFillSurfaceProps> = ({
 
     const setColors = (nextColors: Float32Array, _range?: { start: number; count: number }): void => {
       // Full re-upload for this task; true partial GPU upload lands in Task 7.
-      const currentMesh = meshRef.current;
-      if (!currentMesh) return;
-      const colorAttribute = currentMesh.geometry.getAttribute('color') as THREE.BufferAttribute;
-      (colorAttribute.array as Float32Array).set(nextColors);
-      colorAttribute.needsUpdate = true;
+      uploadColorAttribute(meshRef.current, nextColors);
       redraw();
     };
 
@@ -135,18 +134,60 @@ export const GLFillSurface: React.FC<GLFillSurfaceProps> = ({
 
     return () => {
       canvas.removeEventListener('webglcontextlost', handleContextLost);
-      geometry.dispose();
-      material.dispose();
       renderer.dispose();
       rendererRef.current = null;
       sceneRef.current = null;
       cameraRef.current = null;
-      meshRef.current = null;
       if (handleRef) {
         handleRef.current = null;
       }
     };
+    // Mount-only by design: width/height/dpr are read here only as the
+    // renderer/camera's initial values — later changes are applied in place
+    // by the resize effect below via setSize/camera bounds, not by rerunning
+    // this effect. `handleRef` is a stable ref object supplied by the
+    // parent. Re-running this effect would tear down and recreate the WebGL
+    // context, which is the exact bug this split fixes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Geometry/material/mesh only, keyed on `positions`. Rebuilds and swaps
+  // the mesh into the persisted scene without touching the renderer/camera.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return undefined;
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(expandPositions(positions), 3));
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colorsRef.current, 3));
+
+    const material = new THREE.MeshBasicMaterial({ vertexColors: true });
+
+    const mesh = new THREE.Mesh(geometry, material);
+    // Mirror the 2D Canvas2D map's X flip (translate(width,0); scale(-1,1))
+    // as a mesh transform; positions themselves stay un-flipped.
+    mesh.scale.x = -1;
+    mesh.position.x = widthRef.current;
+
+    const previousMesh = meshRef.current;
+    if (previousMesh) {
+      scene.remove(previousMesh);
+    }
+    scene.add(mesh);
+    meshRef.current = mesh;
+
+    if (rendererRef.current && cameraRef.current) {
+      rendererRef.current.render(scene, cameraRef.current);
+    }
+
+    return () => {
+      scene.remove(mesh);
+      geometry.dispose();
+      material.dispose();
+      if (meshRef.current === mesh) {
+        meshRef.current = null;
+      }
+    };
   }, [positions]);
 
   // Resize / dpr changes: update the renderer + camera + mirror position
@@ -168,21 +209,6 @@ export const GLFillSurface: React.FC<GLFillSurfaceProps> = ({
       renderer.render(sceneRef.current, camera);
     }
   }, [width, height, dpr]);
-
-  // Colour updates that arrive as a new `colors` prop reference (rather than
-  // via the imperative handle) get the same full-re-upload treatment.
-  useEffect(() => {
-    const mesh = meshRef.current;
-    const renderer = rendererRef.current;
-    const scene = sceneRef.current;
-    const camera = cameraRef.current;
-    if (!mesh || !renderer || !scene || !camera) return;
-    const colorAttribute = mesh.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
-    if (!colorAttribute || colorAttribute.array.length !== colors.length) return;
-    (colorAttribute.array as Float32Array).set(colors);
-    colorAttribute.needsUpdate = true;
-    renderer.render(scene, camera);
-  }, [colors]);
 
   return <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />;
 };
