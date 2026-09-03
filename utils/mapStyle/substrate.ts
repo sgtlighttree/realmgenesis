@@ -57,6 +57,15 @@ export interface Substrate {
    * it.
    */
   hatchFeatures(features: GeoFeatureLike[], spec: HatchSpec): void;
+  /**
+   * Hatch a SET of cells addressed by INDEX, reusing the geometry cache's
+   * prebuilt per-cell Path2Ds instead of reprojecting each feature. The cached
+   * equivalent of `hatchFeatures` for the hot on-screen path: F3 Phase 1 found
+   * the ocean hatch's per-redraw reprojection of ~15k cells was the dominant
+   * pan/zoom cost. SVG has no reprojection cost, so its impl may delegate to the
+   * per-feature path.
+   */
+  hatchCells(indices: number[] | Uint32Array, spec: HatchSpec): void;
   grain(spec: GrainSpec): void;
   /**
    * Run `draw` clipped to the PROJECTED SPHERE — the map's own outline, which

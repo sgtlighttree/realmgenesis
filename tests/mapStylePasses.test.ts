@@ -34,6 +34,9 @@ const recorder = () => {
     withSphereClip: (draw: () => void) => { calls.push({ op: 'withSphereClip' }); draw(); },
     drawGlyph: (g: PlacedGlyph, ink) => { calls.push({ op: 'drawGlyph', arg: ink }); void g; },
     fillCells: (indices, colors) => { calls.push({ op: 'fillCells', count: indices.length }); void colors; },
+    hatchCells: (indices, spec: HatchSpec) => {
+      calls.push({ op: 'hatchCells', arg: spec.color, count: indices.length, opacity: spec.opacity, spacing: spec.spacingPx });
+    },
   };
   return { sub, calls };
 };
