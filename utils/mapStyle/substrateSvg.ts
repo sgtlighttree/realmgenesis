@@ -32,6 +32,7 @@ export class SvgSubstrate implements Substrate {
     private width: number,
     private height: number,
     private mirrored = false,
+    private cellFeatures: GeoFeatureLike[] = [],
   ) {}
 
   defs(): string {
@@ -173,6 +174,15 @@ export class SvgSubstrate implements Substrate {
         ? `<g transform="translate(${this.width},0) scale(-1,1)">${path}</g>`
         : path,
     );
+  }
+
+  fillCells(indices: number[] | Uint32Array, colors: string[]): void {
+    for (let j = 0; j < indices.length; j++) {
+      const i = indices[j];
+      const f = this.cellFeatures[i];
+      if (!f) continue;
+      this.fillFeature(f, colors[i]); // per-cell path, exactly as today
+    }
   }
 }
 

@@ -33,6 +33,7 @@ const recorder = () => {
     // like it drew nothing.
     withSphereClip: (draw: () => void) => { calls.push({ op: 'withSphereClip' }); draw(); },
     drawGlyph: (g: PlacedGlyph, ink) => { calls.push({ op: 'drawGlyph', arg: ink }); void g; },
+    fillCells: (indices, colors) => { calls.push({ op: 'fillCells', count: indices.length }); void colors; },
   };
   return { sub, calls };
 };
