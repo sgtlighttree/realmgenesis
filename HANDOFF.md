@@ -38,10 +38,54 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## S30 (2026-09-03) — NEXT SESSION STARTS HERE — F3 Phase 1 branch, NOT merged
+## S30b (2026-09-03) — F3 Phase 1 MERGED to `main` (fast-forward, local, NOT pushed)
+
+**The S30 pre-merge checklist is fully closed and the branch is merged +
+deleted.** `main` is now at `e02067e`, 40 commits ahead of `origin/main`
+(unpushed — includes earlier sessions' work too; push is Matt's call). What this
+session did to close it:
+
+1. **Lint ratchet fixed → 30/30, 0 errors.** Typed the F3 test scaffolding
+   (mock ctx/Path2D → `CanvasRenderingContext2D`/`unknown`, d3 casts →
+   `GeoPermissibleObjects` / `'Sphere' as const`, `PickWorld` type) + one Map2D
+   border `as any` → `d3.GeoPermissibleObjects` (`992d0d2`). ⚠️ **HAZARD: main now
+   sits at exactly 30/30 (baseline was 28). The next `any` anywhere breaks CI.**
+2. **Verification instead of a redundant whole-branch re-review** (advisor's
+   call — all 9 tasks were already individually approved). Three discriminating
+   greps all came back clean: colour-cache memo key DOES include
+   `viewMode`/`season`/`seaLevel` (no stale-colour bug); Dymaxion pick routes to
+   the pick-buffer, quadtree only for d3 projections (invariant intact);
+   categorical modes build an unused colour cache (perf nit, deferred — guarding
+   it duplicates the `mute` logic).
+3. **Added the missing ocean-hatch integration test** (`19e10f2`) — the
+   perf-critical `hatchCells` branch had zero coverage. Asserts geometryCache
+   present → `sub.hatchCells(oceanCellIndices)`; absent → `hatchFeatures`.
+4. **Browser eye-check PASSED** (parchment 2D, Playwright, port 3000 reused then
+   the server I started was killed by its own PID): ocean hatch continuous +
+   single-phase across cell boundaries, clean coastline clip (no seams/gaps/
+   overpaint), coastlines + borders unbroken incl. small islands, click-to-inspect
+   picked the right ocean cell, zoom responsive.
+5. **Full suite (VITEST_WORKERS=8): 2166 pass, 2 fails — both PRE-EXISTING on
+   main, NOT F3.** Proven: the branch changes ZERO generation-graph files, so
+   `generateWorld` output is byte-identical; both fail deterministically in
+   isolation. Root cause was main-side terrain/civ drift (D8b/D9) that the
+   touched-file test workflow never ran into. **Matt authorized fixing them on
+   this branch** (`e02067e`): `placeGlyphs` now checks the `GLYPH_KINDS` source of
+   truth instead of a drifted literal that missed `'volcano'`; `civEdit` bumped
+   `points:1200→2000` to restore its ≥2-province precondition (counts [7,5,3]).
+   ⚠️ **The full suite ran 755s wall at WORKERS=8 on this M1 — ~4x the CLAUDE.md
+   ~196s estimate. That estimate looks stale; budget ~13min for a full run.**
+
+Note: the merged tree is byte-identical to the fully-tested branch tip (clean
+fast-forward), so the 755s suite was NOT re-run post-merge — lint + typecheck
+were (green). Below is the original S30 branch record, kept for rationale.
+
+---
+
+## S30 (2026-09-03) — F3 Phase 1 branch record (see S30b above for the merge)
 
 **Big picture: F3 (true vector map) kicked off. Phase 1 built on branch
-`f3-phase1-vector-groundwork` (12 commits, NOT merged, NOT pushed). The ~2.2s
+`f3-phase1-vector-groundwork` (now merged — see S30b). The ~2.2s
 Map2D pan/zoom stall is DEAD: settle redraw 2200ms → ~6.9ms pan / ~5.3ms zoom
 (max 158ms) at 30k, measured via `scripts/renderMap2DPerf.mjs --style=parchment
 --points=30000 --dpr=2`.**
