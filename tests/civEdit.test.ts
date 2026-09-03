@@ -26,10 +26,13 @@ function recalcTotals(world: WorldData): void {
   });
 }
 
-// Denser provinces than the default helper params so at least one faction
-// reliably ends up with several provinces — needed to exercise local
-// province-id remapping during a merge.
-const civParams = () => makeParams({ points: 1200, provinceSize: 0.1, numFactions: 3, landStyle: 'Continents' });
+// Denser provinces than the default helper params so a NON-largest faction
+// reliably ends up with >=2 provinces — needed to exercise local province-id
+// remapping during a merge (the precondition asserted at line ~47).
+// points was 1200; main-side terrain/civ drift (D8b/D9) later left the two
+// smaller factions with a single province each ([10,1,1]). 2000 restores a
+// solid margin — measured province counts [7,5,3] at this seed, secondary = 5.
+const civParams = () => makeParams({ points: 2000, provinceSize: 0.1, numFactions: 3, landStyle: 'Continents' });
 
 describe('civEdit', () => {
   describe('mergeFactions', () => {
