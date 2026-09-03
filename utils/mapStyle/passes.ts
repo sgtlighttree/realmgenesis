@@ -190,6 +190,23 @@ export const landPass = (
     const mute = policy === 'categorical' ? 0.45 : 0;
     const paper = new THREE.Color(palette.paper);
     const { world, colorCtx } = ctx;
+    // F3 Phase 1 fast path: when Map2D has built both caches, skip the
+    // per-cell getCellColor + fillFeature loop entirely and hand the whole
+    // land set to the substrate's batched primitive. Restricted to
+    // `mute === 0` because the categorical mute-toward-paper lerp below is
+    // NOT baked into the colour cache — folding it in would need a second
+    // cache variant keyed on policy, which Phase 1 defers (see Task 8 note).
+    // `bare` also falls through: it paints only ICE_CAP, never a full fill.
+    if (ctx.colorCache && ctx.geometryCache && policy !== 'bare' && mute === 0) {
+      const indices: number[] = [];
+      for (let i = 0; i < world.cells.length; i++) {
+        const cell = world.cells[i];
+        if (cell.height < colorCtx.seaLevel && !isLakeCell(cell)) continue;
+        indices.push(i);
+      }
+      sub.fillCells(indices, ctx.colorCache);
+      return;
+    }
     for (let i = 0; i < world.cells.length; i++) {
       const cell = world.cells[i];
       if (cell.height < colorCtx.seaLevel && !isLakeCell(cell)) continue;
@@ -226,6 +243,10 @@ export const landPass = (
  * SVG 1.1 has no `rgba()` syntax. See `Substrate.fillFeature`.
  *
  * D10 made water shade too, so this covers the sea bed as well as the land.
+ *
+ * Stays on `fillFeature` in F3 Phase 1 — no colour cache is wired here. It
+ * fills a subset with a per-cell opacity derived from `shadeMap`, which is
+ * lower priority than `landPass` (the spec's dominant cost).
  */
 export const hillshadePass = (
   palette: StylePalette,

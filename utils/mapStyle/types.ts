@@ -143,6 +143,14 @@ export interface StyleRenderContext {
   hatchAngleDeg?: number;
   colorCtx: ColorContext;
   coastlines: Array<[Point3, Point3]>;
+  /**
+   * F3 Phase 1: prebuilt caches. When both are present, `landPass` fills via
+   * `Substrate.fillCells` instead of reprojecting/recolouring per redraw.
+   * Absent for the Dymaxion source raster and SVG export, which fall back to
+   * the per-feature path.
+   */
+  geometryCache?: import('../mapCache').MapGeometryCache;
+  colorCache?: string[];
 }
 
 export type StylePass = (ctx: StyleRenderContext, sub: Substrate) => void;
