@@ -117,6 +117,22 @@ export class Canvas2DSubstrate implements Substrate {
     this.ctx.restore();
   }
 
+  hatchCells(indices: number[] | Uint32Array, spec: HatchSpec): void {
+    if (!indices.length) return;
+    this.ctx.save();
+    // Union the cached per-cell paths into one clip region via Path2D.addPath —
+    // a memcpy of path commands, NOT a reprojection. This is the whole point:
+    // the d3 path generator never runs here.
+    const clip = new Path2D();
+    for (let j = 0; j < indices.length; j++) {
+      const p = this.cellPaths[indices[j]];
+      if (p) clip.addPath(p);
+    }
+    this.ctx.clip(clip);
+    this.sweepDiagonalLines(0, 0, this.width, this.height, spec);
+    this.ctx.restore();
+  }
+
   strokeFeature(feature: GeoFeatureLike, stroke: string, width: number): void {
     this.ctx.beginPath();
     this.path(feature);
@@ -147,6 +163,18 @@ export class Canvas2DSubstrate implements Substrate {
     this.ctx.beginPath();
     this.ctx.rect(x, y, w, h);
     this.ctx.clip();
+    this.sweepDiagonalLines(x, y, w, h, spec);
+    this.ctx.restore();
+  }
+
+  /**
+   * The diagonal line sweep itself, with NO clip of its own — the caller is
+   * responsible for clipping first (`hatchRect` clips to a rect; `hatchCells`
+   * clips to the composite of cached cell paths). Extracted so `hatchCells`
+   * does not pay for a second, redundant full-canvas rect clip on top of its
+   * own composite clip.
+   */
+  private sweepDiagonalLines(x: number, y: number, w: number, h: number, spec: HatchSpec): void {
     this.ctx.strokeStyle = spec.color;
     this.ctx.lineWidth = spec.widthPx;
     this.ctx.globalAlpha = spec.opacity ?? 1;
@@ -164,7 +192,6 @@ export class Canvas2DSubstrate implements Substrate {
       this.ctx.lineTo(cx + dx * span, cy + dy * span);
     }
     this.ctx.stroke();
-    this.ctx.restore();
   }
 
   withSphereClip(draw: () => void): void {

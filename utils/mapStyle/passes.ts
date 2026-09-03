@@ -31,6 +31,21 @@ const oceanFeatures = (ctx: StyleRenderContext) => {
 };
 
 /**
+ * Ocean cell INDICES that have a drawable polygon, in cell order. Mirrors
+ * `oceanFeatures`' predicate exactly so cached and uncached hatch cover the
+ * same cells.
+ */
+const oceanCellIndices = (ctx: StyleRenderContext): number[] => {
+  const out: number[] = [];
+  const { world, colorCtx } = ctx;
+  for (let i = 0; i < world.cells.length; i++) {
+    if (world.cells[i].height >= colorCtx.seaLevel) continue;
+    if (world.geoJson?.features?.[i]) out.push(i);
+  }
+  return out;
+};
+
+/**
  * Ocean features grouped by hatch opacity, for `polarHatchFadeDeg`.
  *
  * Quantised to quarter steps rather than a true per-cell gradient because each
@@ -161,7 +176,8 @@ export const oceanHatchPass = (palette: StylePalette): StylePass =>
     // The globe bake asks for a polar fade; a flat map never does. See
     // `StyleRenderContext.polarHatchFadeDeg` for why the poles need it.
     if (!ctx.polarHatchFadeDeg) {
-      sub.hatchFeatures(oceanFeatures(ctx), spec);
+      if (ctx.geometryCache) sub.hatchCells(oceanCellIndices(ctx), spec);
+      else sub.hatchFeatures(oceanFeatures(ctx), spec);
       return;
     }
     const bands = oceanFeaturesByHatchOpacity(ctx, ctx.polarHatchFadeDeg);

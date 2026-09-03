@@ -7,7 +7,7 @@ import { MapGeometryCache } from '../utils/mapCache';
 import { ViewMode } from '../types';
 
 if (typeof (globalThis as any).Path2D === 'undefined') {
-  (globalThis as any).Path2D = class {} as any;
+  (globalThis as any).Path2D = class { addPath() {} } as any;
 }
 
 describe('Canvas2DSubstrate.fillCells', () => {
@@ -28,6 +28,29 @@ describe('Canvas2DSubstrate.fillCells', () => {
     // Two cells filled, with colours indexed by cell id (0 and 2).
     const fills = calls.filter((c) => c.filled);
     expect(fills.map((c) => c.style)).toEqual(['#112233', '#778899']);
+  });
+});
+
+describe('Canvas2DSubstrate.hatchCells', () => {
+  it('clips to the union of the requested cached cell paths, then hatches once', () => {
+    const ops: string[] = [];
+    const ctx = {
+      save() { ops.push('save'); }, restore() { ops.push('restore'); },
+      clip(_p?: any) { ops.push('clip'); },
+      beginPath() {}, closePath() {}, moveTo() {}, lineTo() {},
+      set fillStyle(_v: string) {}, get fillStyle() { return ''; },
+      set strokeStyle(_v: string) {}, get strokeStyle() { return ''; },
+      set lineWidth(_v: number) {}, set globalAlpha(_v: number) {},
+      fill() {}, stroke() {}, translate() {}, scale() {}, rotate() {}, rect() {},
+    } as any;
+    const paths = [new Path2D(), new Path2D(), new Path2D(), new Path2D()];
+    const sub = new Canvas2DSubstrate(ctx, (() => {}) as any, 100, 100, false, paths);
+    const spec = { color: '#123456', spacingPx: 6, widthPx: 1, angleDeg: 45 };
+    sub.hatchCells([1, 3], spec);
+    // Exactly one clip (to the composite) and the sweep runs inside a save/restore.
+    expect(ops.filter((o) => o === 'clip')).toHaveLength(1);
+    expect(ops[0]).toBe('save');
+    expect(ops[ops.length - 1]).toBe('restore');
   });
 });
 
@@ -71,6 +94,7 @@ describe('landPass cache fast path', () => {
       strokeSegments: () => {},
       hatchRect: () => {},
       hatchFeatures: () => {},
+      hatchCells: () => {},
       grain: () => {},
       withSphereClip: (draw) => draw(),
       drawGlyph: () => {},

@@ -79,6 +79,15 @@ export class SvgSubstrate implements Substrate {
     this.bodyParts.push(`<path d="${ds.join('')}" fill="url(#${id})"/>`);
   }
 
+  hatchCells(indices: number[] | Uint32Array, spec: HatchSpec): void {
+    const feats: GeoFeatureLike[] = [];
+    for (let j = 0; j < indices.length; j++) {
+      const f = this.cellFeatures?.[indices[j]];
+      if (f) feats.push(f);
+    }
+    this.hatchFeatures(feats, spec);
+  }
+
   strokeFeature(feature: GeoFeatureLike, stroke: string, width: number): void {
     const d = this.path(feature);
     if (!d) return;
