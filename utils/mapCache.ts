@@ -130,6 +130,24 @@ const chainedToPath = (
   return path;
 };
 
+// Rebuild the coast/border/lake outline Path2Ds at a given simplification
+// tolerance. Exported so a zoom-settle LOD pass (F3 Phase 2, Task 6c) can
+// re-chain them at tol = 0.5 / scale: this is vector-tile LOD — the geometry is
+// resolution-independent at every zoom, only its simplification budget tracks
+// zoom, which is categorically different from the raster-DPR sharpness the blit
+// path trades on. `cellCount` scales the vertex-weld threshold (see
+// chainSegments). Reused by buildMapGeometryCache for its base-tolerance build.
+export const buildBoundaryPaths = (
+  world: WorldData,
+  cellCount: number,
+  projection: GeoProjection,
+  tolPx: number,
+): { coast: Path2D; borders: Path2D; lakes: Path2D } => ({
+  coast: chainedToPath(computeCoastlineSegments(world), cellCount, projection, tolPx),
+  borders: chainedToPath(computeFactionBorderSegments(world), cellCount, projection, tolPx),
+  lakes: chainedToPath(computeLakeOutlineSegments(world), cellCount, projection, tolPx),
+});
+
 // Project all cell rings ONCE to CSS-px (un-flipped) + build a Path2D per cell.
 // Coordinates are filled through Map2D's flipped/DPR context, so the mirror and
 // DPR are applied at draw, never baked here (see the geometry-cache spec §2).
@@ -194,8 +212,6 @@ export const buildMapGeometryCache = (
 
   return {
     cellPaths, cellVerts, cellOffsets, cellSubStart, cellSubOffsets,
-    coast: chainedToPath(computeCoastlineSegments(world), n, projection, tolPx),
-    borders: chainedToPath(computeFactionBorderSegments(world), n, projection, tolPx),
-    lakes: chainedToPath(computeLakeOutlineSegments(world), n, projection, tolPx),
+    ...buildBoundaryPaths(world, n, projection, tolPx),
   };
 };

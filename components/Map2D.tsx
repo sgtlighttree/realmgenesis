@@ -3,7 +3,7 @@ import * as d3 from 'd3';
 import { WorldData, ViewMode, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, Point, MarkerData } from '../types';
 import { getCellColor } from '../utils/colors';
 import { computeCoastlineSegments, computeFactionBorderSegments } from '../utils/boundaries';
-import { buildMapGeometryCache } from '../utils/mapCache';
+import { buildMapGeometryCache, buildBoundaryPaths } from '../utils/mapCache';
 import { buildCellColorCache } from '../utils/mapColorCache';
 import { buildCellQuadtree, findCellIdAtPoint } from '../utils/mapPick';
 import { getMapStyle, MapStyleId } from '../utils/mapStyle';
@@ -460,14 +460,29 @@ const Map2D: React.FC<{
       : null),
     [glTessellation, colorCache],
   );
-  // Base-tolerance boundaries for the overlay. Zoom-settle LOD refinement is
-  // Task 6c (settle-refined geometry, not pixels).
+  // Base-tolerance boundaries for the overlay (from the cache, built at 0.5px).
   const glBoundaryPaths = useMemo<VectorOverlayBoundaryPaths | null>(
     () => (geometryCache
       ? { coast: geometryCache.coast, borders: geometryCache.borders, lakes: geometryCache.lakes }
       : null),
     [geometryCache],
   );
+  // 6c — zoom-settle boundary LOD. On settle, re-chain coast/borders/lakes at
+  // tol = 0.5/scale so deep zoom de-facets the outlines. This is settle-refined
+  // GEOMETRY (vector-tile LOD), resolution-independent at every zoom — NOT the
+  // raster-DPR sharpness the blit path trades on. GL path only.
+  const [lodBoundaries, setLodBoundaries] = useState<VectorOverlayBoundaryPaths | null>(null);
+  // Drop back to base tolerance when the world or projection changes.
+  useEffect(() => { setLodBoundaries(null); }, [world, projection]);
+  useEffect(() => {
+    if (!useGL || !projection || !world || isInteracting) return undefined;
+    const t = window.setTimeout(() => {
+      setLodBoundaries(buildBoundaryPaths(
+        world, world.cells.length, projection, Math.max(0.05, 0.5 / Math.max(scale, 1)),
+      ));
+    }, SETTLE_MS);
+    return () => window.clearTimeout(t);
+  }, [useGL, projection, world, isInteracting, scale]);
 
   const glRef = useRef<GLFillHandle | null>(null);
   const overlayRef = useRef<VectorOverlayHandle | null>(null);
@@ -1440,7 +1455,7 @@ const Map2D: React.FC<{
             offsetY={offset.y}
             world={world}
             projection={projection}
-            boundaryPaths={glBoundaryPaths}
+            boundaryPaths={lodBoundaries ?? glBoundaryPaths}
             contourSegments={contourSegments}
             mapLabels={mapLabels}
             labelVisibility={labelVisibility}
