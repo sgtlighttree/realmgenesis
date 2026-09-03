@@ -432,9 +432,12 @@ const Map2D: React.FC<{
       return false;
     }
   });
-  // Context loss falls back to the blit path; a new world/projection retries GL.
+  // Context loss falls back to the blit path; a new world/projection — or a
+  // style round-trip that unmounts/remounts GLFillSurface with a fresh context —
+  // retries GL. mapStyleId is in the deps because default↔parchment toggling
+  // hands the next GL mount a genuinely new (non-lost) context.
   const [glContextLost, setGlContextLost] = useState(false);
-  useEffect(() => { setGlContextLost(false); }, [world?.params.seed, projectionType]);
+  useEffect(() => { setGlContextLost(false); }, [world?.params.seed, projectionType, mapStyleId]);
 
   const useGL = shouldUseGLFill({
     styleId: mapStyleId, projectionType, webglAvailable, contextLost: glContextLost,

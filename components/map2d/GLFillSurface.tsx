@@ -139,7 +139,13 @@ export const GLFillSurface: React.FC<GLFillSurfaceProps> = ({
     }
 
     return () => {
+      // Remove the listener BEFORE forceContextLoss so the loss it triggers
+      // doesn't call back into an unmounting parent. dispose() alone does not
+      // synchronously release the underlying context; forceContextLoss() does,
+      // which matters under the browser's ~16-live-context cap as style/
+      // projection toggles mount and unmount this surface repeatedly.
       canvas.removeEventListener('webglcontextlost', handleContextLost);
+      renderer.forceContextLoss();
       renderer.dispose();
       rendererRef.current = null;
       sceneRef.current = null;
