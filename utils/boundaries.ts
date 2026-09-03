@@ -41,15 +41,31 @@ export const computeBoundarySegments = (
   // (confirmed on a generated world: one endpoint of the drop went from
   // degree 2 to degree 3, the other from degree 2 to degree 1 — exactly the
   // two odd-degree vertices you'd get from swapping a real edge for a
-  // duplicate self-adjacent one). DISTINCT_SQ rejects a second candidate
-  // within this squared-distance of the first accepted match and keeps
-  // scanning cellA's vertices for the real second vertex instead. Set to
-  // ~2x the match threshold's raw radius (~2e-3) — comfortably above
-  // coincidence-level noise (~7e-4 observed) and comfortably below the
-  // shortest real Voronoi edge length at any point count this engine
-  // supports today (min spacing ~0.008 raw at 200k points on a unit sphere,
-  // ~0.05-0.07 at the 3000-point test scale).
-  const DISTINCT_SQ = 0.000004; // (~2e-3 raw distance)^2
+  // duplicate self-adjacent one).
+  //
+  // DISTINCT_SQ rejects a second candidate within this squared-distance of
+  // the first accepted match and keeps scanning cellA's vertices for the
+  // real second vertex instead. It must scale with point density, the same
+  // way weldThresholdFor (below) scales the chaining weld threshold: unit
+  // -sphere spacing shrinks as ~sqrt(4*pi/N), and average real edge length
+  // shrinks right along with it — a FIXED epsilon that's safe at 3000 points
+  // thins out at higher N (a fixed ~2e-3 raw epsilon sits ~33x below the
+  // *average* spacing at 3000 points but only ~4x below it at 200k, eating
+  // into the margin against genuinely short — not just average-length — real
+  // edges, which do occur off the average). DISTINCT_FRACTION * spacing(N)
+  // keeps the same ~33x margin below average spacing at every N (this is a
+  // margin against the *average*, not a hard worst-case bound: an
+  // unusually short real edge below the epsilon could in principle still be
+  // misclassified, same caveat as the weld threshold below), while comfortably
+  // clearing the ~7e-4 duplicate-vertex artifact, assumed to scale down with
+  // mesh density along with everything else geometric (0.031 chosen to
+  // reproduce the previously-verified fixed value, ~2e-3, at 3000 points):
+  //   N=3000    -> spacing ~0.0647, epsilon ~0.0020 (~33x below avg spacing, ~2.9x the ~7e-4 drift)
+  //   N=30000   -> spacing ~0.0205, epsilon ~0.00064 (~33x below avg spacing)
+  //   N=200000  -> spacing ~0.0079, epsilon ~0.00024 (~33x below avg spacing)
+  const DISTINCT_FRACTION = 0.031;
+  const distinctEps = DISTINCT_FRACTION * Math.sqrt((4 * Math.PI) / Math.max(world.cells.length, 1));
+  const DISTINCT_SQ = distinctEps * distinctEps;
   world.cells.forEach((cellA) => {
     cellA.neighbors.forEach((nId) => {
       const cellB = world.cells[nId];
@@ -125,7 +141,6 @@ export const computeFactionBorderSegments = (world: WorldData): Array<[Point3, P
 //   N=30000   -> spacing ~0.0205, threshold ~0.0031 (~4.4x the drift, ~6.7x below spacing)
 //   N=200000  -> spacing ~0.0079, threshold ~0.0012 (~1.7x the drift, ~6.7x below spacing)
 const WELD_FRACTION = 0.15; // threshold = WELD_FRACTION * spacing; keeps ~6.7x margin below true spacing at every N
-const DEFAULT_CELL_COUNT = 3000; // fallback for callers with no world context (e.g. synthetic test segments)
 const weldThresholdFor = (cellCount: number): number =>
   WELD_FRACTION * Math.sqrt((4 * Math.PI) / Math.max(cellCount, 1));
 
@@ -190,12 +205,17 @@ class VertexWelder {
  * is ever dropped. Edge count is conserved: sum(chain.length - 1) === segments.length.
  *
  * `cellCount` scales the vertex-welding threshold (see weldThresholdFor above)
- * — pass `world.cells.length` when chaining segments from a generated world;
- * omit it only for synthetic/test segments where no such world exists.
+ * and is REQUIRED, not optional with a fallback — a silent default here would
+ * be a silent behavior-changing default for any caller that forgot to pass
+ * it, exactly the kind of bug this whole module exists to catch. Callers on
+ * real generated geometry must pass `world.cells.length`; synthetic/test
+ * callers should still pass an explicit count (any value is fine as long as
+ * the resulting weld threshold stays well below the synthetic points'
+ * spacing — see tests/boundaries.test.ts for examples).
  */
 export const chainSegments = (
   segments: Array<[Point3, Point3]>,
-  cellCount: number = DEFAULT_CELL_COUNT,
+  cellCount: number,
 ): Point3[][] => {
   const welder = new VertexWelder(weldThresholdFor(cellCount));
   const ids: Array<[number, number]> = segments.map(([a, b]) => [welder.idFor(a), welder.idFor(b)]);

@@ -6,6 +6,12 @@ import { makeParams } from './helpers';
 
 const seg = (a: Point3, b: Point3): [Point3, Point3] => [a, b];
 
+// chainSegments requires a cellCount to derive its weld threshold (see
+// utils/boundaries.ts). These synthetic segments have points spaced 1.0
+// apart, far above any weld threshold this could plausibly derive, so the
+// exact value is arbitrary — pick a representative real-world scale.
+const SYNTHETIC_CELL_COUNT = 3000;
+
 describe('chainSegments', () => {
   it('joins a broken-order open chain into one polyline', () => {
     // Endpoints given out of order and reversed.
@@ -14,7 +20,7 @@ describe('chainSegments', () => {
       seg([1, 0, 0], [2, 0, 0]),
       seg([0, 0, 0], [1, 0, 0]),
     ];
-    const chains = chainSegments(segs);
+    const chains = chainSegments(segs, SYNTHETIC_CELL_COUNT);
     expect(chains).toHaveLength(1);
     expect(chains[0]).toHaveLength(4); // 4 points, open
     // First and last differ (open chain).
@@ -27,7 +33,7 @@ describe('chainSegments', () => {
       seg([1, 0, 0], [1, 1, 0]),
       seg([1, 1, 0], [0, 0, 0]),
     ];
-    const chains = chainSegments(segs);
+    const chains = chainSegments(segs, SYNTHETIC_CELL_COUNT);
     expect(chains).toHaveLength(1);
     expect(chains[0][0]).toEqual(chains[0][chains[0].length - 1]);
   });
@@ -38,7 +44,7 @@ describe('chainSegments', () => {
       seg([1, 0, 0], [2, 0, 0]),
       seg([5, 5, 5], [6, 5, 5]), // disjoint second chain
     ];
-    const chains = chainSegments(segs);
+    const chains = chainSegments(segs, SYNTHETIC_CELL_COUNT);
     const edges = chains.reduce((s, c) => s + (c.length - 1), 0);
     expect(edges).toBe(segs.length);
     expect(chains).toHaveLength(2);
@@ -51,7 +57,7 @@ describe('chainSegments', () => {
       seg([1, 0, 0], [2, 0, 0]),
       seg([1, 0, 0], [1, 1, 0]),
     ];
-    const chains = chainSegments(segs);
+    const chains = chainSegments(segs, SYNTHETIC_CELL_COUNT);
     const edges = chains.reduce((s, c) => s + (c.length - 1), 0);
     expect(edges).toBe(3); // no edge lost at the branch
   });
