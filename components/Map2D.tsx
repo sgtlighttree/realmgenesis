@@ -22,6 +22,12 @@ import { collectLabels, drawMapLabels } from '../utils/labels';
 import { computeShadeMap, computeContourSegments, drawContourPaths, contourInterval } from '../utils/shading';
 import { drawCurrents2D } from './overlays/currents2D';
 import { computeScaleBar, computeInterruptedScaleBar, niceScaleBarLength } from '../utils/measure';
+import { shouldUseGLFill } from '../utils/map2dRenderPath';
+import { tessellateCells } from '../utils/tessellate';
+import { buildFillColorBuffer } from '../utils/mapFillColorBuffer';
+import { GLFillSurface, GLFillHandle } from './map2d/GLFillSurface';
+import { VectorOverlay, VectorOverlayHandle } from './map2d/VectorOverlay';
+import { VectorOverlayBoundaryPaths } from './map2d/paintVectorOverlay';
 
 type Size = { width: number; height: number };
 
@@ -410,6 +416,77 @@ const Map2D: React.FC<{
   // null until the image decodes, so the desk falls back to its colour rather
   // than painting nothing. See useDeskTexture.
   const deskTexture = useDeskTexture(style.palette.deskTexture);
+
+  // --- F3 Phase 2: WebGL fill path (Default style, non-Dymaxion) ---------
+  // Crisp cell fills on a Three.js orthographic surface + a per-frame Canvas2D
+  // vector overlay, replacing the offscreen-blit magnification that softens
+  // deep zoom. Spec: docs/superpowers/specs/2026-09-04-f3-phase2-webgl-fill-
+  // surface-design.md. The blit path below stays intact as the fallback for
+  // parchment / Dymaxion / no-WebGL / context-loss.
+  const glFillDpr = useMemo(() => Math.min(2, window.devicePixelRatio || 1), []);
+  const [webglAvailable] = useState(() => {
+    try {
+      const c = document.createElement('canvas');
+      return !!(c.getContext('webgl2') || c.getContext('webgl'));
+    } catch {
+      return false;
+    }
+  });
+  // Context loss falls back to the blit path; a new world/projection retries GL.
+  const [glContextLost, setGlContextLost] = useState(false);
+  useEffect(() => { setGlContextLost(false); }, [world?.params.seed, projectionType]);
+
+  const useGL = shouldUseGLFill({
+    styleId: mapStyleId, projectionType, webglAvailable, contextLost: glContextLost,
+  }) && !!projection && !!geometryCache && !!world;
+
+  // Tessellation + per-vertex colours: built only when the GL path is live, and
+  // NOT keyed on scale/offset — pan/zoom is a matrix update, never a rebuild.
+  const glTessellation = useMemo(
+    () => (useGL && geometryCache && world
+      ? tessellateCells(
+        geometryCache.cellVerts, geometryCache.cellOffsets,
+        geometryCache.cellSubStart, geometryCache.cellSubOffsets, world.cells.length,
+      )
+      : null),
+    [useGL, geometryCache, world],
+  );
+  const glFillColors = useMemo(
+    () => (glTessellation && colorCache
+      ? buildFillColorBuffer(colorCache, glTessellation.cellTriRange)
+      : null),
+    [glTessellation, colorCache],
+  );
+  // Base-tolerance boundaries for the overlay. Zoom-settle LOD refinement is
+  // Task 6c (settle-refined geometry, not pixels).
+  const glBoundaryPaths = useMemo<VectorOverlayBoundaryPaths | null>(
+    () => (geometryCache
+      ? { coast: geometryCache.coast, borders: geometryCache.borders, lakes: geometryCache.lakes }
+      : null),
+    [geometryCache],
+  );
+
+  const glRef = useRef<GLFillHandle | null>(null);
+  const overlayRef = useRef<VectorOverlayHandle | null>(null);
+
+  // Drive the GL fills' transform on pan/zoom AND resize. size/dpr/tessellation
+  // are in the deps because GLFillSurface's own resize effect resets the mesh's
+  // mirror position (position.x = width), which would drop the pan offset until
+  // the next setTransform; re-applying here keeps zoom/pan across a resize and
+  // when a freshly-built mesh appears. The overlay redraws itself from its
+  // scale/offset props, so it needs no imperative call here.
+  useEffect(() => {
+    if (!useGL) return;
+    glRef.current?.setTransform(scale, offset.x, offset.y);
+  }, [useGL, scale, offset.x, offset.y, size.width, size.height, glFillDpr, glTessellation]);
+
+  // Recolour on view-mode / season / seaLevel / hillshade change. GLFillSurface
+  // redraws colour only through the handle (its `colors` prop seeds the first
+  // upload); paint-stroke partial updates are Task 7.
+  useEffect(() => {
+    if (!useGL || !glFillColors) return;
+    glRef.current?.setColors(glFillColors);
+  }, [useGL, glFillColors]);
 
   // A style with no passes draws nothing, so the legacy per-cell loop runs
   // instead. This is the ONE test for that — never a comparison against the
@@ -1036,6 +1113,16 @@ const Map2D: React.FC<{
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // GL path: the visible canvas is a transparent event-catcher on top of the
+    // GLFillSurface + VectorOverlay layers, so clear it and skip the blit.
+    if (useGL) {
+      canvas.width = Math.max(1, Math.floor(size.width * glFillDpr));
+      canvas.height = Math.max(1, Math.floor(size.height * glFillDpr));
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+
     const displayDpr = qualityDpr;
     canvas.width = Math.max(1, Math.floor(size.width * displayDpr));
     canvas.height = Math.max(1, Math.floor(size.height * displayDpr));
@@ -1067,7 +1154,7 @@ const Map2D: React.FC<{
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
 
-  }, [size.width, size.height, scale, offset.x, offset.y, qualityDpr, viewMode, world?.params.seed, world, projectionType, renderCount, projection, rulerArc, styled, style.palette, deskTexture]);
+  }, [size.width, size.height, scale, offset.x, offset.y, qualityDpr, viewMode, world?.params.seed, world, projectionType, renderCount, projection, rulerArc, styled, style.palette, deskTexture, useGL, glFillDpr]);
 
   /**
    * Screen point -> cell id, by reading the Dymaxion pick buffer.
@@ -1326,9 +1413,45 @@ const Map2D: React.FC<{
 
   return (
     <div ref={containerRef} className="w-full h-full bg-black relative">
+      {/* F3 Phase 2: GL fill surface + vector overlay, behind the transparent
+          event-catching canvas below. Only mounted on the GL path; the blit
+          path leaves these unmounted and paints canvasRef directly. */}
+      {useGL && glTessellation && glFillColors && glBoundaryPaths && projection && world && (
+        <>
+          <div className="absolute inset-0" style={{ zIndex: 0 }}>
+            <GLFillSurface
+              positions={glTessellation.positions}
+              colors={glFillColors}
+              width={size.width}
+              height={size.height}
+              dpr={glFillDpr}
+              onContextLost={() => setGlContextLost(true)}
+              handleRef={glRef}
+            />
+          </div>
+          <VectorOverlay
+            size={size}
+            dpr={glFillDpr}
+            scale={scale}
+            offsetX={offset.x}
+            offsetY={offset.y}
+            world={world}
+            projection={projection}
+            boundaryPaths={glBoundaryPaths}
+            contourSegments={contourSegments}
+            mapLabels={mapLabels}
+            labelVisibility={labelVisibility}
+            labelTheme={labelTheme}
+            overlayInk={overlayInk}
+            coastColor={style.palette.coast}
+            toggles={{ showGrid, showRivers, showRoutes, showCurrents }}
+            handleRef={overlayRef}
+          />
+        </>
+      )}
       <canvas
         ref={canvasRef}
-        className="w-full h-full cursor-grab active:cursor-grabbing"
+        className="absolute inset-0 w-full h-full cursor-grab active:cursor-grabbing z-20"
         onMouseDown={handleMouseDown}
         onMouseMove={(e) => { handleMouseMove(e); handleHover(e); }}
         onMouseUp={handleMouseUp}
