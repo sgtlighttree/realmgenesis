@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Canvas2DSubstrate } from '../utils/mapStyle/substrateCanvas';
-import { landPass } from '../utils/mapStyle/passes';
+import { landPass, oceanHatchPass } from '../utils/mapStyle/passes';
 import { Substrate } from '../utils/mapStyle/substrate';
 import { StyleRenderContext } from '../utils/mapStyle/types';
 import { MapGeometryCache } from '../utils/mapCache';
@@ -88,20 +88,22 @@ describe('landPass cache fast path', () => {
   const makeSub = () => {
     const fillCellsCalls: Array<{ indices: number[] | Uint32Array; colors: string[] }> = [];
     const fillFeatureCalls: unknown[] = [];
+    const hatchCellsCalls: Array<{ indices: number[] | Uint32Array }> = [];
+    const hatchFeaturesCalls: unknown[] = [];
     const sub: Substrate = {
       fillRect: () => {},
       fillFeature: (f) => { fillFeatureCalls.push(f); },
       strokeFeature: () => {},
       strokeSegments: () => {},
       hatchRect: () => {},
-      hatchFeatures: () => {},
-      hatchCells: () => {},
+      hatchFeatures: (features) => { hatchFeaturesCalls.push(features); },
+      hatchCells: (indices) => { hatchCellsCalls.push({ indices }); },
       grain: () => {},
       withSphereClip: (draw) => draw(),
       drawGlyph: () => {},
       fillCells: (indices, colors) => { fillCellsCalls.push({ indices, colors: colors as string[] }); },
     };
-    return { sub, fillCellsCalls, fillFeatureCalls };
+    return { sub, fillCellsCalls, fillFeatureCalls, hatchCellsCalls, hatchFeaturesCalls };
   };
 
   const palette = {
@@ -145,5 +147,28 @@ describe('landPass cache fast path', () => {
     const ctx = makeCtx({ colorCache, geometryCache });
     pass(ctx, sub);
     expect(fillCellsCalls).toHaveLength(0);
+  });
+
+  // The ocean hatch was the actual ~2.2s stall (reprojecting ~15k cells via
+  // d3.geoPath every redraw). The cached branch unions cached Path2Ds and
+  // clips/sweeps once — this asserts the perf-critical branch is taken, the one
+  // path with no coverage before this test.
+  it('oceanHatchPass: uses hatchCells with ocean indices when geometryCache is present (no polar fade)', () => {
+    const { sub, hatchCellsCalls, hatchFeaturesCalls } = makeSub();
+    const pass = oceanHatchPass(palette);
+    const ctx = makeCtx({ geometryCache }); // cell 2 is the only ocean cell (height 0.3 < 0.55)
+    pass(ctx, sub);
+    expect(hatchCellsCalls).toHaveLength(1);
+    expect(hatchCellsCalls[0].indices).toEqual([2]);
+    expect(hatchFeaturesCalls).toHaveLength(0);
+  });
+
+  it('oceanHatchPass: falls back to hatchFeatures when geometryCache is absent', () => {
+    const { sub, hatchCellsCalls, hatchFeaturesCalls } = makeSub();
+    const pass = oceanHatchPass(palette);
+    const ctx = makeCtx();
+    pass(ctx, sub);
+    expect(hatchCellsCalls).toHaveLength(0);
+    expect(hatchFeaturesCalls).toHaveLength(1);
   });
 });
