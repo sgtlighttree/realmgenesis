@@ -23,6 +23,8 @@ export interface MapGeometryCache {
   // add a subpath-boundary index of its own.
   cellVerts: Float32Array;
   cellOffsets: Uint32Array; // cell i's verts are [offsets[i], offsets[i+1])
+  cellSubStart: Uint32Array;   // length n+1: cell i's sub-ring entries are [cellSubStart[i], cellSubStart[i+1])
+  cellSubOffsets: Uint32Array; // per sub-ring: start vertex index into cellVerts (vertex units)
   coast: Path2D;
   borders: Path2D;
   lakes: Path2D;
@@ -152,23 +154,31 @@ export const buildMapGeometryCache = (
 
   const perCell: CapturedSubpath[][] = new Array(n);
   const cellOffsets = new Uint32Array(n + 1);
+  const cellSubStart = new Uint32Array(n + 1);
   let totalVerts = 0;
+  let totalSubs = 0;
   for (let i = 0; i < n; i++) {
     const feature = features[i];
     const subpaths = feature ? captureFeatureSubpaths(feature, geoPathGen) : [];
     perCell[i] = subpaths;
     cellOffsets[i] = totalVerts;
+    cellSubStart[i] = totalSubs;
+    totalSubs += subpaths.length;
     for (const sp of subpaths) totalVerts += sp.points.length;
   }
   cellOffsets[n] = totalVerts;
+  cellSubStart[n] = totalSubs;
 
   const cellVerts = new Float32Array(totalVerts * 2);
+  const cellSubOffsets = new Uint32Array(totalSubs);
   const cellPaths: Path2D[] = new Array(n);
   for (let i = 0; i < n; i++) {
     const subpaths = perCell[i];
     const path = new Path2D();
     let cursor = cellOffsets[i];
+    let subCursor = cellSubStart[i];
     for (const sp of subpaths) {
+      cellSubOffsets[subCursor++] = cursor; // cursor is the vertex index at sub-ring start
       sp.points.forEach(([x, y], k) => {
         cellVerts[cursor * 2] = x;
         cellVerts[cursor * 2 + 1] = y;
@@ -182,7 +192,7 @@ export const buildMapGeometryCache = (
   }
 
   return {
-    cellPaths, cellVerts, cellOffsets,
+    cellPaths, cellVerts, cellOffsets, cellSubStart, cellSubOffsets,
     coast: chainedToPath(computeCoastlineSegments(world), n, projection, tolPx),
     borders: chainedToPath(computeFactionBorderSegments(world), n, projection, tolPx),
     lakes: chainedToPath(computeLakeOutlineSegments(world), n, projection, tolPx),
