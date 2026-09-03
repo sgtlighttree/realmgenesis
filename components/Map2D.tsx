@@ -80,7 +80,7 @@ const drawFactionBorders = (ctx: CanvasRenderingContext2D, pathGenerator: d3.Geo
       pathGenerator({
         type: 'LineString',
         coordinates: [toLonLat(a), toLonLat(b)],
-      } as any);
+      } as d3.GeoPermissibleObjects);
       ctx.stroke();
     });
   };

@@ -1,14 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import * as d3 from 'd3';
 import { buildCellQuadtree, findCellIdAtPoint } from '../utils/mapPick';
+import { WorldData } from '../types';
+
+type PickWorld = { cells: Array<{ id: number; center: { x: number; y: number; z: number } }> };
 
 // Minimal fake world: cells with center on the unit sphere.
-function fakeWorld(centers: Array<[number, number, number]>) {
-  return { cells: centers.map((c, id) => ({ id, center: { x: c[0], y: c[1], z: c[2] } })) } as any;
+function fakeWorld(centers: Array<[number, number, number]>): PickWorld {
+  return { cells: centers.map((c, id) => ({ id, center: { x: c[0], y: c[1], z: c[2] } })) };
 }
 
 // Reference: geodesic max-dot nearest (what production does today).
-function nearestByDot(world: any, lon: number, lat: number): number {
+function nearestByDot(world: PickWorld, lon: number, lat: number): number {
   const lonR = lon * Math.PI / 180, latR = lat * Math.PI / 180, cl = Math.cos(latR);
   const x = cl * Math.cos(lonR), y = Math.sin(latR), z = cl * Math.sin(lonR);
   let best = -1, bestDot = -Infinity;
@@ -30,8 +33,8 @@ describe('quadtree pick', () => {
     }
   }
   const world = fakeWorld(centers);
-  const projection = d3.geoEquirectangular().fitSize([W, H], { type: 'Sphere' } as any);
-  const qt = buildCellQuadtree(world, projection, W, H);
+  const projection = d3.geoEquirectangular().fitSize([W, H], { type: 'Sphere' as const });
+  const qt = buildCellQuadtree(world as unknown as WorldData, projection, W, H);
 
   it('matches geodesic nearest at interior sample points', () => {
     let mismatches = 0, tested = 0;
