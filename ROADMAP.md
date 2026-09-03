@@ -709,9 +709,28 @@ once. Shipped alongside reusable vector primitives sized for Phase 2:
   `computeBoundarySegments` (degenerate-Voronoi double-match).
 - `utils/simplify.ts` — Douglas–Peucker.
 
-**Phase 2 — TODO.** A WebGL vector surface consuming
-`MapGeometryCache.cellVerts/cellOffsets` directly (the flat buffers already exist
-for exactly this). Dymaxion path stays on its pick-buffer/raster route.
+**Phase 2 — core rendering path DONE & browser-verified (S31, branch
+`f3-phase2-webgl-fill-surface`, not merged).** The Default-style, non-Dymaxion 2D
+map now renders through a **Three.js orthographic GPU fill surface**
+(earcut-triangulated cells, per-vertex colour, one draw call) plus a **per-frame
+Canvas2D vector overlay** (coastlines/borders/rivers/routes/contours/labels,
+redrawn through the same transform). At 6× zoom the fills, cell corners,
+coastlines, and labels are all razor-sharp — the mushy corners and blurred labels
+of the offscreen-blit magnification are gone. `shouldUseGLFill` selects GL vs the
+intact blit fallback (parchment / Dymaxion / no-WebGL / context-loss, the last
+now crash-guarded). Zoom-settle boundary LOD (`tol = 0.5/scale`) de-facets
+outlines at depth. Spec + plan in `docs/superpowers/`; full record in
+`.superpowers/sdd/2026-09-04-f3-phase2-webgl-fill-surface/progress.md`.
+
+Phase 2 required buffers came from Phase 1's `mapCache` — plus a **subpath
+boundary index** (`cellSubStart`/`cellSubOffsets`) added in S31, since
+`cellVerts` alone can't be tessellated (no sub-ring markers).
+
+**Phase 2 remaining:** paint-stroke *partial* GPU colour upload (paint already
+works via full re-upload); a 200k-cell perf pass + worker-offload decision;
+final whole-branch review + merge. Parchment stays on the blit path (a future
+"Phase 2b" — its hatching/grain/glyphs are a separate GPU effort). Dymaxion stays
+on its pick-buffer/raster route.
 
 # F4. Performance Optimizations  —  ⬜ TODO
 Self-explanatory, optimize wherever while keeping visual fidelity. Can come last, but better to make efficient renderers/frontends and code wherever possible.
