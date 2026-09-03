@@ -80,6 +80,7 @@ export class Canvas2DSubstrate implements Substrate {
     private width: number,
     private height: number,
     private mirrored = false,
+    private cellPaths: Path2D[] = [],
   ) {}
 
   fillRect(x: number, y: number, w: number, h: number, fill: string): void {
@@ -210,5 +211,18 @@ export class Canvas2DSubstrate implements Substrate {
     this.ctx.lineJoin = 'round';
     this.ctx.stroke(p);
     this.ctx.restore();
+  }
+
+  fillCells(indices: number[] | Uint32Array, colors: string[]): void {
+    for (let j = 0; j < indices.length; j++) {
+      const i = indices[j];
+      const path = this.cellPaths[i];
+      if (!path) continue;
+      this.ctx.fillStyle = colors[i];
+      this.ctx.fill(path);
+      this.ctx.strokeStyle = colors[i];
+      this.ctx.lineWidth = 0.5;
+      this.ctx.stroke(path);
+    }
   }
 }
