@@ -38,7 +38,108 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
-## S29 (2026-09-03) — NEXT SESSION STARTS HERE
+## S30 (2026-09-03) — NEXT SESSION STARTS HERE — F3 Phase 1 branch, NOT merged
+
+**Big picture: F3 (true vector map) kicked off. Phase 1 built on branch
+`f3-phase1-vector-groundwork` (12 commits, NOT merged, NOT pushed). The ~2.2s
+Map2D pan/zoom stall is DEAD: settle redraw 2200ms → ~6.9ms pan / ~5.3ms zoom
+(max 158ms) at 30k, measured via `scripts/renderMap2DPerf.mjs --style=parchment
+--points=30000 --dpr=2`.**
+
+Direction was chosen after 3 Explore agents + web research: industry (Google
+2019, Apple, Bing, OSM.org since Jul 2025) is all **WebGL vector tiles**; SVG-DOM
+dies past ~10k nodes, so it's off the table. Plan is **phased**: Phase 1 =
+cached-Canvas2D + reusable vector groundwork (this branch); **Phase 2 = a WebGL
+vector surface consuming `MapGeometryCache.cellVerts/cellOffsets`** (the flat
+buffers already exist for exactly this). Spec:
+`docs/superpowers/specs/2026-09-03-f3-phase1-vector-groundwork-design.md`; plan:
+`docs/superpowers/plans/2026-09-03-f3-phase1-vector-groundwork.md`; SDD ledger
+(rulings, deferred minors, per-task record):
+`.superpowers/sdd/2026-09-03-f3-phase1-vector-groundwork/progress.md`.
+
+### The decisive finding (do not re-derive)
+The stall was **NOT** the land fill — it was `oceanHatchPass` reprojecting ~15k
+ocean cells via d3.geoPath EVERY redraw (~2000ms of ~2150ms). Agent A's initial
+read-based diagnosis (land/hillshade/colour) was measured wrong by Task 8's
+instrumentation. The fix (Task 9): `Substrate.hatchCells(indices, spec)` unions
+the cached per-cell `Path2D`s via `Path2D.addPath` (a memcpy, no reprojection),
+clips once, sweeps once. `computeShadeMap` was already memoised and never the
+culprit.
+
+### What shipped on the branch (all 9 tasks, each individually review-approved)
+- **Unit 4** `utils/simplify.ts` — Douglas–Peucker (3196d88).
+- **Unit 3** `utils/boundaries.ts` — `chainSegments` (contiguous coastline/border
+  rings) + `computeLakeOutlineSegments`, AND an authorized fix to the shared
+  `computeBoundarySegments` (a near-degenerate Voronoi cell matched the same
+  vertex pair twice → spurious near-zero edge + dropped real edge; now rejects a
+  2nd shared vertex within a scale-derived `DISTINCT` epsilon). Closure guard:
+  0 unclosed coastline chains. Weld + distinct thresholds scale as `c/√N`,
+  margin-checked 3k–200k (46a6cdb, 3062c7a, cad4588).
+- **Unit 5** `utils/mapPick.ts` — d3-quadtree pick over projected centres,
+  replacing the O(cells) scan; seam/pole parity tested (a635482).
+- **Unit 2** `utils/mapColorCache.ts` — per-cell `#rrggbb` cache (d4f2e6d).
+- **Unit 1** `utils/mapCache.ts` — projects every cell ring to CSS-px ONCE via
+  d3.geoPath capture (handles antimeridian/pole split — the naive per-vertex
+  approach the brief sketched was wrong), `Path2D` per cell + flat
+  `cellVerts/cellOffsets` (Phase-2 WebGL buffers; parity-only, no subpath
+  markers) (c5ea1bc).
+- **Substrate** `fillCells` + `hatchCells` batched primitives; removed an
+  accidental duplicated `grain`/`withSphereClip` decl block (e58f24b, c7912fe).
+- **Passes** `landPass`/`oceanHatchPass` use the caches when present, fall back to
+  per-feature otherwise; `landPass` fast path gated `mute===0` (categorical mute
+  isn't baked into the colour cache — deliberate) (c504801, c7912fe).
+- **Map2D** wires geometry/colour caches + quadtree pick; deleted the duplicated
+  private `getFactionBorders` (now `computeFactionBorderSegments`); caches keyed
+  on `world.cells` (geometry — height-invariant, survives paint) / `world`
+  (colour — changes on paint). Dymaxion path untouched (370e4be, e4eb203).
+
+### ⛔ BEFORE MERGE — do these next session (branch is safe, mid final-review)
+1. **Lint ratchet FAILS: `npm run lint` = 50 warnings vs max 30 (0 errors).**
+   ~20 are test-file `@typescript-eslint/no-explicit-any` from the new F3 tests
+   (fakeWorld stubs, `as unknown as`). Type the test scaffolding (or narrow the
+   `any`s) to get ≤30. CI blocks until this is fixed. **This is the top task.**
+2. **Apply the final whole-branch review findings** — see
+   `.superpowers/sdd/.../task-… ` / the review result recorded below. Per SDD:
+   ONE fix wave (not per-finding), then one scoped re-review.
+3. **Live browser interaction check (I promised it, NOT done):** on Matt's dev
+   server (reuse port 3000, never start a 2nd Vite) — pan/zoom the 2D map at high
+   cell count feels instant; click-to-inspect selects the right cell; paint hits
+   the right cell; faction borders + coastlines still render; try parchment +
+   another style. This is the visual-parity gate (no pixel-diff was run;
+   parchment hash shifted, attributed to the authorized Task 2 border fix + the
+   expected-identical Task 9 hatch — confirm by eye).
+4. **Deferred minors** (triage from ledger): DP boundary `>`vs`<` at exact
+   equality; `simplify` test name over-promises; `mapColorCache` no non-neutral-
+   season case + `shadeMap[cell.id]` invariant comment; `mapCache` no direct
+   `cellPaths` subpath assertion; **no integration test that `oceanHatchPass`
+   takes the `hatchCells` branch** (the perf-critical path — worth adding).
+5. **Update ROADMAP F3** (mark Phase 1 done, Phase 2 = WebGL) and this HANDOFF;
+   then `superpowers:finishing-a-development-branch`.
+
+### Rulings I made this session (unwind any you disagree with)
+- Authorized touching shared `computeBoundarySegments` (correctness fix; shifts
+  coastline/border output — ROADMAP:34 allows it). Cost if wrong: SVG/PNG/Map2D
+  coastlines move; regression tests (bordersTenant 60/60, exportVector 140/140)
+  showed no shift, so only degenerate cells changed.
+- Scale-derived weld + DISTINCT thresholds (`c/√N`) instead of fixed constants.
+- colorCache built `shadeMap=null` (avoid double-shade with the separate
+  hillshadePass) — advisor-confirmed.
+- geometryCache/pickQuadtree keyed on `world.cells` not `world` (ring geometry is
+  height-invariant; don't rebuild on paint).
+- Added Task 9 (ocean hatch) beyond the original 8-task plan, after measurement
+  relocated the stall. This is why Phase 1 actually hits its headline goal.
+- All impl delegated to Sonnet subagents (Task 8 integration to opus-medium),
+  reviews to Sonnet, final review to opus-high; sequential dispatch (shared tree).
+
+### F4 (separate, already on main, shipped earlier this session)
+Globe projector ladder COMPLETE: rung 1 `hypot→sqrt` (9bc20fe) + rung 2 staged/
+fused projector (2342249) — 1.373→0.242 ms/frame at 20k, parity-tested. See
+`docs/performance-findings.md`. Next F4 levers if revisited: `computeShadeMap`
+12.8ms memoisation (2D map already memoises it), geometry-refill colour cache.
+
+---
+
+## S29 (2026-09-03)
 
 F4 globe ladder, rung 1: **`Math.hypot` → `Math.sqrt` in `isVisible`
 (`utils/screenProject.ts:25,29`) SHIPPED** (`9bc20fe`). This was S28's "**Start
