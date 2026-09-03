@@ -77,6 +77,20 @@ describe('buildMapGeometryCache', () => {
         expect(cache.cellVerts[(off0 + k) * 2]).toBe(Math.fround(fresh[k][0]));
         expect(cache.cellVerts[(off0 + k) * 2 + 1]).toBe(Math.fround(fresh[k][1]));
       }
+
+      // --- Task 1: sub-ring boundary index parity ---
+      // cellSubOffsets/cellSubStart must reproduce the SAME subpath split d3 emits.
+      const subStart = cache.cellSubStart[i];
+      const subEnd = cache.cellSubStart[i + 1];
+      const subCount = subEnd - subStart;
+      expect(subCount).toBe(ctx.subpaths.length); // one entry per emitted sub-ring
+      let acc = off0;
+      for (let s = 0; s < subCount; s++) {
+        // each recorded sub-ring's start vertex index, in cellVerts vertex units
+        expect(cache.cellSubOffsets[subStart + s]).toBe(acc);
+        acc += ctx.subpaths[s].length;
+      }
+      expect(acc).toBe(off1); // sub-rings tile the whole cell range exactly
     }
 
     // Guard against a vacuously-passing suite: this seed/point-count must
