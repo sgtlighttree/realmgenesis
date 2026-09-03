@@ -4,6 +4,7 @@ import * as d3 from 'd3';
 import { generateWorld } from '../utils/worldGen';
 import { makeParams } from './helpers';
 import { placeGlyphs } from '../utils/mapStyle/placeGlyphs';
+import { GLYPH_KINDS } from '../utils/mapStyle/types';
 
 const WIDTH = 1024;
 
@@ -65,8 +66,13 @@ describe('placeGlyphs', () => {
       seaLevel: world.params.seaLevel, seed: world.params.seed,
     });
     const kinds = new Set(placed.map(g => g.kind));
+    // Check against the GLYPH_KINDS source of truth (types.ts), not a hardcoded
+    // literal — the point is that placeGlyphs never emits an UNKNOWN kind. The
+    // old inline list drifted (missed 'volcano', which placeGlyphs emits for
+    // VOLCANIC biome), so this now tracks the enum the way the comment on
+    // GLYPH_KINDS intends.
     for (const k of kinds) {
-      expect(['mountain', 'hill', 'forest', 'conifer', 'dune', 'marsh', 'ice']).toContain(k);
+      expect(GLYPH_KINDS as readonly string[]).toContain(k);
     }
   }, 30000);
 });
