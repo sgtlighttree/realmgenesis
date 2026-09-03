@@ -19,8 +19,9 @@ export interface MapGeometryCache {
   // moveTo(first)+lineTo(rest) draws a spurious line straight across the map
   // for those cells. Only `cellPaths` (built from the SAME capture, but
   // preserving each subpath's own moveTo/closePath) is safe to render as-is;
-  // a future consumer that wants to redraw straight from cellVerts must first
-  // add a subpath-boundary index of its own.
+  // a consumer that wants to redraw straight from cellVerts must use the
+  // subpath-boundary index below (`cellSubStart`/`cellSubOffsets`) to find
+  // each subpath's own vertex range.
   cellVerts: Float32Array;
   cellOffsets: Uint32Array; // cell i's verts are [offsets[i], offsets[i+1])
   cellSubStart: Uint32Array;   // length n+1: cell i's sub-ring entries are [cellSubStart[i], cellSubStart[i+1])
