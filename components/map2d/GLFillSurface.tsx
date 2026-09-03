@@ -89,8 +89,10 @@ export const GLFillSurface: React.FC<GLFillSurfaceProps> = ({
     renderer.setPixelRatio(dpr);
     renderer.setSize(width, height, false);
 
-    const camera = new THREE.OrthographicCamera(0, width, 0, height, -1, 1);
-    camera.position.z = 1;
+    // Robust ortho depth range for a z=0 plane; the earlier near=-1/far=1 at
+    // camera z=1 put the mesh on the far clip boundary.
+    const camera = new THREE.OrthographicCamera(0, width, 0, height, 0.1, 1000);
+    camera.position.z = 10;
 
     const scene = new THREE.Scene();
 
@@ -114,9 +116,13 @@ export const GLFillSurface: React.FC<GLFillSurfaceProps> = ({
     const setTransform = (scale: number, offsetX: number, offsetY: number): void => {
       const currentMesh = meshRef.current;
       if (!currentMesh) return;
-      // Compose pan/zoom on top of the fixed X mirror.
+      // Compose pan/zoom on top of the X mirror. Screen x = scale*(width - wx)
+      // + offsetX (matching VectorOverlay's transform), and worldX =
+      // -scale*wx + position.x, so position.x = scale*width + offsetX — NOT
+      // width + offsetX, which only coincides at scale 1 and slides every cell
+      // off-screen when zoomed.
       currentMesh.scale.set(-scale, scale, 1);
-      currentMesh.position.set(widthRef.current + offsetX, offsetY, 0);
+      currentMesh.position.set(scale * widthRef.current + offsetX, offsetY, 0);
       redraw();
     };
 
@@ -161,7 +167,10 @@ export const GLFillSurface: React.FC<GLFillSurfaceProps> = ({
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(expandPositions(positions), 3));
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(colorsRef.current, 3));
 
-    const material = new THREE.MeshBasicMaterial({ vertexColors: true });
+    // DoubleSide: this is a flat 2D fill and the X mirror (scale.x = -1) flips
+    // triangle winding, so front-face culling would drop every cell. Winding is
+    // meaningless for a flat fill — render both sides.
+    const material = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
 
     const mesh = new THREE.Mesh(geometry, material);
     // Mirror the 2D Canvas2D map's X flip (translate(width,0); scale(-1,1))
