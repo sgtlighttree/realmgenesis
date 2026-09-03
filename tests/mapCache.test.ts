@@ -11,12 +11,13 @@ import { makeParams } from './helpers';
 // lakes, so a minimal stub is required just to let buildMapGeometryCache run
 // at all; it doesn't need to record anything since these tests only assert on
 // cellVerts/cellOffsets (the parity that matters) and cellPaths.length.
-if (typeof (globalThis as any).Path2D === 'undefined') {
-  (globalThis as any).Path2D = class Path2D {
+const g = globalThis as { Path2D?: typeof Path2D };
+if (typeof g.Path2D === 'undefined') {
+  g.Path2D = class Path2D {
     moveTo() {}
     lineTo() {}
     closePath() {}
-  };
+  } as unknown as typeof Path2D;
 }
 
 // A tiny stub 2D context recording the path points a d3 canvas generator emits,
@@ -38,14 +39,14 @@ function recordingCtx() {
     arc() {},
     subpaths,
     get pts() { return subpaths.flat(); },
-  } as any;
+  } as unknown as CanvasRenderingContext2D & { subpaths: [number, number][][]; pts: [number, number][] };
 }
 
 describe('buildMapGeometryCache', () => {
   it('cached cell vertices match a fresh d3 projection for every cell (sub-pixel at float32 precision)', async () => {
     const world = await generateWorld(makeParams({ points: 2000, seed: 'geo-cache' }));
     const W = 1024, H = 512;
-    const projection = d3.geoMercator().fitSize([W, H], { type: 'Sphere' } as any);
+    const projection = d3.geoMercator().fitSize([W, H], { type: 'Sphere' as const });
     const cache = buildMapGeometryCache(world, projection, W, H, { simplifyTolerancePx: 0 });
 
     const ctx = recordingCtx();
@@ -56,7 +57,7 @@ describe('buildMapGeometryCache', () => {
 
     for (let i = 0; i < world.cells.length; i++) {
       ctx.subpaths.length = 0;
-      gen(world.geoJson.features[i] as any);
+      gen(world.geoJson.features[i] as d3.GeoPermissibleObjects);
       const fresh = ctx.pts;
       const off0 = cache.cellOffsets[i], off1 = cache.cellOffsets[i + 1];
       const cachedCount = off1 - off0;
@@ -87,7 +88,7 @@ describe('buildMapGeometryCache', () => {
 
   it('produces one Path2D per cell', async () => {
     const world = await generateWorld(makeParams({ points: 2000, seed: 'geo-cache-2' }));
-    const projection = d3.geoEquirectangular().fitSize([800, 400], { type: 'Sphere' } as any);
+    const projection = d3.geoEquirectangular().fitSize([800, 400], { type: 'Sphere' as const });
     const cache = buildMapGeometryCache(world, projection, 800, 400);
     expect(cache.cellPaths).toHaveLength(world.cells.length);
   });

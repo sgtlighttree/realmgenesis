@@ -6,8 +6,9 @@ import { StyleRenderContext } from '../utils/mapStyle/types';
 import { MapGeometryCache } from '../utils/mapCache';
 import { ViewMode } from '../types';
 
-if (typeof (globalThis as any).Path2D === 'undefined') {
-  (globalThis as any).Path2D = class { addPath() {} } as any;
+const g = globalThis as { Path2D?: typeof Path2D };
+if (typeof g.Path2D === 'undefined') {
+  g.Path2D = class { addPath() {} } as unknown as typeof Path2D;
 }
 
 describe('Canvas2DSubstrate.fillCells', () => {
@@ -19,11 +20,11 @@ describe('Canvas2DSubstrate.fillCells', () => {
       get fillStyle() { return ''; },
       set strokeStyle(_v: string) {}, get strokeStyle() { return ''; },
       set lineWidth(_v: number) {}, set globalAlpha(_v: number) {},
-      fill(_p?: any) { if (calls.length) calls[calls.length - 1].filled = true; },
-      stroke(_p?: any) {}, translate() {}, scale() {},
-    } as any;
+      fill(_p?: Path2D) { if (calls.length) calls[calls.length - 1].filled = true; },
+      stroke(_p?: Path2D) {}, translate() {}, scale() {},
+    } as unknown as CanvasRenderingContext2D;
     const paths = [new Path2D(), new Path2D(), new Path2D()];
-    const sub = new Canvas2DSubstrate(ctx, (() => {}) as any, 100, 100, false, paths);
+    const sub = new Canvas2DSubstrate(ctx, () => {}, 100, 100, false, paths);
     sub.fillCells([0, 2], ['#112233', '#445566', '#778899']);
     // Two cells filled, with colours indexed by cell id (0 and 2).
     const fills = calls.filter((c) => c.filled);
@@ -36,15 +37,15 @@ describe('Canvas2DSubstrate.hatchCells', () => {
     const ops: string[] = [];
     const ctx = {
       save() { ops.push('save'); }, restore() { ops.push('restore'); },
-      clip(_p?: any) { ops.push('clip'); },
+      clip(_p?: Path2D) { ops.push('clip'); },
       beginPath() {}, closePath() {}, moveTo() {}, lineTo() {},
       set fillStyle(_v: string) {}, get fillStyle() { return ''; },
       set strokeStyle(_v: string) {}, get strokeStyle() { return ''; },
       set lineWidth(_v: number) {}, set globalAlpha(_v: number) {},
       fill() {}, stroke() {}, translate() {}, scale() {}, rotate() {}, rect() {},
-    } as any;
+    } as unknown as CanvasRenderingContext2D;
     const paths = [new Path2D(), new Path2D(), new Path2D(), new Path2D()];
-    const sub = new Canvas2DSubstrate(ctx, (() => {}) as any, 100, 100, false, paths);
+    const sub = new Canvas2DSubstrate(ctx, () => {}, 100, 100, false, paths);
     const spec = { color: '#123456', spacingPx: 6, widthPx: 1, angleDeg: 45 };
     sub.hatchCells([1, 3], spec);
     // Exactly one clip (to the composite) and the sweep runs inside a save/restore.
