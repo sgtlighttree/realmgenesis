@@ -38,6 +38,74 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## S31 (2026-09-04) — F3 Phase 2 (WebGL fill surface) — core path built & browser-verified on branch
+
+**Branch `f3-phase2-webgl-fill-surface` (NOT merged, NOT pushed).** The headline
+Phase 2 win is achieved and verified in-browser: the Default-style, non-Dymaxion
+2D map now renders through a **Three.js GPU fill surface + per-frame Canvas2D
+vector overlay**, and at 6× zoom the cell fills, corners, coastlines, borders,
+rivers, and labels are all **razor-sharp** — the mushy/distorted cell corners
+and blurred labels from the offscreen-blit magnification are gone. Verified via
+Playwright screenshots (DPR-1 headless): `gl-verify-zoom6-fixed.png` (the win),
+`gl-verify-recolor.png`, `gl-verify-parchment-fallback.png` in repo root.
+
+**Process:** spec → plan → SDD subagent-driven execution. Spec:
+`docs/superpowers/specs/2026-09-04-f3-phase2-webgl-fill-surface-design.md`; plan:
+`docs/superpowers/plans/2026-09-04-f3-phase2-webgl-fill-surface.md`; SDD ledger
+(all rulings, per-task record): `.superpowers/sdd/2026-09-04-f3-phase2-webgl-fill-surface/progress.md`.
+
+**Architecture (as built):** two synchronized layers replace the offscreen-blit
+for the GL path only. (1) `GLFillSurface` — raw imperative `THREE.WebGLRenderer`
+(NOT R3F), earcut-triangulated cells, per-vertex colour, one draw call, pan/zoom
+via a matrix; (2) `VectorOverlay` — transparent Canvas2D redrawn per frame through
+the same composed transform, delegating to a shared `paintVectorOverlay` helper.
+`shouldUseGLFill` selects GL vs the intact blit fallback (parchment / Dymaxion /
+no-WebGL / context-loss). Pan/zoom is a matrix update, never a rebuild.
+
+**Done & reviewed (Tasks 1–5, 6a):** subpath index in `mapCache`; `utils/tessellate.ts`
+(earcut); `utils/mapFillColorBuffer.ts`; `GLFillSurface`; `VectorOverlay` +
+`paintVectorOverlay`; `shouldUseGLFill` predicate. All unit-tested where pure,
+dual-reviewed (6a controller-verified).
+
+**Done & browser-verified (Task 6b, controller-authored wiring):** `components/Map2D.tsx`
+wired to mount both layers, drive transforms, recolour, and fall back. Verified:
+crisp fills at 1×/6×, recolour on Layer switch, blit fallback on Parchment.
+
+**Two GLFillSurface bugs found & fixed in browser verification (commit `b8d6d69`):**
+1. **DoubleSide** — the X mirror (`scale.x = -1`) flips triangle winding, so
+   `MeshBasicMaterial`'s default FrontSide **culled every cell** (rendered nothing/
+   black). A flat 2D fill has no meaningful winding → `side: DoubleSide`. **This is
+   a general trap for any mirrored 2D Three mesh — verified by pixel-readback
+   `(0,0,0,0)` before, correct fills after.**
+2. **Mirror-zoom transform** — `setTransform` set `position.x = width + offsetX`;
+   correct is `scale*width + offsetX` (matches `VectorOverlay`). They coincide only
+   at scale 1, so fills showed at 1× and **slid off-screen at any zoom>1**. Verified:
+   fills persist and stay crisp at 6× after the fix.
+
+**Finding (n=1, not a bug):** the `THREE.WebGLRenderer: Context Lost` log on a
+3D→2D switch is **WorldViewer's R3F renderer disposing on unmount**, not the GL
+fill surface — the fills render correctly through it. Do not chase it as a
+GLFillSurface fault.
+
+**Deliberate deferrals (ruled in-session, see ledger):**
+- **Task 6c — boundary LOD on zoom-settle** (rebuild coast/borders/lakes at
+  `tol = 0.5/scale`). Not built. Coastlines are crisp vector but slightly faceted
+  at extreme zoom until this lands. Needs a `chainedToPath` export from `mapCache`.
+- **Offscreen-path dedup deferred** — Map2D still has private copies of
+  `drawRiverPaths`/`drawMarkerPins`/routes AND `paintVectorOverlay` has the same
+  (byte-faithful) copies. Deliberate: consolidating touches the working blit path
+  and was too risky to do overnight unverified. Documented duplicate for cleanup.
+- **Desk backdrop on GL path** — the letterbox margins are black on the GL path
+  (blit path paints the desk texture). Cosmetic; the transparent event-catcher
+  design left it out. Polish item.
+
+**Still TODO:** task-review the 6b wiring+fixes diff (gate); Task 6c (LOD);
+Task 7 (paint partial GPU colour update — needs the Three r182 partial-upload API
+from Context7); Task 8 (200k perf pass + worker-offload decision); Task 9 (docs +
+final whole-branch review). Lint is **30/30, zero headroom** — hold the line.
+
+---
+
 ## S30b (2026-09-03) — F3 Phase 1 MERGED to `main` (fast-forward, local, NOT pushed)
 
 **The S30 pre-merge checklist is fully closed and the branch is merged +
