@@ -87,10 +87,14 @@ crisp fills at 1×/6×, recolour on Layer switch, blit fallback on Parchment.
 fill surface — the fills render correctly through it. Do not chase it as a
 GLFillSurface fault.
 
+**Task 6 fully done (a+b+c) & clean-browser-verified**, incl. 6c boundary LOD
+(`buildBoundaryPaths` exported from `mapCache`, settle-rebuild at `tol=0.5/scale`)
+and a WebGL robustness pass: `forceContextLoss()` on unmount, `glContextLost`
+reset on `mapStyleId`, the `webglAvailable` probe releases its context, and
+`GLFillSurface` try/catches renderer construction (THREE throws null `.precision`
+under the ~16-context cap) → graceful blit fallback instead of crashing Map2D.
+
 **Deliberate deferrals (ruled in-session, see ledger):**
-- **Task 6c — boundary LOD on zoom-settle** (rebuild coast/borders/lakes at
-  `tol = 0.5/scale`). Not built. Coastlines are crisp vector but slightly faceted
-  at extreme zoom until this lands. Needs a `chainedToPath` export from `mapCache`.
 - **Offscreen-path dedup deferred** — Map2D still has private copies of
   `drawRiverPaths`/`drawMarkerPins`/routes AND `paintVectorOverlay` has the same
   (byte-faithful) copies. Deliberate: consolidating touches the working blit path
@@ -99,10 +103,15 @@ GLFillSurface fault.
   (blit path paints the desk texture). Cosmetic; the transparent event-catcher
   design left it out. Polish item.
 
-**Still TODO:** task-review the 6b wiring+fixes diff (gate); Task 6c (LOD);
-Task 7 (paint partial GPU colour update — needs the Three r182 partial-upload API
-from Context7); Task 8 (200k perf pass + worker-offload decision); Task 9 (docs +
-final whole-branch review). Lint is **30/30, zero headroom** — hold the line.
+**Still TODO** (Phase 2 remainder, all deferred as follow-ups — the core render
+path is done & verified): **Task 7** — paint-stroke *partial* GPU colour upload
+(paint already works via the full-reupload recolour effect; this is the
+partial-range optimization, needs the Three r182 `addUpdateRange` API from
+Context7; matters mainly at 200k). **Task 8** — 200k-cell perf pass + worker-
+offload decision for `tessellateCells`. **Then** the offscreen-path dedup, and
+merge. A final whole-branch review ran at S31 end (opus-high) — see its outcome
+in the ledger / a later HANDOFF note. Lint is **30/30, zero headroom** — hold the
+line.
 
 ---
 
