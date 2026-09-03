@@ -29,7 +29,27 @@ export const computeBoundarySegments = (
   differs: (a: Cell, b: Cell) => boolean,
 ): Array<[Point3, Point3]> => {
   const segments: Array<[Point3, Point3]> = [];
-  const threshold = 0.000001;
+  const threshold = 0.000001; // sq-distance match threshold for "same vertex" between cellA/cellB (~1e-3 raw)
+  // A shared Voronoi edge has exactly 2 DISTINCT endpoints. A near-degenerate
+  // cell can carry two vertices in its own `vertices` array that are almost
+  // coincident (observed drift ~7e-4 raw distance on a 3000-point generated
+  // world). Without a distinctness check, the scan below can match against
+  // BOTH near-duplicate points and accept them as "the two shared vertices" —
+  // emitting a spurious near-zero-length segment while never reaching the
+  // true, genuinely distinct second shared vertex. That both fabricates a
+  // bogus edge and drops the real one, corrupting the boundary graph
+  // (confirmed on a generated world: one endpoint of the drop went from
+  // degree 2 to degree 3, the other from degree 2 to degree 1 — exactly the
+  // two odd-degree vertices you'd get from swapping a real edge for a
+  // duplicate self-adjacent one). DISTINCT_SQ rejects a second candidate
+  // within this squared-distance of the first accepted match and keeps
+  // scanning cellA's vertices for the real second vertex instead. Set to
+  // ~2x the match threshold's raw radius (~2e-3) — comfortably above
+  // coincidence-level noise (~7e-4 observed) and comfortably below the
+  // shortest real Voronoi edge length at any point count this engine
+  // supports today (min spacing ~0.008 raw at 200k points on a unit sphere,
+  // ~0.05-0.07 at the 3000-point test scale).
+  const DISTINCT_SQ = 0.000004; // (~2e-3 raw distance)^2
   world.cells.forEach((cellA) => {
     cellA.neighbors.forEach((nId) => {
       const cellB = world.cells[nId];
@@ -41,7 +61,16 @@ export const computeBoundarySegments = (
         for (const vB of cellB.vertices) {
           const distSq = (vA.x - vB.x) ** 2 + (vA.y - vB.y) ** 2 + (vA.z - vB.z) ** 2;
           if (distSq < threshold) {
-            shared.push(toPoint3(vA));
+            const p = toPoint3(vA);
+            if (shared.length === 1) {
+              const [fx, fy, fz] = shared[0];
+              const distToFirstSq = (p[0] - fx) ** 2 + (p[1] - fy) ** 2 + (p[2] - fz) ** 2;
+              // Near-duplicate of the already-accepted vertex — not a
+              // genuinely distinct second endpoint. Keep scanning cellA's
+              // remaining vertices instead of accepting this one.
+              if (distToFirstSq < DISTINCT_SQ) break;
+            }
+            shared.push(p);
             break;
           }
         }
@@ -73,39 +102,60 @@ export const computeFactionBorderSegments = (world: WorldData): Array<[Point3, P
 // vertex shared by 3+ cells uses cellA's copy for two of its edges but a
 // different cell's copy for the third (see computeBoundarySegments: it always
 // pushes `vA`, the first cell's own vertex, never `vB`). Observed drift on a
-// generated world tops out around 4e-3, two orders of magnitude below the
-// shortest real Voronoi edge (~0.05 on a unit sphere at typical point counts),
-// so a single fixed rounding grid is the wrong tool here: whatever grid size
-// is chosen, points can land on opposite sides of a cell boundary purely by
-// chance and fail to merge (confirmed empirically — coarsening the grid from
-// 1e-3 to 5e-3 made MORE endpoints split, not fewer, because the exact same
-// point pairs straddled the newly picked bucket lines differently).
+// generated world tops out around 7e-4, orders of magnitude below the
+// shortest real Voronoi edge, so a single fixed rounding grid is the wrong
+// tool here: whatever grid size is chosen, points can land on opposite sides
+// of a cell boundary purely by chance and fail to merge (confirmed
+// empirically — coarsening the grid from 1e-3 to 5e-3 made MORE endpoints
+// split, not fewer, because the exact same point pairs straddled the newly
+// picked bucket lines differently).
 // Instead, weld endpoints by an actual neighbor-search: bucket points in a
 // grid sized to the weld threshold, then when placing a new point, look for an
 // existing representative in any of the 27 neighboring cells (covers every
 // cell the point could be adjacent to, regardless of where it falls within its
-// own bucket) within WELD_THRESHOLD. This merges "same vertex, different
+// own bucket) within the threshold. This merges "same vertex, different
 // floats" reliably without any risk of merging two genuinely distinct nearby
-// vertices (threshold is far below true minimum vertex spacing).
-const WELD_THRESHOLD = 0.01;
-const WELD_CELL = WELD_THRESHOLD;
-
-const cellIndex = (v: number): number => Math.floor(v / WELD_CELL);
+// vertices, AS LONG AS the threshold stays well below true minimum vertex
+// spacing — which shrinks as the world gets denser (spacing on a unit sphere
+// scales ~sqrt(4*pi / cellCount)). A threshold hand-tuned for one point count
+// is not safe at another: 0.01 was fine at 3000 points (spacing ~0.065, an
+// ~6.5x margin) but would leave almost no margin at 200k (spacing ~0.008).
+// So derive the threshold from cell count instead of hardcoding it.
+//   N=3000    -> spacing ~0.0647, threshold ~0.0097 (~14x the ~7e-4 drift, ~6.7x below spacing)
+//   N=30000   -> spacing ~0.0205, threshold ~0.0031 (~4.4x the drift, ~6.7x below spacing)
+//   N=200000  -> spacing ~0.0079, threshold ~0.0012 (~1.7x the drift, ~6.7x below spacing)
+const WELD_FRACTION = 0.15; // threshold = WELD_FRACTION * spacing; keeps ~6.7x margin below true spacing at every N
+const DEFAULT_CELL_COUNT = 3000; // fallback for callers with no world context (e.g. synthetic test segments)
+const weldThresholdFor = (cellCount: number): number =>
+  WELD_FRACTION * Math.sqrt((4 * Math.PI) / Math.max(cellCount, 1));
 
 class VertexWelder {
   private grid = new Map<string, number[]>(); // cell key -> representative ids
   private reps: Point3[] = [];
+  private readonly threshold: number;
+  private readonly thresholdSq: number;
+  private readonly cellSize: number;
+
+  constructor(threshold: number) {
+    this.threshold = threshold;
+    this.thresholdSq = threshold * threshold;
+    this.cellSize = threshold;
+  }
+
+  private cellIndex(v: number): number {
+    return Math.floor(v / this.cellSize);
+  }
 
   private cellKey(ix: number, iy: number, iz: number): string {
     return `${ix},${iy},${iz}`;
   }
 
   /** Returns a stable integer id for `p`, merging it with any existing
-   * representative within WELD_THRESHOLD. */
+   * representative within this welder's threshold. */
   idFor(p: Point3): number {
-    const ix = cellIndex(p[0]);
-    const iy = cellIndex(p[1]);
-    const iz = cellIndex(p[2]);
+    const ix = this.cellIndex(p[0]);
+    const iy = this.cellIndex(p[1]);
+    const iz = this.cellIndex(p[2]);
     for (let dx = -1; dx <= 1; dx++) {
       for (let dy = -1; dy <= 1; dy++) {
         for (let dz = -1; dz <= 1; dz++) {
@@ -114,7 +164,7 @@ class VertexWelder {
           for (const id of cands) {
             const r = this.reps[id];
             const distSq = (r[0] - p[0]) ** 2 + (r[1] - p[1]) ** 2 + (r[2] - p[2]) ** 2;
-            if (distSq < WELD_THRESHOLD * WELD_THRESHOLD) return id;
+            if (distSq < this.thresholdSq) return id;
           }
         }
       }
@@ -138,9 +188,16 @@ class VertexWelder {
  * (endpoint shared by >2 edges) the walk continues deterministically (lowest
  * unused edge index) and the remaining edges seed their own chains, so no edge
  * is ever dropped. Edge count is conserved: sum(chain.length - 1) === segments.length.
+ *
+ * `cellCount` scales the vertex-welding threshold (see weldThresholdFor above)
+ * — pass `world.cells.length` when chaining segments from a generated world;
+ * omit it only for synthetic/test segments where no such world exists.
  */
-export const chainSegments = (segments: Array<[Point3, Point3]>): Point3[][] => {
-  const welder = new VertexWelder();
+export const chainSegments = (
+  segments: Array<[Point3, Point3]>,
+  cellCount: number = DEFAULT_CELL_COUNT,
+): Point3[][] => {
+  const welder = new VertexWelder(weldThresholdFor(cellCount));
   const ids: Array<[number, number]> = segments.map(([a, b]) => [welder.idFor(a), welder.idFor(b)]);
 
   // welded id -> list of segment indices touching it

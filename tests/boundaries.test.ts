@@ -66,7 +66,7 @@ describe('coastline chains close (hard guard)', () => {
     const world = await generateWorld(makeParams({ points: 3000, seed: 'chain-test' }));
     const segments = computeCoastlineSegments(world);
     segmentCount = segments.length;
-    const chains = chainSegments(segments);
+    const chains = chainSegments(segments, world.cells.length);
     total = chains.length;
     edgeCount = chains.reduce((s, c) => s + (c.length - 1), 0);
     for (const c of chains) {
