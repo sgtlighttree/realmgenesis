@@ -85,7 +85,18 @@ export const GLFillSurface: React.FC<GLFillSurfaceProps> = ({
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
 
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    // Guard renderer construction: THREE throws (null .precision in
+    // WebGLCapabilities) when the browser refuses a new WebGL context — e.g.
+    // under the ~16-live-context cap. Rather than crash the whole Map2D
+    // subtree, signal the host so it falls back to the blit path.
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    } catch {
+      contextLostRef.current = true;
+      onContextLostRef.current?.();
+      return undefined;
+    }
     renderer.setPixelRatio(dpr);
     renderer.setSize(width, height, false);
 
