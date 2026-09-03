@@ -376,7 +376,7 @@ const Map2D: React.FC<{
     () => (world && projection && projectionType !== 'dymaxion'
       ? buildMapGeometryCache(world, projection, size.width, size.height)
       : null),
-    [world, projection, projectionType, size.width, size.height],
+    [world?.cells, projection, projectionType, size.width, size.height],
   );
   const colorCache = useMemo(
     // shadeMap is intentionally NOT baked in (passed null). The ONLY consumer is
@@ -399,7 +399,7 @@ const Map2D: React.FC<{
   const pickQuadtree = useMemo(
     () => (world && projection && projectionType !== 'dymaxion'
       ? buildCellQuadtree(world, projection, size.width, size.height) : null),
-    [world, projection, projectionType, size.width, size.height],
+    [world?.cells, projection, projectionType, size.width, size.height],
   );
 
   const style = useMemo(() => getMapStyle(mapStyleId), [mapStyleId]);
