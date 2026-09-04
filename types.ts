@@ -167,7 +167,7 @@ export interface TownData {
 export interface ProvinceData {
     id: number; // local id
     name: string;
-    towns: TownData[];
+    towns: Settlement[];
     totalPopulation: number;
     color?: string;
 }

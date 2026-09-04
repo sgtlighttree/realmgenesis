@@ -1,5 +1,5 @@
 import { geoVoronoi } from 'd3-geo-voronoi';
-import { Cell, LakeData, Point, WorldData, WorldParams, BiomeType, FactionData, CultureData, ReligionData } from '../types';
+import { Cell, LakeData, Point, WorldData, WorldParams, BiomeType, FactionData, CultureData, ReligionData, Settlement } from '../types';
 import { RNG, SimplexNoise } from './rng';
 import { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS, FOLK_COLORS } from './palette';
 import { createNameGenerator, NameGenerator, NameStyle, NAME_STYLES } from './namegen';
@@ -10,7 +10,7 @@ import { annualMeanLatTemp } from './seasons';
 import { applyStarClass } from './planetary';
 import { computeOceanCurrents, computeSstAnomaly, COAST_K, EVAP_K, OceanCurrentField } from './currents';
 import { isLakeCell, getCultureNameStyle, makeStyleNameGenCache } from './civNaming';
-import { settlementScore } from './settlements';
+import { settlementScore, placeSettlements, TIER_MULTIPLIER } from './settlements';
 
 export { isLakeCell } from './civNaming';
 import {
@@ -1368,7 +1368,11 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
     factions.forEach((f, i) => f.color = shuffled[i % shuffled.length]);
     
     world.civData = { factions, settlements: [] };
-    
+
+    // Place the settlement hierarchy (capital + tiered towns) before provinces
+    // are subdivided — recalculateProvinces now seeds provinces from this set.
+    placeSettlements(world, params);
+
     return recalculateProvinces(world, params);
 }
 
@@ -1381,6 +1385,16 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
     // stream and from provRng, so naming never perturbs geometry.
     const getProvNameGen = makeStyleNameGenCache(params.civSeed + '_provnames_');
 
+    // recalculateProvinces can run independently (e.g. the province-size slider
+    // in useWorldEngine). Placement normally ran in recalculateCivs; if the set
+    // is empty we place it here so seeding never falls back to zero provinces.
+    if (world.civData.settlements.length === 0) placeSettlements(world, params);
+
+    // Settlement cells get their base population lifted by the tier multiplier,
+    // mirrored onto Settlement.population (identity-shared with province towns).
+    const civData = world.civData;
+    const byCell = new Map(civData.settlements.map(s => [s.cellId, s]));
+
     world.cells.forEach(c => {
         if (c.height < params.seaLevel || isLakeCell(c)) {
             c.population = 0;
@@ -1388,6 +1402,11 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
         }
         let suitability = settlementScore(c, world, params);
         c.population = Math.floor(suitability * 10000 * (0.8 + provRng.next() * 0.4));
+        const s = byCell.get(c.id);
+        if (s) {
+            c.population = Math.floor(c.population * TIER_MULTIPLIER[s.tier]);
+            s.population = c.population;
+        }
     });
 
     world.civData.factions.forEach(faction => {
@@ -1395,56 +1414,69 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
         faction.totalPopulation = 0;
         const landCells = world.cells.filter(c => c.regionId === faction.id && c.height >= params.seaLevel && !isLakeCell(c));
         if (landCells.length === 0) return;
-        const density = params.provinceSize || 0.5; 
-        const targetSize = 20 + density * 100; 
-        let numProvinces = Math.max(1, Math.ceil(landCells.length / targetSize));
-        
-        const townIds: number[] = [faction.capitalId];
-        const capitalCell = world.cells[faction.capitalId];
-        capitalCell.provinceId = 0; 
-        
-        let attempts = 0;
-        while(townIds.length < numProvinces && attempts < 500) {
-            attempts++;
-            const candidate = landCells[Math.floor(provRng.next() * landCells.length)];
-            if (townIds.includes(candidate.id)) continue;
+        const density = params.provinceSize || 0.5;
+        const targetSize = 20 + density * 100;
+        const factionSettlements = civData.settlements.filter(s => s.factionId === faction.id);
+        if (factionSettlements.length === 0) return;
+        // A faction can't have more provinces than it has settlements to seed them.
+        const numProvinces = Math.min(
+            Math.max(1, Math.ceil(landCells.length / targetSize)),
+            factionSettlements.length,
+        );
+
+        // Province seeds are the highest-population settlements (id asc breaks
+        // ties deterministically), the capital guaranteed a seed, subject to the
+        // existing squared-chord min-spacing so seeds don't cluster.
+        const byPop = [...factionSettlements].sort((a, b) => b.population - a.population || a.id - b.id);
+        const capSeed = byPop.find(s => s.cellId === faction.capitalId);
+        const seeds: Settlement[] = [];
+        if (capSeed) seeds.push(capSeed);
+        for (const s of byPop) {
+            if (seeds.length >= numProvinces) break;
+            if (seeds.includes(s)) continue;
+            const c = world.cells[s.cellId];
             let tooClose = false;
-            for(const tId of townIds) {
-                const t = world.cells[tId];
-                const d = (candidate.center.x - t.center.x)**2 + (candidate.center.y - t.center.y)**2 + (candidate.center.z - t.center.z)**2;
-                if (d < 0.005 * density) { 
-                    tooClose = true;
-                    break;
-                }
+            for (const seed of seeds) {
+                const t = world.cells[seed.cellId];
+                const d = (c.center.x - t.center.x) ** 2 + (c.center.y - t.center.y) ** 2 + (c.center.z - t.center.z) ** 2;
+                if (d < 0.005 * density) { tooClose = true; break; }
             }
-            if (!tooClose) townIds.push(candidate.id);
+            if (!tooClose) seeds.push(s);
         }
-        
-        townIds.forEach((tId, idx) => {
-            const tCell = world.cells[tId];
+
+        const capitalCell = world.cells[faction.capitalId];
+        capitalCell.provinceId = 0;
+
+        seeds.forEach((seed, idx) => {
+            const tCell = world.cells[seed.cellId];
             tCell.isTown = true;
-            tCell.population = (tCell.population || 0) * 5;
-            const nameGen = getProvNameGen(getCultureNameStyle(world, params, tId));
+            const nameGen = getProvNameGen(getCultureNameStyle(world, params, seed.cellId));
             faction.provinces.push({
                 id: idx,
                 name: nameGen.province(),
-                towns: [{ name: nameGen.town(), cellId: tId, population: tCell.population || 0, isCapital: tId === faction.capitalId }],
-                totalPopulation: 0
+                towns: [],
+                totalPopulation: 0,
             });
         });
 
         const pq = new MinHeap<{id: number, cost: number, provIdx: number}>(x => x.cost);
         const costs = new Map<number, number>();
-        townIds.forEach((tId, idx) => {
-            pq.push({ id: tId, cost: 0, provIdx: idx });
-            costs.set(tId, 0);
+        seeds.forEach((seed, idx) => {
+            pq.push({ id: seed.cellId, cost: 0, provIdx: idx });
+            costs.set(seed.cellId, 0);
         });
 
         const claimed = new Set<number>();
         while(pq.size() > 0) {
             const { id, cost, provIdx } = pq.pop()!;
             if (world.cells[id].regionId !== faction.id) continue;
-            if (world.cells[id].provinceId !== undefined && world.cells[id].provinceId !== provIdx) continue;
+            // Settled-set guard: the first (cheapest) pop wins and accumulates
+            // exactly once. The old `provinceId !== provIdx` guard let a cell
+            // re-popped with its OWN provIdx fall through and double-count its
+            // population, so faction.totalPopulation drifted above Σ cell.population
+            // (which the hook recomputes per-cell after every paint). Partition is
+            // unchanged — provinceId assignment was already first-pop-wins.
+            if (claimed.has(id)) continue;
             world.cells[id].provinceId = provIdx;
             claimed.add(id);
             faction.provinces[provIdx].totalPopulation += (world.cells[id].population || 0);
@@ -1460,6 +1492,21 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
                 }
             }
         }
+
+        // Attach every settlement to the province its cell was partitioned into.
+        // towns hold the SAME Settlement objects as world.civData.settlements
+        // (identity-shared — a later task mutates through both). Sorted by
+        // population desc (id asc tiebreak) so towns[0] is the province seat
+        // that gemini.ts and the political UI assume.
+        for (const s of factionSettlements) {
+            const pid = world.cells[s.cellId].provinceId;
+            if (pid === undefined || pid < 0 || pid >= faction.provinces.length) continue;
+            faction.provinces[pid].towns.push(s);
+        }
+        faction.provinces.forEach(p => {
+            p.towns.sort((a, b) => b.population - a.population || a.id - b.id);
+        });
+
         faction.totalPopulation = faction.provinces.reduce((sum, p) => sum + p.totalPopulation, 0);
     });
 
