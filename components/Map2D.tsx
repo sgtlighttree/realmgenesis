@@ -441,6 +441,11 @@ const Map2D: React.FC<{
   // style round-trip that unmounts/remounts GLFillSurface with a fresh context —
   // retries GL. mapStyleId is in the deps because default↔parchment toggling
   // hands the next GL mount a genuinely new (non-lost) context.
+  // GLFillSurface signals here only after it has exhausted its OWN internal
+  // fresh-canvas retries (see its canvasGen logic) — i.e. WebGL is genuinely
+  // unavailable, so latch the blit fallback. The construction-throw-on-remount
+  // race (StrictMode double-mount / 3D→2D teardown poisoning a reused canvas) is
+  // handled inside GLFillSurface by remounting on a new canvas element, NOT here.
   const [glContextLost, setGlContextLost] = useState(false);
   useEffect(() => { setGlContextLost(false); }, [world?.params.seed, projectionType, mapStyleId]);
 

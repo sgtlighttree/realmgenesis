@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 
 export interface GLFillHandle {
@@ -14,6 +14,12 @@ export interface GLFillSurfaceProps {
   width: number;
   height: number;
   dpr: number;
+  /**
+   * Fired only after GLFillSurface has exhausted its internal fresh-canvas
+   * retries — i.e. WebGL is genuinely unavailable and the host should latch its
+   * blit fallback. A single construction failure does NOT fire this; it is
+   * recovered internally by remounting on a new canvas element.
+   */
   onContextLost?: () => void;
   handleRef?: React.MutableRefObject<GLFillHandle | null>;
 }
@@ -54,6 +60,21 @@ export const GLFillSurface: React.FC<GLFillSurfaceProps> = ({
   onContextLost,
   handleRef,
 }) => {
+  // A canvas element can back exactly one WebGLRenderer for its lifetime: once a
+  // renderer is constructed (and later force-lost/disposed) on a canvas, calling
+  // getContext on that SAME element returns null → THREE throws "reading
+  // 'precision'". React StrictMode's mount→cleanup→mount double-invoke (dev) and
+  // the 3D→2D switch both re-run the mount effect against the same canvas, so the
+  // second construction throws and the whole GL path silently drops to blit —
+  // the bug behind "not crisp / distorted tri-points still there" (the user was
+  // on the blit fallback the entire time). Fix: on a construction failure,
+  // discard the poisoned element by bumping `canvasGen` (React mounts a brand-new
+  // <canvas>), and let the mount effect re-run against the clean one. A fresh
+  // canvas is never poisoned, so 2–3 attempts suffice; beyond that WebGL is
+  // genuinely unavailable → signal the host to use blit.
+  const MAX_CANVAS_ATTEMPTS = 3;
+  const [canvasGen, setCanvasGen] = useState(0);
+  const constructAttemptsRef = useRef(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -76,27 +97,45 @@ export const GLFillSurface: React.FC<GLFillSurfaceProps> = ({
     onContextLostRef.current = onContextLost;
   }, [onContextLost]);
 
-  // Mount-only: renderer, scene, camera, the webglcontextlost listener, and
-  // the imperative handle. This is a scarce resource (browsers cap ~16 live
-  // WebGL contexts) so it must NOT be recreated on every `positions`/size
-  // change — only on unmount. Geometry/material/mesh live in the effect
-  // below and get added into this persisted scene.
+  // Renderer, scene, camera, the webglcontextlost listener, and the imperative
+  // handle. Keyed on `canvasGen` (not `[]`): the ONLY thing that re-runs this is
+  // a construction failure bumping canvasGen to swap in a fresh <canvas> — a
+  // WebGL context is a scarce resource (browsers cap ~16 live), so `positions`/
+  // size changes must NOT recreate it; those are handled in place below.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
 
     // Guard renderer construction: THREE throws (null .precision in
-    // WebGLCapabilities) when the browser refuses a new WebGL context — e.g.
-    // under the ~16-live-context cap. Rather than crash the whole Map2D
-    // subtree, signal the host so it falls back to the blit path.
+    // WebGLCapabilities) when getContext returns null — which happens when this
+    // canvas element was already used by a prior renderer (StrictMode remount /
+    // 3D→2D teardown). Recover by discarding the poisoned element: bump canvasGen
+    // so React mounts a clean <canvas> and this effect re-runs against it. Only
+    // after MAX_CANVAS_ATTEMPTS fresh canvases still fail is WebGL genuinely
+    // unavailable → tell the host to use the blit fallback.
     let renderer: THREE.WebGLRenderer;
     try {
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     } catch {
+      if (constructAttemptsRef.current < MAX_CANVAS_ATTEMPTS) {
+        constructAttemptsRef.current += 1;
+        setCanvasGen((g) => g + 1);
+        return undefined;
+      }
       contextLostRef.current = true;
       onContextLostRef.current?.();
       return undefined;
     }
+    // Clean construction — reset the attempt budget so a later independent loss
+    // gets its own fresh round of retries.
+    constructAttemptsRef.current = 0;
+    // Colour parity with the Canvas2D blit fallback: the per-vertex colours are
+    // the SAME #rrggbb bytes the blit draws verbatim (already sRGB-encoded, from
+    // mapColorCache). THREE r152+ defaults outputColorSpace to sRGB, which would
+    // sRGB-encode them a SECOND time → washed-out / gamma-off fills. Setting the
+    // output space to linear-sRGB writes the vertex bytes straight to the frame-
+    // buffer unchanged, matching the blit exactly.
+    renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
     renderer.setPixelRatio(dpr);
     renderer.setSize(width, height, false);
 
@@ -165,17 +204,18 @@ export const GLFillSurface: React.FC<GLFillSurfaceProps> = ({
         handleRef.current = null;
       }
     };
-    // Mount-only by design: width/height/dpr are read here only as the
-    // renderer/camera's initial values — later changes are applied in place
-    // by the resize effect below via setSize/camera bounds, not by rerunning
-    // this effect. `handleRef` is a stable ref object supplied by the
-    // parent. Re-running this effect would tear down and recreate the WebGL
-    // context, which is the exact bug this split fixes.
+    // width/height/dpr are read here only as the renderer/camera's initial
+    // values — later changes are applied in place by the resize effect below,
+    // not by rerunning this effect. `handleRef` is a stable ref object. The sole
+    // trigger for a rebuild is `canvasGen` (a fresh canvas after a construction
+    // failure); a normal size/positions change must not recreate the context.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [canvasGen]);
 
-  // Geometry/material/mesh only, keyed on `positions`. Rebuilds and swaps
-  // the mesh into the persisted scene without touching the renderer/camera.
+  // Geometry/material/mesh. Keyed on `positions` AND `canvasGen`: a canvasGen
+  // bump rebuilds the scene above, so the mesh must be re-added to the NEW scene
+  // even when `positions` is unchanged — otherwise the fresh renderer draws an
+  // empty scene.
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return undefined;
@@ -214,7 +254,7 @@ export const GLFillSurface: React.FC<GLFillSurfaceProps> = ({
         meshRef.current = null;
       }
     };
-  }, [positions]);
+  }, [positions, canvasGen]);
 
   // Resize / dpr changes: update the renderer + camera + mirror position
   // in place, without tearing down GPU resources.
@@ -236,5 +276,7 @@ export const GLFillSurface: React.FC<GLFillSurfaceProps> = ({
     }
   }, [width, height, dpr]);
 
-  return <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />;
+  // key={canvasGen}: a construction failure bumps canvasGen, so React discards
+  // the poisoned canvas element and mounts a brand-new one for the retry.
+  return <canvas key={canvasGen} ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />;
 };

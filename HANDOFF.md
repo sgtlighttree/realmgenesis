@@ -115,6 +115,116 @@ line.
 
 ---
 
+## S31b (2026-09-04) — Matt: "not as crisp as hoped, distorted tri-points STILL present." Root-cause dig — 4 hypotheses REFUTED, cause not yet pinned
+
+Matt reports the GL fill still isn't crisp and the imprecise/distorted tri-point
+(3-cell junction) artifact persists; asked whether the fix is "just doubling the
+2D raster resolution." **No — and here is the evidence trail so nobody re-derives
+it.**
+
+**REFUTED — "doubling raster resolution" fixes it.** `glFillDpr = Math.min(2,
+window.devicePixelRatio)` is already **2** on Matt's Retina M1 = native. The GL
+fill is resolution-independent vector geometry (earcut triangles, per-vertex
+colour) rendered at native pixel density. Raising the cap does nothing on the GL
+path; it would only affect the blit fallback (the thing Phase 2 exists to escape).
+
+**REFUTED — interior cell seams get no antialiasing on the GPU.** (My initial
+headline; advisor corrected it, then confirmed live.) MSAA *does* antialias
+geometric edges between abutting flat-colour triangles in one draw call
+(coverage blend, e.g. 3/1 samples → 75/25). The classic MSAA gap is *shading*
+aliasing, not this. Live check: `gl.getParameter(SAMPLES) === 4` — MSAA is on and
+honoured. Interior fill seams ARE smoothed.
+
+**REFUTED — d3.geoPath resampling makes adjacent cells' shared edges diverge.**
+d3 adaptive resampling subdivides on the great-circle midpoint, which is
+direction-symmetric, so cell A (a→b) and cell B (b→a) emit identical interior
+points. Shared edges match.
+
+**REFUTED (the big one) — the tri-point imprecision is in the cell-corner DATA.**
+Probed `world.geoJson` (seed realmgenesis, 5000 pts): 29 988 ring vertices →
+**9 996 unique corners, each incident to EXACTLY 3 cells** (count1=count2=
+countHi=0), shareRatio 3.000, zero FP drift under 1e-9 rounding. d3-geo-voronoi
+shares circumcenters bit-identically. **Tri-points in the data are geometrically
+perfect** — no generation-side fix needed, no renderer change can improve the
+data.
+
+**Also verified clean (DPR-1 headless, cold GL path):** GL canvas buffer == CSS
+== overlay buffer (no size desync); the GL-fill transform (`scale*(width−wx)+
+offsetX`) is algebraically identical to the VectorOverlay transform → layers are
+pixel-aligned. At DPR 1 the GL path is provably crisp.
+
+**CAUSE CONFIRMED & REPRODUCED — the 3D→2D transition permanently latches the
+blit fallback.** Matt's blurry views (Vivaldi AND fresh Chrome-for-Testing, both
+show *soft labels* — the tell, since GL-path labels are per-frame Canvas2D and
+stay crisp) are the blit path, not GL. Reproduced in Playwright:
+- **Cold 2D** (localStorage has 2D persisted, no globe ever mounts): 3 canvases —
+  GL fill (`SAMPLES=4`) + vector overlay + minimap. Crisp. ✅
+- **3D→2D** (clear storage → loads in 3D globe → pick 2D Equirectangular): **2
+  canvases only — blit + minimap, NO GL fill, NO overlay**, with two
+  `THREE.WebGLRenderer: Context Lost.` logs at the switch. ❌
+
+Mechanism: ShellApp conditionally mounts `<WorldViewer>` (globe) vs `<Map2D>` on
+`displayMode`. On globe→2D, WorldViewer's R3F renderer tears down
+(`forceContextLoss()` on unmount) in the **same commit** that a freshly-mounted
+`GLFillSurface` creates its new WebGL context; the browser drops the new context
+→ `webglcontextlost` on GLFillSurface's canvas → `onContextLost` →
+`setGlContextLost(true)` → `useGL=false` → GLFillSurface unmounts, blit renders.
+It never recovers: the reset effect keys on `[seed, projectionType, mapStyleId]`,
+all unchanged once you're sitting in 2D. So the whole session is stuck on blit —
+the *original* pre-Phase-2 rendering, which is why it looked "STILL present." The
+two Context Lost logs = WorldViewer's (expected, on unmount) + GLFillSurface's
+fresh one (the bug). It is the **CONSTRUCTION-THROW path**, confirmed by a temporary marker log:
+`new THREE.WebGLRenderer()` in GLFillSurface's mount effect THROWS (THREE's null
+`.precision` in WebGLCapabilities when the browser refuses a new context). The
+browser refuses because the globe's WebGL context is still being freed —
+`forceContextLoss()` fires the lost event synchronously but the driver frees the
+GPU context asynchronously, so a `getContext` in that same synchronous stretch
+returns null. NOT the ~16-context cap (fresh browser, ~1 live context) — pure
+timing. (Earlier draft wrongly guessed the event path from "two Context Lost
+logs"; those are WorldViewer's R3F renderer, not GLFillSurface's — GLFillSurface
+never got a renderer to lose. `webglcontextrestored` is therefore useless here:
+no context was ever created to restore.)
+
+**FIX (SHIPPED & VERIFIED). The real invariant: a canvas element backs exactly
+one WebGLRenderer for its lifetime.** Once a renderer is constructed (then
+force-lost/disposed) on a `<canvas>`, `getContext` on that SAME element returns
+null → THREE throws `reading 'precision'`. StrictMode's mount→cleanup→mount and
+the 3D→2D teardown both re-run GLFillSurface's mount effect against the same
+canvas → the 2nd construction throws → blit. The delayed-retry idea above was
+WRONG (a delay doesn't un-poison a reused canvas). Correct fix, all in
+`GLFillSurface`: `const [canvasGen,setCanvasGen]=useState(0)`, `<canvas
+key={canvasGen}>`, the renderer effect keyed on `[canvasGen]`; on a construction
+throw, bump `canvasGen` (React discards the poisoned element, mounts a clean one,
+effect re-runs) up to `MAX_CANVAS_ATTEMPTS=3`, only then call `onContextLost`
+(→ blit). The geometry effect is keyed `[positions, canvasGen]` so the mesh
+re-adds to the rebuilt scene. Map2D's `onContextLost` reverts to the plain
+`setGlContextLost(true)` — the transient race is handled inside GLFillSurface, so
+the earlier Map2D retry-counter/timer/`onReady` layer was removed (it caused the
+livelock Matt saw as flicker).
+
+**Colour parity fix (same commit family):** GL fills looked gamma-off/washed vs
+the blit. Cause: THREE r152+ defaults `outputColorSpace = sRGB`, which
+sRGB-encodes the per-vertex colours a 2nd time (they're already the sRGB
+`#rrggbb` bytes the blit draws verbatim). Fix: `renderer.outputColorSpace =
+THREE.LinearSRGBColorSpace` → bytes pass through unchanged, matching the blit.
+
+**`?2dmode=` URL flag** (per Matt) added in `useWorldEngine` (`initialDisplayMode`)
+— boots straight into 2D (no globe teardown); debug affordance + clean-GL entry.
+
+**Verified:** clean-room headful Playwright (fresh Chromium process, `SAMPLES=4`
+stable across two probes on cold `?2dmode`), AND Matt live in Vivaldi on the real
+3D→2D flow — "much sharper, feels very vector like." Colours confirmed correct by
+screenshot (matches minimap palette) + Matt. Browser-only; no unit test covers it.
+Still TODO: confirm on a production build (StrictMode off) — expected clean.
+
+**Separately surfaced (NOT the 2D bug, NOT yet actioned):** on the 3D globe the
+"overlapping/distorted tri-points" with Cell Edges OFF is `CELL_OVERHANG=1.10`
+(WorldViewer inflates cells 10% to hide seams when `showCellEdges` is false).
+Globe-only, deliberate. `showCellEdges` defaults `false`; Matt thinks it should
+default ON. Independent of the 2D fill (which uses exact geoJson, no overhang).
+
+---
+
 ## S30b (2026-09-03) — F3 Phase 1 MERGED to `main` (fast-forward, local, NOT pushed)
 
 **The S30 pre-merge checklist is fully closed and the branch is merged +
