@@ -117,7 +117,11 @@ await page.waitForFunction('window.__perfDone === true', null, { timeout: 900000
 const perf = await page.evaluate('window.__perf');
 
 const shot = `${resolve(outDir)}/map2d-${label}.png`;
-await page.locator('#host canvas').screenshot({ path: shot });
+// Screenshot the host box, not a single canvas: the GL path (F3 Phase 2) mounts
+// THREE stacked canvases (GL fill + transparent vector overlay + transparent
+// event-catcher), so only the composited host shows the result; the blit path's
+// single canvas is captured the same way.
+await page.locator('#host').screenshot({ path: shot });
 await browser.close();
 if (ownServer) await ownServer.close();
 

@@ -78,6 +78,11 @@ const genMs = performance.now() - t0;
 log(`world ready in ${(genMs / 1000).toFixed(1)}s — ${world.cells.length} cells`);
 
 const canvasEl = () => host.querySelector('canvas');
+// The GL path (F3 Phase 2) stacks THREE canvases; React's pan/zoom handlers are
+// on the topmost (the transparent event-catcher, z20), NOT the first canvas
+// (the GL fill surface). Dispatch gestures there or they never drive the map.
+// The blit path has one canvas, so last === first and this is a no-op for it.
+const eventEl = () => { const cs = host.querySelectorAll('canvas'); return cs[cs.length - 1]; };
 
 const props = {
   world,
@@ -102,7 +107,7 @@ await raf();
 
 const centre = { x: width / 2, y: height / 2 };
 const mouse = (type, x, y, extra = {}) => {
-  canvasEl().dispatchEvent(new MouseEvent(type, {
+  eventEl().dispatchEvent(new MouseEvent(type, {
     bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: 1, ...extra,
   }));
 };
@@ -134,7 +139,7 @@ const zoomGesture = async (steps = 12) => {
   const s = makeSampler();
   const marks = { start: performance.now() };
   for (let i = 0; i < steps; i++) {
-    canvasEl().dispatchEvent(new WheelEvent('wheel', {
+    eventEl().dispatchEvent(new WheelEvent('wheel', {
       bubbles: true, cancelable: true, clientX: centre.x, clientY: centre.y,
       deltaY: i < steps / 2 ? -100 : 100,
     }));
