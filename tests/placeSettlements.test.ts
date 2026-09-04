@@ -90,6 +90,7 @@ describe('placeSettlements', () => {
     placeSettlements(w, w.params);
     const settlements = w.civData!.settlements;
 
+    let checked = 0;
     for (const faction of w.civData!.factions) {
       const factionSettlements = settlements.filter(s => s.factionId === faction.id);
       if (factionSettlements.length < 5) continue; // too small a sample to judge distribution
@@ -101,8 +102,13 @@ describe('placeSettlements', () => {
       }
       if (biomeCounts.size < 3) continue; // guard only applies when the faction spans >=3 biomes
 
+      checked++;
       const topShare = Math.max(...biomeCounts.values()) / factionSettlements.length;
       expect(topShare).toBeLessThan(0.6);
     }
+    // Prove the guard above actually ran against a real faction — without this,
+    // an unlucky world where no faction qualifies would pass having asserted
+    // nothing about distribution at all.
+    expect(checked).toBeGreaterThan(0);
   }, 60000);
 });
