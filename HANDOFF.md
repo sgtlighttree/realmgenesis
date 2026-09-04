@@ -79,12 +79,38 @@ console "22 roads, 3 sea") and Dymaxion (routes+rivers+markers+labels on the net
 **Gates:** typecheck clean, lint 30/30 (0 headroom held), 225 render-path unit
 tests pass. Full suite NOT run (no generation-graph files touched).
 
-**Still TODO on this branch (was going to continue):** prod-build 3D→2D confirm
-(StrictMode off — the one open item about S32's already-shipped canvas-remount
-fix; now also covers this fix); Task 8 (200k perf pass, decides if Task 7 is
-worth it); Task 7 (paint-stroke partial GPU upload); desk-backdrop on GL path
-(cosmetic); then final review + merge. Sequencing per advisor: Task 8 **before**
-Task 7 (7's justification is "matters at 200k" — 8's number decides it).
+**Task 8 — 200k perf pass DONE (`5576aa1` is the harness fix; findings here).**
+Measured on this M1. Pure Node bench (`buildMapGeometryCache`+`tessellateCells`+
+colour, Path2D stubbed) at **200k cells**: generateWorld 21s (already in a
+worker), **buildMapGeometryCache ~1005ms**, **tessellateCells ~127ms**,
+buildCellColorCache ~124ms, buildFillColorBuffer ~28ms (801k triangles; positions
+19.2 MB / colours 28.8 MB f32). Browser GL pan/zoom (real Map2D via fixed
+harness, `--style=default`): **pan ~2.1ms/frame, zoom ~4.5ms/frame** (smooth at
+200k — the matrix-update design holds); settle LOD rebuild (`buildBoundaryPaths`)
+~350ms–1s; a ~1.1s press spike is the tail of mount work (≈ the 1005ms cache
+build), not a per-press cost.
+
+**Decisions (measured, evidence-backed NO to both):**
+- **tessellateCells worker-offload — NOT worth it.** 127ms one-time on mount,
+  dwarfed by the pre-existing `buildMapGeometryCache` (1005ms). Offloading it
+  alone leaves a ~1s stall; the genuine 200k main-thread costs are the cache
+  build (mount) + boundary-LOD rebuild (settle), **both Phase-1, both shared with
+  the blit path** — an F4 "offload the whole cache build" project, not Phase 2.
+- **Task 7 (paint-stroke partial GPU upload) — NOT worth building.** Full
+  recolour = buildFillColorBuffer 28ms + one ~29MB upload at 200k; a minor hitch
+  only when painting at 200k (rare on an M1), and full re-upload already works
+  correctly. The number says skip it.
+
+**Harness note:** the perf harness was broken for the GL path (3 canvases) —
+fixed in `5576aa1` (dispatch gestures to the event-catcher; screenshot `#host`).
+Use `--style=default --projection=mercator` to measure the GL path (parchment/
+dymaxion force the blit fallback).
+
+**Still TODO on this branch:** prod-build 3D→2D confirm (StrictMode off — the one
+open item about S32's already-shipped canvas-remount fix; now also covers this
+session's regression fix); then final review + merge. **Deferred (cosmetic):**
+desk-backdrop on the GL path (letterbox margins are black; default-style desk is
+near-black anyway — not worth a new layer). Dymaxion GL fill stays Phase-3.
 
 ---
 
