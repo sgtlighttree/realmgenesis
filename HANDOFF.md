@@ -106,11 +106,35 @@ fixed in `5576aa1` (dispatch gestures to the event-catcher; screenshot `#host`).
 Use `--style=default --projection=mercator` to measure the GL path (parchment/
 dymaxion force the blit fallback).
 
-**Still TODO on this branch:** prod-build 3D→2D confirm (StrictMode off — the one
-open item about S32's already-shipped canvas-remount fix; now also covers this
-session's regression fix); then final review + merge. **Deferred (cosmetic):**
-desk-backdrop on the GL path (letterbox margins are black; default-style desk is
-near-black anyway — not worth a new layer). Dymaxion GL fill stays Phase-3.
+**FOLLOW-UP BUG in this session's own regression fix — found by final review,
+fixed (`b2c35fb`).** `519ea88` built `glCellOutlinePath` as a combined all-cells
+Path2D and `paintVectorOverlay` strokes it EVERY overlay frame; the blit path
+only stroked all cells in the offscreen rebuild (settle-only, never mid-drag), so
+the fix moved an all-cells stroke onto the per-frame path. Task 8's biome run
+couldn't see it (`cellOutlinePath` is null outside political mode). Measured at
+200k political: **pan 36.8ms/frame p50 (max 77.8), wheel 42.4ms** — a real
+interaction regression. Fixed by gating the memo on `!isInteracting` (the signal
+`lodBoundaries` already uses): outlines drop during pan/zoom, reappear on settle
+(vector-map idiom). Re-measured: **pan 1.1ms, wheel 8.6ms**; settled render
+unchanged (per-cell mesh present when idle, verified). **Lesson: a per-frame
+overlay pass must be perf-tested in the MODE that triggers it** — biome-mode
+timings say nothing about political-mode passes.
+
+**prod-build 3D→2D confirm — DONE & clean.** `npm run build` → `vite preview`
+(port 4180, StrictMode off), Playwright: cleared storage → booted in 3D globe →
+switched to 2D Equirectangular → **4 canvases incl. GL fill SAMPLES=4** (GL path
+engaged, NOT the blit fallback), map renders crisp. S32's canvas-remount fix
+holds in prod without StrictMode, and this session's overlay work renders there.
+
+**Branch `f3-phase2-finish` is merge-ready.** All F3 Phase-2 remainder resolved:
+regression fix + gate, dedup, Task 8 (measured → Task 7 + tessellate-offload both
+declined), harness GL-path fix, prod-build confirm. Gates: typecheck clean, lint
+**30/30** (0 headroom held), 225 render-path unit tests pass. Full suite NOT run
+(zero generation-graph files touched — same argument as S30b; pending Matt's
+call). **Deferred (cosmetic):** desk-backdrop on the GL path (letterbox margins
+black; default desk near-black — not worth a new layer). Dymaxion GL fill stays
+Phase-3. Merge to `main` is authorized ("merge at end"); **push to origin/prod is
+NOT — ask Matt.**
 
 ---
 
