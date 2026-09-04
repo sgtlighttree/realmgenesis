@@ -38,6 +38,56 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## S33 (2026-09-04) — F3 finish pass: prod regression fix + overlay dedup (branch `f3-phase2-finish`, NOT merged)
+
+Picked up "finish F3." Branch `f3-phase2-finish` off `main` (a9e2064).
+
+**FOUND & FIXED — a live prod regression S32 shipped (`519ea88`).** The GL fill
+path (now the default non-Dymaxion 2D map) bypasses the blit render entirely
+(`Map2D.tsx` `if (useGL) { …clear…; return; }`), and `VectorOverlay` /
+`paintVectorOverlay` never drew three overlays the blit path did, so they were
+**invisible on the default 2D map in prod**: the A5 **ruler arc**, the
+click/hover **cell highlight ring**, and **political-mode per-cell outlines**.
+Advisor flagged it (paintVectorOverlay's pass list is missing them); confirmed
+by reading — no other overlay canvas covers them (only GLFillSurface z0 +
+VectorOverlay + transparent event-catcher z20). Fix: `paintVectorOverlay` gains
+`rulerArc` / `highlightPath` / `cellOutlinePath` params. Highlight + political
+stroke **cached** `geometryCache.cellPaths` Path2Ds through the overlay mirror —
+no per-frame d3 re-projection (the blit path re-coloured every cell on hover; the
+overlay is strictly lighter). Political path is one combined Path2D prebuilt per
+`(cache, viewMode)`. Ruler is one live-projected polyline (drawRiverPaths idiom).
+**Browser-verified** (Playwright, `?2dmode`, cold GL path SAMPLES=4): ruler arc +
+political outlines render (screenshots in scratchpad). Highlight ring not
+separately captured (inspector-mode UI friction) but uses the *identical*
+cached-path-through-mirror mechanism proven by both political outlines and
+coastlines — plumbing identical to the verified ruler prop; low risk.
+
+**Offscreen-path dedup DONE (`c061920`).** Deleted Map2D's private byte-identical
+`drawRiverPaths` / `drawMarkerPins` and its two inline route-draw blocks; imports
+`drawRiverPaths` / `drawRoutePaths` / `drawMarkerPins` from `paintVectorOverlay`
+(the canonical copies). Both blit route blocks → `drawRoutePaths` calls,
+byte-faithful (dymaxion keeps shared road/sea width `max(0.5,1.4/renderDpr)` +
+dash `[rw*4,rw*3]`; non-dymaxion keeps raw `1.4`/`1.2` `/qualityDpr`). Removed
+orphaned `MarkerData` import to hold lint at **30/30**. **Advisor ruling (kept in
+`paintVectorOverlay.ts` header):** do NOT route the blit path *through*
+`paintVectorOverlay` (the old docstring's directive) — that's a rewrite, not a
+dedup (different transform/width/border models). `drawFactionBorders` stays
+private (live-d3 model ≠ overlay's cached `strokeBoundaryPaths`). **Browser-
+verified both blit route sites:** parchment+Equirectangular (routes render,
+console "22 roads, 3 sea") and Dymaxion (routes+rivers+markers+labels on the net).
+
+**Gates:** typecheck clean, lint 30/30 (0 headroom held), 225 render-path unit
+tests pass. Full suite NOT run (no generation-graph files touched).
+
+**Still TODO on this branch (was going to continue):** prod-build 3D→2D confirm
+(StrictMode off — the one open item about S32's already-shipped canvas-remount
+fix; now also covers this fix); Task 8 (200k perf pass, decides if Task 7 is
+worth it); Task 7 (paint-stroke partial GPU upload); desk-backdrop on GL path
+(cosmetic); then final review + merge. Sequencing per advisor: Task 8 **before**
+Task 7 (7's justification is "matters at 200k" — 8's number decides it).
+
+---
+
 ## S32 (2026-09-04) — F3 Phase 2 MERGED to main & pushed to prod (Netlify)
 
 `f3-phase2-webgl-fill-surface` fast-forward-merged into `main` and pushed to
