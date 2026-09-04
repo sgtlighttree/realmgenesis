@@ -494,6 +494,23 @@ const Map2D: React.FC<{
     return () => window.clearTimeout(t);
   }, [useGL, projection, world, isInteracting, scale]);
 
+  // GL-path parity with the blit overlays it bypasses: the selected cell's
+  // cached ring (highlight/hover), and — political mode only — one combined
+  // all-cells outline path. Both stroke cached CSS-px Path2Ds through the
+  // overlay's mirror; no per-frame d3 re-projection (that was the blit cost).
+  const glHighlightPath = useMemo<Path2D | null>(
+    () => (useGL && geometryCache && highlightCellId !== null
+      ? geometryCache.cellPaths[highlightCellId] ?? null
+      : null),
+    [useGL, geometryCache, highlightCellId],
+  );
+  const glCellOutlinePath = useMemo<Path2D | null>(() => {
+    if (!useGL || !geometryCache || viewMode !== 'political') return null;
+    const combined = new Path2D();
+    for (const cp of geometryCache.cellPaths) combined.addPath(cp);
+    return combined;
+  }, [useGL, geometryCache, viewMode]);
+
   const glRef = useRef<GLFillHandle | null>(null);
   const overlayRef = useRef<VectorOverlayHandle | null>(null);
 
@@ -1473,6 +1490,9 @@ const Map2D: React.FC<{
             overlayInk={overlayInk}
             coastColor={style.palette.coast}
             toggles={{ showGrid, showRivers, showRoutes, showCurrents }}
+            rulerArc={rulerArc}
+            highlightPath={glHighlightPath}
+            cellOutlinePath={glCellOutlinePath}
             handleRef={overlayRef}
           />
         </>
