@@ -42,7 +42,7 @@ describe('exportSVG', () => {
     const mutated: WorldData = {
       ...world,
       civData: world.civData
-        ? { factions: world.civData.factions.map((f, i) => (i === 0 ? { ...f, name: 'Fire & <Ice>' } : f)) }
+        ? { ...world.civData, factions: world.civData.factions.map((f, i) => (i === 0 ? { ...f, name: 'Fire & <Ice>' } : f)) }
         : world.civData,
     };
     const svg = exportSVG(mutated, 'political', 'equirectangular');

@@ -1,5 +1,14 @@
-import { BiomeType, Cell, WorldData, WorldParams } from '../types';
+import { BiomeType, Cell, SettlementTier, WorldData, WorldParams } from '../types';
 import { isLakeCell } from './civNaming';
+
+export const TIER_ORDER: SettlementTier[] = ['capital', 'city', 'town', 'village', 'hamlet'];
+export const TIER_MULTIPLIER: Record<SettlementTier, number> = {
+  capital: 8,
+  city: 5,
+  town: 3,
+  village: 1.5,
+  hamlet: 1,
+};
 
 export function settlementScore(cell: Cell, world: WorldData, params: WorldParams): number {
   if (cell.height < params.seaLevel || isLakeCell(cell)) return 0;

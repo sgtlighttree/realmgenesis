@@ -53,6 +53,7 @@ export const DEFAULT_PARAMS: WorldParams = {
   territorialWaters: 0.15,
   capitalSpacing: 0.5,
   provinceSize: 0.5,
+  settlementDensity: 1.0,
   numCultures: 4,
   nameStyle: 'fantasy',
   loreLevel: 1,

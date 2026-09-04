@@ -147,6 +147,7 @@ export interface WorldParams {
   territorialWaters: number; // Max distance from land to claim water
   capitalSpacing: number;
   provinceSize: number; // 0.1 (Small) to 1.0 (Huge)
+  settlementDensity: number;
 
   numCultures: number; // 2-8, home count for the culture layer (C1)
 
@@ -181,8 +182,22 @@ export interface FactionData {
     description?: string; // Level 3
 }
 
+export type SettlementTier = 'capital' | 'city' | 'town' | 'village' | 'hamlet';
+
+export interface Settlement {
+  id: number;
+  cellId: number;
+  name: string;
+  population: number;
+  tier: SettlementTier;
+  factionId: number;
+  isCapital: boolean;
+  isPort: boolean;
+}
+
 export interface CivData {
     factions: FactionData[];
+    settlements: Settlement[];
 }
 
 // A culture region (C1): a terrain-affinity-driven population cluster,

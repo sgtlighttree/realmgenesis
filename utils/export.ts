@@ -600,6 +600,7 @@ export const validateWorldParams = (params: unknown): params is Record<string, u
         numCultures: [2, 8],
         capitalSpacing: [0, 1],
         provinceSize: [0.1, 1.0],
+        settlementDensity: [0, 2.0],
         civSizeVariance: [0, 1],
         waterCrossingCost: [0.1, 1.0],
         territorialWaters: [0.01, 1.0],

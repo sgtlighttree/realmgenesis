@@ -1240,7 +1240,7 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
     const candidates = suitable.length > 0 ? suitable : world.cells.filter(c => c.height >= params.seaLevel && !isLakeCell(c));
     
     if (candidates.length === 0) {
-        world.civData = { factions: [] };
+        world.civData = { factions: [], settlements: [] };
         return world;
     }
 
@@ -1367,7 +1367,7 @@ export function recalculateCivs(world: WorldData, params: WorldParams, onLog?: (
     }
     factions.forEach((f, i) => f.color = shuffled[i % shuffled.length]);
     
-    world.civData = { factions };
+    world.civData = { factions, settlements: [] };
     
     return recalculateProvinces(world, params);
 }
