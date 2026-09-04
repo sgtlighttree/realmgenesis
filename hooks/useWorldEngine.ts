@@ -59,6 +59,22 @@ const recalculatePoliticalTotals = (world: WorldData): void => {
   });
 };
 
+// Debug/dev affordance: `?2dmode` boots straight into a 2D projection instead of
+// the globe, so Map2D mounts WITHOUT a WorldViewer teardown preceding it. Beyond
+// convenience this is the clean-GL entry point — the globe→2D transition
+// transiently starves the browser of a WebGL context and drops GLFillSurface to
+// the blit fallback (see HANDOFF S31b); booting straight to 2D sidesteps that.
+// `?2dmode` → equirectangular; `?2dmode=mercator|winkeltripel|equirectangular`
+// picks the projection. Unknown/absent → the normal 'globe' default.
+const initialDisplayMode = ((): DisplayMode => {
+  if (typeof window === 'undefined') return 'globe';
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has('2dmode')) return 'globe';
+  const want = (params.get('2dmode') || '').toLowerCase();
+  const valid: DisplayMode[] = ['equirectangular', 'mercator', 'winkeltripel'];
+  return (valid as string[]).includes(want) ? (want as DisplayMode) : 'equirectangular';
+})();
+
 export function useWorldEngine() {
   const [params, setParams] = useState<WorldParams>(DEFAULT_PARAMS);
   const [world, setWorld] = useState<WorldData | null>(null);
@@ -66,7 +82,7 @@ export function useWorldEngine() {
   // A3: render-only style axis, orthogonal to viewMode. Deliberately NOT a
   // WorldParam — it never influences generation, so paramLiveness would fail it.
   const [mapStyleId, setMapStyleId] = useState<MapStyleId>('default');
-  const [displayMode, setDisplayMode] = useState<DisplayMode>('globe');
+  const [displayMode, setDisplayMode] = useState<DisplayMode>(initialDisplayMode);
   const [inspectMode, setInspectMode] = useState<InspectMode>('click');
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const [inspectedCellId, setInspectedCellId] = useState<number | null>(null);
