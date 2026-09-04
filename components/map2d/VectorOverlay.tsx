@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 
-import { WorldData, LabelVisibility } from '../../types';
+import { WorldData, LabelVisibility, Point } from '../../types';
 import { MapLabel } from '../../utils/labels';
 import { OverlayInk } from '../../utils/mapStyle/overlayInk';
 import { LabelTheme } from '../../utils/mapStyle/labelTheme';
@@ -41,6 +41,12 @@ export interface VectorOverlayProps {
   /** `style.palette.coast` — see the field doc on `PaintVectorOverlayParams.coastColor`. */
   coastColor: string;
   toggles: VectorOverlayToggles;
+  /** A5 ruler arc; null when inactive. See `PaintVectorOverlayParams.rulerArc`. */
+  rulerArc?: Point[] | null;
+  /** Selected/hover cell's cached ring Path2D. See `PaintVectorOverlayParams.highlightPath`. */
+  highlightPath?: Path2D | null;
+  /** Combined cell-outline path, political mode only. See `PaintVectorOverlayParams.cellOutlinePath`. */
+  cellOutlinePath?: Path2D | null;
   /** Exposes `redraw()` to the host — same pattern as `GLFillSurface`'s `handleRef`. */
   handleRef?: React.MutableRefObject<VectorOverlayHandle | null>;
 }
@@ -59,7 +65,8 @@ export interface VectorOverlayProps {
  */
 export const VectorOverlay: React.FC<VectorOverlayProps> = ({
   size, dpr, scale, offsetX, offsetY, world, projection, boundaryPaths, contourSegments,
-  mapLabels, labelVisibility, labelTheme, overlayInk, coastColor, toggles, handleRef,
+  mapLabels, labelVisibility, labelTheme, overlayInk, coastColor, toggles,
+  rulerArc = null, highlightPath = null, cellOutlinePath = null, handleRef,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -85,11 +92,13 @@ export const VectorOverlay: React.FC<VectorOverlayProps> = ({
       // constant screen weight across zoom — the vector transform above
       // already carries `dpr`.
       strokeScale: scale,
+      rulerArc, highlightPath, cellOutlinePath,
     };
     paintVectorOverlay(ctx, params);
   }, [
     dpr, scale, offsetX, offsetY, size, world, projection, toggles, boundaryPaths,
     contourSegments, mapLabels, labelVisibility, labelTheme, overlayInk, coastColor,
+    rulerArc, highlightPath, cellOutlinePath,
   ]);
 
   // Backing store sized size.width*dpr × size.height*dpr; CSS size stays

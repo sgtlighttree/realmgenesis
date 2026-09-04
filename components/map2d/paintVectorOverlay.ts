@@ -18,12 +18,15 @@ import { drawCurrents2D } from '../overlays/currents2D';
  * after applying the composed transform; nothing here touches `ctx`'s
  * transform itself.
  *
- * Task 6 must route `Map2D.tsx`'s offscreen (non-Dymaxion) render path
- * through this same helper instead of keeping its own inline copy of this
- * sequence (currently ~Map2D.tsx:756-894) — see the module-level functions
- * exported below (`drawRiverPaths`, `drawMarkerPins`, `strokeBoundaryPaths`,
- * `drawRoutePaths`), which Task 6 should import here rather than leaving
- * Map2D's private duplicates in place.
+ * SCOPE (settled S33, was a stale directive): Map2D's *blit* render paths do
+ * NOT route through `paintVectorOverlay` — that would be a rewrite, not a
+ * dedup. The blit path uses `setTransform(renderDpr,...)` (not the double-
+ * mirror trick), divides widths by `qualityDpr` (not `strokeScale`), strokes
+ * live-projected faction borders (not cached `strokeBoundaryPaths`), and has
+ * passes this sequence does not. What IS shared are the small, projection-
+ * agnostic draw helpers below (`drawRiverPaths`, `drawRoutePaths`,
+ * `drawMarkerPins`); the blit path imports THOSE. `drawFactionBorders` stays
+ * private to Map2D by design — it is the live-d3 model, not this cached one.
  */
 
 /** Toggles for the optional overlay passes — mirrors Map2D's show* props. */
@@ -87,14 +90,35 @@ export interface PaintVectorOverlayParams {
    * zoom level, instead of Map2D's raster-DPR-only compensation.
    */
   strokeScale: number;
+  /**
+   * A5 ruler measurement arc (great-circle samples), or null when no
+   * measurement is active. Drawn live per-sample through the mirrored ctx,
+   * same as `drawRiverPaths` — one polyline, cheap. Parity with the blit
+   * path (Map2D:910-929), which the GL path bypasses.
+   */
+  rulerArc?: Point[] | null;
+  /**
+   * The selected/hovered cell's CACHED ring Path2D (`geometryCache.cellPaths
+   * [highlightCellId]`, un-flipped CSS-px), or null. Stroked directly under
+   * the mirrored ctx like the boundary paths — no live re-projection, so it
+   * stays cheap even under per-mousemove hover redraws. Parity with the blit
+   * highlight ring (Map2D:954-967).
+   */
+  highlightPath?: Path2D | null;
+  /**
+   * Combined all-cells outline Path2D (built once from `geometryCache
+   * .cellPaths`), passed ONLY in `political` view mode, else null. One
+   * `ctx.stroke` per frame replaces the blit path's per-cell d3 re-projection
+   * loop (Map2D:939-952) — the whole reason it is prebuilt and not derived
+   * here. Shared edges draw twice at 0.25 alpha, matching the blit look.
+   */
+  cellOutlinePath?: Path2D | null;
 }
 
 // ---------------------------------------------------------------------------
-// Relocated draw helpers (module-private in Map2D.tsx today — not exported
-// there, so they cannot be imported without editing Map2D.tsx, which this
-// task is scoped to avoid). Exported here, byte-faithful to Map2D's current
-// logic, so Task 6 can delete Map2D's copies and import these instead rather
-// than the two files drifting.
+// Shared, projection-agnostic draw helpers. These are the SINGLE source for
+// rivers/routes/markers across all three render paths (GL overlay + both blit
+// paths); Map2D imports them rather than keeping private copies (deduped S33).
 // ---------------------------------------------------------------------------
 
 /**
@@ -270,6 +294,7 @@ export const paintVectorOverlay = (
   const {
     world, projection, size, toggles, boundaryPaths, contourSegments,
     mapLabels, labelVisibility, labelTheme, overlayInk, coastColor, strokeScale,
+    rulerArc, highlightPath, cellOutlinePath,
   } = params;
   const s = strokeScale > 0 ? strokeScale : 1;
 
@@ -311,6 +336,53 @@ export const paintVectorOverlay = (
   // 6. Ocean currents.
   if (toggles.showCurrents && world.currents) {
     drawCurrents2D(ctx, world, projection, s);
+  }
+
+  // 6b. Ruler arc (A5) — live per-sample projection, antimeridian-broken
+  // polyline, same idiom as drawRiverPaths. Parity with the blit path.
+  if (rulerArc && rulerArc.length > 1) {
+    ctx.save();
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = Math.max(1, 2 / s);
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    let lastLon: number | null = null;
+    rulerArc.forEach((p, i) => {
+      const lon = Math.atan2(p.z, p.x) * (180 / Math.PI);
+      const lat = Math.asin(Math.max(-1, Math.min(1, p.y))) * (180 / Math.PI);
+      const isJump = lastLon !== null && Math.abs(lon - lastLon) > 180;
+      const pt = projection([lon, lat]);
+      if (pt) {
+        if (i === 0 || isJump) ctx.moveTo(pt[0], pt[1]);
+        else ctx.lineTo(pt[0], pt[1]);
+      }
+      lastLon = lon;
+    });
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 6c. Political-mode per-cell outlines — one stroke of the prebuilt combined
+  // cell-ring path (cached CSS-px, drawn through the mirror like the boundary
+  // paths). The host passes this only in political view mode.
+  if (cellOutlinePath) {
+    ctx.save();
+    ctx.globalAlpha = 0.25;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = Math.max(0.25, 0.5 / s);
+    ctx.stroke(cellOutlinePath);
+    ctx.restore();
+  }
+
+  // 6d. Selection / hover highlight ring — cached single-cell path.
+  if (highlightPath) {
+    ctx.save();
+    ctx.strokeStyle = '#f9a8a8';
+    ctx.lineWidth = Math.max(1, 3 / s);
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.stroke(highlightPath);
+    ctx.restore();
   }
 
   // markerProject applies its own manual mirror (size.width - x), so both the
