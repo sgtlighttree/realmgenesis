@@ -38,6 +38,23 @@ IMPORTANT, DO THIS FIRST: ~~THIS PROJECT HAS BEEN MIGRATED TO PNPM.~~ **REVERTED
 
 ---
 
+## S32 (2026-09-04) — F3 Phase 2 MERGED to main & pushed to prod (Netlify)
+
+`f3-phase2-webgl-fill-surface` fast-forward-merged into `main` and pushed to
+`origin` (github.com/sgtlighttree/realmgenesis) — the whole GL fill path is now
+live in prod. This session's work on top of the S31 branch (details in S31b
+below): found + fixed why the GL path never actually reached the user (it silently
+sat on the blit fallback — a reused-canvas construction throw from StrictMode /
+3D→2D teardown), added the `?2dmode` flag, fixed GL colour parity, and removed the
+3D Cell Edges toggle (always on now). Verified: prod build clean, prod GL path
+stable (SAMPLES=4, 0 context-loss), lint 30/30, typecheck clean, and confirmed
+live by Matt ("much sharper, feels very vector like"). Open follow-ups: Dymaxion
+GL fill (Phase-3, filed in S31b); the deferred Phase-2 remainder (Tasks 7–8,
+offscreen-path dedup) from S31; a prod-build sanity of the 3D→2D switch was skipped
+as redundant (dev 3D→2D verified live; prod cold-2D clean).
+
+---
+
 ## S31 (2026-09-04) — F3 Phase 2 (WebGL fill surface) — core path built & browser-verified on branch
 
 **Branch `f3-phase2-webgl-fill-surface` (NOT merged, NOT pushed).** The headline
