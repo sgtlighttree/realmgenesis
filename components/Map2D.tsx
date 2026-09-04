@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { WorldData, ViewMode, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, Point, MarkerData } from '../types';
+import { WorldData, ViewMode, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, Point } from '../types';
 import { getCellColor } from '../utils/colors';
 import { computeCoastlineSegments, computeFactionBorderSegments } from '../utils/boundaries';
 import { buildMapGeometryCache, buildBoundaryPaths } from '../utils/mapCache';
@@ -27,7 +27,9 @@ import { tessellateCells } from '../utils/tessellate';
 import { buildFillColorBuffer } from '../utils/mapFillColorBuffer';
 import { GLFillSurface, GLFillHandle } from './map2d/GLFillSurface';
 import { VectorOverlay, VectorOverlayHandle } from './map2d/VectorOverlay';
-import { VectorOverlayBoundaryPaths } from './map2d/paintVectorOverlay';
+import {
+  VectorOverlayBoundaryPaths, drawRiverPaths, drawRoutePaths, drawMarkerPins,
+} from './map2d/paintVectorOverlay';
 
 type Size = { width: number; height: number };
 
@@ -37,45 +39,10 @@ const MAX_SHARP_DPR = 3;
 const MAX_SHARP_SCALE = 2.5;
 const SETTLE_MS = 200;
 
-/**
- * Rivers, in projected space.
- *
- * ONE routine, called by both the Dymaxion source raster and the direct
- * projection path. It used to be two byte-identical blocks differing only in
- * their context variable and DPR divisor, each with its own hardcoded
- * `#38bdf8` — two of the five sites that made the river colour unreachable by
- * a map style. Collapsed here so the next style cannot diverge the same way.
- */
-const drawRiverPaths = (
-  ctx: CanvasRenderingContext2D,
-  rivers: Point[][],
-  project: (p: [number, number]) => [number, number] | null,
-  lineWidth: number,
-  ink: OverlayInk,
-) => {
-  ctx.strokeStyle = ink.river;
-  ctx.lineWidth = lineWidth;
-  ctx.globalAlpha = 0.8;
-  for (const path of rivers) {
-    if (path.length < 2) continue;
-    ctx.beginPath();
-    let lastLon: number | null = null;
-    path.forEach((p, i) => {
-      const lon = Math.atan2(p.z, p.x) * (180 / Math.PI);
-      const lat = Math.asin(Math.max(-1, Math.min(1, p.y))) * (180 / Math.PI);
-      // Antimeridian crossing: break the subpath rather than draw across the map.
-      const isJump = lastLon !== null && Math.abs(lon - lastLon) > 180;
-      const pt = project([lon, lat]);
-      if (pt) {
-        if (i === 0 || isJump) ctx.moveTo(pt[0], pt[1]);
-        else ctx.lineTo(pt[0], pt[1]);
-      }
-      lastLon = lon;
-    });
-    ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
-};
+// drawRiverPaths / drawRoutePaths / drawMarkerPins are shared with the GL
+// overlay path and imported from ./map2d/paintVectorOverlay (deduped S33).
+// drawFactionBorders stays private: it is the live-d3 border model, distinct
+// from the overlay's cached-Path2D strokeBoundaryPaths.
 
 const drawFactionBorders = (ctx: CanvasRenderingContext2D, pathGenerator: d3.GeoPath, borders: Array<[Point3, Point3]>, lineWidth: number, ink: OverlayInk) => {
   if (borders.length === 0) return;
@@ -104,37 +71,6 @@ const drawFactionBorders = (ctx: CanvasRenderingContext2D, pathGenerator: d3.Geo
   ctx.setLineDash(ink.borderDash);
   drawPass();
   ctx.setLineDash([]);
-  ctx.restore();
-};
-
-// Small amber diamond per marker, drawn in the same projected space as the
-// adjacent drawMapLabels call so both share one projection lambda. halfSize
-// is in the caller's coordinate space (CSS px for the transformed mercator
-// ctx, device px for the raw dymaxion raster) — see call sites.
-const drawMarkerPins = (
-  ctx: CanvasRenderingContext2D,
-  markers: MarkerData[],
-  project: (position: { x: number; y: number; z: number }) => [number, number] | null,
-  halfSize: number,
-): void => {
-  if (markers.length === 0) return;
-  ctx.save();
-  ctx.fillStyle = '#f59e0b';
-  ctx.strokeStyle = 'rgba(28, 18, 7, 0.9)';
-  ctx.lineWidth = Math.max(0.75, halfSize * 0.3);
-  for (const marker of markers) {
-    const projected = project(marker.position);
-    if (!projected) continue;
-    const [x, y] = projected;
-    ctx.beginPath();
-    ctx.moveTo(x, y - halfSize);
-    ctx.lineTo(x + halfSize, y);
-    ctx.lineTo(x, y + halfSize);
-    ctx.lineTo(x - halfSize, y);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-  }
   ctx.restore();
 };
 
@@ -669,32 +605,11 @@ const Map2D: React.FC<{
         drawRiverPaths(srcCtx, world.rivers, projection, Math.max(0.5, 1.5 / renderDpr), overlayInk);
       }
 
-      // Draw Routes on source equirectangular canvas (C3)
+      // Draw Routes on source equirectangular canvas (C3). Road & searoute
+      // share one width on the dymaxion raster (rw); only the dash differs.
       if (showRoutes && world.routes) {
-        srcCtx.globalAlpha = 0.9;
         const rw = Math.max(0.5, 1.4 / renderDpr);
-        world.routes.forEach(route => {
-          if (route.path.length < 2) return;
-          srcCtx.strokeStyle = route.kind === 'road' ? '#c8a25a' : '#5eb8c8';
-          srcCtx.lineWidth = rw;
-          srcCtx.setLineDash(route.kind === 'searoute' ? [rw * 4, rw * 3] : []);
-          srcCtx.beginPath();
-          let lastLon: number | null = null;
-          route.path.forEach((p, i) => {
-            const lon = Math.atan2(p.z, p.x) * (180 / Math.PI);
-            const lat = Math.asin(Math.max(-1, Math.min(1, p.y))) * (180 / Math.PI);
-            const isJump = lastLon !== null && Math.abs(lon - lastLon) > 180;
-            const pt = projection([lon, lat]);
-            if (pt) {
-              if (i === 0 || isJump) srcCtx.moveTo(pt[0], pt[1]);
-              else srcCtx.lineTo(pt[0], pt[1]);
-            }
-            lastLon = lon;
-          });
-          srcCtx.stroke();
-        });
-        srcCtx.setLineDash([]);
-        srcCtx.globalAlpha = 1.0;
+        drawRoutePaths(srcCtx, world.routes, projection, rw, rw, [rw * 4, rw * 3]);
       }
 
       drawFactionBorders(
@@ -891,31 +806,12 @@ const Map2D: React.FC<{
       drawRiverPaths(ctx, world.rivers, projection, 1.5 / qualityDpr, overlayInk);
     }
 
-    // Draw Routes (C3) — same antimeridian-jump pattern as rivers above.
+    // Draw Routes (C3).
     if (showRoutes && world.routes) {
-      ctx.globalAlpha = 0.9;
-      world.routes.forEach(route => {
-        if (route.path.length < 2) return;
-        ctx.strokeStyle = route.kind === 'road' ? '#c8a25a' : '#5eb8c8';
-        ctx.lineWidth = (route.kind === 'road' ? 1.4 : 1.2) / qualityDpr;
-        ctx.setLineDash(route.kind === 'searoute' ? [5 / qualityDpr, 4 / qualityDpr] : []);
-        ctx.beginPath();
-        let lastLon: number | null = null;
-        route.path.forEach((p, i) => {
-          const lon = Math.atan2(p.z, p.x) * (180 / Math.PI);
-          const lat = Math.asin(Math.max(-1, Math.min(1, p.y))) * (180 / Math.PI);
-          const isJump = lastLon !== null && Math.abs(lon - lastLon) > 180;
-          const pt = projection([lon, lat]);
-          if (pt) {
-            if (i === 0 || isJump) ctx.moveTo(pt[0], pt[1]);
-            else ctx.lineTo(pt[0], pt[1]);
-          }
-          lastLon = lon;
-        });
-        ctx.stroke();
-      });
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 1.0;
+      drawRoutePaths(
+        ctx, world.routes, projection,
+        1.4 / qualityDpr, 1.2 / qualityDpr, [5 / qualityDpr, 4 / qualityDpr],
+      );
     }
 
     // Draw ocean currents (F2) — arrows over ocean cells, warm/cold SST tint.
