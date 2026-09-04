@@ -440,12 +440,17 @@ const Map2D: React.FC<{
       : null),
     [useGL, geometryCache, highlightCellId],
   );
+  // Political-mode per-cell outlines: a combined all-cells Path2D stroked once
+  // per overlay frame. Gated on `!isInteracting` (same signal `lodBoundaries`
+  // uses): at 200k the per-frame all-cells stroke costs ~37ms/frame (measured),
+  // so it is dropped during pan/zoom and reappears on settle — the vector-map
+  // idiom of shedding fine detail while interacting. Biome/ramp modes pass null.
   const glCellOutlinePath = useMemo<Path2D | null>(() => {
-    if (!useGL || !geometryCache || viewMode !== 'political') return null;
+    if (!useGL || !geometryCache || viewMode !== 'political' || isInteracting) return null;
     const combined = new Path2D();
     for (const cp of geometryCache.cellPaths) combined.addPath(cp);
     return combined;
-  }, [useGL, geometryCache, viewMode]);
+  }, [useGL, geometryCache, viewMode, isInteracting]);
 
   const glRef = useRef<GLFillHandle | null>(null);
   const overlayRef = useRef<VectorOverlayHandle | null>(null);
