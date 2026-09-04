@@ -217,11 +217,23 @@ stable across two probes on cold `?2dmode`), AND Matt live in Vivaldi on the rea
 screenshot (matches minimap palette) + Matt. Browser-only; no unit test covers it.
 Still TODO: confirm on a production build (StrictMode off) — expected clean.
 
-**Separately surfaced (NOT the 2D bug, NOT yet actioned):** on the 3D globe the
-"overlapping/distorted tri-points" with Cell Edges OFF is `CELL_OVERHANG=1.10`
-(WorldViewer inflates cells 10% to hide seams when `showCellEdges` is false).
-Globe-only, deliberate. `showCellEdges` defaults `false`; Matt thinks it should
-default ON. Independent of the 2D fill (which uses exact geoJson, no overhang).
+**Cell Edges — DONE (per Matt).** The 3D globe's "overlapping/distorted
+tri-points" was `CELL_OVERHANG=1.10` (WorldViewer inflated cells 10% to hide
+seams when `showCellEdges` was OFF) — the overlap looked worse than the seams it
+hid. Matt: it should always be on and NOT toggleable. Fixed: `inflate` hardcoded
+to 1 in WorldMesh (cells at true size, edges always shown), and the whole
+`showCellEdges`/`setShowCellEdges` toggle + its plumbing removed across
+useWorldEngine, ShellApp, Controls, ViewControls, WorldViewer, and the legacy
+App.tsx route (the `Hexagon` icon + `CELL_OVERHANG` import went with it;
+`CELL_OVERHANG` is still exported from displayRadius.ts, now unused). Globe-only;
+never touched the 2D fill (exact geoJson, no overhang). Verified: globe renders
+cleanly separated cells, no overlap; typecheck + lint clean.
+
+**Dymaxion stays on blit (intentional, NOT the GL path).** `shouldUseGLFill`
+excludes it: Dymaxion has no d3 projection and no `cellVerts`/`geometryCache`
+(Map2D `projection=null` for dymaxion) — it's a bespoke icosahedral-net
+rasterizer with its own pick buffer + glyphs. GL fill for it = Phase-3-sized
+(cells split across icosahedron faces + net layout in the GL transform). Future.
 
 ---
 

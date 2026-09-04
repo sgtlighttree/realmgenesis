@@ -10,7 +10,7 @@ import { createStyleTexture, createStyledGlobeMaterial } from '../utils/mapStyle
 import { useLabelFonts } from '../utils/mapStyle/useLabelFonts';
 import { LabelTheme } from '../utils/mapStyle/labelTheme';
 import { seasonalTemperatureDelta } from '../utils/seasons';
-import { displayRadius, CELL_OVERHANG } from '../utils/displayRadius';
+import { displayRadius } from '../utils/displayRadius';
 import { computeShadeMap, computeContourSegments, contourInterval } from '../utils/shading';
 import { computeBorderSegments } from '../utils/borders';
 import { collectLabels } from '../utils/labels';
@@ -481,7 +481,6 @@ const WorldMesh: React.FC<{
   mapStyleId: MapStyleId,
   showContours: boolean,
   showCurrents: boolean,
-  showCellEdges: boolean,
   inspectMode: InspectMode;
   onInspect: (cellId: number | null) => void;
   dymaxionSettings: DymaxionSettings;
@@ -494,7 +493,7 @@ const WorldMesh: React.FC<{
   selectedCellId?: number | null;
   labelVisibility: LabelVisibility;
   rulerArc?: Point[] | null;
-}> = ({ world, viewMode, onHover, paused, showGrid, smoothGlobe, showRivers, showRoutes, showHillshade, mapStyleId, showContours, showCurrents, showCellEdges, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize, selectedCellId = null, labelVisibility, rulerArc = null }) => {
+}> = ({ world, viewMode, onHover, paused, showGrid, smoothGlobe, showRivers, showRoutes, showHillshade, mapStyleId, showContours, showCurrents, inspectMode, onInspect, dymaxionSettings, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize, selectedCellId = null, labelVisibility, rulerArc = null }) => {
   const spinRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const lastUpdate = useRef<number>(0);
@@ -587,9 +586,10 @@ const WorldMesh: React.FC<{
     const colAttr = geometry.getAttribute('color') as THREE.BufferAttribute;
     const pos = posAttr.array as Float32Array;
     const col = colAttr.array as Float32Array;
-    // showCellEdges deliberately drops the overhang so the seams reopen and the
-    // tessellation shows. See CELL_OVERHANG.
-    const inflate = showCellEdges ? 1 : CELL_OVERHANG;
+    // Cells always render at true size (no overhang): the CELL_OVERHANG inflation
+    // used to hide seams overlapped neighbours and made tri-points look distorted
+    // (worse than the seams it hid). Edges are always shown.
+    const inflate = 1;
     let o = 0;
     for (const cell of world.cells) {
       const c = getCellColor(cell, viewMode, {
@@ -622,7 +622,7 @@ const WorldMesh: React.FC<{
     }
     posAttr.needsUpdate = true;
     colAttr.needsUpdate = true;
-  }, [geometry, world, viewMode, factionColors, cultureColors, religionColors, showHillshade, shadeMap, smoothGlobe, showCellEdges]);
+  }, [geometry, world, viewMode, factionColors, cultureColors, religionColors, showHillshade, shadeMap, smoothGlobe]);
 
   const faceMap = useMemo(() => {
      const map: number[] = [];
@@ -956,7 +956,7 @@ const WorldMesh: React.FC<{
   );
 };
 
-const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; smoothGlobe?: boolean; showRivers?: boolean; showRoutes?: boolean; showHillshade?: boolean; mapStyleId?: MapStyleId; showContours?: boolean; showCurrents?: boolean; showCellEdges?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; cultureColors?: Map<number, string>; religionColors?: Map<number, string>; brushSize?: number; rulerArc?: Point[] | null; overlayClassName?: string; paused?: boolean; onPausedChange?: (v: boolean) => void; showPauseControl?: boolean; }> = ({ world, viewMode, showGrid = false, smoothGlobe = false, showRivers = true, showRoutes = false, showHillshade = false, mapStyleId = 'default', showContours = false, showCurrents = false, showCellEdges = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null, overlayClassName = 'absolute top-4 right-4 z-overlay flex gap-2', paused: pausedProp, onPausedChange, showPauseControl = true }) => {
+const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showGrid?: boolean; smoothGlobe?: boolean; showRivers?: boolean; showRoutes?: boolean; showHillshade?: boolean; mapStyleId?: MapStyleId; showContours?: boolean; showCurrents?: boolean; labelVisibility?: LabelVisibility; inspectMode: InspectMode; onInspect: (cellId: number | null) => void; selectedCellId?: number | null; dymaxionSettings: DymaxionSettings; onDymaxionChange: React.Dispatch<React.SetStateAction<DymaxionSettings>>; editMode: EditMode; onPaint: (cellId: number, phase: 'start' | 'stroke' | 'end', isRightClick?: boolean) => void; factionColors?: Map<number, string>; cultureColors?: Map<number, string>; religionColors?: Map<number, string>; brushSize?: number; rulerArc?: Point[] | null; overlayClassName?: string; paused?: boolean; onPausedChange?: (v: boolean) => void; showPauseControl?: boolean; }> = ({ world, viewMode, showGrid = false, smoothGlobe = false, showRivers = true, showRoutes = false, showHillshade = false, mapStyleId = 'default', showContours = false, showCurrents = false, labelVisibility = DEFAULT_LABEL_VISIBILITY, inspectMode, onInspect, selectedCellId = null, dymaxionSettings, onDymaxionChange, editMode, onPaint, factionColors, cultureColors, religionColors, brushSize = 1, rulerArc = null, overlayClassName = 'absolute top-4 right-4 z-overlay flex gap-2', paused: pausedProp, onPausedChange, showPauseControl = true }) => {
   const [hoveredCell, setHoveredCell] = useState<Cell | null>(null);
   // Rotation pause is controlled-OPTIONAL, the same contract as a native input:
   // pass `paused` + `onPausedChange` to own it from outside (the shell lifts it
@@ -1110,7 +1110,6 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
                showHillshade={showHillshade}
                showContours={showContours}
                showCurrents={showCurrents}
-               showCellEdges={showCellEdges}
                labelVisibility={labelVisibility}
                inspectMode={inspectMode}
                onInspect={onInspect}
