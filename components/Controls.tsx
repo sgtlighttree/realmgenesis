@@ -51,8 +51,6 @@ interface ControlsProps {
   showContours: boolean;
   setShowContours: (b: boolean) => void;
   showCurrents: boolean;
-  showCellEdges: boolean;
-  setShowCellEdges: (b: boolean) => void;
   setShowCurrents: (b: boolean) => void;
   labelVisibility: LabelVisibility;
   setLabelVisibility: React.Dispatch<React.SetStateAction<LabelVisibility>>;
@@ -142,8 +140,6 @@ const Controls: React.FC<ControlsProps> = ({
   showContours,
   setShowContours,
   showCurrents,
-  showCellEdges,
-  setShowCellEdges,
   setShowCurrents,
   labelVisibility,
   setLabelVisibility,
@@ -444,7 +440,6 @@ const Controls: React.FC<ControlsProps> = ({
     showGrid, setShowGrid, smoothGlobe, setSmoothGlobe, showRivers, setShowRivers, showRoutes, setShowRoutes,
     showHillshade, setShowHillshade, showContours, setShowContours,
     showCurrents, setShowCurrents,
-    showCellEdges, setShowCellEdges,
     labelVisibility, setLabelVisibility,
   };
   const layerToggles = buildLayerToggles(viewProps);
