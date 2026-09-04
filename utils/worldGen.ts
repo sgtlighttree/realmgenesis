@@ -9,6 +9,10 @@ import { simulateTectonics, projectTectonicsToDisplay } from './tectonicsV3';
 import { annualMeanLatTemp } from './seasons';
 import { applyStarClass } from './planetary';
 import { computeOceanCurrents, computeSstAnomaly, COAST_K, EVAP_K, OceanCurrentField } from './currents';
+import { isLakeCell, getCultureNameStyle, makeStyleNameGenCache } from './civNaming';
+import { settlementScore } from './settlements';
+
+export { isLakeCell } from './civNaming';
 import {
   elevationMetres,
   LAPSE_RATE_C_PER_KM,
@@ -189,12 +193,6 @@ async function applyThermalErosion(cells: Cell[], iterations: number, seaLevel: 
             }
         });
     }
-}
-
-// Lakes are land-height depressions, not ocean. Civ suitability, drainage, and
-// coast checks must treat them as water even though height >= seaLevel.
-export function isLakeCell(cell: Cell): boolean {
-  return cell.biome === BiomeType.LAKE || cell.biome === BiomeType.SALT_LAKE;
 }
 
 // --- RIVER GENERATION ---
@@ -814,32 +812,6 @@ const DESERT_BIOMES = new Set<BiomeType>([
   BiomeType.STEPPE,
 ]);
 
-// Looks up the naming style a cell's culture speaks, falling back to the
-// world's base nameStyle for cells with no culture assignment yet (e.g. an
-// oceanic world where recalculateCultures found zero land candidates).
-function getCultureNameStyle(world: WorldData, params: WorldParams, cellId: number): NameStyle {
-  const cell = world.cells[cellId];
-  const culture = cell?.cultureId !== undefined ? world.cultures?.find(c => c.id === cell.cultureId) : undefined;
-  return culture?.nameStyle ?? (params.nameStyle ?? 'fantasy');
-}
-
-// One NameGenerator per NameStyle, lazily created on first use and cached for
-// the life of the caller. Each style gets its own RNG side-stream (seedPrefix
-// + style) so faction/province naming stays fully deterministic regardless of
-// which cultures happen to touch which capitals/towns.
-function makeStyleNameGenCache(seedPrefix: string): (style: NameStyle) => NameGenerator {
-  const cache = new Map<NameStyle, NameGenerator>();
-  return (style: NameStyle) => {
-    let gen = cache.get(style);
-    if (!gen) {
-      const rng = new RNG(seedPrefix + style);
-      gen = createNameGenerator(style, () => rng.next());
-      cache.set(style, gen);
-    }
-    return gen;
-  };
-}
-
 // C1: the culture layer. Distinct from (and computed before) factions —
 // culture regions spread by terrain affinity and give faction/province/town
 // naming a consistent regional flavor. Deterministic from civSeed alone.
@@ -1410,40 +1382,11 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
     const getProvNameGen = makeStyleNameGenCache(params.civSeed + '_provnames_');
 
     world.cells.forEach(c => {
-        let suitability = 0;
         if (c.height < params.seaLevel || isLakeCell(c)) {
             c.population = 0;
             return;
         }
-        switch(c.biome) {
-            case BiomeType.TROPICAL_RAINFOREST: suitability = 0.4; break;
-            case BiomeType.TROPICAL_SAVANNA: suitability = 0.7; break;
-            case BiomeType.HOT_DESERT: suitability = 0.1; break;
-            case BiomeType.COLD_DESERT: suitability = 0.1; break;
-            case BiomeType.TEMPERATE_FOREST: suitability = 0.9; break;
-            case BiomeType.TEMPERATE_RAINFOREST: suitability = 0.8; break;
-            case BiomeType.MEDITERRANEAN: suitability = 1.0; break; 
-            case BiomeType.STEPPE: suitability = 0.5; break;
-            case BiomeType.GRASSLAND: suitability = 0.9; break;
-            case BiomeType.BOREAL_FOREST: suitability = 0.4; break;
-            case BiomeType.TUNDRA: suitability = 0.2; break;
-            case BiomeType.ICE_CAP: suitability = 0.0; break;
-            case BiomeType.VOLCANIC: suitability = 0.1; break;
-            case BiomeType.BEACH: suitability = 0.6; break;
-            default: suitability = 0.5;
-        }
-        if ((c.flux || 0) > 0.5) suitability += 0.3;
-        if ((c.flux || 0) > 2.0) suitability += 0.2; 
-        let coast = false;
-        for(const nId of c.neighbors) {
-            const n = world.cells[nId];
-            if (n.height < params.seaLevel || isLakeCell(n)) { coast = true; break; }
-        }
-        if (coast) suitability += 0.3;
-        if (c.height > 0.6) suitability -= (c.height - 0.6) * 2;
-        // High peaks could drive suitability negative, producing negative
-        // populations that silently deflated faction totals
-        suitability = Math.max(0, suitability);
+        let suitability = settlementScore(c, world, params);
         c.population = Math.floor(suitability * 10000 * (0.8 + provRng.next() * 0.4));
     });
 
