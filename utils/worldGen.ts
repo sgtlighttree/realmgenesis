@@ -1453,8 +1453,8 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
         capitalCell.provinceId = 0;
 
         seeds.forEach((seed, idx) => {
-            const tCell = world.cells[seed.cellId];
-            tCell.isTown = true;
+            // No isTown write here: `seeds` are drawn from civData.settlements
+            // and placeSettlements already set the flag on every settlement cell.
             const nameGen = getProvNameGen(getCultureNameStyle(world, params, seed.cellId));
             faction.provinces.push({
                 id: idx,

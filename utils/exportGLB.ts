@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { WorldData, ViewMode, Cell } from '../types';
 import { buildFactionColorMap, buildCultureColorMap, buildReligionColorMap, getCellColor } from './colors';
 import { seasonalTemperatureDelta } from './seasons';
+import { TIER_ORDER, TIER_MARKER_STYLE, settlementCellsByTier } from './settlements';
 
 const buildWorldMesh = (world: WorldData, viewMode: ViewMode): THREE.Mesh => {
   const positions: number[] = [];
@@ -132,17 +133,20 @@ export const exportGLB = async (world: WorldData, viewMode: ViewMode): Promise<v
   if (rivers) scene.add(rivers);
 
   if (world.civData) {
-    const capitals: Cell[] = [];
-    const towns: Cell[] = [];
-    world.cells.forEach(cell => {
-      if (cell.isCapital) capitals.push(cell);
-      else if (cell.isTown) towns.push(cell);
-    });
-    // Capitals: 6-sided, height 0.08  |  Towns: 5-sided, height 0.04
-    const capMesh  = buildMarkerMesh(capitals, 0.008, 0.008, 0.08, 6, 0xef4444, 'Capitals');
-    const townMesh = buildMarkerMesh(towns,    0.005, 0.005, 0.04, 5, 0xffffff, 'Towns');
-    if (capMesh)  scene.add(capMesh);
-    if (townMesh) scene.add(townMesh);
+    // One named mesh per settlement tier, sharing TIER_MARKER_STYLE with the
+    // globe's CityMarkers so the export and the viewer cannot drift. Bucketing
+    // on `cell.isTown` (as this did before the settlement hierarchy landed)
+    // would emit a full-size town marker for every hamlet — isTown is now set
+    // on EVERY settlement.
+    const byTier = settlementCellsByTier(world);
+    for (const tier of TIER_ORDER) {
+      const style = TIER_MARKER_STYLE[tier];
+      const mesh = buildMarkerMesh(
+        byTier[tier], style.radius, style.radius, style.height, style.segments,
+        style.color, `${tier.charAt(0).toUpperCase()}${tier.slice(1)}s`,
+      );
+      if (mesh) scene.add(mesh);
+    }
   }
 
   const exporter = new GLTFExporter();

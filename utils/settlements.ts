@@ -11,6 +11,33 @@ export const TIER_MULTIPLIER: Record<SettlementTier, number> = {
   hamlet: 1,
 };
 
+// Marker geometry per tier — the SINGLE source for both the 3D globe
+// (WorldViewer's CityMarkers) and the GLB export, so the two cannot drift.
+// Colour is a hex number: R3F's `color` prop and THREE materials both take it.
+export const TIER_MARKER_STYLE: Record<SettlementTier, {
+  radius: number; height: number; segments: number; color: number;
+}> = {
+  capital: { radius: 0.008, height: 0.08, segments: 6, color: 0xef4444 },
+  city: { radius: 0.0065, height: 0.06, segments: 6, color: 0xfb923c },
+  town: { radius: 0.005, height: 0.04, segments: 5, color: 0xffffff },
+  village: { radius: 0.004, height: 0.025, segments: 4, color: 0xcbd5e1 },
+  hamlet: { radius: 0.003, height: 0.018, segments: 4, color: 0x94a3b8 },
+};
+
+/**
+ * Group settlement CELLS by tier. `cell.isTown` is set on EVERY settlement
+ * including hamlets, so bucketing on it lumps a hamlet in with a city — every
+ * marker/export consumer must group through this instead.
+ */
+export function settlementCellsByTier(world: WorldData): Record<SettlementTier, Cell[]> {
+  const g: Record<SettlementTier, Cell[]> = { capital: [], city: [], town: [], village: [], hamlet: [] };
+  (world.civData?.settlements ?? []).forEach(s => {
+    const c = world.cells[s.cellId];
+    if (c) g[s.tier].push(c);
+  });
+  return g;
+}
+
 export function settlementScore(cell: Cell, world: WorldData, params: WorldParams): number {
   if (cell.height < params.seaLevel || isLakeCell(cell)) return 0;
   let s = 0;

@@ -366,6 +366,8 @@ const buildCellFeatures = (world: WorldData): GeoJsonFeatureOut<PolygonGeometry>
   // Geometry is already geodesic lon/lat; this makes the vertical genuine too,
   // so QGIS/Blender open the file in consistent units.
   const { seaLevel, maxElevationM } = world.params;
+  const settlementTiers = new Map<number, string>();
+  (world.civData?.settlements ?? []).forEach(s => settlementTiers.set(s.cellId, s.tier));
 
   world.cells.forEach((cell, i) => {
     const feature = world.geoJson.features[i];
@@ -390,7 +392,12 @@ const buildCellFeatures = (world: WorldData): GeoJsonFeatureOut<PolygonGeometry>
     }
     if (cell.population !== undefined) properties.population = cell.population;
     if (cell.isCapital !== undefined) properties.isCapital = cell.isCapital;
+    // `isTown` is now true for EVERY settlement, hamlets included, so on its own
+    // it no longer separates a city from a hamlet. Kept for compatibility (it
+    // still means "a settlement stands here") and paired with the tier.
     if (cell.isTown !== undefined) properties.isTown = cell.isTown;
+    const tier = settlementTiers.get(cell.id);
+    if (tier !== undefined) properties.settlementTier = tier;
 
     features.push({
       type: 'Feature',
