@@ -1,14 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { generateWorld } from '../utils/worldGen';
 import { computeRoutes, ARTERIAL_TIERS } from '../utils/routes';
 import { isWaterCell } from '../utils/pathfinding';
 import { makeParams } from './helpers';
-import type { Settlement, WorldData } from '../types';
+import type { Settlement, WorldData, WorldParams } from '../types';
 
 // Routes are computed lazily in the app (App.tsx), not by generateWorld, so
 // tests compute them explicitly here — exactly what the lazy effect does.
-async function build(seed = 'route-test') {
-  const world = await generateWorld(makeParams({ seed, civSeed: seed }));
+async function build(seed = 'route-test', overrides: Partial<WorldParams> = {}) {
+  const world = await generateWorld(makeParams({ seed, civSeed: seed, ...overrides }));
   world.routes = computeRoutes(world, world.params);
   return world;
 }
@@ -53,15 +53,29 @@ function settlementByCell(world: WorldData): Map<number, Settlement> {
   return map;
 }
 
+// Bumped above the DEFAULT_PARAMS 1.0 so the small (points:300) test map
+// actually produces village/hamlet settlements — otherwise every faction's
+// quota rounds to 1 (a lone capital) and Task 8's feeder pass has nothing to
+// feed. Kept as a named override rather than changing makeParams()'s
+// baseline, which other suites depend on staying untouched.
+const DENSE_OVERRIDES: Partial<WorldParams> = { settlementDensity: 2.0 };
+
 describe('computeRoutes — roads', () => {
-  it('is deterministic: same seed → identical routes', async () => {
-    const a = await build();
-    const b = await build();
-    expect(JSON.stringify(a.routes)).toEqual(JSON.stringify(b.routes));
+  // Single shared build for every non-determinism assertion in this describe
+  // block — keeps world-gen count from growing as tier-gating/feeder
+  // assertions are added (routes.test.ts already ran 7 full generateWorld
+  // calls before this task; see CLAUDE.md's per-file CPU budget note).
+  let w: WorldData;
+  beforeAll(async () => {
+    w = await build('route-test', DENSE_OVERRIDES);
   });
 
-  it('produces at least some road routes with valid town endpoints', async () => {
-    const w = await build();
+  it('is deterministic: same seed → identical routes', async () => {
+    const b = await build('route-test', DENSE_OVERRIDES);
+    expect(JSON.stringify(w.routes)).toEqual(JSON.stringify(b.routes));
+  });
+
+  it('produces at least some road routes with valid town endpoints', () => {
     const roads = (w.routes ?? []).filter(r => r.kind === 'road');
     expect(roads.length).toBeGreaterThan(0);
     for (const r of roads) {
@@ -71,16 +85,14 @@ describe('computeRoutes — roads', () => {
     }
   });
 
-  it('purity: recomputing routes does not mutate terrain or civ fields', async () => {
-    const w = await build();
+  it('purity: recomputing routes does not mutate terrain or civ fields', () => {
     const before = w.cells.map(c => `${c.height}|${c.biome}|${c.regionId}|${c.provinceId}`).join(',');
     computeRoutes(w, w.params);
     const after = w.cells.map(c => `${c.height}|${c.biome}|${c.regionId}|${c.provinceId}`).join(',');
     expect(after).toEqual(before);
   });
 
-  it('forest invariant: intra-group road edges are acyclic and connect each group', async () => {
-    const w = await build();
+  it('forest invariant: intra-group road edges are acyclic and connect each group', () => {
     const comp = landComponents(w);
     const towns = townIndex(w, comp);
 
@@ -112,12 +124,11 @@ describe('computeRoutes — roads', () => {
     }
   });
 
-  it('gates arterial roads to top settlement tiers: no village/hamlet cell is a road endpoint', async () => {
-    const w = await build();
+  it('gates arterial roads to top settlement tiers: no village/hamlet cell is an arterial road endpoint', () => {
     const byCell = settlementByCell(w);
     let checked = 0;
     for (const r of (w.routes ?? [])) {
-      if (r.kind !== 'road') continue;
+      if (r.kind !== 'road' || r.class !== 'arterial') continue;
       for (const cellId of [r.fromCellId, r.toCellId]) {
         const s = byCell.get(cellId);
         expect(s, `road endpoint ${cellId} should be a settlement`).toBeDefined();
@@ -128,11 +139,45 @@ describe('computeRoutes — roads', () => {
     expect(checked).toBeGreaterThan(0);
   });
 
-  it('every emitted route has class === "arterial" (no local feeders yet)', async () => {
-    const w = await build();
+  it('every emitted route has a valid class field', () => {
     let checked = 0;
     for (const r of (w.routes ?? [])) {
-      expect(r.class).toEqual('arterial');
+      expect(['arterial', 'local']).toContain(r.class);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it('every MST/trunk/sea route is tagged class "arterial"', () => {
+    let checked = 0;
+    const byCell = settlementByCell(w);
+    for (const r of (w.routes ?? [])) {
+      if (r.kind === 'searoute') { expect(r.class).toEqual('arterial'); checked++; continue; }
+      // Roads with a top-tier settlement at BOTH ends are arterial (MST/trunk);
+      // roads with a village/hamlet at either end are local feeders.
+      const from = byCell.get(r.fromCellId), to = byCell.get(r.toCellId);
+      if (from && to && ARTERIAL_TIERS.has(from.tier) && ARTERIAL_TIERS.has(to.tier)) {
+        expect(r.class).toEqual('arterial');
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it('produces capped local feeder roads from villages/hamlets to their nearest hub', () => {
+    const byCell = settlementByCell(w);
+    const locals = (w.routes ?? []).filter(r => r.class === 'local');
+    expect(locals.length).toBeGreaterThan(0);
+    let checked = 0;
+    for (const r of locals) {
+      expect(r.kind).toEqual('road');
+      const from = byCell.get(r.fromCellId);
+      const to = byCell.get(r.toCellId);
+      expect(from, `local route "from" ${r.fromCellId} should be a settlement`).toBeDefined();
+      expect(to, `local route "to" ${r.toCellId} should be a settlement`).toBeDefined();
+      expect(ARTERIAL_TIERS.has(from!.tier), `local route "from" ${r.fromCellId} should be village/hamlet`).toBe(false);
+      expect(ARTERIAL_TIERS.has(to!.tier), `local route "to" ${r.toCellId} should be a hub tier`).toBe(true);
+      expect(from!.factionId).toEqual(to!.factionId);
       checked++;
     }
     expect(checked).toBeGreaterThan(0);

@@ -7,6 +7,7 @@ const MAX_SEA_EXPANSIONS = 40000;
 const PORT_TOP_FRACTION = 0.4;     // "major" ports = top 40% by population
 const SEA_NEIGHBORS = 3;           // each major port links to nearest ~3 ports
 const SEA_STEP = 1;                // uniform water step cost
+const LOCAL_MAX_EXPANSIONS = 400;  // deliberately tight A* cap for feeder roads
 
 // Only these tiers get arterial (MST/trunk/sea) treatment — gating out
 // village/hamlet keeps the all-pairs MST from blowing up on dense settlement
@@ -120,6 +121,26 @@ export function computeRoutes(world: WorldData, params: WorldParams): RouteData[
       if (path && path.length >= 2) {
         routes.push({ path: path.map(id => cells[id].center), cellIds: [...path], kind: 'road', class: 'arterial', fromCellId: A.cellId, toCellId: B.cellId });
       }
+    }
+  }
+
+  // Local feeder roads: each village/hamlet gets a capped A* to its nearest
+  // same-faction, same-land-component hub (capital/city/town). A feeder that
+  // can't reach a hub within LOCAL_MAX_EXPANSIONS is dropped silently — that
+  // is the intended cost/coverage tradeoff, not an error.
+  const hubs = (world.civData?.settlements ?? []).filter(s => ARTERIAL_TIERS.has(s.tier));
+  const feeders = (world.civData?.settlements ?? []).filter(s => !ARTERIAL_TIERS.has(s.tier));
+  for (const f of feeders) {
+    if (comp[f.cellId] < 0) continue;
+    const hub = hubs
+      .filter(h => h.factionId === f.factionId && comp[h.cellId] === comp[f.cellId])
+      .sort((a, b) =>
+        angle(cells[f.cellId].center, cells[a.cellId].center) - angle(cells[f.cellId].center, cells[b.cellId].center) ||
+        a.cellId - b.cellId)[0];
+    if (!hub) continue;
+    const path = aStar(cells, f.cellId, hub.cellId, landStep, landHeuristic(cells, hub.cellId, stepsPerRadian), LOCAL_MAX_EXPANSIONS);
+    if (path && path.length >= 2) {
+      routes.push({ path: path.map(id => cells[id].center), cellIds: [...path], kind: 'road', class: 'local', fromCellId: f.cellId, toCellId: hub.cellId });
     }
   }
 
