@@ -1,5 +1,5 @@
 import * as d3 from 'd3';
-import { WorldData, ViewMode, Point } from '../types';
+import { WorldData, ViewMode, Point, SettlementTier } from '../types';
 import { buildFactionColorMap, buildCultureColorMap, buildReligionColorMap, getCellColor } from './colors';
 import { seasonalTemperatureDelta } from './seasons';
 import { toLonLat, Point3 } from './geo';
@@ -366,7 +366,7 @@ const buildCellFeatures = (world: WorldData): GeoJsonFeatureOut<PolygonGeometry>
   // Geometry is already geodesic lon/lat; this makes the vertical genuine too,
   // so QGIS/Blender open the file in consistent units.
   const { seaLevel, maxElevationM } = world.params;
-  const settlementTiers = new Map<number, string>();
+  const settlementTiers = new Map<number, SettlementTier>();
   (world.civData?.settlements ?? []).forEach(s => settlementTiers.set(s.cellId, s.tier));
 
   world.cells.forEach((cell, i) => {

@@ -124,6 +124,28 @@ describe('exportGeoJSON', () => {
     expect(withFaction.properties.factionName.length).toBeGreaterThan(0);
   });
 
+  it('tags every settlement cell with its tier, matching civData.settlements', () => {
+    // `isTown` is true for EVERY settlement now, hamlets included, so the tier
+    // is what actually separates a city from a hamlet in the exported GeoJSON.
+    const parsed = JSON.parse(exportGeoJSON(world));
+    const tierByCell = new Map(world.civData!.settlements.map(s => [s.cellId, s.tier]));
+    expect(tierByCell.size).toBeGreaterThan(0);
+
+    let checked = 0;
+    for (const f of parsed.features as { geometry: { type: string }; properties: Record<string, unknown> }[]) {
+      if (f.geometry.type !== 'Polygon') continue;
+      const id = f.properties.id as number;
+      const expected = tierByCell.get(id);
+      if (expected === undefined) {
+        expect(f.properties.settlementTier).toBeUndefined();
+        continue;
+      }
+      expect(f.properties.settlementTier).toBe(expected);
+      checked++;
+    }
+    expect(checked).toBe(tierByCell.size);
+  });
+
   it('does not include a top-level crs member (RFC 7946-clean)', () => {
     const parsed = JSON.parse(exportGeoJSON(world));
     expect(parsed.crs).toBeUndefined();
