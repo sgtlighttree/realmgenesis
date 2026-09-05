@@ -1,5 +1,6 @@
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
+import { configDefaults } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
@@ -24,6 +25,13 @@ export default defineConfig(({ mode }) => {
         }
       },
       test: {
+        // Agent worktrees under .claude/ are full checkouts of this repo, so
+        // every `vitest run tests/foo.test.ts` glob ALSO matched
+        // .claude/worktrees/*/tests/foo.test.ts — running each file once per
+        // stale worktree (measured: 4 copies = 5x the world generations) against
+        // OLD source. Vitest's default exclude covers node_modules/dist but not
+        // this, and the duplicates only show up as an inflated test count.
+        exclude: [...configDefaults.exclude, '**/.claude/**'],
         // V3 terrain generation is ~9s per world on this machine and slower on
         // CI runners; several suites generate multiple worlds per test. The
         // default 5s per-test timeout is far too tight now that V3 is the live
