@@ -566,8 +566,18 @@ const LOD_MID_GEO_KINDS = new Set(['sea', 'range', 'desert', 'forest']);
 // curved one.
 function passesGlobeLod(label: MapLabel, camDist: number): boolean {
   if (label.kind === 'faction') return false;
+  // Settlement tiers, coarsest-visible first. The village/hamlet cutoffs are
+  // deliberately the SAME constants CityMarkers uses for its 3D markers
+  // (VILLAGE_MARKER_MAX_DIST / HAMLET_MARKER_MAX_DIST in WorldViewer.tsx) so a
+  // settlement's dot and its name appear at the same zoom instead of the name
+  // floating over nothing. Without these cases the three tiers added in Task 5
+  // fell through to `return true`, i.e. the DENSEST tiers got the LEAST
+  // culling — hundreds of hamlet names drawn at full zoom-out.
+  if (label.kind === 'hamlet') return camDist <= 1.15;
+  if (label.kind === 'village') return camDist <= 1.4;
   if (label.kind === 'town') return camDist <= 2;
   if (label.kind === 'province') return camDist <= 3;
+  if (label.kind === 'city') return camDist <= 3;
   if (label.kind === 'capital') return camDist <= 4;
   if (LOD_SMALL_GEO_KINDS.has(label.kind)) return camDist <= 2.5;
   if (LOD_MID_GEO_KINDS.has(label.kind)) return camDist <= 3.5;

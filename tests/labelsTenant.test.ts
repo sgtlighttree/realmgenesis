@@ -100,6 +100,59 @@ describe('labels overlay tenant', () => {
     expect(texts).toEqual(['Capital']);
   });
 
+  // Settlement-tier globe LOD. Task 5 added the city/village/hamlet LabelKinds
+  // but passesGlobeLod had no case for them, so they fell through to `return
+  // true` — the densest tiers got the LEAST culling. These pin the ordering.
+  describe('settlement-tier globe LOD', () => {
+    // DEFAULT_LABEL_VISIBILITY has towns/villages/hamlets OFF, so every tier
+    // must be forced on or the visibility gate, not the LOD, decides the result.
+    const ALL_TIERS_VISIBLE = {
+      ...DEFAULT_LABEL_VISIBILITY,
+      capitals: true, cities: true, towns: true, villages: true, hamlets: true,
+    };
+    // The fake projector maps (x,y,z) -> (x*100, y*100), so z is ignored:
+    // positions must differ in x/y or the greedy declutter, not the LOD,
+    // decides which survives.
+    const tierAnchors = (): LabelAnchor[] => [
+      anchor(0.3, { name: 'Cap', kind: 'capital', priority: 1, position: { x: 1, y: 0, z: 0 } }),
+      anchor(0.3, { name: 'City', kind: 'city', priority: 2, position: { x: 0, y: 1, z: 0 } }),
+      anchor(0.3, { name: 'Town', kind: 'town', priority: 3, position: { x: -1, y: 0, z: 0 } }),
+      anchor(0.3, { name: 'Vil', kind: 'village', priority: 4, position: { x: 0, y: -1, z: 0 } }),
+      anchor(0.3, { name: 'Ham', kind: 'hamlet', priority: 5, position: { x: 0.7, y: 0.7, z: 0 } }),
+    ];
+    const drawnAt = (camDist: number): string[] => {
+      const ctx = makeFakeCtx();
+      const p = makeProjector();
+      drawLabelsTenant(ctx, tierAnchors(), p.project, false, camDist, ALL_TIERS_VISIBLE);
+      return ctx.ops.filter((o) => o.op === 'fillText').map((o) => o.text as string);
+    };
+
+    it('drops each tier as the camera pulls back, smallest first', () => {
+      // Fully zoomed in: every tier survives (proves the assertions below are
+      // culling, not a projector/visibility artefact).
+      expect(drawnAt(1.0).sort()).toEqual(['Cap', 'City', 'Ham', 'Town', 'Vil']);
+      expect(drawnAt(1.3)).not.toContain('Ham');
+      expect(drawnAt(1.3)).toContain('Vil');
+      expect(drawnAt(1.5)).not.toContain('Vil');
+      expect(drawnAt(1.5)).toContain('Town');
+      expect(drawnAt(2.5)).not.toContain('Town');
+      expect(drawnAt(2.5)).toContain('City');
+      expect(drawnAt(3.5)).toEqual(['Cap']);
+    });
+
+    it('never culls a denser tier later than a sparser one', () => {
+      const cutoff = (name: string): number => {
+        let last = 0;
+        for (let d = 1.0; d <= 4.5; d += 0.05) if (drawnAt(d).includes(name)) last = d;
+        return last;
+      };
+      expect(cutoff('Ham')).toBeLessThanOrEqual(cutoff('Vil'));
+      expect(cutoff('Vil')).toBeLessThanOrEqual(cutoff('Town'));
+      expect(cutoff('Town')).toBeLessThanOrEqual(cutoff('City'));
+      expect(cutoff('City')).toBeLessThanOrEqual(cutoff('Cap'));
+    });
+  });
+
   it('never emits a faction label — faction names stay 3D (plan §1 scope guard)', () => {
     const anchors = [
       anchor(0.5, { name: 'Empire of Test', kind: 'faction', priority: 0, position: { x: 1, y: 0, z: 0 } }),
