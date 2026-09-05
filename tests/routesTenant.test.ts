@@ -14,6 +14,7 @@ function ringRoute(world: WorldData, ids: number[], kind: RouteData['kind']): Ro
     path: ids.map((i) => world.cells[i].center),
     cellIds: [...ids],
     kind,
+    class: 'arterial',
     fromCellId: ids[0],
     toCellId: ids[ids.length - 1],
   };

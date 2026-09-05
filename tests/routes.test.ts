@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { generateWorld } from '../utils/worldGen';
-import { computeRoutes } from '../utils/routes';
+import { computeRoutes, ARTERIAL_TIERS } from '../utils/routes';
 import { isWaterCell } from '../utils/pathfinding';
 import { makeParams } from './helpers';
-import type { WorldData } from '../types';
+import type { Settlement, WorldData } from '../types';
 
 // Routes are computed lazily in the app (App.tsx), not by generateWorld, so
 // tests compute them explicitly here — exactly what the lazy effect does.
@@ -34,16 +34,22 @@ function landComponents(world: WorldData): number[] {
   return comp;
 }
 
-// cellId -> { factionId, group key } for every town.
+// cellId -> { factionId, group key } for every arterial-tier settlement
+// (capital|city|town) — mirrors computeRoutes' gatherTowns() gating, since
+// arterial MST/trunk edges only ever join that subset.
 function townIndex(world: WorldData, comp: number[]) {
   const map = new Map<number, { factionId: number; group: string }>();
-  (world.civData?.factions ?? []).forEach((f, fi) => {
-    for (const prov of f.provinces) {
-      for (const t of prov.towns) {
-        map.set(t.cellId, { factionId: fi, group: `${fi}:${comp[t.cellId]}` });
-      }
-    }
+  (world.civData?.settlements ?? []).forEach(s => {
+    if (!ARTERIAL_TIERS.has(s.tier)) return;
+    map.set(s.cellId, { factionId: s.factionId, group: `${s.factionId}:${comp[s.cellId]}` });
   });
+  return map;
+}
+
+// cellId -> Settlement, for tier lookups in the arterial-gating tests.
+function settlementByCell(world: WorldData): Map<number, Settlement> {
+  const map = new Map<number, Settlement>();
+  (world.civData?.settlements ?? []).forEach(s => map.set(s.cellId, s));
   return map;
 }
 
@@ -104,6 +110,32 @@ describe('computeRoutes — roads', () => {
       if (size < 2) continue;
       expect(intraEdges.get(group) ?? 0, `group ${group} (size ${size}) should be a spanning tree`).toEqual(size - 1);
     }
+  });
+
+  it('gates arterial roads to top settlement tiers: no village/hamlet cell is a road endpoint', async () => {
+    const w = await build();
+    const byCell = settlementByCell(w);
+    let checked = 0;
+    for (const r of (w.routes ?? [])) {
+      if (r.kind !== 'road') continue;
+      for (const cellId of [r.fromCellId, r.toCellId]) {
+        const s = byCell.get(cellId);
+        expect(s, `road endpoint ${cellId} should be a settlement`).toBeDefined();
+        expect(ARTERIAL_TIERS.has(s!.tier), `road endpoint ${cellId} has tier ${s!.tier}`).toBe(true);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it('every emitted route has class === "arterial" (no local feeders yet)', async () => {
+    const w = await build();
+    let checked = 0;
+    for (const r of (w.routes ?? [])) {
+      expect(r.class).toEqual('arterial');
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(0);
   });
 });
 

@@ -305,6 +305,7 @@ export interface RouteData {
   // search. Never serialized (routes regenerate deterministically).
   cellIds: number[];
   kind: 'road' | 'searoute';
+  class: 'arterial' | 'local';
   fromCellId: number;
   toCellId: number;
 }
