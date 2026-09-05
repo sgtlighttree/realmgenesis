@@ -4,6 +4,7 @@ import { DEFAULT_LABEL_THEME, LabelTheme } from './mapStyle/labelTheme';
 
 export type LabelKind =
   | 'faction' | 'capital' | 'town' | 'province'
+  | 'city' | 'village' | 'hamlet'
   | 'range' | 'desert' | 'forest' | 'sea' | 'ocean' | 'island' | 'lake'
   | 'marker';
 
@@ -42,6 +43,9 @@ export const LABEL_CONFIG: Record<LabelKind, LabelStyleConfig> = {
   capital: { fontWeight: 700, baseFontSize: 11, alpha: 0.95, uppercase: false, visibilityKey: 'capitals', face: 'display' },
   province: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'provinces', face: 'display' },
   town: { fontWeight: 400, baseFontSize: 9, alpha: 0.75, uppercase: false, visibilityKey: 'towns', face: 'display' },
+  city: { fontWeight: 600, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'cities', face: 'display' },
+  village: { fontWeight: 400, baseFontSize: 8, alpha: 0.7, uppercase: false, visibilityKey: 'villages', face: 'display' },
+  hamlet: { fontWeight: 400, baseFontSize: 7, alpha: 0.65, uppercase: false, visibilityKey: 'hamlets', face: 'display' },
   // Geographic features (B3) — one shared visibility toggle. Water kinds italic.
   ocean: { fontWeight: 400, baseFontSize: 13, alpha: 0.9, uppercase: false, visibilityKey: 'geography', italic: true, face: 'geo', water: true },
   sea: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography', italic: true, face: 'geo', water: true },
@@ -55,11 +59,14 @@ export const LABEL_CONFIG: Record<LabelKind, LabelStyleConfig> = {
   marker: { fontWeight: 600, baseFontSize: 10, alpha: 0.95, uppercase: false, visibilityKey: 'markers', face: 'display' },
 };
 
-const ZOOM_THRESHOLDS: Record<LabelKind, number> = {
+export const ZOOM_THRESHOLDS: Record<LabelKind, number> = {
   faction: 0,
   capital: 0.7,
   province: 1.2,
   town: 2.0,
+  city: 0.9,
+  village: 2.6,
+  hamlet: 3.2,
   // Oceans always; mid-scale geography from ~1.0; small features only when zoomed in.
   ocean: 0,
   sea: 1.0,
@@ -229,10 +236,10 @@ export const collectLabels = (world: WorldData): MapLabel[] => {
         if (!cell) continue;
         const [nx, ny, nz] = normalizeVec([cell.center.x, cell.center.y, cell.center.z]);
         labels.push({
-          kind: town.isCapital ? 'capital' : 'town',
+          kind: town.tier === 'capital' ? 'capital' : town.tier, // tiers share kind names
           name: town.name,
           position: { x: nx, y: ny, z: nz },
-          priority: town.isCapital ? 1 : 3,
+          priority: town.tier === 'capital' ? 1 : town.tier === 'city' ? 2 : town.tier === 'town' ? 3 : town.tier === 'village' ? 4 : 5,
           factionId: faction.id,
         });
       }

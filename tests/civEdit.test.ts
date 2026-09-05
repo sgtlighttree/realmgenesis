@@ -92,14 +92,38 @@ describe('civEdit', () => {
         }
       });
 
-      // src's capital is demoted (both the cell flag and the TownData copy
+      // src's capital is demoted (both the cell flag and the Settlement copy
       // that now lives inside dst's provinces); dst's capital is untouched.
       expect(world.cells[srcCapitalId].isCapital).toBe(false);
       const demotedTown = mergedDst.provinces.flatMap(p => p.towns).find(t => t.cellId === srcCapitalId);
       expect(demotedTown?.isCapital).toBe(false);
+      expect(demotedTown?.tier).toBe('city');
 
       expect(mergedDst.capitalId).toBe(dstCapitalId);
       expect(world.cells[dstCapitalId].isCapital).toBe(true);
+    }, 30000);
+
+    it('remaps every formerly-src settlement to dst\'s factionId', async () => {
+      const world = await generateWorld(civParams());
+      const factions = world.civData!.factions;
+      const sortedByProvinceCount = [...factions].sort((a, b) => b.provinces.length - a.provinces.length);
+      const dst = sortedByProvinceCount[0];
+      const src = sortedByProvinceCount.find(f => f.id !== dst.id && f.provinces.length >= 1)!;
+      expect(src, 'expected a second faction to merge away').toBeDefined();
+
+      const srcSettlementCount = world.civData!.settlements.filter(s => s.factionId === src.id).length;
+      expect(srcSettlementCount).toBeGreaterThan(0);
+
+      expect(mergeFactions(world, src.id, dst.id)).toBe(true);
+
+      let checked = 0;
+      world.civData!.settlements
+        .filter(s => world.cells[s.cellId].regionId === dst.id)
+        .forEach(s => {
+          expect(s.factionId).toBe(dst.id);
+          checked++;
+        });
+      expect(checked).toBeGreaterThan(0);
     }, 30000);
 
     it('no-ops when src and dst are the same id', async () => {
@@ -218,6 +242,24 @@ describe('civEdit', () => {
       expect(world.cells[oldCapitalId].isCapital).toBe(false);
       const oldTown = faction.provinces.flatMap(p => p.towns).find(t => t.cellId === oldCapitalId);
       expect(oldTown?.isCapital).toBe(false);
+      expect(oldTown?.tier).toBe('city');
+      expect(targetTown.tier).toBe('capital');
+    }, 30000);
+
+    it('leaves exactly one capital-tier settlement in the faction after relocating', async () => {
+      const world = await generateWorld(civParams());
+      const faction = world.civData!.factions.find(f => f.provinces.length >= 2)!;
+      expect(faction, 'expected a faction with a non-capital town to relocate to').toBeDefined();
+
+      const targetTown = faction.provinces.find(p => p.id !== 0)!.towns[0];
+      expect(relocateCapital(world, faction.id, targetTown.cellId)).toBe(true);
+
+      let checked = 0;
+      const caps = world.civData!.settlements.filter(s => s.factionId === faction.id && s.tier === 'capital');
+      caps.forEach(() => { checked++; });
+      expect(checked).toBeGreaterThan(0);
+      expect(caps).toHaveLength(1);
+      expect(caps[0].cellId).toBe(targetTown.cellId);
     }, 30000);
 
     it('rejects a target that is not a town of that faction', async () => {

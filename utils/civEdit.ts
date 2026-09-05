@@ -43,12 +43,17 @@ export function mergeFactions(world: WorldData, srcId: number, dstId: number): b
     }
   });
 
-  // isCapital is a dual flag (Cell + TownData) — demote src's capital on
+  world.civData.settlements.forEach(s => { if (s.factionId === srcId) s.factionId = dstId; });
+
+  // isCapital is a dual flag (Cell + Settlement) — demote src's capital on
   // both. dst's capital is untouched.
   const srcCapitalTown = dst.provinces
     .flatMap(p => p.towns)
     .find(t => t.cellId === src.capitalId);
-  if (srcCapitalTown) srcCapitalTown.isCapital = false;
+  if (srcCapitalTown) {
+    srcCapitalTown.isCapital = false;
+    if (srcCapitalTown.tier === 'capital') srcCapitalTown.tier = 'city';
+  }
   if (world.cells[src.capitalId]) world.cells[src.capitalId].isCapital = false;
 
   dst.totalPopulation += src.totalPopulation;
@@ -99,10 +104,14 @@ export function relocateCapital(world: WorldData, factionId: number, townCellId:
   if (!newCapitalTown) return false;
 
   const oldCapitalTown = allTowns.find(t => t.cellId === faction.capitalId);
-  if (oldCapitalTown) oldCapitalTown.isCapital = false;
+  if (oldCapitalTown) {
+    oldCapitalTown.isCapital = false;
+    if (oldCapitalTown.tier === 'capital') oldCapitalTown.tier = 'city';
+  }
   if (world.cells[faction.capitalId]) world.cells[faction.capitalId].isCapital = false;
 
   newCapitalTown.isCapital = true;
+  newCapitalTown.tier = 'capital';
   if (world.cells[townCellId]) world.cells[townCellId].isCapital = true;
   faction.capitalId = townCellId;
   return true;

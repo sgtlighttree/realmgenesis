@@ -157,13 +157,6 @@ export interface WorldParams {
   loreLevel: 1 | 2 | 3;
 }
 
-export interface TownData {
-    name: string;
-    cellId: number;
-    population: number;
-    isCapital: boolean;
-}
-
 export interface ProvinceData {
     id: number; // local id
     name: string;
@@ -362,6 +355,9 @@ export interface LabelVisibility {
   borders: boolean;
   geography: boolean; // single toggle for all auto-detected geographic labels (B3)
   markers: boolean; // user-placed POI labels/pins (C4)
+  cities: boolean;
+  villages: boolean;
+  hamlets: boolean;
 }
 
 export const DEFAULT_LABEL_VISIBILITY: LabelVisibility = {
@@ -372,4 +368,7 @@ export const DEFAULT_LABEL_VISIBILITY: LabelVisibility = {
   borders: true,
   geography: true,
   markers: true,
+  cities: true,
+  villages: false,
+  hamlets: false,
 };

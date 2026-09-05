@@ -1,5 +1,5 @@
 import { geoVoronoi } from 'd3-geo-voronoi';
-import { Cell, LakeData, Point, WorldData, WorldParams, BiomeType, FactionData, CultureData, ReligionData, Settlement } from '../types';
+import { Cell, LakeData, Point, WorldData, WorldParams, BiomeType, FactionData, CultureData, ReligionData, Settlement, SettlementTier } from '../types';
 import { RNG, SimplexNoise } from './rng';
 import { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS, FOLK_COLORS } from './palette';
 import { createNameGenerator, NameGenerator, NameStyle, NAME_STYLES } from './namegen';
@@ -1063,7 +1063,12 @@ export function recalculateReligions(world: WorldData, params: WorldParams, onLo
     // Count derives from numCultures rather than a new param, per design.
     const organizedCount = Math.max(1, Math.floor((params.numCultures || 4) / 2));
 
-    const townCells = world.cells.filter(c => c.isTown);
+    const eligibleTiers = new Set<SettlementTier>(['capital', 'city', 'town']);
+    const townCells = (world.civData?.settlements ?? [])
+        .filter(s => eligibleTiers.has(s.tier))
+        .map(s => world.cells[s.cellId])
+        .filter((c): c is Cell => !!c)
+        .sort((a, b) => a.id - b.id);
     let organizedReligions: ReligionData[] = [];
     let holyCityIds: number[] = [];
 
