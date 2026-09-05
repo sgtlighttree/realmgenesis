@@ -103,8 +103,11 @@ export const OVERLAY_KEYS: [keyof LabelVisibility, string][] = [
   ['borders', 'Faction Borders'],
   ['factions', 'Faction Names'],
   ['capitals', 'Capital Names'],
+  ['cities', 'City Names'],
   ['provinces', 'Province Names'],
   ['towns', 'Town Names'],
+  ['villages', 'Village Names'],
+  ['hamlets', 'Hamlet Names'],
   ['geography', 'Geographic Names'],
   ['markers', 'Markers'],
 ];

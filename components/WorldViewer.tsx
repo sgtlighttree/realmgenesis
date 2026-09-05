@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useEffect, useLayoutEffect, useState, useCallba
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Stars, Line } from '@react-three/drei';
 import * as THREE from 'three';
-import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, MarkerData } from '../types';
+import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, MarkerData, SettlementTier } from '../types';
 import { getCellColor } from '../utils/colors';
 import { getMapStyle, MapStyleId } from '../utils/mapStyle';
 import { bakeStyleTexture, buildGlobeDirs } from '../utils/mapStyle/bakeTexture';
@@ -77,20 +77,39 @@ const CaptureFrame: React.FC<{
 // Plate widening used to close the seams between cells of differing height.
 // 1 = untouched (seams visible, the pre-existing look).
 
+// Camera-distance cutoffs (camDist = camera.position.length(), globe radius ~1)
+// below which village/hamlet markers become visible. Mirrors the passesGlobeLod
+// idiom in overlays/tenants.ts (town label cutoff is camDist <= 2) but gates
+// tighter since these are dense, small-radius tiers meant only for close zoom.
+const VILLAGE_MARKER_MAX_DIST = 1.4;
+const HAMLET_MARKER_MAX_DIST = 1.15;
+
+const TIER_GEOMETRY: Record<SettlementTier, { radius: number; height: number; segments: number; color: string }> = {
+    capital: { radius: 0.008, height: 0.08, segments: 6, color: '#ef4444' },
+    city: { radius: 0.0065, height: 0.06, segments: 6, color: '#fb923c' },
+    town: { radius: 0.005, height: 0.04, segments: 5, color: '#ffffff' },
+    village: { radius: 0.004, height: 0.025, segments: 4, color: '#cbd5e1' },
+    hamlet: { radius: 0.003, height: 0.018, segments: 4, color: '#94a3b8' },
+};
+
 const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode; smoothGlobe?: boolean }> = ({ world, viewMode, smoothGlobe = false }) => {
-    const capitalsRef = useRef<THREE.InstancedMesh>(null);
-    const townsRef = useRef<THREE.InstancedMesh>(null);
+    const capitalRef = useRef<THREE.InstancedMesh>(null);
+    const cityRef = useRef<THREE.InstancedMesh>(null);
+    const townRef = useRef<THREE.InstancedMesh>(null);
+    const villageRef = useRef<THREE.InstancedMesh>(null);
+    const hamletRef = useRef<THREE.InstancedMesh>(null);
     const dummy = useMemo(() => new THREE.Object3D(), []);
 
-    const { capitals, towns } = useMemo(() => {
-        const c: Cell[] = [];
-        const t: Cell[] = [];
-        world.cells.forEach(cell => {
-            if (cell.isCapital) c.push(cell);
-            else if (cell.isTown) t.push(cell);
+    const byTier = useMemo(() => {
+        const g: Record<SettlementTier, Cell[]> = { capital: [], city: [], town: [], village: [], hamlet: [] };
+        (world.civData?.settlements ?? []).forEach(s => {
+            const c = world.cells[s.cellId];
+            if (c) g[s.tier].push(c);
         });
-        return { capitals: c, towns: t };
+        return g;
     }, [world]);
+
+    const isPolitical = viewMode === 'political';
 
     useEffect(() => {
         const yAxis = new THREE.Vector3(0, 1, 0);
@@ -110,22 +129,53 @@ const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode; smoothGlobe?
             });
             mesh.instanceMatrix.needsUpdate = true;
         };
-        if (capitalsRef.current) updateMesh(capitalsRef.current, capitals, 0.08);
-        if (townsRef.current) updateMesh(townsRef.current, towns, 0.04);
-    }, [world, capitals, towns, dummy, smoothGlobe]);
+        if (capitalRef.current) updateMesh(capitalRef.current, byTier.capital, TIER_GEOMETRY.capital.height);
+        if (cityRef.current) updateMesh(cityRef.current, byTier.city, TIER_GEOMETRY.city.height);
+        if (townRef.current) updateMesh(townRef.current, byTier.town, TIER_GEOMETRY.town.height);
+        if (villageRef.current) updateMesh(villageRef.current, byTier.village, TIER_GEOMETRY.village.height);
+        if (hamletRef.current) updateMesh(hamletRef.current, byTier.hamlet, TIER_GEOMETRY.hamlet.height);
+    }, [world, byTier, dummy, smoothGlobe]);
+
+    // Village/hamlet visibility also needs a camera-distance LOD (see cutoffs
+    // above) on top of the political-mode gate, so it's re-checked every frame
+    // rather than via the JSX `visible` prop. Allocation-free: only numeric
+    // reads/compares, no object creation, per this file's useFrame convention.
+    useFrame(({ camera }) => {
+        const camDist = camera.position.length();
+        if (villageRef.current) villageRef.current.visible = isPolitical && camDist <= VILLAGE_MARKER_MAX_DIST;
+        if (hamletRef.current) hamletRef.current.visible = isPolitical && camDist <= HAMLET_MARKER_MAX_DIST;
+    });
 
     return (
         <>
-            {capitals.length > 0 && (
-                <InstancedMesh ref={capitalsRef} args={[undefined, undefined, capitals.length]} visible={true}>
-                    <CylinderGeometry args={[0.008, 0.008, 0.08, 6]} />
-                    <MeshBasicMaterial color="#ef4444" toneMapped={false} />
+            {byTier.capital.length > 0 && (
+                <InstancedMesh ref={capitalRef} args={[undefined, undefined, byTier.capital.length]} visible={true}>
+                    <CylinderGeometry args={[TIER_GEOMETRY.capital.radius, TIER_GEOMETRY.capital.radius, TIER_GEOMETRY.capital.height, TIER_GEOMETRY.capital.segments]} />
+                    <MeshBasicMaterial color={TIER_GEOMETRY.capital.color} toneMapped={false} />
                 </InstancedMesh>
             )}
-            {towns.length > 0 && (
-                <InstancedMesh ref={townsRef} args={[undefined, undefined, towns.length]} visible={viewMode === 'political'}>
-                    <CylinderGeometry args={[0.005, 0.005, 0.04, 5]} />
-                    <MeshBasicMaterial color="#ffffff" toneMapped={false} />
+            {byTier.city.length > 0 && (
+                <InstancedMesh ref={cityRef} args={[undefined, undefined, byTier.city.length]} visible={true}>
+                    <CylinderGeometry args={[TIER_GEOMETRY.city.radius, TIER_GEOMETRY.city.radius, TIER_GEOMETRY.city.height, TIER_GEOMETRY.city.segments]} />
+                    <MeshBasicMaterial color={TIER_GEOMETRY.city.color} toneMapped={false} />
+                </InstancedMesh>
+            )}
+            {byTier.town.length > 0 && (
+                <InstancedMesh ref={townRef} args={[undefined, undefined, byTier.town.length]} visible={isPolitical}>
+                    <CylinderGeometry args={[TIER_GEOMETRY.town.radius, TIER_GEOMETRY.town.radius, TIER_GEOMETRY.town.height, TIER_GEOMETRY.town.segments]} />
+                    <MeshBasicMaterial color={TIER_GEOMETRY.town.color} toneMapped={false} />
+                </InstancedMesh>
+            )}
+            {byTier.village.length > 0 && (
+                <InstancedMesh ref={villageRef} args={[undefined, undefined, byTier.village.length]} visible={false}>
+                    <CylinderGeometry args={[TIER_GEOMETRY.village.radius, TIER_GEOMETRY.village.radius, TIER_GEOMETRY.village.height, TIER_GEOMETRY.village.segments]} />
+                    <MeshBasicMaterial color={TIER_GEOMETRY.village.color} toneMapped={false} />
+                </InstancedMesh>
+            )}
+            {byTier.hamlet.length > 0 && (
+                <InstancedMesh ref={hamletRef} args={[undefined, undefined, byTier.hamlet.length]} visible={false}>
+                    <CylinderGeometry args={[TIER_GEOMETRY.hamlet.radius, TIER_GEOMETRY.hamlet.radius, TIER_GEOMETRY.hamlet.height, TIER_GEOMETRY.hamlet.segments]} />
+                    <MeshBasicMaterial color={TIER_GEOMETRY.hamlet.color} toneMapped={false} />
                 </InstancedMesh>
             )}
         </>

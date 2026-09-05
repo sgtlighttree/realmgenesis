@@ -1254,6 +1254,18 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                   className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
+              <div className="space-y-1" title="How many settlements each realm plants. Higher = a denser, more populated-looking map.">
+                <div className="flex justify-between text-xs text-ink-muted">
+                  <label>Settlement Density</label>
+                  <span>{(params.settlementDensity ?? 1.0).toFixed(1)}</span>
+                </div>
+                <input
+                  type="range" min="0" max="2" step="0.1"
+                  value={params.settlementDensity ?? 1.0}
+                  onChange={(e) => { handleChange('settlementDensity', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
+                />
+              </div>
               <div className="space-y-1" title="How unequal faction sizes can be. 0 = all factions roughly equal; 1 = some factions much larger than others.">
                 <div className="flex justify-between text-xs text-ink-muted">
                   <label>Country Size Variance</label>
