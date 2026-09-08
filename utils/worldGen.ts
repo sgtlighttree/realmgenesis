@@ -1395,6 +1395,19 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
     // is empty we place it here so seeding never falls back to zero provinces.
     if (world.civData.settlements.length === 0) placeSettlements(world, params);
 
+    // Clear the previous partition before repartitioning. recalculateCivs resets
+    // provinceId as part of its own reset block, but recalculateProvinces can run
+    // standalone (the province-size slider calls it directly via
+    // useWorldEngine.handleUpdateProvinces) and had no reset of its own. The
+    // Dijkstra below refuses to relax into a cell whose provinceId is already set,
+    // so on a second standalone call every land cell was still stamped from the
+    // first — expansion died at the seeds, and each province accumulated only its
+    // own seed cell. Measured at 3k: faction totals collapsed ~87% (6.87M -> 888k
+    // against an unchanged 7.00M sum of cell populations), and cells kept stale
+    // ids pointing at provinces that no longer existed once the count shrank.
+    // Pre-existing on main; surfaced by the S36 review of T4's double-count fix.
+    world.cells.forEach(c => { c.provinceId = undefined; });
+
     // Settlement cells get their base population lifted by the tier multiplier,
     // mirrored onto Settlement.population (identity-shared with province towns).
     const civData = world.civData;

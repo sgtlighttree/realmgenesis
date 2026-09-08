@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { generateWorld, isLakeCell } from '../utils/worldGen';
+import { generateWorld, isLakeCell, recalculateProvinces } from '../utils/worldGen';
 import { settlementScore } from '../utils/settlements';
 import { RNG } from '../utils/rng';
 import { WorldData } from '../types';
@@ -71,4 +71,45 @@ describe('settlement pipeline', () => {
     world.civData!.factions.forEach(f => f.provinces.forEach(p =>
       p.towns.forEach(t => expect(set.has(t)).toBe(true))));
   });
+
+  // S36 regression. recalculateProvinces runs standalone from the province-size
+  // slider (useWorldEngine.handleUpdateProvinces) but had no provinceId reset of
+  // its own — only recalculateCivs did. Its Dijkstra refuses to relax into a cell
+  // whose provinceId is already set, so a second standalone call died at the seeds
+  // and each province accumulated only its own seed cell: measured ~87% collapse
+  // in faction totals (6.87M -> 888k) while Sigma cell.population stayed 7.00M.
+  // Pre-existing on main. Uses a private clone so the shared `world` above is not
+  // repartitioned out from under the other cases.
+  it('repartitions correctly when run standalone and repeatedly', () => {
+    const w = structuredClone(world);
+    const totals = () => w.civData!.factions.map(f => f.totalPopulation);
+    const cellSum = () => w.cells.reduce((s, c) => s + (c.population || 0), 0);
+
+    const baseline = totals();
+    const baseSum = cellSum();
+    expect(baseline.reduce((a, b) => a + b, 0)).toBeGreaterThan(baseSum * 0.5);
+
+    recalculateProvinces(w, w.params);
+    expect(totals()).toEqual(baseline);
+    expect(cellSum()).toEqual(baseSum);
+
+    // Idempotent across repeats, and across a province-count change and back.
+    recalculateProvinces(w, w.params);
+    expect(totals()).toEqual(baseline);
+
+    recalculateProvinces(w, { ...w.params, provinceSize: 0.9 });
+    const wide = totals();
+    expect(wide.reduce((a, b) => a + b, 0)).toBeGreaterThan(baseSum * 0.5);
+
+    // No cell may point at a province its faction no longer has.
+    for (const c of w.cells) {
+      if (c.regionId === undefined || c.provinceId === undefined) continue;
+      const f = w.civData!.factions.find(x => x.id === c.regionId);
+      if (!f) continue;
+      expect(c.provinceId).toBeLessThan(f.provinces.length);
+    }
+
+    recalculateProvinces(w, w.params);
+    expect(totals()).toEqual(baseline);
+  }, 60000);
 });
