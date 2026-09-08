@@ -140,8 +140,11 @@ const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode; smoothGlobe?
                     <MeshBasicMaterial color={TIER_MARKER_STYLE.capital.color} toneMapped={false} />
                 </InstancedMesh>
             )}
+            {/* Only the CAPITAL tier renders outside political view — the
+                pre-settlement convention. City was `visible={true}`, which put
+                orange pins over the terrain, biome and climate views. */}
             {byTier.city.length > 0 && (
-                <InstancedMesh ref={cityRef} args={[undefined, undefined, byTier.city.length]} visible={true}>
+                <InstancedMesh ref={cityRef} args={[undefined, undefined, byTier.city.length]} visible={isPolitical}>
                     <CylinderGeometry args={[TIER_MARKER_STYLE.city.radius, TIER_MARKER_STYLE.city.radius, TIER_MARKER_STYLE.city.height, TIER_MARKER_STYLE.city.segments]} />
                     <MeshBasicMaterial color={TIER_MARKER_STYLE.city.color} toneMapped={false} />
                 </InstancedMesh>
@@ -911,7 +914,7 @@ const WorldMesh: React.FC<{
     // no-ops until the next unrelated redraw (e.g. an orbit move). Folding the
     // flags into the id is the id-based idiom this seam already uses, applied
     // to a many-flags tenant instead of a one-flag tenant.
-    { id: `labels:${[labelVisibility.capitals, labelVisibility.towns, labelVisibility.provinces, labelVisibility.geography, labelVisibility.markers].map(Number).join('')}`,
+    { id: `labels:${[labelVisibility.capitals, labelVisibility.cities, labelVisibility.towns, labelVisibility.villages, labelVisibility.hamlets, labelVisibility.provinces, labelVisibility.geography, labelVisibility.markers].map(Number).join('')}`,
       visible: labelAnchors.length > 0,
       draw: (ctx, _proj, _world, project, smooth) =>
         drawLabelsTenant(ctx, labelAnchors, project, smooth, camera.position.length(), labelVisibility, labelTheme) },

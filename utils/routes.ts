@@ -1,5 +1,5 @@
 import { isWaterCell, landTerrainStepCost, aStar } from './pathfinding';
-import type { Cell, Point, RouteData, SettlementTier, WorldData, WorldParams } from '../types';
+import type { Cell, Point, RouteData, Settlement, SettlementTier, WorldData, WorldParams } from '../types';
 
 const MAX_ROAD_EXPANSIONS = 20000; // per-edge A* cap
 const MAX_ROAD_ANGLE = 1.2;        // skip MST edges longer than this (radians)
@@ -130,13 +130,37 @@ export function computeRoutes(world: WorldData, params: WorldParams): RouteData[
   // is the intended cost/coverage tradeoff, not an error.
   const hubs = (world.civData?.settlements ?? []).filter(s => ARTERIAL_TIERS.has(s.tier));
   const feeders = (world.civData?.settlements ?? []).filter(s => !ARTERIAL_TIERS.has(s.tier));
+  // Hubs are bucketed by (faction, land-component) ONCE. The previous form ran a
+  // `filter` + full `sort` per feeder with `angle()` — a Math.acos — called twice
+  // per comparison: at the documented ~1500 settlements that is ~10^7 acos calls
+  // and ~1000 array allocations, all on the main thread (computeRoutes runs in a
+  // setTimeout, not a worker), and it scales superlinearly with settlementDensity.
+  // The scan below is exactly equivalent: it still compares `angle()` values (not
+  // dot products, which order the same but can tie differently in floating point)
+  // and still breaks ties toward the lower cellId, matching the old
+  // `angleDiff || a.cellId - b.cellId` sort taking [0].
+  const hubsByGroup = new Map<string, Settlement[]>();
+  for (const h of hubs) {
+    if (comp[h.cellId] < 0) continue;
+    const key = `${h.factionId}:${comp[h.cellId]}`;
+    const bucket = hubsByGroup.get(key);
+    if (bucket) bucket.push(h); else hubsByGroup.set(key, [h]);
+  }
+
   for (const f of feeders) {
     if (comp[f.cellId] < 0) continue;
-    const hub = hubs
-      .filter(h => h.factionId === f.factionId && comp[h.cellId] === comp[f.cellId])
-      .sort((a, b) =>
-        angle(cells[f.cellId].center, cells[a.cellId].center) - angle(cells[f.cellId].center, cells[b.cellId].center) ||
-        a.cellId - b.cellId)[0];
+    const candidates = hubsByGroup.get(`${f.factionId}:${comp[f.cellId]}`);
+    if (!candidates) continue;
+    const from = cells[f.cellId].center;
+    let hub: Settlement | undefined;
+    let bestAngle = Infinity;
+    for (const h of candidates) {
+      const d = angle(from, cells[h.cellId].center);
+      if (d < bestAngle || (d === bestAngle && hub !== undefined && h.cellId < hub.cellId)) {
+        bestAngle = d;
+        hub = h;
+      }
+    }
     if (!hub) continue;
     const path = aStar(cells, f.cellId, hub.cellId, landStep, landHeuristic(cells, hub.cellId, stepsPerRadian), LOCAL_MAX_EXPANSIONS);
     if (path && path.length >= 2) {
