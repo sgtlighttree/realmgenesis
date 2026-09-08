@@ -47,6 +47,13 @@ export const withParamDefaults = (params: WorldParams): WorldParams => ({
   // broken, not deliberately absent, so reloading it should give the fixed
   // behaviour.
   volcanism: typeof params.volcanism === 'number' && isFinite(params.volcanism) ? params.volcanism : 1.0,
+  // S35 (C settlement density): pre-settlement saves lack the key. Default 1.0,
+  // the shipped default. NOT optional politeness — `quota` multiplies by it, so
+  // `undefined` makes the quota NaN, `accepted.length >= NaN` never breaks the
+  // loop and `d < NaN` never rejects a candidate, and EVERY ranked land cell
+  // becomes a settlement (~70k on a 200k world). placeSettlements defends at its
+  // own read site too, because the browser-save load path bypasses this function.
+  settlementDensity: typeof params.settlementDensity === 'number' && isFinite(params.settlementDensity) ? params.settlementDensity : 1.0,
 });
 
 // Matches the options offered in the Export tab. 16K+ exceeded browser
@@ -754,7 +761,12 @@ export interface SavedMapEntry {
     name: string;
     date: number; // timestamp
     params: WorldParams;
-    civData?: CivData;
+    // Stripped, not full CivData: `settlements` regenerates from the params and is
+    // never serialized (schema 1.5). Typing this `CivData` needed an `as CivData`
+    // cast at the write site and left every reader believing a required field was
+    // there — mergeFactions does an unguarded `civData.settlements.forEach`, so any
+    // future path installing a stored civData directly would have thrown.
+    civData?: Omit<CivData, 'settlements'>;
     markers?: MarkerData[];
 }
 
@@ -775,7 +787,7 @@ export const saveMapToBrowser = (name: string, params: WorldParams, civData?: Ci
             name,
             date: Date.now(),
             params,
-            civData: civData ? stripSettlements(civData) as CivData : undefined,
+            civData: civData ? stripSettlements(civData) : undefined,
             markers,
         };
         

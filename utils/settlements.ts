@@ -89,18 +89,32 @@ export function placeSettlements(world: WorldData, params: WorldParams): void {
       c.regionId === faction.id && c.height >= params.seaLevel && !isLakeCell(c));
     if (land.length === 0) continue;
 
-    const quota = Math.max(1, Math.round(land.length * params.settlementDensity * K));
+    // `?? 1.0` guards the browser-save load path (Controls.handleLoadBrowser ->
+    // onLoadWorld) which passes stored params straight through without
+    // withParamDefaults. An undefined density makes quota NaN, and NaN defeats
+    // BOTH loop guards below (`>= NaN` and `< NaN` are false), so every ranked
+    // land cell would be accepted as a settlement.
+    const density = params.settlementDensity ?? 1.0;
+    const quota = Math.max(1, Math.round(land.length * density * K));
     // Quota-derived spacing (Azgaar mechanism): disc-pack `quota` points into the
     // faction's area. chord² threshold, tier-scaled per candidate below.
     const factionArea = land.length * avgCellArea;
     const baseSpacingRad = Math.sqrt(factionArea / quota);
     const baseChordSq = (2 * Math.sin(baseSpacingRad / 2)) ** 2;
 
-    // Rank by score; RNG side-stream breaks ties deterministically.
+    // Rank by score; RNG side-stream breaks ties deterministically. Scores are
+    // precomputed rather than called from the comparator — settlementScore
+    // re-walks the cell's neighbour list, and a comparator evaluates it
+    // O(n log n) times instead of O(n). Same values, so the order is identical;
+    // this mirrors the `tiebreak` map immediately above.
     const tiebreak = new Map<number, number>();
-    for (const c of land) tiebreak.set(c.id, rng.next());
+    const score = new Map<number, number>();
+    for (const c of land) {
+      tiebreak.set(c.id, rng.next());
+      score.set(c.id, settlementScore(c, world, params));
+    }
     const ranked = [...land].sort((a, b) =>
-      settlementScore(b, world, params) - settlementScore(a, world, params)
+      score.get(b.id)! - score.get(a.id)!
       || tiebreak.get(a.id)! - tiebreak.get(b.id)!);
 
     // Force the capital in first, then greedily accept with spacing.

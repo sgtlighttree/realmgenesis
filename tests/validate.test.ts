@@ -38,6 +38,28 @@ describe('validateWorldParams', () => {
   });
 });
 
+// S36 review finding 1. A pre-settlement save has no settlementDensity key, and
+// validateWorldParams only bounds keys that are `in p`, so it passes validation
+// with the key absent. placeSettlements then computes
+// `quota = max(1, round(land * undefined * 0.02))` = NaN, and NaN defeats BOTH
+// loop guards (`accepted.length >= NaN` and `d < NaN` are false), so every ranked
+// land cell is accepted — ~70k settlements on a 200k world.
+describe('settlementDensity param', () => {
+  it('defaults a missing settlementDensity to 1.0 (old saves)', () => {
+    const p = makeParams();
+    delete (p as unknown as Record<string, unknown>).settlementDensity;
+    expect(withParamDefaults(p).settlementDensity).toBe(1.0);
+  });
+  it('preserves an explicit value, including 0', () => {
+    expect(withParamDefaults(makeParams({ settlementDensity: 2.5 })).settlementDensity).toBe(2.5);
+    expect(withParamDefaults(makeParams({ settlementDensity: 0 })).settlementDensity).toBe(0);
+  });
+  it('replaces a non-finite settlementDensity rather than propagating NaN', () => {
+    const p = makeParams({ settlementDensity: NaN });
+    expect(withParamDefaults(p).settlementDensity).toBe(1.0);
+  });
+});
+
 describe('physicalClimate param', () => {
   it('defaults a missing physicalClimate to true (old saves get grounded climate)', () => {
     const p = makeParams();

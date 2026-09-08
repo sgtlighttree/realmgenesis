@@ -78,6 +78,28 @@ describe('placeSettlements', () => {
     expect(checked).toBeGreaterThan(0);
   }, 60000);
 
+  // S36 review finding 1b. The browser-save load path (Controls.handleLoadBrowser
+  // -> onLoadWorld) passes stored params through without withParamDefaults, so
+  // placeSettlements must defend at its own read site. Without the `?? 1.0`, quota
+  // is NaN and NaN defeats both loop guards, accepting EVERY ranked land cell.
+  it('survives a missing settlementDensity instead of settling every land cell', () => {
+    const w = structuredClone(world);
+    const p = { ...w.params };
+    delete (p as unknown as Record<string, unknown>).settlementDensity;
+    placeSettlements(w, p);
+    const settlements = w.civData!.settlements;
+    const land = w.cells.filter(c => c.height >= w.params.seaLevel && !isLakeCell(c));
+
+    expect(settlements.length).toBeGreaterThan(0);
+    expect(Number.isFinite(settlements.length)).toBe(true);
+    // The failure mode is "every land cell": stay far below it, and match what
+    // an explicit density of 1.0 produces.
+    expect(settlements.length).toBeLessThan(land.length * 0.25);
+    const explicit = structuredClone(world);
+    placeSettlements(explicit, { ...w.params, settlementDensity: 1.0 });
+    expect(settlements.length).toBe(explicit.civData!.settlements.length);
+  }, 60000);
+
   it('names every settlement — never empty or null', () => {
     const w = structuredClone(world);
     placeSettlements(w, w.params);
