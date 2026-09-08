@@ -57,6 +57,27 @@ describe('placeSettlements', () => {
     }
   }, 60000);
 
+  // S36: the city tier was DEAD below ~8 settlements per faction. The capital is
+  // forced into `accepted` at index 0, so the first real candidate sat at i=1 and
+  // cleared `i < accepted.length * 0.12` only when a faction held >8.3 settlements.
+  // Measured: zero cities at 5k points. Rank fractions are now taken over the
+  // non-capital candidates, so the top-ranked non-capital is always a city.
+  it('gives every faction with 2+ settlements at least one city-tier settlement', () => {
+    const w = structuredClone(world);
+    placeSettlements(w, w.params);
+    const settlements = w.civData!.settlements;
+
+    let checked = 0;
+    for (const faction of w.civData!.factions) {
+      const mine = settlements.filter(s => s.factionId === faction.id);
+      if (mine.length < 2) continue;
+      checked++;
+      expect(mine.filter(s => s.tier === 'city').length).toBeGreaterThanOrEqual(1);
+    }
+    // Non-vacuous: this world must actually contain a multi-settlement faction.
+    expect(checked).toBeGreaterThan(0);
+  }, 60000);
+
   it('names every settlement — never empty or null', () => {
     const w = structuredClone(world);
     placeSettlements(w, w.params);

@@ -53,12 +53,23 @@ function settlementByCell(world: WorldData): Map<number, Settlement> {
   return map;
 }
 
-// Bumped above the DEFAULT_PARAMS 1.0 so the small (points:300) test map
-// actually produces village/hamlet settlements — otherwise every faction's
-// quota rounds to 1 (a lone capital) and Task 8's feeder pass has nothing to
-// feed. Kept as a named override rather than changing makeParams()'s
-// baseline, which other suites depend on staying untouched.
-const DENSE_OVERRIDES: Partial<WorldParams> = { settlementDensity: 2.0 };
+// Scale + density overrides so the test map actually produces every settlement
+// tier. Density is bumped above the DEFAULT_PARAMS 1.0 because a faction's quota
+// is `round(landCells * density * 0.02)`; `points` is bumped off makeParams()'s
+// 300 for two reasons (S36):
+//   1. At 300 cells a faction can hold only a capital plus one other settlement,
+//      so there are no village/hamlet feeders for Task 8's pass to feed.
+//   2. 300 cells span the sphere so coarsely that a single faction's two
+//      settlements sit 1.26 rad apart — past routes.ts's MAX_ROAD_ANGLE of 1.2 —
+//      so computeRoutes deliberately SKIPS the MST edge and the group is no
+//      longer a spanning tree. That is the cap working as designed, not a bug;
+//      the fix is a test map at a scale the cap was tuned for.
+// Measured at 1000/3.0: 6 capital / 4 city / 3 town / 4 village / 2 hamlet,
+// 8 arterial / 5 local / 9 sea, zero spanning-tree violations. generateWorld
+// costs the same as at 300 (~2.5s — fixed pipeline overhead dominates).
+// Kept as a named override rather than changing makeParams()'s baseline, which
+// other suites depend on staying untouched.
+const DENSE_OVERRIDES: Partial<WorldParams> = { points: 1000, settlementDensity: 3.0 };
 
 describe('computeRoutes — roads', () => {
   // Single shared build for every non-determinism assertion in this describe

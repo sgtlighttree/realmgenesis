@@ -121,12 +121,18 @@ export function placeSettlements(world: WorldData, params: WorldParams): void {
       if (ok) accepted.push(c);
     }
 
-    // Tier by rank position among accepted (capital forced to 'capital').
+    // Tier by rank position among accepted. The capital is forced in at index 0
+    // and always tiers 'capital', so rank fractions are taken over the NON-capital
+    // candidates only — otherwise the first real candidate sits at i=1 and clears
+    // the city cutoff only when accepted.length > 8.3, killing the whole city tier
+    // on small worlds (measured: zero cities at 5k points).
+    const nonCapCount = accepted.length - 1;
     accepted.forEach((c, i) => {
+      const rank = i - 1; // -1 for the capital itself; unused on that branch
       const tier: SettlementTier = c.id === capCell.id ? 'capital'
-        : i < accepted.length * 0.12 ? 'city'
-        : i < accepted.length * 0.35 ? 'town'
-        : i < accepted.length * 0.70 ? 'village' : 'hamlet';
+        : rank < nonCapCount * 0.12 ? 'city'
+        : rank < nonCapCount * 0.35 ? 'town'
+        : rank < nonCapCount * 0.70 ? 'village' : 'hamlet';
       let isPort = false;
       for (const nId of c.neighbors) {
         const n = world.cells[nId];
