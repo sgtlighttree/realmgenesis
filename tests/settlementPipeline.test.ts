@@ -72,6 +72,45 @@ describe('settlement pipeline', () => {
       p.towns.forEach(t => expect(set.has(t)).toBe(true))));
   });
 
+  // S36 review findings 3 + 10. Political painting (applyPoliticalStroke) rewrites
+  // cell.regionId WITHOUT updating Settlement.factionId, so after a repaint a
+  // settlement can be listed under faction A while its cell belongs to B. The
+  // attach loop used to read the cell's provinceId and push into A's province
+  // array on a bounds check alone — a valid index into A's array, wrong faction.
+  // Repainting ALL of a faction's settlements away also used to leave it with land
+  // cells and zero provinces.
+  it('keeps settlements with their cell\'s faction after a political repaint', () => {
+    const w = structuredClone(world);
+    const civ = w.civData!;
+    const [a, b] = civ.factions;
+    expect(b).toBeDefined();
+
+    // Move every one of A's settlement cells to B, the way the political brush
+    // does: cell.regionId only, Settlement.factionId deliberately untouched.
+    const aSettlements = civ.settlements.filter(s => s.factionId === a.id);
+    expect(aSettlements.length).toBeGreaterThan(0);
+    for (const s of aSettlements) w.cells[s.cellId].regionId = b.id;
+
+    recalculateProvinces(w, w.params);
+
+    // No settlement may sit in a province of a faction its cell does not belong to.
+    for (const f of civ.factions) {
+      for (const prov of f.provinces) {
+        for (const t of prov.towns) {
+          expect(w.cells[t.cellId].regionId).toBe(f.id);
+        }
+      }
+    }
+
+    // Finding 10: a faction that still holds land must still hold a province.
+    for (const f of civ.factions) {
+      const land = w.cells.filter(c => c.regionId === f.id
+        && c.height >= w.params.seaLevel && !isLakeCell(c));
+      if (land.length === 0) continue;
+      expect(f.provinces.length).toBeGreaterThanOrEqual(1);
+    }
+  }, 60000);
+
   // S36 regression. recalculateProvinces runs standalone from the province-size
   // slider (useWorldEngine.handleUpdateProvinces) but had no provinceId reset of
   // its own — only recalculateCivs did. Its Dijkstra refuses to relax into a cell

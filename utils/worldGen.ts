@@ -1,5 +1,5 @@
 import { geoVoronoi } from 'd3-geo-voronoi';
-import { Cell, LakeData, Point, WorldData, WorldParams, BiomeType, FactionData, CultureData, ReligionData, Settlement, SettlementTier } from '../types';
+import { Cell, LakeData, Point, WorldData, WorldParams, BiomeType, FactionData, CultureData, ReligionData, SettlementTier } from '../types';
 import { RNG, SimplexNoise } from './rng';
 import { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS, FOLK_COLORS } from './palette';
 import { createNameGenerator, NameGenerator, NameStyle, NAME_STYLES } from './namegen';
@@ -1435,11 +1435,11 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
         const density = params.provinceSize || 0.5;
         const targetSize = 20 + density * 100;
         const factionSettlements = civData.settlements.filter(s => s.factionId === faction.id);
-        if (factionSettlements.length === 0) return;
-        // A faction can't have more provinces than it has settlements to seed them.
+        // A faction can't have more provinces than it has settlements to seed them
+        // — but it always gets at least one, see the seedCells fallback below.
         const numProvinces = Math.min(
             Math.max(1, Math.ceil(landCells.length / targetSize)),
-            factionSettlements.length,
+            Math.max(1, factionSettlements.length),
         );
 
         // Province seeds are the highest-population settlements (id asc breaks
@@ -1447,28 +1447,43 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
         // existing squared-chord min-spacing so seeds don't cluster.
         const byPop = [...factionSettlements].sort((a, b) => b.population - a.population || a.id - b.id);
         const capSeed = byPop.find(s => s.cellId === faction.capitalId);
-        const seeds: Settlement[] = [];
-        if (capSeed) seeds.push(capSeed);
+        const seedCells: number[] = [];
+        if (capSeed) seedCells.push(capSeed.cellId);
         for (const s of byPop) {
-            if (seeds.length >= numProvinces) break;
-            if (seeds.includes(s)) continue;
+            if (seedCells.length >= numProvinces) break;
+            if (seedCells.includes(s.cellId)) continue;
             const c = world.cells[s.cellId];
             let tooClose = false;
-            for (const seed of seeds) {
-                const t = world.cells[seed.cellId];
+            for (const seedId of seedCells) {
+                const t = world.cells[seedId];
                 const d = (c.center.x - t.center.x) ** 2 + (c.center.y - t.center.y) ** 2 + (c.center.z - t.center.z) ** 2;
                 if (d < 0.005 * density) { tooClose = true; break; }
             }
-            if (!tooClose) seeds.push(s);
+            if (!tooClose) seedCells.push(s.cellId);
         }
 
-        const capitalCell = world.cells[faction.capitalId];
-        capitalCell.provinceId = 0;
+        // A faction can hold land but own no settlements — political painting
+        // (applyPoliticalStroke) can move every one of them to another faction
+        // without touching Settlement.factionId. The old code returned here,
+        // leaving the faction with land cells, zero provinces and cells whose
+        // provinceId indexes nothing. Seed one province instead, from the capital
+        // if the faction still holds it, else its lowest-id land cell.
+        if (seedCells.length === 0) {
+            const cap = world.cells[faction.capitalId];
+            seedCells.push(cap && cap.regionId === faction.id ? faction.capitalId : landCells[0].id);
+        }
 
-        seeds.forEach((seed, idx) => {
-            // No isTown write here: `seeds` are drawn from civData.settlements
-            // and placeSettlements already set the flag on every settlement cell.
-            const nameGen = getProvNameGen(getCultureNameStyle(world, params, seed.cellId));
+        // NOTE: the old `capitalCell.provinceId = 0` pre-stamp is GONE. When the
+        // capital is a seed (the normal case) the Dijkstra below assigns exactly
+        // the same id, so it was redundant; when the capital cell had been painted
+        // into ANOTHER faction it stamped that faction's cell, which then either
+        // rendered under this faction or got skipped by the true owner's expansion
+        // (the relaxation guard refuses cells that already carry a provinceId).
+
+        seedCells.forEach((cellId, idx) => {
+            // No isTown write here: seeds are drawn from civData.settlements and
+            // placeSettlements already set the flag on every settlement cell.
+            const nameGen = getProvNameGen(getCultureNameStyle(world, params, cellId));
             faction.provinces.push({
                 id: idx,
                 name: nameGen.province(),
@@ -1479,9 +1494,9 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
 
         const pq = new MinHeap<{id: number, cost: number, provIdx: number}>(x => x.cost);
         const costs = new Map<number, number>();
-        seeds.forEach((seed, idx) => {
-            pq.push({ id: seed.cellId, cost: 0, provIdx: idx });
-            costs.set(seed.cellId, 0);
+        seedCells.forEach((cellId, idx) => {
+            pq.push({ id: cellId, cost: 0, provIdx: idx });
+            costs.set(cellId, 0);
         });
 
         const claimed = new Set<number>();
@@ -1517,7 +1532,16 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
         // population desc (id asc tiebreak) so towns[0] is the province seat
         // that gemini.ts and the political UI assume.
         for (const s of factionSettlements) {
-            const pid = world.cells[s.cellId].provinceId;
+            const cell = world.cells[s.cellId];
+            // The regionId check is load-bearing, not belt-and-braces. Political
+            // painting (paintUtils.applyPoliticalStroke) rewrites cell.regionId
+            // WITHOUT updating Settlement.factionId, so a settlement can still be
+            // listed under faction A while its cell now belongs to B. A's Dijkstra
+            // skips that cell, B's stamps it with an index into B's provinces —
+            // a perfectly valid index into A's array too — and the settlement
+            // would land in A's province, showing under the wrong faction.
+            if (cell.regionId !== faction.id) continue;
+            const pid = cell.provinceId;
             if (pid === undefined || pid < 0 || pid >= faction.provinces.length) continue;
             faction.provinces[pid].towns.push(s);
         }

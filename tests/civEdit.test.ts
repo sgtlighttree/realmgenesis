@@ -262,6 +262,37 @@ describe('civEdit', () => {
       expect(caps[0].cellId).toBe(targetTown.cellId);
     }, 30000);
 
+    // S36 review finding 5. Both civEdit capital-demotion paths used to search
+    // `provinces.flatMap(p => p.towns)`. That view is DERIVED: recalculateProvinces'
+    // attach loop skips any settlement whose cell has no valid provinceId or belongs
+    // to another faction, so a settlement can exist in civData.settlements and in no
+    // towns array. When the old capital was one of those, the demotion silently
+    // missed it and the Settlement kept `tier: 'capital'` / `isCapital: true` —
+    // still drawing a red capital marker and a capital label next to the new one.
+    it('demotes an old capital that is absent from every province towns array', async () => {
+      const world = await generateWorld(civParams());
+      const faction = world.civData!.factions.find(f => f.provinces.length >= 2)!;
+      const targetTown = faction.provinces.find(p => p.id !== 0)!.towns[0];
+      const oldCapitalId = faction.capitalId;
+
+      // Detach the old capital from the derived view WITHOUT removing it from the
+      // authoritative list — exactly the state the attach loop can produce.
+      const oldCapital = world.civData!.settlements.find(s => s.cellId === oldCapitalId)!;
+      expect(oldCapital.tier).toBe('capital');
+      faction.provinces.forEach(p => {
+        p.towns = p.towns.filter(t => t.cellId !== oldCapitalId);
+      });
+      expect(faction.provinces.flatMap(p => p.towns).some(t => t.cellId === oldCapitalId)).toBe(false);
+
+      expect(relocateCapital(world, faction.id, targetTown.cellId)).toBe(true);
+
+      expect(oldCapital.isCapital).toBe(false);
+      expect(oldCapital.tier).toBe('city');
+      const caps = world.civData!.settlements.filter(s => s.factionId === faction.id && s.tier === 'capital');
+      expect(caps).toHaveLength(1);
+      expect(caps[0].cellId).toBe(targetTown.cellId);
+    }, 30000);
+
     it('rejects a target that is not a town of that faction', async () => {
       const world = await generateWorld(civParams());
       const faction = world.civData!.factions[0];

@@ -47,8 +47,14 @@ export function mergeFactions(world: WorldData, srcId: number, dstId: number): b
 
   // isCapital is a dual flag (Cell + Settlement) — demote src's capital on
   // both. dst's capital is untouched.
-  const srcCapitalTown = dst.provinces
-    .flatMap(p => p.towns)
+  // Searches civData.settlements, NOT provinces.flatMap(p => p.towns). The towns
+  // arrays are a derived view and the attach loop in recalculateProvinces skips
+  // any settlement whose cell has no valid provinceId or belongs to another
+  // faction — so a settlement can exist in civData.settlements and in no towns
+  // array at all. Missing it here left a Settlement with tier 'capital' and
+  // isCapital true for a faction that no longer exists, still drawing a red
+  // capital marker and a capital label.
+  const srcCapitalTown = world.civData.settlements
     .find(t => t.cellId === src.capitalId);
   if (srcCapitalTown) {
     srcCapitalTown.isCapital = false;
@@ -99,11 +105,15 @@ export function relocateCapital(world: WorldData, factionId: number, townCellId:
   if (!faction) return false;
   if (townCellId === faction.capitalId) return false;
 
-  const allTowns = faction.provinces.flatMap(p => p.towns);
-  const newCapitalTown = allTowns.find(t => t.cellId === townCellId);
+  // Authoritative list, not the derived provinces[].towns view — see the note in
+  // mergeFactions. The factionId check preserves this function's documented
+  // contract (the cell must be a settlement OF THIS FACTION), which flatMap
+  // previously got for free from the province structure.
+  const settlements = world.civData?.settlements ?? [];
+  const newCapitalTown = settlements.find(t => t.cellId === townCellId && t.factionId === factionId);
   if (!newCapitalTown) return false;
 
-  const oldCapitalTown = allTowns.find(t => t.cellId === faction.capitalId);
+  const oldCapitalTown = settlements.find(t => t.cellId === faction.capitalId);
   if (oldCapitalTown) {
     oldCapitalTown.isCapital = false;
     if (oldCapitalTown.tier === 'capital') oldCapitalTown.tier = 'city';
