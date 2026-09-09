@@ -125,9 +125,16 @@ interface NormalizedGlyph {
 }
 
 /**
- * Fit a shape's bounding box into a 1x1 box centred on the origin, preserving
- * aspect. Fitting the LONG axis (rather than stretching both) is what keeps a
- * wide mountain from towering over a square star.
+ * Fit a shape's bounding box to unit HEIGHT, centred on the origin, preserving
+ * aspect. Width follows and may exceed 1 — MOUNTAIN is roughly 2:1, so it comes
+ * out twice as wide as it is tall.
+ *
+ * Height, not the long axis: the glyph stacks above the name, so height is what
+ * sets its visual weight beside the text and width is nearly free (the label's
+ * box takes `max(textWidth, glyphWidth)`, and names are usually the wider of
+ * the two). Normalizing the LONG axis instead would render the wide kinds —
+ * mountain, dune, waves — at half the height of the square ones, so a hamlet's
+ * ring would stand twice as tall as a mountain range's peak.
  */
 const normalize = (subpaths: UnitSubpath[]): NormalizedGlyph => {
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -141,7 +148,7 @@ const normalize = (subpaths: UnitSubpath[]): NormalizedGlyph => {
   }
   const w = maxX - minX;
   const h = maxY - minY;
-  const scale = 1 / Math.max(w, h);
+  const scale = 1 / h;
   const cx = (minX + maxX) / 2;
   const cy = (minY + maxY) / 2;
 

@@ -616,6 +616,9 @@ const WorldMesh: React.FC<{
   // resolve; it is in the tenant deps so the overlay repaints then. Without it
   // the first paint silently keeps the fallback face — Canvas2D does not wait.
   const labelTheme = useLabelFonts(getMapStyle(mapStyleId).labelTheme);
+  // A relief style's mountains/trees/dunes reach the globe through
+  // `styleTexture` above, so geographic label glyphs must stand down there too.
+  const geoGlyphs = !getMapStyle(mapStyleId).paintsRelief;
   const overlayInk = getMapStyle(mapStyleId).overlayInk;
 
   // Refill runs synchronously before the next painted frame so a fresh
@@ -917,12 +920,12 @@ const WorldMesh: React.FC<{
     { id: `labels:${[labelVisibility.capitals, labelVisibility.cities, labelVisibility.towns, labelVisibility.villages, labelVisibility.hamlets, labelVisibility.provinces, labelVisibility.geography, labelVisibility.markers].map(Number).join('')}`,
       visible: labelAnchors.length > 0,
       draw: (ctx, _proj, _world, project, smooth) =>
-        drawLabelsTenant(ctx, labelAnchors, project, smooth, camera.position.length(), labelVisibility, labelTheme) },
+        drawLabelsTenant(ctx, labelAnchors, project, smooth, camera.position.length(), labelVisibility, labelTheme, geoGlyphs) },
     // Ruler on top of everything — it is an active measurement affordance. Fixed
     // radius (clears peaks), not draped; see drawRulerTenant.
     { id: 'ruler', visible: !!rulerArc && rulerArc.length > 1,
       draw: (ctx, _proj, _world, project, smooth) => drawRulerTenant(ctx, rulerArc!, project, smooth, overlayInk) },
-  ], [showRivers, riverPolylines, showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, labelVisibility, borderSegments, showGrid, dymaxionSettings.showOverlay, dymaxionSettings.lon, dymaxionSettings.lat, dymaxionSettings.roll, dymaxionEdges, labelAnchors, camera, rulerArc, labelTheme, overlayInk]);
+  ], [showRivers, riverPolylines, showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, labelVisibility, borderSegments, showGrid, dymaxionSettings.showOverlay, dymaxionSettings.lon, dymaxionSettings.lat, dymaxionSettings.roll, dymaxionEdges, labelAnchors, camera, rulerArc, labelTheme, geoGlyphs, overlayInk]);
 
   return (
     <Group>

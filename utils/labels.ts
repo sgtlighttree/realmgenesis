@@ -285,9 +285,17 @@ export interface DrawLabelsOptions {
  * Glyph size as a fraction of the label's font size, and the gap between glyph
  * and name. Tied to `fontSize` rather than to the caller's `scale`, which is a
  * sentinel on the globe path (`LABEL_SCALE_LOD_OFF`).
+ *
+ * TUNED, not picked. A glyph makes its label's declutter rectangle taller, and
+ * the greedy declutterer pays for that in labels dropped. Measured on a dense
+ * world (40k points, settlementDensity 2.0, 314 candidate labels) against the
+ * same run with glyphs stripped: at the original 0.95 the fully-zoomed-out map
+ * lost 26.7% of its labels. At 0.7 that worst case is 15.6%, and 6-8% at
+ * working zoom. The gap is nearly free — `max(2, ...)` floors it at every font
+ * size the app actually uses — so size is the only real lever here.
  */
-export const GLYPH_SIZE_FACTOR = 0.95;
-export const GLYPH_GAP_EM = 0.25;
+export const GLYPH_SIZE_FACTOR = 0.7;
+export const GLYPH_GAP_EM = 0.15;
 
 /**
  * Where the glyph sits relative to the name, as offsets from the label anchor.
@@ -393,13 +401,19 @@ export const drawMapLabels = (
     ctx.globalAlpha = config.alpha;
     if (layout && glyph) {
       const glyphY = projected[1] + layout.glyphDy;
+      // These are OPEN polylines, so the cap is visible geometry, not a detail:
+      // the SVG export emits stroke-linecap="round" and the default `butt`
+      // would leave the raster's ends chopped where the vector's are rounded.
+      ctx.lineCap = 'round';
       // Halo first at the text's own halo width, then the mark itself in the
       // label's ink, so glyph and name read as one object over any fill.
       strokeLabelGlyph(ctx, glyph, projected[0], glyphY, layout.glyphSize);
       ctx.strokeStyle = ctx.fillStyle;
       ctx.lineWidth = Math.max(1, fontSize * 0.09);
       strokeLabelGlyph(ctx, glyph, projected[0], glyphY, layout.glyphSize);
-      // Restored for the text below, which reuses both.
+      // Restored for the text below. `save`/`restore` wraps the whole loop, not
+      // each label, so anything left set here leaks into every later label too.
+      ctx.lineCap = 'butt';
       ctx.strokeStyle = theme.halo;
       ctx.lineWidth = Math.max(3, fontSize * theme.haloScale);
     }

@@ -23,17 +23,31 @@ describe('label glyph shapes', () => {
   // The glyph is sized off the label's fontSize, and drawMapLabels grows its
   // declutter rect by the returned metrics. If a shape escaped the unit box the
   // rect would understate it and labels would silently overlap.
-  it('normalizes every shape into the unit box, touching it on the long axis', () => {
+  it('normalizes every shape to unit height, reporting its true width', () => {
     for (const kind of LABEL_GLYPH_KINDS) {
       const { width, height } = labelGlyphMetrics(kind);
-      expect(Math.max(width, height), `${kind} is not normalized to 1`).toBeCloseTo(1, 6);
+      // Height is the normalized axis so every glyph carries the same visual
+      // weight beside the name; width follows the shape's own aspect.
+      expect(height, `${kind} is not normalized to unit height`).toBeCloseTo(1, 6);
+      expect(width, `${kind} reports no width`).toBeGreaterThan(0);
       for (const sub of normalizedLabelGlyph(kind)) {
         for (const [x, y] of sub) {
-          expect(Math.abs(x), `${kind} x escapes the box`).toBeLessThanOrEqual(width / 2 + 1e-9);
-          expect(Math.abs(y), `${kind} y escapes the box`).toBeLessThanOrEqual(height / 2 + 1e-9);
+          expect(Math.abs(x), `${kind} x escapes its reported width`).toBeLessThanOrEqual(width / 2 + 1e-9);
+          expect(Math.abs(y), `${kind} y escapes its reported height`).toBeLessThanOrEqual(height / 2 + 1e-9);
         }
       }
     }
+  });
+
+  // Wide kinds must not come out shorter than square ones — that was the bug
+  // long-axis normalization would have shipped: a hamlet ring standing twice
+  // as tall as a mountain range's peak.
+  it('gives the wide kinds the same height as the square ones', () => {
+    for (const kind of LABEL_GLYPH_KINDS) {
+      expect(labelGlyphMetrics(kind).height).toBeCloseTo(
+        labelGlyphMetrics('hamlet').height, 6);
+    }
+    expect(labelGlyphMetrics('mountain').width).toBeGreaterThan(1);
   });
 
   it('every glyph declared in LABEL_CONFIG is a known kind', () => {
@@ -75,10 +89,13 @@ describe('labelGlyphPathData', () => {
   it('emits SVG path data anchored at the requested centre', () => {
     const d = labelGlyphPathData('village', 100, 50, 10);
     expect(d.startsWith('M')).toBe(true);
+    const { width, height } = labelGlyphMetrics('village');
     const coords = d.slice(1).split(/[ML]/).map(p => p.trim().split(' ').map(Number));
     for (const [x, y] of coords) {
-      expect(Math.abs(x - 100)).toBeLessThanOrEqual(5.01);
-      expect(Math.abs(y - 50)).toBeLessThanOrEqual(5.01);
+      // Bounds come from the reported metrics, not a hardcoded square: width
+      // follows each shape's aspect now that height is the normalized axis.
+      expect(Math.abs(x - 100)).toBeLessThanOrEqual(width * 10 / 2 + 0.01);
+      expect(Math.abs(y - 50)).toBeLessThanOrEqual(height * 10 / 2 + 0.01);
     }
   });
 

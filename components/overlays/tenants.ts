@@ -616,6 +616,13 @@ export function drawLabelsTenant(
   camDist: number,
   visibility: LabelVisibility,
   theme: LabelTheme = DEFAULT_LABEL_THEME,
+  /**
+   * False when the active style bakes its own relief onto the globe texture
+   * (`bakeStyleTexture` in WorldViewer). The globe is NOT exempt from this —
+   * it wraps the real 2D style render — so a `range` label would otherwise set
+   * a mountain glyph on top of one the baked texture already shows.
+   */
+  geoGlyphs = true,
 ): void {
   if (anchors.length === 0) return;
 
@@ -643,6 +650,6 @@ export function drawLabelsTenant(
     projectLabel,
     LABEL_SCALE_LOD_OFF,
     visibility,
-    { fontScale: LABEL_FONT_SCALE, theme },
+    { fontScale: LABEL_FONT_SCALE, theme, geoGlyphs },
   );
 }
