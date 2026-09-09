@@ -75,12 +75,69 @@ export function settlementScore(cell: Cell, world: WorldData, params: WorldParam
 // world.civData.settlements, sets cell.isTown on settlement cells, and
 // assigns tier/isPort/name/factionId. Does NOT set population — that's a
 // later task, done in recalculateProvinces.
+/**
+ * The resolution `K = 0.02` was tuned at, and the constant itself. Kept only to
+ * derive `SETTLEMENTS_PER_STERADIAN` below, so the calibration is visible rather
+ * than a magic 318.
+ */
+const REFERENCE_POINTS = 200_000;
+const REFERENCE_K = 0.02;
+
+/**
+ * Settlements per steradian of faction land.
+ *
+ * The quota used to be `landCells * density * K`, which made settlement count a
+ * function of the MESH RESOLUTION rather than of the planet: the same world had
+ * ~30 settlements at 5,000 cells and ~600 at 200,000 (measured in-app at 5k:
+ * 1,553 land cells, 6 factions, 30 settlements total). At the resolution Matt
+ * iterates on, the planet was empty and Settlement Density had almost nothing
+ * to scale — the slider moved a total of roughly 15 to 60 across its whole
+ * range, which is why it read as inert.
+ *
+ * Area is a property of the planet; cell count is a property of the
+ * tessellation. This constant is derived so the new formula is IDENTICAL to the
+ * old one at `REFERENCE_POINTS` and only diverges below it, which is precisely
+ * the intent — high-resolution behaviour is unchanged.
+ */
+export const SETTLEMENTS_PER_STERADIAN = (REFERENCE_POINTS * REFERENCE_K) / (4 * Math.PI);
+
+/**
+ * Ceiling on settlements as a fraction of a faction's land CELLS, per unit of
+ * density. A low-resolution world cannot host an area-derived quota — there are
+ * not enough cells — so something has to bind, and it must not be a flat cap:
+ * a density-independent ceiling would make the slider go dead the moment it
+ * binds, exactly the trap the settlementDensity-0 finding documented. Scaling
+ * the cap with density keeps the control live at every resolution.
+ *
+ * 0.20 is Matt's pick (S39): ~310 settlements on a 5k world against 30 before.
+ */
+export const MAX_SETTLEMENT_CELL_FRACTION = 0.20;
+
+/**
+ * How many settlements a faction gets. Pure, so it can be tested across
+ * resolutions without generating a world.
+ *
+ * Floors at 1 so `density = 0` remains the deliberate capitals-only mode
+ * (S36 finding 4), and never exceeds the land cells available.
+ */
+export function settlementQuota(
+  landCellCount: number,
+  totalCells: number,
+  density: number,
+): number {
+  const avgCellArea = (4 * Math.PI) / totalCells; // steradians per cell
+  const areaTarget = landCellCount * avgCellArea * SETTLEMENTS_PER_STERADIAN * density;
+  // The cap FLOORS rather than rounds: rounding a cap can land above it, which
+  // would make the ceiling a suggestion instead of a bound.
+  const cellCap = Math.floor(landCellCount * MAX_SETTLEMENT_CELL_FRACTION * density);
+  return Math.max(1, Math.min(Math.round(areaTarget), cellCap, landCellCount));
+}
+
 export function placeSettlements(world: WorldData, params: WorldParams): void {
   if (!world.civData) return;
   const rng = new RNG(params.civSeed + '_settle');
   const getNameGen = makeStyleNameGenCache(params.civSeed + '_settlenames_');
   const settlements: Settlement[] = [];
-  const K = 0.02; // tuned in Task-4 perf pass; ~1500 total at 200k
   const avgCellArea = (4 * Math.PI) / world.cells.length; // steradians per cell
   let nextId = 0;
 
@@ -95,7 +152,7 @@ export function placeSettlements(world: WorldData, params: WorldParams): void {
     // BOTH loop guards below (`>= NaN` and `< NaN` are false), so every ranked
     // land cell would be accepted as a settlement.
     const density = params.settlementDensity ?? 1.0;
-    const quota = Math.max(1, Math.round(land.length * density * K));
+    const quota = settlementQuota(land.length, world.cells.length, density);
     // Quota-derived spacing (Azgaar mechanism): disc-pack `quota` points into the
     // faction's area. chord² threshold, tier-scaled per candidate below.
     const factionArea = land.length * avgCellArea;
