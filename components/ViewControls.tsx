@@ -99,17 +99,41 @@ export const VIEW_LAYER_OPTIONS: SelectOption<ViewMode>[] =
 export const PROJECTION_OPTIONS: SelectOption<DisplayMode>[] =
   DISPLAY_MODES.map(m => ({ value: m.mode, label: m.label }));
 
-export const OVERLAY_KEYS: [keyof LabelVisibility, string][] = [
-  ['borders', 'Faction Borders'],
-  ['factions', 'Faction Names'],
-  ['capitals', 'Capital Names'],
-  ['cities', 'City Names'],
-  ['provinces', 'Province Names'],
-  ['towns', 'Town Names'],
-  ['villages', 'Village Names'],
-  ['hamlets', 'Hamlet Names'],
-  ['geography', 'Geographic Names'],
-  ['markers', 'Markers'],
+/**
+ * The overlay list split into labelled groups.
+ *
+ * Flat, the five settlement tiers read as five unrelated switches buried among
+ * ten, which is how Settlement Density came to look inert — the tiers it adds
+ * were off and nothing on screen said where to turn them on. Grouped, they read
+ * as one control with a zoom note attached.
+ */
+export const OVERLAY_GROUPS: { title: string; hint?: string; keys: [keyof LabelVisibility, string][] }[] = [
+  {
+    title: 'Settlements',
+    hint: 'Smaller tiers appear as you zoom in',
+    keys: [
+      ['capitals', 'Capitals'],
+      ['cities', 'Cities'],
+      ['towns', 'Towns'],
+      ['villages', 'Villages'],
+      ['hamlets', 'Hamlets'],
+    ],
+  },
+  {
+    title: 'Territory',
+    keys: [
+      ['borders', 'Faction Borders'],
+      ['factions', 'Faction Names'],
+      ['provinces', 'Province Names'],
+    ],
+  },
+  {
+    title: 'Other',
+    keys: [
+      ['geography', 'Geographic Names'],
+      ['markers', 'Markers'],
+    ],
+  },
 ];
 
 export interface LayerToggle {
@@ -127,7 +151,7 @@ export interface LayerToggle {
  *
  * Deliberately NOT inside `buildLayerToggles`: that list feeds the Sys tab's
  * stacked rows as well as the strip, and the Sys tab already renders borders in
- * the Map Overlays group (`OVERLAY_KEYS`). Adding it there would put the same
+ * the Map Overlays group (`OVERLAY_GROUPS`). Adding it there would put the same
  * checkbox on screen twice. The strip has no such group — its chips are the only
  * quick access to any overlay — so it composes this one in on its own.
  *
@@ -219,7 +243,14 @@ export const LayerToggleRow: React.FC<{ toggle: LayerToggle; className?: string 
   );
 };
 
-/** The Map Overlays group (icon header + indented per-kind checkboxes). */
+/**
+ * Flat view of every overlay toggle, derived from the groups so the two cannot
+ * drift. Kept exported for callers that want the list without the grouping.
+ */
+export const OVERLAY_KEYS: [keyof LabelVisibility, string][] =
+  OVERLAY_GROUPS.flatMap(g => g.keys);
+
+/** The Map Overlays group (icon header + grouped per-kind checkboxes). */
 export const OverlayToggles: React.FC<Pick<ViewControlsProps, 'labelVisibility' | 'setLabelVisibility'>> = ({
   labelVisibility, setLabelVisibility,
 }) => (
@@ -228,16 +259,24 @@ export const OverlayToggles: React.FC<Pick<ViewControlsProps, 'labelVisibility' 
       <Flag size={12} className={(labelVisibility.borders || labelVisibility.factions) ? 'text-brand-soft' : 'text-ink-faint'} />
       <label className="font-medium">Map Overlays</label>
     </div>
-    <div className="ml-5 space-y-1">
-      {OVERLAY_KEYS.map(([key, label]) => (
-        <div key={key} className="flex items-center justify-between text-xs text-ink-muted">
-          <label>{label}</label>
-          <input
-            type="checkbox"
-            checked={labelVisibility[key]}
-            onChange={(e) => { setLabelVisibility(prev => ({ ...prev, [key]: e.target.checked })); }}
-            className="bg-surface-hover"
-          />
+    <div className="ml-5 space-y-3">
+      {OVERLAY_GROUPS.map(group => (
+        <div key={group.title} className="space-y-1">
+          <div className="text-[10px] uppercase tracking-wide text-ink-faint">{group.title}</div>
+          {group.keys.map(([key, label]) => (
+            <div key={key} className="flex items-center justify-between text-xs text-ink-muted">
+              <label>{label}</label>
+              <input
+                type="checkbox"
+                checked={labelVisibility[key]}
+                onChange={(e) => { setLabelVisibility(prev => ({ ...prev, [key]: e.target.checked })); }}
+                className="bg-surface-hover"
+              />
+            </div>
+          ))}
+          {group.hint && (
+            <div className="text-[10px] text-ink-faint leading-snug pt-0.5">{group.hint}</div>
+          )}
         </div>
       ))}
     </div>

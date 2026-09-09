@@ -70,9 +70,21 @@ export const LABEL_CONFIG: Record<LabelKind, LabelStyleConfig> = {
   marker: { fontWeight: 600, baseFontSize: 10, alpha: 0.95, uppercase: false, visibilityKey: 'markers', face: 'display' },
 };
 
+/**
+ * Map2D's pan/zoom clamp — the full range `scale` can take. Exported so the
+ * thresholds below can be tested against the zoom the user can actually reach:
+ * a cutoff outside this range is dead code that silently hides a whole tier.
+ * The globe had exactly that bug (hamlets gated at camDist 1.15 against a
+ * minDistance of 1.2) — see `components/markerLod.ts`.
+ */
+export const MAP2D_MIN_SCALE = 0.6;
+export const MAP2D_MAX_SCALE = 6;
+
 export const ZOOM_THRESHOLDS: Record<LabelKind, number> = {
   faction: 0,
-  capital: 0.7,
+  // At MAP2D_MIN_SCALE so a capital is never missing from a fully zoomed-out
+  // map, matching the globe where the capital cutoff is the camera's maximum.
+  capital: MAP2D_MIN_SCALE,
   province: 1.2,
   town: 2.0,
   city: 0.9,

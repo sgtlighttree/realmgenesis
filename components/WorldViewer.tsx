@@ -6,6 +6,9 @@ import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMo
 import { getCellColor } from '../utils/colors';
 import { TIER_MARKER_STYLE, settlementCellsByTier } from '../utils/settlements';
 import { getMapStyle, MapStyleId } from '../utils/mapStyle';
+import {
+  GLOBE_MAX_CAM_DIST, GLOBE_MIN_CAM_DIST, HAMLET_MARKER_MAX_DIST, VILLAGE_MARKER_MAX_DIST,
+} from './markerLod';
 import { bakeStyleTexture, buildGlobeDirs } from '../utils/mapStyle/bakeTexture';
 import { createStyleTexture, createStyledGlobeMaterial } from '../utils/mapStyle/globeMaterial';
 import { useLabelFonts } from '../utils/mapStyle/useLabelFonts';
@@ -78,14 +81,12 @@ const CaptureFrame: React.FC<{
 // Plate widening used to close the seams between cells of differing height.
 // 1 = untouched (seams visible, the pre-existing look).
 
-// Camera-distance cutoffs (camDist = camera.position.length(), globe radius ~1)
-// below which village/hamlet markers become visible. Mirrors the passesGlobeLod
-// idiom in overlays/tenants.ts (town label cutoff is camDist <= 2) but gates
-// tighter since these are dense, small-radius tiers meant only for close zoom.
-const VILLAGE_MARKER_MAX_DIST = 1.4;
-const HAMLET_MARKER_MAX_DIST = 1.15;
+// Camera-distance cutoffs and the camera's own range now live in
+// `components/markerLod.ts`, shared with `passesGlobeLod` so a settlement's dot
+// and its name appear at the same zoom. See that file for why they moved, and
+// `tests/globeLodReachable.test.ts` for the reachability invariant.
 
-const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode; smoothGlobe?: boolean }> = ({ world, viewMode, smoothGlobe = false }) => {
+const CityMarkers: React.FC<{ world: WorldData; smoothGlobe?: boolean }> = ({ world, smoothGlobe = false }) => {
     const capitalRef = useRef<THREE.InstancedMesh>(null);
     const cityRef = useRef<THREE.InstancedMesh>(null);
     const townRef = useRef<THREE.InstancedMesh>(null);
@@ -95,7 +96,6 @@ const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode; smoothGlobe?
 
     const byTier = useMemo(() => settlementCellsByTier(world), [world]);
 
-    const isPolitical = viewMode === 'political';
 
     useEffect(() => {
         const yAxis = new THREE.Vector3(0, 1, 0);
@@ -122,14 +122,13 @@ const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode; smoothGlobe?
         if (hamletRef.current) updateMesh(hamletRef.current, byTier.hamlet, TIER_MARKER_STYLE.hamlet.height);
     }, [world, byTier, dummy, smoothGlobe]);
 
-    // Village/hamlet visibility also needs a camera-distance LOD (see cutoffs
-    // above) on top of the political-mode gate, so it's re-checked every frame
+    // Village/hamlet visibility is a camera-distance LOD, re-checked every frame
     // rather than via the JSX `visible` prop. Allocation-free: only numeric
     // reads/compares, no object creation, per this file's useFrame convention.
     useFrame(({ camera }) => {
         const camDist = camera.position.length();
-        if (villageRef.current) villageRef.current.visible = isPolitical && camDist <= VILLAGE_MARKER_MAX_DIST;
-        if (hamletRef.current) hamletRef.current.visible = isPolitical && camDist <= HAMLET_MARKER_MAX_DIST;
+        if (villageRef.current) villageRef.current.visible = camDist <= VILLAGE_MARKER_MAX_DIST;
+        if (hamletRef.current) hamletRef.current.visible = camDist <= HAMLET_MARKER_MAX_DIST;
     });
 
     return (
@@ -140,17 +139,19 @@ const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode; smoothGlobe?
                     <MeshBasicMaterial color={TIER_MARKER_STYLE.capital.color} toneMapped={false} />
                 </InstancedMesh>
             )}
-            {/* Only the CAPITAL tier renders outside political view — the
-                pre-settlement convention. City was `visible={true}`, which put
-                orange pins over the terrain, biome and climate views. */}
+            {/* Every tier renders in EVERY view (Matt's call, S39). A settlement
+                is a landmark whatever the fill encodes, and the political-only
+                gate meant the default Biome globe showed capitals alone — so
+                zooming in revealed nothing and Settlement Density looked inert.
+                Clutter is handled by the camDist LOD below, not by view mode. */}
             {byTier.city.length > 0 && (
-                <InstancedMesh ref={cityRef} args={[undefined, undefined, byTier.city.length]} visible={isPolitical}>
+                <InstancedMesh ref={cityRef} args={[undefined, undefined, byTier.city.length]} visible={true}>
                     <CylinderGeometry args={[TIER_MARKER_STYLE.city.radius, TIER_MARKER_STYLE.city.radius, TIER_MARKER_STYLE.city.height, TIER_MARKER_STYLE.city.segments]} />
                     <MeshBasicMaterial color={TIER_MARKER_STYLE.city.color} toneMapped={false} />
                 </InstancedMesh>
             )}
             {byTier.town.length > 0 && (
-                <InstancedMesh ref={townRef} args={[undefined, undefined, byTier.town.length]} visible={isPolitical}>
+                <InstancedMesh ref={townRef} args={[undefined, undefined, byTier.town.length]} visible={true}>
                     <CylinderGeometry args={[TIER_MARKER_STYLE.town.radius, TIER_MARKER_STYLE.town.radius, TIER_MARKER_STYLE.town.height, TIER_MARKER_STYLE.town.segments]} />
                     <MeshBasicMaterial color={TIER_MARKER_STYLE.town.color} toneMapped={false} />
                 </InstancedMesh>
@@ -958,7 +959,7 @@ const WorldMesh: React.FC<{
                 ) : (
                     <MeshStandardMaterial key="plain" vertexColors roughness={0.8} metalness={0.1} flatShading side={THREE.FrontSide} />
                 )}
-                <CityMarkers world={world} viewMode={viewMode} smoothGlobe={smoothGlobe} />
+                <CityMarkers world={world} smoothGlobe={smoothGlobe} />
                 <MarkerPins markers={world.markers ?? []} visible={labelVisibility.markers} />
                 <React.Suspense fallback={null}>
                     {/* CurvedFactionLabel stays 3D (curved textured meshes) — F2 does not
@@ -1169,8 +1170,8 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
         )}
         <OrbitControls
           enablePan={false}
-          minDistance={1.2}
-          maxDistance={6}
+          minDistance={GLOBE_MIN_CAM_DIST}
+          maxDistance={GLOBE_MAX_CAM_DIST}
           enableRotate={!overlayMode}
           mouseButtons={orbitMouseButtons}
         />

@@ -361,15 +361,28 @@ export interface LabelVisibility {
   hamlets: boolean;
 }
 
+/**
+ * Settlement tiers default ON (changed S39). They were off, which made the
+ * Settlement Density slider look inert: towns/villages/hamlets are 79-85% of
+ * every settlement and exactly what the slider adds, while capitals are pinned
+ * at one per faction and cannot respond to it at all. Measured at 30k points,
+ * density 0.5 -> 2.0 placed 36 -> 141 settlements but drew 75 -> 86 labels
+ * under the old defaults, against 133 -> 243 with the tiers enabled.
+ *
+ * This costs nothing when zoomed out: `ZOOM_THRESHOLDS` already gates the three
+ * tiers by zoom (town 2.0, village 2.6, hamlet 3.2), and the draw count at
+ * scale 1 measured identical with them on and off. `provinces` stays off — it
+ * is an administrative overlay, not a settlement.
+ */
 export const DEFAULT_LABEL_VISIBILITY: LabelVisibility = {
   factions: true,
   capitals: true,
-  towns: false,
+  towns: true,
   provinces: false,
   borders: true,
   geography: true,
   markers: true,
   cities: true,
-  villages: false,
-  hamlets: false,
+  villages: true,
+  hamlets: true,
 };

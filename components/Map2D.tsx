@@ -18,7 +18,7 @@ import { placeGlyphs } from '../utils/mapStyle/placeGlyphs';
 import { Canvas2DSubstrate } from '../utils/mapStyle/substrateCanvas';
 import { seasonalTemperatureDelta } from '../utils/seasons';
 import { insideTri, barycentric, normalizeVec, toLonLat, lonLatToPoint3, getDymaxionNetTransform, projectDymaxionPoint, Point2, Point3 } from '../utils/geo';
-import { collectLabels, drawMapLabels } from '../utils/labels';
+import { collectLabels, drawMapLabels, MAP2D_MAX_SCALE, MAP2D_MIN_SCALE } from '../utils/labels';
 import { computeShadeMap, computeContourSegments, drawContourPaths, contourInterval } from '../utils/shading';
 import { drawCurrents2D } from './overlays/currents2D';
 import { computeScaleBar, computeInterruptedScaleBar, niceScaleBarLength } from '../utils/measure';
@@ -1209,7 +1209,7 @@ const Map2D: React.FC<{
 
     const prevScale = scaleRef.current;
     const zoomFactor = event.deltaY < 0 ? 1.1 : 0.9;
-    const nextScale = clamp(prevScale * zoomFactor, 0.6, 6);
+    const nextScale = clamp(prevScale * zoomFactor, MAP2D_MIN_SCALE, MAP2D_MAX_SCALE);
 
     const prevOffset = offsetRef.current;
     const worldX = (mx - prevOffset.x) / prevScale;
