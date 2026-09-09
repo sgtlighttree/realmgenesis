@@ -687,9 +687,22 @@ const Map2D: React.FC<{
         tCtx,
         mapLabels,
         dymaxionMarkerProject,
-        renderDpr,
+        // LOD reads the user's ZOOM, not the device pixel ratio. This argument
+        // used to be `renderDpr`, which conflated the two: `renderDpr` is
+        // capped at MAX_SHARP_DPR (3), so `ZOOM_THRESHOLDS.hamlet` (3.2) could
+        // never be satisfied and hamlets were unreachable on the Dymaxion
+        // projection at any zoom — the same defect as the globe's 1.15 cutoff
+        // against a 1.2 minDistance. `fontScale` below keeps the sizing that
+        // `renderDpr` was really there for, which is what it is for.
+        scaleRef.current,
         labelVisibility,
-        { theme: labelTheme, geoGlyphs: !style.paintsRelief },
+        {
+          // min(_, 2) reproduces the old `effectiveFontScale` exactly
+          // (`opts.fontScale ?? Math.min(scale, 2)`), so text size is unchanged.
+          fontScale: Math.min(renderDpr, 2),
+          theme: labelTheme,
+          geoGlyphs: !style.paintsRelief,
+        },
       );
 
       // Ruler arc: projected per-sample (not baked into the source equirect
