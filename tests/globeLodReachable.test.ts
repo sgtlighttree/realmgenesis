@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import { passesGlobeLod, GLOBE_MIN_CAM_DIST, GLOBE_MAX_CAM_DIST } from '../components/overlays/tenants';
-import { VILLAGE_MARKER_MAX_DIST, HAMLET_MARKER_MAX_DIST } from '../components/markerLod';
+import { VILLAGE_LABEL_MAX_DIST, HAMLET_LABEL_MAX_DIST } from '../components/markerLod';
 import { MapLabel, MAP2D_MAX_SCALE, MAP2D_MIN_SCALE, ZOOM_THRESHOLDS } from '../utils/labels';
 import { DEFAULT_LABEL_VISIBILITY } from '../types';
 
@@ -48,12 +48,12 @@ describe('globe LOD cutoffs are reachable', () => {
   // The marker and its name must appear at the same zoom, or a dot floats with
   // no label (or a label floats over nothing).
   it('keeps marker cutoffs identical to the label cutoffs', () => {
-    expect(passesGlobeLod(at('village'), VILLAGE_MARKER_MAX_DIST)).toBe(true);
-    expect(passesGlobeLod(at('village'), VILLAGE_MARKER_MAX_DIST + 0.01)).toBe(false);
-    expect(passesGlobeLod(at('hamlet'), HAMLET_MARKER_MAX_DIST)).toBe(true);
-    expect(passesGlobeLod(at('hamlet'), HAMLET_MARKER_MAX_DIST + 0.01)).toBe(false);
-    expect(VILLAGE_MARKER_MAX_DIST).toBeGreaterThanOrEqual(GLOBE_MIN_CAM_DIST);
-    expect(HAMLET_MARKER_MAX_DIST).toBeGreaterThanOrEqual(GLOBE_MIN_CAM_DIST);
+    expect(passesGlobeLod(at('village'), VILLAGE_LABEL_MAX_DIST)).toBe(true);
+    expect(passesGlobeLod(at('village'), VILLAGE_LABEL_MAX_DIST + 0.01)).toBe(false);
+    expect(passesGlobeLod(at('hamlet'), HAMLET_LABEL_MAX_DIST)).toBe(true);
+    expect(passesGlobeLod(at('hamlet'), HAMLET_LABEL_MAX_DIST + 0.01)).toBe(false);
+    expect(VILLAGE_LABEL_MAX_DIST).toBeGreaterThanOrEqual(GLOBE_MIN_CAM_DIST);
+    expect(HAMLET_LABEL_MAX_DIST).toBeGreaterThanOrEqual(GLOBE_MIN_CAM_DIST);
   });
 });
 

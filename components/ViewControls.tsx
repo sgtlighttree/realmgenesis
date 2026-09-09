@@ -2,7 +2,7 @@ import React from 'react';
 import {
   Globe, Satellite, Mountain, Eye, Thermometer, Droplets, Layers, Flag,
   Landmark, Palette, Church, Users, Grid, Waves, Route, Sun, LineChart,
-  Pause, Play, Wind, Circle,
+  Pause, Play, Wind, Circle, MapPin,
 } from 'lucide-react';
 
 import { ViewMode, DisplayMode, LabelVisibility } from '../types';
@@ -167,6 +167,41 @@ export const buildBordersToggle = (p: ViewControlsProps): LayerToggle => ({
   onChange: (b) => { p.setLabelVisibility(prev => ({ ...prev, borders: b })); },
   accent: 'text-brand-soft',
 });
+
+/**
+ * The NAME overlays — settlement tiers, territory names, geography, markers —
+ * as strip toggles.
+ *
+ * These already exist as checkboxes in the Sys tab's Map Overlays group, but the
+ * strip's Overlays menu is what anyone reaches for to clear a map before taking
+ * a screenshot, and it carried only the line/shading layers. Having to open a
+ * sidebar tab to turn off labels is the reason this exists (Matt, S40).
+ *
+ * `borders` is deliberately NOT here — `buildBordersToggle` already composes it
+ * into the strip beside Roads & Routes, and listing it twice in one menu is
+ * worse than the inconsistency.
+ */
+export const buildLabelToggles = (p: ViewControlsProps): LayerToggle[] => {
+  const bind = (key: keyof LabelVisibility, label: string, icon: IconType): LayerToggle => ({
+    key,
+    label,
+    icon,
+    checked: p.labelVisibility[key],
+    onChange: (b) => { p.setLabelVisibility(prev => ({ ...prev, [key]: b })); },
+    accent: 'text-brand-soft',
+  });
+  return [
+    bind('capitals', 'Capital Names', Landmark),
+    bind('cities', 'City Names', Landmark),
+    bind('towns', 'Town Names', Landmark),
+    bind('villages', 'Village Names', Landmark),
+    bind('hamlets', 'Hamlet Names', Landmark),
+    bind('factions', 'Faction Names', Flag),
+    bind('provinces', 'Province Names', Flag),
+    bind('geography', 'Geographic Names', Mountain),
+    bind('markers', 'Markers', MapPin),
+  ];
+};
 
 /** The overlay layers, bound to live state. Order matches the Sys tab. */
 export const buildLayerToggles = (p: ViewControlsProps): LayerToggle[] => [
@@ -384,7 +419,12 @@ export const ViewStrip: React.FC<ViewControlsProps & { rotation?: RotationContro
   const layers = buildLayerToggles(p);
   const routeAt = layers.findIndex(t => t.key === 'routes');
   const at = routeAt < 0 ? layers.length : routeAt + 1;
-  const toggles = [...layers.slice(0, at), buildBordersToggle(p), ...layers.slice(at)];
+  const toggles = [
+    ...layers.slice(0, at), buildBordersToggle(p), ...layers.slice(at),
+    // Names last: the line/shading layers above are what the strip has always
+    // shown, so appending keeps their positions stable for muscle memory.
+    ...buildLabelToggles(p),
+  ];
 
   return (
     <div className="flex flex-1 flex-nowrap items-end gap-2 min-w-0 overflow-x-auto">

@@ -413,7 +413,19 @@ export const paintVectorOverlay = (
   if (mapLabels.length > 0) {
     ctx.save();
     unmirror(ctx, size);
-    drawMapLabels(ctx, mapLabels, markerProject, s, labelVisibility, { theme: labelTheme, geoGlyphs });
+    // The ambient transform here is `dpr * s` (VectorOverlay.redraw), so the
+    // zoom is ALREADY applied to everything drawn. Passing `s` as the font
+    // scale as well counted it twice and labels grew quadratically with zoom —
+    // the reason 2D label sizing read as "way off". Dividing by `s` gives
+    // constant on-screen text, the same treatment `strokeScale` already gives
+    // line widths and `2.5 / s` gives marker pins. `s` still goes in as the LOD
+    // argument, which is what it is for.
+    drawMapLabels(ctx, mapLabels, markerProject, s, labelVisibility, {
+      fontScale: 1 / s,
+      minFontSize: 8 / s,
+      theme: labelTheme,
+      geoGlyphs,
+    });
     ctx.restore();
   }
 };

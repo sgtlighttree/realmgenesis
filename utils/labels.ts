@@ -284,6 +284,16 @@ export interface DrawLabelsOptions {
   /** Lettering; the app's dark-theme default when omitted. */
   theme?: LabelTheme;
   /**
+   * Smallest font size, in the ctx's CURRENT units. Defaults to 8.
+   *
+   * Exists for callers drawing under a transform that already carries the zoom:
+   * the floor is meant to keep text legible in SCREEN pixels, so under a scaled
+   * transform it has to be divided by that scale like `fontScale` is, or it
+   * clamps every label back up as you zoom in and the sizing stops being
+   * constant. Pass `8 / scale` alongside `fontScale: 1 / scale`.
+   */
+  minFontSize?: number;
+  /**
    * Draw the glyph on GEOGRAPHIC labels (range/desert/forest/water/island).
    * Callers pass `!style.paintsRelief`: A3's relief styles already stamp
    * mountains, trees and dunes across the land, and a range label's glyph would
@@ -350,6 +360,7 @@ export const drawMapLabels = (
   const theme = opts.theme ?? DEFAULT_LABEL_THEME;
   const effectiveFontScale = opts.fontScale ?? Math.min(scale, 2);
   const geoGlyphs = opts.geoGlyphs ?? true;
+  const minFontSize = opts.minFontSize ?? 8;
   const placed: LabelRect[] = [];
 
   ctx.save();
@@ -362,7 +373,7 @@ export const drawMapLabels = (
     const projected = project(label.position);
     if (!projected) continue;
 
-    const fontSize = Math.max(8, config.baseFontSize * effectiveFontScale);
+    const fontSize = Math.max(minFontSize, config.baseFontSize * effectiveFontScale);
     const text = config.uppercase ? label.name.toUpperCase() : label.name;
     const padding = Math.max(4, fontSize * 0.3);
 

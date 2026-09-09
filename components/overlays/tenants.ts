@@ -11,7 +11,7 @@ import { BorderSegment } from '../../utils/borders';
 import { LabelAnchor } from '../../utils/labelAnchors';
 import { MapLabel, drawMapLabels } from '../../utils/labels';
 import {
-  GLOBE_MAX_CAM_DIST, GLOBE_MIN_CAM_DIST, HAMLET_MARKER_MAX_DIST, VILLAGE_MARKER_MAX_DIST,
+  GLOBE_MAX_CAM_DIST, GLOBE_MIN_CAM_DIST, HAMLET_LABEL_MAX_DIST, VILLAGE_LABEL_MAX_DIST,
 } from '../markerLod';
 import { DEFAULT_LABEL_THEME, LabelTheme } from '../../utils/mapStyle/labelTheme';
 import { DEFAULT_OVERLAY_INK, OverlayInk } from '../../utils/mapStyle/overlayInk';
@@ -573,15 +573,14 @@ const LOD_MID_GEO_KINDS = new Set(['sea', 'range', 'desert', 'forest']);
 // curved one.
 export function passesGlobeLod(label: MapLabel, camDist: number): boolean {
   if (label.kind === 'faction') return false;
-  // Settlement tiers, coarsest-visible first. The village/hamlet cutoffs are
-  // deliberately the SAME constants CityMarkers uses for its 3D markers
-  // (VILLAGE_MARKER_MAX_DIST / HAMLET_MARKER_MAX_DIST in WorldViewer.tsx) so a
-  // settlement's dot and its name appear at the same zoom instead of the name
-  // floating over nothing. Without these cases the three tiers added in Task 5
+  // Settlement tiers, coarsest-visible first. The village/hamlet cutoffs live in
+  // `components/markerLod.ts`; they used to be shared with CityMarkers' 3D pins
+  // so a dot and its name appeared together, and since S40 only capitals draw a
+  // pin, they govern these labels alone. Without these cases the tiers added in Task 5
   // fell through to `return true`, i.e. the DENSEST tiers got the LEAST
   // culling — hundreds of hamlet names drawn at full zoom-out.
-  if (label.kind === 'hamlet') return camDist <= HAMLET_MARKER_MAX_DIST;
-  if (label.kind === 'village') return camDist <= VILLAGE_MARKER_MAX_DIST;
+  if (label.kind === 'hamlet') return camDist <= HAMLET_LABEL_MAX_DIST;
+  if (label.kind === 'village') return camDist <= VILLAGE_LABEL_MAX_DIST;
   if (label.kind === 'town') return camDist <= 2.5;
   if (label.kind === 'province') return camDist <= 3;
   if (label.kind === 'city') return camDist <= 4;

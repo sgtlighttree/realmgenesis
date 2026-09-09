@@ -6,9 +6,7 @@ import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMo
 import { getCellColor } from '../utils/colors';
 import { TIER_MARKER_STYLE, settlementCellsByTier } from '../utils/settlements';
 import { getMapStyle, MapStyleId } from '../utils/mapStyle';
-import {
-  GLOBE_MAX_CAM_DIST, GLOBE_MIN_CAM_DIST, HAMLET_MARKER_MAX_DIST, VILLAGE_MARKER_MAX_DIST,
-} from './markerLod';
+import { GLOBE_MAX_CAM_DIST, GLOBE_MIN_CAM_DIST } from './markerLod';
 import { bakeStyleTexture, buildGlobeDirs } from '../utils/mapStyle/bakeTexture';
 import { createStyleTexture, createStyledGlobeMaterial } from '../utils/mapStyle/globeMaterial';
 import { useLabelFonts } from '../utils/mapStyle/useLabelFonts';
@@ -81,17 +79,13 @@ const CaptureFrame: React.FC<{
 // Plate widening used to close the seams between cells of differing height.
 // 1 = untouched (seams visible, the pre-existing look).
 
-// Camera-distance cutoffs and the camera's own range now live in
-// `components/markerLod.ts`, shared with `passesGlobeLod` so a settlement's dot
-// and its name appear at the same zoom. See that file for why they moved, and
-// `tests/globeLodReachable.test.ts` for the reachability invariant.
+// The camera range lives in `components/markerLod.ts` alongside the per-tier
+// label cutoffs `passesGlobeLod` uses. Only CAPITALS still draw a 3D pin here
+// (S40), so the village/hamlet marker cutoffs in that file now govern their
+// LABELS alone — which is why they stayed there rather than moving back.
 
 const CityMarkers: React.FC<{ world: WorldData; smoothGlobe?: boolean }> = ({ world, smoothGlobe = false }) => {
     const capitalRef = useRef<THREE.InstancedMesh>(null);
-    const cityRef = useRef<THREE.InstancedMesh>(null);
-    const townRef = useRef<THREE.InstancedMesh>(null);
-    const villageRef = useRef<THREE.InstancedMesh>(null);
-    const hamletRef = useRef<THREE.InstancedMesh>(null);
     const dummy = useMemo(() => new THREE.Object3D(), []);
 
     const byTier = useMemo(() => settlementCellsByTier(world), [world]);
@@ -116,20 +110,7 @@ const CityMarkers: React.FC<{ world: WorldData; smoothGlobe?: boolean }> = ({ wo
             mesh.instanceMatrix.needsUpdate = true;
         };
         if (capitalRef.current) updateMesh(capitalRef.current, byTier.capital, TIER_MARKER_STYLE.capital.height);
-        if (cityRef.current) updateMesh(cityRef.current, byTier.city, TIER_MARKER_STYLE.city.height);
-        if (townRef.current) updateMesh(townRef.current, byTier.town, TIER_MARKER_STYLE.town.height);
-        if (villageRef.current) updateMesh(villageRef.current, byTier.village, TIER_MARKER_STYLE.village.height);
-        if (hamletRef.current) updateMesh(hamletRef.current, byTier.hamlet, TIER_MARKER_STYLE.hamlet.height);
     }, [world, byTier, dummy, smoothGlobe]);
-
-    // Village/hamlet visibility is a camera-distance LOD, re-checked every frame
-    // rather than via the JSX `visible` prop. Allocation-free: only numeric
-    // reads/compares, no object creation, per this file's useFrame convention.
-    useFrame(({ camera }) => {
-        const camDist = camera.position.length();
-        if (villageRef.current) villageRef.current.visible = camDist <= VILLAGE_MARKER_MAX_DIST;
-        if (hamletRef.current) hamletRef.current.visible = camDist <= HAMLET_MARKER_MAX_DIST;
-    });
 
     return (
         <>
@@ -139,35 +120,19 @@ const CityMarkers: React.FC<{ world: WorldData; smoothGlobe?: boolean }> = ({ wo
                     <MeshBasicMaterial color={TIER_MARKER_STYLE.capital.color} toneMapped={false} />
                 </InstancedMesh>
             )}
-            {/* Every tier renders in EVERY view (Matt's call, S39). A settlement
-                is a landmark whatever the fill encodes, and the political-only
-                gate meant the default Biome globe showed capitals alone — so
-                zooming in revealed nothing and Settlement Density looked inert.
-                Clutter is handled by the camDist LOD below, not by view mode. */}
-            {byTier.city.length > 0 && (
-                <InstancedMesh ref={cityRef} args={[undefined, undefined, byTier.city.length]} visible={true}>
-                    <CylinderGeometry args={[TIER_MARKER_STYLE.city.radius, TIER_MARKER_STYLE.city.radius, TIER_MARKER_STYLE.city.height, TIER_MARKER_STYLE.city.segments]} />
-                    <MeshBasicMaterial color={TIER_MARKER_STYLE.city.color} toneMapped={false} />
+            {byTier.capital.length > 0 && (
+                <InstancedMesh ref={capitalRef} args={[undefined, undefined, byTier.capital.length]} visible={true}>
+                    <CylinderGeometry args={[TIER_MARKER_STYLE.capital.radius, TIER_MARKER_STYLE.capital.radius, TIER_MARKER_STYLE.capital.height, TIER_MARKER_STYLE.capital.segments]} />
+                    <MeshBasicMaterial color={TIER_MARKER_STYLE.capital.color} toneMapped={false} />
                 </InstancedMesh>
             )}
-            {byTier.town.length > 0 && (
-                <InstancedMesh ref={townRef} args={[undefined, undefined, byTier.town.length]} visible={true}>
-                    <CylinderGeometry args={[TIER_MARKER_STYLE.town.radius, TIER_MARKER_STYLE.town.radius, TIER_MARKER_STYLE.town.height, TIER_MARKER_STYLE.town.segments]} />
-                    <MeshBasicMaterial color={TIER_MARKER_STYLE.town.color} toneMapped={false} />
-                </InstancedMesh>
-            )}
-            {byTier.village.length > 0 && (
-                <InstancedMesh ref={villageRef} args={[undefined, undefined, byTier.village.length]} visible={false}>
-                    <CylinderGeometry args={[TIER_MARKER_STYLE.village.radius, TIER_MARKER_STYLE.village.radius, TIER_MARKER_STYLE.village.height, TIER_MARKER_STYLE.village.segments]} />
-                    <MeshBasicMaterial color={TIER_MARKER_STYLE.village.color} toneMapped={false} />
-                </InstancedMesh>
-            )}
-            {byTier.hamlet.length > 0 && (
-                <InstancedMesh ref={hamletRef} args={[undefined, undefined, byTier.hamlet.length]} visible={false}>
-                    <CylinderGeometry args={[TIER_MARKER_STYLE.hamlet.radius, TIER_MARKER_STYLE.hamlet.radius, TIER_MARKER_STYLE.hamlet.height, TIER_MARKER_STYLE.hamlet.segments]} />
-                    <MeshBasicMaterial color={TIER_MARKER_STYLE.hamlet.color} toneMapped={false} />
-                </InstancedMesh>
-            )}
+            {/* Only CAPITALS get a 3D pin (Matt's call, S40). The other tiers
+                were a field of white posts standing over their own labels — the
+                label already carries a tier glyph, so the pin was redundant
+                geometry that hid the map it marks. Their names still respond to
+                Settlement Density and to the camDist LOD; only the posts are
+                gone. TIER_MARKER_STYLE keeps its non-capital entries: exportGLB
+                and the 2D marker pass still read them. */}
         </>
     );
 };

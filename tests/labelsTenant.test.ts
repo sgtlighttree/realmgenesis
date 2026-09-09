@@ -6,7 +6,7 @@ import { MapLabel } from '../utils/labels';
 import { Cell, DEFAULT_LABEL_VISIBILITY } from '../types';
 import { makeFakeCtx, makeProjector } from './helpers/overlayCanvas';
 import {
-  GLOBE_MAX_CAM_DIST, GLOBE_MIN_CAM_DIST, HAMLET_MARKER_MAX_DIST, VILLAGE_MARKER_MAX_DIST,
+  GLOBE_MAX_CAM_DIST, GLOBE_MIN_CAM_DIST, HAMLET_LABEL_MAX_DIST, VILLAGE_LABEL_MAX_DIST,
 } from '../components/markerLod';
 
 // `marker` is used as the default test kind: its globe-LOD gate
@@ -139,10 +139,10 @@ describe('labels overlay tenant', () => {
       // Fully zoomed in: every tier survives (proves the assertions below are
       // culling, not a projector/visibility artefact).
       expect(drawnAt(GLOBE_MIN_CAM_DIST).sort()).toEqual(['Cap', 'City', 'Ham', 'Town', 'Vil']);
-      expect(drawnAt(HAMLET_MARKER_MAX_DIST + EPS)).not.toContain('Ham');
-      expect(drawnAt(HAMLET_MARKER_MAX_DIST + EPS)).toContain('Vil');
-      expect(drawnAt(VILLAGE_MARKER_MAX_DIST + EPS)).not.toContain('Vil');
-      expect(drawnAt(VILLAGE_MARKER_MAX_DIST + EPS)).toContain('Town');
+      expect(drawnAt(HAMLET_LABEL_MAX_DIST + EPS)).not.toContain('Ham');
+      expect(drawnAt(HAMLET_LABEL_MAX_DIST + EPS)).toContain('Vil');
+      expect(drawnAt(VILLAGE_LABEL_MAX_DIST + EPS)).not.toContain('Vil');
+      expect(drawnAt(VILLAGE_LABEL_MAX_DIST + EPS)).toContain('Town');
       expect(drawnAt(2.5 + EPS)).not.toContain('Town');
       expect(drawnAt(2.5 + EPS)).toContain('City');
       expect(drawnAt(GLOBE_MAX_CAM_DIST)).toEqual(['Cap']);
