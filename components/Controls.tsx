@@ -1262,7 +1262,7 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                   className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>
-              <div className="space-y-1" title="How many settlements each realm plants. Higher = a denser, more populated-looking map.">
+              <div className="space-y-1" title="How many settlements each realm plants. Higher = a denser, more populated-looking map. 0 is a deliberate capitals-only mode: with one settlement per realm there is only one province seed, so Province Size has no effect.">
                 <div className="flex justify-between text-xs text-ink-muted">
                   <label>Settlement Density</label>
                   <span>{(params.settlementDensity ?? 1.0).toFixed(1)}</span>

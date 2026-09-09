@@ -1437,6 +1437,10 @@ export function recalculateProvinces(world: WorldData, params: WorldParams): Wor
         const factionSettlements = civData.settlements.filter(s => s.factionId === faction.id);
         // A faction can't have more provinces than it has settlements to seed them
         // — but it always gets at least one, see the seedCells fallback below.
+        // Consequence, accepted deliberately (S36 finding 4, Matt's call): at
+        // settlementDensity 0 each faction plants exactly one settlement, so this
+        // min() pins numProvinces to 1 and `provinceSize` stops mattering. That is
+        // "capitals only" mode, not a bug — the density slider's tooltip says so.
         const numProvinces = Math.min(
             Math.max(1, Math.ceil(landCells.length / targetSize)),
             Math.max(1, factionSettlements.length),
