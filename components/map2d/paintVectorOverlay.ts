@@ -71,6 +71,12 @@ export interface PaintVectorOverlayParams {
   mapLabels: MapLabel[];
   labelVisibility: LabelVisibility;
   labelTheme: LabelTheme;
+  /**
+   * False when the active style paints its own relief glyphs, which suppresses
+   * the GEOGRAPHIC label glyphs so a range label does not set a second mountain
+   * beside one the style already drew. See `DrawLabelsOptions.geoGlyphs`.
+   */
+  geoGlyphs: boolean;
   overlayInk: OverlayInk;
   /**
    * Coastline/lake-outline stroke colour. `OverlayInk` (rivers/borders/roads/
@@ -293,7 +299,7 @@ export const paintVectorOverlay = (
 ): void => {
   const {
     world, projection, size, toggles, boundaryPaths, contourSegments,
-    mapLabels, labelVisibility, labelTheme, overlayInk, coastColor, strokeScale,
+    mapLabels, labelVisibility, labelTheme, geoGlyphs, overlayInk, coastColor, strokeScale,
     rulerArc, highlightPath, cellOutlinePath,
   } = params;
   const s = strokeScale > 0 ? strokeScale : 1;
@@ -407,7 +413,7 @@ export const paintVectorOverlay = (
   if (mapLabels.length > 0) {
     ctx.save();
     unmirror(ctx, size);
-    drawMapLabels(ctx, mapLabels, markerProject, s, labelVisibility, { theme: labelTheme });
+    drawMapLabels(ctx, mapLabels, markerProject, s, labelVisibility, { theme: labelTheme, geoGlyphs });
     ctx.restore();
   }
 };

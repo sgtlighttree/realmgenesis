@@ -361,7 +361,12 @@ const exportDymaxionRaster = (
       },
       2.5,
       labelVisibility,
-      { fontScale: width / 1024, theme: getMapStyle(mapStyleId).labelTheme },
+      {
+        fontScale: width / 1024,
+        theme: getMapStyle(mapStyleId).labelTheme,
+        // A relief style already stamps mountains/trees/dunes on the land.
+        geoGlyphs: !getMapStyle(mapStyleId).paintsRelief,
+      },
     );
   }
 
@@ -514,7 +519,12 @@ export const exportMap = async (
       },
       2.5,
       labelVisibility,
-      { fontScale: width / 1024, theme: getMapStyle(mapStyleId).labelTheme },
+      {
+        fontScale: width / 1024,
+        theme: getMapStyle(mapStyleId).labelTheme,
+        // A relief style already stamps mountains/trees/dunes on the land.
+        geoGlyphs: !getMapStyle(mapStyleId).paintsRelief,
+      },
     );
   }
 

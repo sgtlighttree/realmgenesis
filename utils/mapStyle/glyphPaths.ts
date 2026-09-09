@@ -12,15 +12,18 @@ import { GlyphKind, PlacedGlyph } from './types';
  * apex toward -y — then rotated by `seedRot`, scaled and translated.
  */
 
-type UnitPoint = [number, number];
-type UnitSubpath = UnitPoint[];
+// Exported: `utils/labelGlyphs.ts` builds label-scale symbols on the same
+// convention and REFERENCES the shapes below rather than redrawing them. One
+// mountain in the codebase, not two that drift.
+export type UnitPoint = [number, number];
+export type UnitSubpath = UnitPoint[];
 
-const MOUNTAIN: UnitSubpath[] = [
+export const MOUNTAIN: UnitSubpath[] = [
   [[-1, 0], [-0.35, -1], [0, -0.45], [0.35, -1], [1, 0]],
   [[-0.35, -1], [-0.12, -0.62], [0.06, -0.78]], // snow/shading flick
 ];
 
-const HILL: UnitSubpath[] = [
+export const HILL: UnitSubpath[] = [
   [[-1, 0], [-0.55, -0.55], [0, -0.7], [0.55, -0.55], [1, 0]],
 ];
 
@@ -29,30 +32,30 @@ const HILL: UnitSubpath[] = [
  * MOUNTAIN (apex -0.7 rather than -1) so the plume has room inside the unit box
  * and the silhouette still reads as a different thing at glyph size.
  */
-const VOLCANO: UnitSubpath[] = [
+export const VOLCANO: UnitSubpath[] = [
   [[-1, 0], [-0.34, -0.7], [-0.14, -0.55], [0.14, -0.55], [0.34, -0.7], [1, 0]],
   [[-0.1, -0.8], [0.1, -0.9], [-0.05, -1]], // smoke curl
 ];
 
-const FOREST: UnitSubpath[] = [
+export const FOREST: UnitSubpath[] = [
   [[-0.55, 0], [-0.55, -0.4]],
   [[-0.9, -0.4], [-0.55, -0.95], [-0.2, -0.4]],
   [[0.55, 0], [0.55, -0.35]],
   [[0.2, -0.35], [0.55, -0.85], [0.9, -0.35]],
 ];
 
-const CONIFER: UnitSubpath[] = [
+export const CONIFER: UnitSubpath[] = [
   [[0, 0], [0, -0.35]],
   [[-0.6, -0.3], [0, -1], [0.6, -0.3]],
   [[-0.42, -0.62], [0, -1], [0.42, -0.62]],
 ];
 
-const DUNE: UnitSubpath[] = [
+export const DUNE: UnitSubpath[] = [
   [[-1, 0], [-0.4, -0.42], [0.35, -0.15], [1, -0.32]],
   [[-0.6, 0.28], [0.1, 0.05], [0.85, 0.22]],
 ];
 
-const MARSH: UnitSubpath[] = [
+export const MARSH: UnitSubpath[] = [
   [[-0.8, 0], [0.8, 0]],
   [[-0.45, -0.1], [-0.45, -0.75]],
   [[0.05, -0.1], [0.05, -0.9]],
@@ -60,7 +63,7 @@ const MARSH: UnitSubpath[] = [
 ];
 
 // Angular floe shards, not a rounded form: ice reads as fracture on a drawn map.
-const ICE: UnitSubpath[] = [
+export const ICE: UnitSubpath[] = [
   [[-0.9, 0], [-0.45, -0.5], [0.05, -0.15], [0.5, -0.6], [0.95, -0.1]],
   [[-0.6, 0.3], [-0.2, 0.02], [0.25, 0.32]],
 ];

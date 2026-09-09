@@ -70,4 +70,5 @@ export const styleParchment: MapStyle = {
     coastlinePass(PARCHMENT_PALETTE),
     glyphPass(PARCHMENT_PALETTE),
   ],
+  paintsRelief: true,
 };

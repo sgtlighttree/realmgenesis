@@ -1,6 +1,7 @@
 import { WorldData, Cell, LabelVisibility, GeoFeature } from '../types';
 import { normalizeVec, Point3 } from './geo';
 import { DEFAULT_LABEL_THEME, LabelTheme } from './mapStyle/labelTheme';
+import { LabelGlyphKind, labelGlyphMetrics, strokeLabelGlyph } from './labelGlyphs';
 
 export type LabelKind =
   | 'faction' | 'capital' | 'town' | 'province'
@@ -34,28 +35,38 @@ export interface LabelStyleConfig {
   face?: 'display' | 'geo';
   /** Water names take the theme's `waterInk` and run apart from land names. */
   water?: boolean;
+  /**
+   * Symbol drawn to the left of the name, so the kind is readable before the
+   * name is. Optional: territory (`faction`, `province`) has no single point to
+   * symbolise, and `marker` already carries its own C4 pin.
+   *
+   * Lives on this table rather than in a side map because `exportVector.ts`
+   * mirrors LABEL_CONFIG to build the SVG label pass — a second table is a
+   * second thing to forget.
+   */
+  glyph?: LabelGlyphKind;
 }
 
 // Exported so vector exporters (SVG/GeoJSON) can mirror the exact per-kind
 // styling used by the canvas label pass instead of duplicating the table.
 export const LABEL_CONFIG: Record<LabelKind, LabelStyleConfig> = {
   faction: { fontWeight: 700, baseFontSize: 14, alpha: 1.0, uppercase: true, visibilityKey: 'factions', face: 'display' },
-  capital: { fontWeight: 700, baseFontSize: 11, alpha: 0.95, uppercase: false, visibilityKey: 'capitals', face: 'display' },
+  capital: { fontWeight: 700, baseFontSize: 11, alpha: 0.95, uppercase: false, visibilityKey: 'capitals', face: 'display', glyph: 'capital' },
   province: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'provinces', face: 'display' },
-  town: { fontWeight: 400, baseFontSize: 9, alpha: 0.75, uppercase: false, visibilityKey: 'towns', face: 'display' },
-  city: { fontWeight: 600, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'cities', face: 'display' },
-  village: { fontWeight: 400, baseFontSize: 8, alpha: 0.7, uppercase: false, visibilityKey: 'villages', face: 'display' },
-  hamlet: { fontWeight: 400, baseFontSize: 7, alpha: 0.65, uppercase: false, visibilityKey: 'hamlets', face: 'display' },
+  town: { fontWeight: 400, baseFontSize: 9, alpha: 0.75, uppercase: false, visibilityKey: 'towns', face: 'display', glyph: 'town' },
+  city: { fontWeight: 600, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'cities', face: 'display', glyph: 'city' },
+  village: { fontWeight: 400, baseFontSize: 8, alpha: 0.7, uppercase: false, visibilityKey: 'villages', face: 'display', glyph: 'village' },
+  hamlet: { fontWeight: 400, baseFontSize: 7, alpha: 0.65, uppercase: false, visibilityKey: 'hamlets', face: 'display', glyph: 'hamlet' },
   // Geographic features (B3) — one shared visibility toggle. Water kinds italic.
-  ocean: { fontWeight: 400, baseFontSize: 13, alpha: 0.9, uppercase: false, visibilityKey: 'geography', italic: true, face: 'geo', water: true },
-  sea: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography', italic: true, face: 'geo', water: true },
-  lake: { fontWeight: 400, baseFontSize: 9, alpha: 0.8, uppercase: false, visibilityKey: 'geography', italic: true, face: 'geo', water: true },
+  ocean: { fontWeight: 400, baseFontSize: 13, alpha: 0.9, uppercase: false, visibilityKey: 'geography', italic: true, face: 'geo', water: true, glyph: 'waves' },
+  sea: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography', italic: true, face: 'geo', water: true, glyph: 'waves' },
+  lake: { fontWeight: 400, baseFontSize: 9, alpha: 0.8, uppercase: false, visibilityKey: 'geography', italic: true, face: 'geo', water: true, glyph: 'lake' },
   // Land geography stays ROMAN. Italic is the water convention; setting the
   // mountains in it too throws away the one distinction it buys.
-  range: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography', face: 'geo' },
-  desert: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography', face: 'geo' },
-  forest: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography', face: 'geo' },
-  island: { fontWeight: 400, baseFontSize: 9, alpha: 0.8, uppercase: false, visibilityKey: 'geography', face: 'geo' },
+  range: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography', face: 'geo', glyph: 'mountain' },
+  desert: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography', face: 'geo', glyph: 'dune' },
+  forest: { fontWeight: 400, baseFontSize: 10, alpha: 0.85, uppercase: false, visibilityKey: 'geography', face: 'geo', glyph: 'trees' },
+  island: { fontWeight: 400, baseFontSize: 9, alpha: 0.8, uppercase: false, visibilityKey: 'geography', face: 'geo', glyph: 'island' },
   marker: { fontWeight: 600, baseFontSize: 10, alpha: 0.95, uppercase: false, visibilityKey: 'markers', face: 'display' },
 };
 
@@ -260,7 +271,51 @@ export interface DrawLabelsOptions {
   fontScale?: number;
   /** Lettering; the app's dark-theme default when omitted. */
   theme?: LabelTheme;
+  /**
+   * Draw the glyph on GEOGRAPHIC labels (range/desert/forest/water/island).
+   * Callers pass `!style.paintsRelief`: A3's relief styles already stamp
+   * mountains, trees and dunes across the land, and a range label's glyph would
+   * land a second mountain next to one of theirs. Settlement glyphs are never
+   * suppressed — no style paints towns. Defaults to true.
+   */
+  geoGlyphs?: boolean;
 }
+
+/**
+ * Glyph size as a fraction of the label's font size, and the gap between glyph
+ * and name. Tied to `fontSize` rather than to the caller's `scale`, which is a
+ * sentinel on the globe path (`LABEL_SCALE_LOD_OFF`).
+ */
+export const GLYPH_SIZE_FACTOR = 0.95;
+export const GLYPH_GAP_EM = 0.25;
+
+/**
+ * Where the glyph sits relative to the name, as offsets from the label anchor.
+ * Both are pure HEIGHT arithmetic, deliberately: `exportVector.ts` builds the
+ * SVG label pass with no DOM and therefore no `measureText`, so any layout that
+ * needed the text WIDTH — a glyph to the left of the name, say — could not be
+ * reproduced there and the vector map would drift from the raster. Stacking the
+ * glyph above the name keeps one layout for both substrates, and symbol-above-
+ * name is the ordinary convention for point features anyway.
+ */
+export const glyphLayout = (
+  fontSize: number,
+  glyph: LabelGlyphKind,
+): { glyphSize: number; glyphDy: number; textDy: number; width: number; height: number } => {
+  const glyphSize = fontSize * GLYPH_SIZE_FACTOR;
+  const metrics = labelGlyphMetrics(glyph);
+  const glyphH = metrics.height * glyphSize;
+  const gap = Math.max(2, fontSize * GLYPH_GAP_EM);
+  const textHeight = fontSize * 1.2;
+  const unionH = glyphH + gap + textHeight;
+  return {
+    glyphSize,
+    glyphDy: -unionH / 2 + glyphH / 2,
+    textDy: unionH / 2 - textHeight / 2,
+    width: metrics.width * glyphSize,
+    height: unionH,
+  };
+};
 
 export const drawMapLabels = (
   ctx: CanvasRenderingContext2D,
@@ -274,6 +329,7 @@ export const drawMapLabels = (
 
   const theme = opts.theme ?? DEFAULT_LABEL_THEME;
   const effectiveFontScale = opts.fontScale ?? Math.min(scale, 2);
+  const geoGlyphs = opts.geoGlyphs ?? true;
   const placed: LabelRect[] = [];
 
   ctx.save();
@@ -290,6 +346,9 @@ export const drawMapLabels = (
     const text = config.uppercase ? label.name.toUpperCase() : label.name;
     const padding = Math.max(4, fontSize * 0.3);
 
+    const glyph = config.glyph && (geoGlyphs || config.face !== 'geo')
+      ? config.glyph : undefined;
+
     const style = config.italic ? 'italic ' : '';
     const family = config.face === 'geo' ? theme.geoFamily : theme.displayFamily;
     ctx.font = `${style}${config.fontWeight} ${fontSize}px ${family}`;
@@ -305,11 +364,20 @@ export const drawMapLabels = (
     const textWidth = ctx.measureText(text).width;
     const textHeight = fontSize * 1.2;
 
+    // The glyph is laid out INSIDE the declutter rectangle, not beside it. A
+    // rectangle sized from text metrics alone would let the glyph overlap the
+    // neighbouring label while the declutterer saw no collision — it never
+    // measured the glyph, so the overlap is invisible to it.
+    const layout = glyph ? glyphLayout(fontSize, glyph) : null;
+    const totalWidth = Math.max(textWidth, layout ? layout.width : 0);
+    const totalHeight = layout ? layout.height : textHeight;
+    const textY = projected[1] + (layout ? layout.textDy : 0);
+
     const rect: LabelRect = {
-      x: projected[0] - textWidth / 2 - padding,
-      y: projected[1] - textHeight / 2 - padding,
-      w: textWidth + padding * 2,
-      h: textHeight + padding * 2,
+      x: projected[0] - totalWidth / 2 - padding,
+      y: projected[1] - totalHeight / 2 - padding,
+      w: totalWidth + padding * 2,
+      h: totalHeight + padding * 2,
     };
 
     if (placed.some(r => rectsOverlap(rect, r))) continue;
@@ -323,8 +391,21 @@ export const drawMapLabels = (
     ctx.fillStyle = config.fill
       ?? (label.kind === 'marker' ? theme.markerInk : config.water ? theme.waterInk : theme.ink);
     ctx.globalAlpha = config.alpha;
-    ctx.strokeText(text, projected[0], projected[1]);
-    ctx.fillText(text, projected[0], projected[1]);
+    if (layout && glyph) {
+      const glyphY = projected[1] + layout.glyphDy;
+      // Halo first at the text's own halo width, then the mark itself in the
+      // label's ink, so glyph and name read as one object over any fill.
+      strokeLabelGlyph(ctx, glyph, projected[0], glyphY, layout.glyphSize);
+      ctx.strokeStyle = ctx.fillStyle;
+      ctx.lineWidth = Math.max(1, fontSize * 0.09);
+      strokeLabelGlyph(ctx, glyph, projected[0], glyphY, layout.glyphSize);
+      // Restored for the text below, which reuses both.
+      ctx.strokeStyle = theme.halo;
+      ctx.lineWidth = Math.max(3, fontSize * theme.haloScale);
+    }
+
+    ctx.strokeText(text, projected[0], textY);
+    ctx.fillText(text, projected[0], textY);
   }
 
   ctx.restore();

@@ -689,7 +689,7 @@ const Map2D: React.FC<{
         dymaxionMarkerProject,
         renderDpr,
         labelVisibility,
-        { theme: labelTheme },
+        { theme: labelTheme, geoGlyphs: !style.paintsRelief },
       );
 
       // Ruler arc: projected per-sample (not baked into the source equirect
@@ -911,7 +911,7 @@ const Map2D: React.FC<{
         // LOD tracks settled zoom without redrawing every cell per wheel tick.
         scaleRef.current,
         labelVisibility,
-        { theme: labelTheme },
+        { theme: labelTheme, geoGlyphs: !style.paintsRelief },
       );
       ctx.restore();
     }
@@ -1388,6 +1388,7 @@ const Map2D: React.FC<{
             mapLabels={mapLabels}
             labelVisibility={labelVisibility}
             labelTheme={labelTheme}
+            geoGlyphs={!style.paintsRelief}
             overlayInk={overlayInk}
             coastColor={style.palette.coast}
             toggles={{ showGrid, showRivers, showRoutes, showCurrents }}

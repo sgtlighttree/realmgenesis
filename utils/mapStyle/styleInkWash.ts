@@ -77,4 +77,5 @@ export const styleInkWash: MapStyle = {
     coastlinePass(INKWASH_PALETTE),
     glyphPass(INKWASH_PALETTE),
   ],
+  paintsRelief: true,
 };

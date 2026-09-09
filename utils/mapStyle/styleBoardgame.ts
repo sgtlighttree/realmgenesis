@@ -74,4 +74,5 @@ export const styleBoardgame: MapStyle = {
     coastlinePass(BOARDGAME_PALETTE, 2),
     glyphPass(BOARDGAME_PALETTE),
   ],
+  paintsRelief: true,
 };
