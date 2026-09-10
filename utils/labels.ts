@@ -316,6 +316,14 @@ export interface DrawLabelsOptions {
  * working zoom. The gap is nearly free — `max(2, ...)` floors it at every font
  * size the app actually uses — so size is the only real lever here.
  */
+/**
+ * Stroke floors as fractions of `minFontSize`, chosen so that at the default
+ * `minFontSize` of 8 they reproduce the previous literals exactly (8 * 0.375 = 3,
+ * 8 * 0.125 = 1) while scaling correctly for callers under a zoomed transform.
+ */
+const HALO_FLOOR_EM = 0.375;
+const GLYPH_STROKE_FLOOR_EM = 0.125;
+
 export const GLYPH_SIZE_FACTOR = 0.7;
 export const GLYPH_GAP_EM = 0.15;
 
@@ -417,7 +425,15 @@ export const drawMapLabels = (
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.lineJoin = 'round';
-    ctx.lineWidth = Math.max(3, fontSize * theme.haloScale);
+    // Floors derive from `minFontSize` rather than being bare constants: they
+    // are minimum SCREEN widths, and a caller drawing under a transform that
+    // carries the zoom passes `minFontSize: 8 / scale`. Written as `3` and `1`
+    // they pinned under that transform and the halo rendered at `3 * scale` —
+    // 16px of black around 2.5px of text at full zoom. `minFontSize` defaults
+    // to 8, so `8 * HALO_FLOOR_EM` is exactly the old `3` for every existing
+    // caller. See components/map2d/strokeWidths.ts for the same bug in the
+    // overlay's line widths.
+    ctx.lineWidth = Math.max(minFontSize * HALO_FLOOR_EM, fontSize * theme.haloScale);
     ctx.strokeStyle = theme.halo;
     ctx.fillStyle = config.fill
       ?? (label.kind === 'marker' ? theme.markerInk : config.water ? theme.waterInk : theme.ink);
@@ -432,13 +448,13 @@ export const drawMapLabels = (
       // label's ink, so glyph and name read as one object over any fill.
       strokeLabelGlyph(ctx, glyph, projected[0], glyphY, layout.glyphSize);
       ctx.strokeStyle = ctx.fillStyle;
-      ctx.lineWidth = Math.max(1, fontSize * 0.09);
+      ctx.lineWidth = Math.max(minFontSize * GLYPH_STROKE_FLOOR_EM, fontSize * 0.09);
       strokeLabelGlyph(ctx, glyph, projected[0], glyphY, layout.glyphSize);
       // Restored for the text below. `save`/`restore` wraps the whole loop, not
       // each label, so anything left set here leaks into every later label too.
       ctx.lineCap = 'butt';
       ctx.strokeStyle = theme.halo;
-      ctx.lineWidth = Math.max(3, fontSize * theme.haloScale);
+      ctx.lineWidth = Math.max(minFontSize * HALO_FLOOR_EM, fontSize * theme.haloScale);
     }
 
     ctx.strokeText(text, projected[0], textY);

@@ -14,14 +14,25 @@ export function drawCurrents2D(
   ctx: CanvasRenderingContext2D,
   world: WorldData,
   projection: (lonlat: [number, number]) => [number, number] | null,
-  dpr: number,
+  /**
+   * Divisor for line widths, in whatever unit the caller's ctx transform
+   * carries: `qualityDpr` on Map2D's blit path, the zoom `scale` on the GL
+   * vector path. Named for the job, not for one caller's value.
+   */
+  widthDivisor: number,
 ): void {
   const cur = world.currents;
   if (!cur) return;
   const cells = world.cells;
   const sea = world.params.seaLevel;
-  ctx.lineWidth = Math.max(0.6, 1.1 / dpr);
-  const headR = Math.max(1, 1.3 / dpr);
+  // No floor. A floor here is in TRANSFORMED units while it reads as a screen
+  // minimum, so once the divisor grows past the base width it pins the value
+  // and the on-screen weight climbs with the divisor instead of holding — the
+  // same defect the coastline had (see map2d/strokeWidths.ts). Dividing alone
+  // gives a constant 1.1 / 1.3 screen px on BOTH call paths.
+  const d = widthDivisor > 0 ? widthDivisor : 1;
+  ctx.lineWidth = 1.1 / d;
+  const headR = 1.3 / d;
 
   for (let i = 0; i < cells.length; i++) {
     if (cells[i].height >= sea) continue; // ocean only

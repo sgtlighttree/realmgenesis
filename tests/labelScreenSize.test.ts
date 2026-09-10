@@ -7,7 +7,7 @@ import { makeFakeCtx } from './helpers/overlayCanvas';
 const label = (kind: MapLabel['kind'], name = 'Aa'): MapLabel => ({
   kind, name, position: { x: 1, y: 0, z: 0 }, priority: 1,
 });
-const project = (): [number, number] => [400, 300];
+const project = (_p: { x: number; y: number; z: number }): [number, number] => [400, 300];
 const VIS = { ...DEFAULT_LABEL_VISIBILITY, factions: true, capitals: true };
 
 const fontPx = (opts: object, scale: number, kind: MapLabel['kind'] = 'faction'): number => {
@@ -55,5 +55,45 @@ describe('label size under a scaled transform', () => {
 
   it('still honours an explicit fontScale on its own (export path)', () => {
     expect(fontPx({ fontScale: 2 }, 1)).toBe(28);
+  });
+});
+
+// The halo and the glyph stroke had the SAME floor-in-the-wrong-unit defect as
+// the font size: `Math.max(3, ...)` and `Math.max(1, ...)` are transformed
+// units, so under a scaled transform they pinned and the halo rendered at
+// `3 * scale` — 16px of black around 2.5px of text at full zoom, which is the
+// fat blob behind every name. Floors now derive from `minFontSize`, which the
+// caller already expresses in the right unit.
+describe('halo and glyph stroke widths', () => {
+  const widths = (opts: object, scale: number): number[] => {
+    const ctx = makeFakeCtx();
+    const seen: number[] = [];
+    const origStroke = ctx.stroke;
+    const origStrokeText = ctx.strokeText;
+    (ctx as unknown as { stroke: typeof origStroke }).stroke = function () {
+      seen.push(ctx.lineWidth); return (origStroke as () => void).call(ctx);
+    };
+    (ctx as unknown as { strokeText: typeof origStrokeText }).strokeText = function (t: string, x: number, y: number) {
+      seen.push(ctx.lineWidth); return origStrokeText.call(ctx, t, x, y);
+    };
+    drawMapLabels(ctx, [label('capital')], project, scale, VIS, opts);
+    return seen;
+  };
+
+  it('holds every label stroke at a constant on-screen width across zoom', () => {
+    const at = (scale: number) =>
+      widths({ fontScale: 1 / scale, minFontSize: 8 / scale }, scale).map(w => +(w * scale).toFixed(4));
+    const base = at(1);
+    expect(base.length).toBeGreaterThan(0);
+    for (const scale of [2, 4, 6]) {
+      expect(at(scale), `scale ${scale}`).toEqual(base);
+    }
+  });
+
+  it('leaves the default (unscaled) callers byte-identical', () => {
+    // capital at scale 1: fontSize 11. Halo max(3, 11*haloScale); glyph max(1, 0.99).
+    const w = widths({}, 1);
+    expect(w.some(x => x >= 3)).toBe(true);
+    expect(Math.min(...w)).toBeCloseTo(1, 6);
   });
 });
