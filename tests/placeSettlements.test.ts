@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { generateWorld, isLakeCell } from '../utils/worldGen';
-import { placeSettlements } from '../utils/settlements';
+import { placeSettlements, settlementScore } from '../utils/settlements';
 import { makeParams } from './helpers';
 import { WorldData } from '../types';
 
@@ -133,22 +133,53 @@ describe('placeSettlements', () => {
     placeSettlements(w, w.params);
     const settlements = w.civData!.settlements;
 
+    // What this guards (spec §Risks 1): quota-derived SPACING is what stops the
+    // greedy rank-walk striping the best-scoring biome band. So the test compares
+    // placement against the thing spacing exists to beat — the same number of
+    // cells taken straight off the score ranking — rather than an absolute cap.
+    //
+    // It used to assert `topShare < 0.6`. That only holds while settlements are
+    // sparse: the area-based quota (1b998f6) made them dense, and a faction whose
+    // land is 46% one biome then correctly puts ~62% of its settlements there.
+    // That is tracking the land, not a biome dominating it.
+    //
+    // Distance is total variation between the settlement and land biome mixes,
+    // weighted by settlement count across factions. Measured over 6 seeds:
+    // placement 0.13–0.20, score-only 0.44–0.65; with spacing disabled placement
+    // collapses to >= 0.95 of score-only. The bound is the midpoint.
+    const mix = (biomes: string[]): Map<string, number> => {
+      const m = new Map<string, number>();
+      for (const b of biomes) m.set(b, (m.get(b) || 0) + 1 / biomes.length);
+      return m;
+    };
+    const tvd = (a: Map<string, number>, b: Map<string, number>): number => {
+      let s = 0;
+      for (const k of new Set([...a.keys(), ...b.keys()])) s += Math.abs((a.get(k) || 0) - (b.get(k) || 0));
+      return s / 2;
+    };
+
     let checked = 0;
+    let placedDist = 0;
+    let scoreOnlyDist = 0;
     for (const faction of w.civData!.factions) {
       const factionSettlements = settlements.filter(s => s.factionId === faction.id);
       if (factionSettlements.length < 5) continue; // too small a sample to judge distribution
+      const placed = factionSettlements.map(s => w.cells[s.cellId].biome);
+      if (new Set(placed).size < 3) continue; // guard only applies when the faction spans >=3 biomes
 
-      const biomeCounts = new Map<string, number>();
-      for (const s of factionSettlements) {
-        const biome = w.cells[s.cellId].biome;
-        biomeCounts.set(biome, (biomeCounts.get(biome) || 0) + 1);
-      }
-      if (biomeCounts.size < 3) continue; // guard only applies when the faction spans >=3 biomes
+      const land = w.cells.filter(c =>
+        c.regionId === faction.id && c.height >= w.params.seaLevel && !isLakeCell(c));
+      const scoreOnly = [...land]
+        .sort((a, b) => settlementScore(b, w, w.params) - settlementScore(a, w, w.params))
+        .slice(0, placed.length)
+        .map(c => c.biome);
+      const landMix = mix(land.map(c => c.biome));
 
       checked++;
-      const topShare = Math.max(...biomeCounts.values()) / factionSettlements.length;
-      expect(topShare).toBeLessThan(0.6);
+      placedDist += tvd(mix(placed), landMix) * placed.length;
+      scoreOnlyDist += tvd(mix(scoreOnly), landMix) * placed.length;
     }
+    expect(placedDist).toBeLessThan(scoreOnlyDist / 2);
     // Prove the guard above actually ran against a real faction — without this,
     // an unlucky world where no faction qualifies would pass having asserted
     // nothing about distribution at all.
