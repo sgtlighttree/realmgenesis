@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { drawMapLabels, glyphLayout, MapLabel } from '../utils/labels';
+import { drawMapLabels, glyphLayout, LABEL_CONFIG, LABEL_SIZE_SCALE, MapLabel } from '../utils/labels';
 import { labelGlyphPathData } from '../utils/labelGlyphs';
 import { DEFAULT_LABEL_VISIBILITY } from '../types';
 import { makeFakeCtx } from './helpers/overlayCanvas';
@@ -74,13 +74,22 @@ describe('label glyphs in drawMapLabels', () => {
   // VERTICALLY have non-overlapping text boxes (13.2px + 8 padding = 21.2) but
   // overlapping glyph+text boxes (~10.5 + 2.75 + 13.2 + 8 = 34.4).
   it('reserves the glyph in the declutter rectangle', () => {
-    const glyphed = draw([stacked('capital', 'Aa', 100), stacked('capital', 'Bb', 126)]);
-    expect(glyphed.ops.filter(o => o.op === 'fillText').map(o => o.text)).toEqual(['Aa']);
+    // No magic spacing: find the tightest gap at which the NO-GLYPH control
+    // still fits two labels, then assert the glyph-bearing kind does not fit at
+    // that same gap. That states the invariant — a glyph makes the rectangle
+    // taller — without encoding any font size, so a size change cannot silently
+    // turn this into a test of nothing. (A hardcoded 26px did exactly that when
+    // LABEL_SIZE_SCALE landed.)
+    const bothFit = (kind: MapLabel['kind'], gap: number): boolean =>
+      draw([stacked(kind, 'Aa', 100), stacked(kind, 'Bb', 100 + gap)])
+        .ops.filter(o => o.op === 'fillText').length === 2;
 
-    // Same spacing, no glyph: both fit, proving the rejection above came from
-    // the glyph's height and not from the spacing being too tight anyway.
-    const plain = draw([stacked('faction', 'Aa', 100), stacked('faction', 'Bb', 126)]);
-    expect(plain.ops.filter(o => o.op === 'fillText').map(o => o.text)).toEqual(['AA', 'BB']);
+    let gap = 1;
+    while (gap < 400 && !bothFit('faction', gap)) gap += 1;
+    expect(gap, 'control never fits at any gap').toBeLessThan(400);
+
+    expect(bothFit('faction', gap)).toBe(true);
+    expect(bothFit('capital', gap), 'glyph label fits in the control gap').toBe(false);
   });
 
   // A3's relief styles already paint mountains, trees and dunes across the
@@ -111,8 +120,11 @@ describe('raster/vector glyph parity', () => {
     const anchorY = 100;
     const ctx = draw([label('capital', 'Aa', anchorX)]);
 
-    // capital: baseFontSize 11, effectiveFontScale min(1,2) = 1.
-    const layout = glyphLayout(11, 'capital');
+    // effectiveFontScale is min(1, 2) = 1 at this scale, so the size is just
+    // the config's base times the global multiplier — derived, not written out,
+    // since a hardcoded 11 here silently drifted when LABEL_SIZE_SCALE landed.
+    const fontSize = LABEL_CONFIG.capital.baseFontSize * LABEL_SIZE_SCALE;
+    const layout = glyphLayout(fontSize, 'capital');
     const d = labelGlyphPathData('capital', anchorX, anchorY + layout.glyphDy, layout.glyphSize);
     const svgPoints = d
       .split(/(?=[ML])/)

@@ -80,6 +80,27 @@ export const LABEL_CONFIG: Record<LabelKind, LabelStyleConfig> = {
 export const MAP2D_MIN_SCALE = 0.6;
 export const MAP2D_MAX_SCALE = 6;
 
+/**
+ * Global multiplier on every `baseFontSize`.
+ *
+ * The base sizes were set when labels still grew with zoom, so they were only
+ * ever seen at up to 2x. Now that a label holds a constant on-screen size
+ * (S42), those same numbers are what you read at every zoom, and they came out
+ * small (Matt, S43). One knob rather than 15 edited constants, so the hierarchy
+ * between kinds is preserved exactly and exports/globe scale with the map.
+ */
+export const LABEL_SIZE_SCALE = 1.3;
+
+/**
+ * Finest settlement tier whose zoom threshold `scale` has passed, or null when
+ * even capitals are culled. Powers the map's zoom readout so the LOD ladder is
+ * legible instead of something you infer from what disappeared.
+ */
+export const smallestVisibleTier = (scale: number): LabelKind | null => {
+  const ladder: LabelKind[] = ['hamlet', 'village', 'town', 'city', 'capital'];
+  return ladder.find(k => scale >= ZOOM_THRESHOLDS[k]) ?? null;
+};
+
 export const ZOOM_THRESHOLDS: Record<LabelKind, number> = {
   faction: 0,
   // At MAP2D_MIN_SCALE so a capital is never missing from a fully zoomed-out
@@ -381,7 +402,7 @@ export const drawMapLabels = (
     const projected = project(label.position);
     if (!projected) continue;
 
-    const fontSize = Math.max(minFontSize, config.baseFontSize * effectiveFontScale);
+    const fontSize = Math.max(minFontSize, config.baseFontSize * LABEL_SIZE_SCALE * effectiveFontScale);
     const text = config.uppercase ? label.name.toUpperCase() : label.name;
     const padding = Math.max(4, fontSize * 0.3);
 

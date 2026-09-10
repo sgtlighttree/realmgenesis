@@ -18,7 +18,9 @@ import { placeGlyphs } from '../utils/mapStyle/placeGlyphs';
 import { Canvas2DSubstrate } from '../utils/mapStyle/substrateCanvas';
 import { seasonalTemperatureDelta } from '../utils/seasons';
 import { insideTri, barycentric, normalizeVec, toLonLat, lonLatToPoint3, getDymaxionNetTransform, projectDymaxionPoint, Point2, Point3 } from '../utils/geo';
-import { collectLabels, drawMapLabels, MAP2D_MAX_SCALE, MAP2D_MIN_SCALE } from '../utils/labels';
+import {
+  collectLabels, drawMapLabels, smallestVisibleTier, MAP2D_MAX_SCALE, MAP2D_MIN_SCALE,
+} from '../utils/labels';
 import { computeShadeMap, computeContourSegments, drawContourPaths, contourInterval } from '../utils/shading';
 import { drawCurrents2D } from './overlays/currents2D';
 import { computeScaleBar, computeInterruptedScaleBar, niceScaleBarLength } from '../utils/measure';
@@ -1450,6 +1452,16 @@ const Map2D: React.FC<{
             style={{ width: `${scaleBar.px}px` }}
           />
           <span>{scaleBar.km.toLocaleString()} km at {scaleBar.lat}</span>
+          {/* Zoom readout. The label LOD is driven entirely by this number
+              against ZOOM_THRESHOLDS, so showing the finest tier it currently
+              admits turns "why did the hamlets vanish" into something readable
+              off the map instead of inferred from what is missing. */}
+          <span className="border-l border-white/15 pl-2 tabular-nums text-ink-muted">
+            {scale.toFixed(2)}x
+            <span className="ml-1 text-ink-faint">
+              {smallestVisibleTier(scale) ?? 'none'}
+            </span>
+          </span>
         </div>
       )}
       {world && (

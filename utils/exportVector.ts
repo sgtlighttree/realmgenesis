@@ -13,7 +13,7 @@ import { OverlayInk } from './mapStyle/overlayInk';
 import { runStyle } from './mapStyle/passes';
 import { placeGlyphs } from './mapStyle/placeGlyphs';
 import { SvgSubstrate } from './mapStyle/substrateSvg';
-import { collectLabels, glyphLayout, LABEL_CONFIG } from './labels';
+import { collectLabels, glyphLayout, LABEL_CONFIG, LABEL_SIZE_SCALE } from './labels';
 import { labelGlyphPathData } from './labelGlyphs';
 import { elevationMetres } from './datum';
 
@@ -186,7 +186,7 @@ const buildLabelsGroup = (
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
 
     const config = LABEL_CONFIG[label.kind];
-    const fontSize = Math.max(8, config.baseFontSize * fontScale);
+    const fontSize = Math.max(8, config.baseFontSize * LABEL_SIZE_SCALE * fontScale);
     const glyph = config.glyph && (geoGlyphs || config.face !== 'geo')
       ? config.glyph : undefined;
     // Identical arithmetic to the canvas pass — that shared helper is why the

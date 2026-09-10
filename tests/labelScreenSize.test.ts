@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 
-import { drawMapLabels, MapLabel, LABEL_CONFIG } from '../utils/labels';
+import {
+  drawMapLabels, MapLabel, LABEL_CONFIG, LABEL_SIZE_SCALE, smallestVisibleTier,
+  ZOOM_THRESHOLDS, MAP2D_MIN_SCALE, MAP2D_MAX_SCALE,
+} from '../utils/labels';
 import { DEFAULT_LABEL_VISIBILITY } from '../types';
 import { makeFakeCtx } from './helpers/overlayCanvas';
 
@@ -8,7 +11,10 @@ const label = (kind: MapLabel['kind'], name = 'Aa'): MapLabel => ({
   kind, name, position: { x: 1, y: 0, z: 0 }, priority: 1,
 });
 const project = (_p: { x: number; y: number; z: number }): [number, number] => [400, 300];
-const VIS = { ...DEFAULT_LABEL_VISIBILITY, factions: true, capitals: true };
+const VIS = {
+  ...DEFAULT_LABEL_VISIBILITY,
+  factions: true, capitals: true, cities: true, towns: true, villages: true, hamlets: true,
+};
 
 const fontPx = (opts: object, scale: number, kind: MapLabel['kind'] = 'faction'): number => {
   const ctx = makeFakeCtx();
@@ -33,28 +39,33 @@ describe('label size under a scaled transform', () => {
     for (const scale of [1, 2, 4, 6]) {
       const px = fontPx({ fontScale: 1 / scale, minFontSize: 8 / scale }, scale);
       // Multiply back by the transform the caller applies: the on-screen size.
-      expect(px * scale, `scale ${scale}`).toBeCloseTo(LABEL_CONFIG.faction.baseFontSize, 6);
+      expect(px * scale, `scale ${scale}`)
+        .toBeCloseTo(LABEL_CONFIG.faction.baseFontSize * LABEL_SIZE_SCALE, 6);
     }
   });
 
   it('applies the floor in SCREEN pixels, not transformed ones', () => {
-    // hamlet's base is 7, below the 8px floor: it should clamp to 8 on screen.
+    // The floor only binds when base * LABEL_SIZE_SCALE falls under 8; assert
+    // the floor's UNIT (screen px), which holds either way.
     // Scales are above ZOOM_THRESHOLDS.hamlet (3.2) so the LOD does not cull it.
+    const expected = Math.max(8, LABEL_CONFIG.hamlet.baseFontSize * LABEL_SIZE_SCALE);
     for (const scale of [4, 6]) {
       const px = fontPx({ fontScale: 1 / scale, minFontSize: 8 / scale }, scale, 'hamlet');
-      expect(px * scale, `scale ${scale}`).toBeCloseTo(8, 6);
+      expect(px * scale, `scale ${scale}`).toBeCloseTo(expected, 6);
     }
   });
 
-  it('is unchanged for callers that pass neither option', () => {
-    expect(fontPx({}, 1)).toBe(14);
-    expect(fontPx({}, 2)).toBe(28);
+  it('scales off baseFontSize for callers that pass neither option', () => {
+    const base = LABEL_CONFIG.faction.baseFontSize * LABEL_SIZE_SCALE;
+    expect(fontPx({}, 1)).toBeCloseTo(base, 6);
+    expect(fontPx({}, 2)).toBeCloseTo(base * 2, 6);
     // The historical min(scale, 2) saturation still applies.
-    expect(fontPx({}, 6)).toBe(28);
+    expect(fontPx({}, 6)).toBeCloseTo(base * 2, 6);
   });
 
   it('still honours an explicit fontScale on its own (export path)', () => {
-    expect(fontPx({ fontScale: 2 }, 1)).toBe(28);
+    expect(fontPx({ fontScale: 2 }, 1))
+      .toBeCloseTo(LABEL_CONFIG.faction.baseFontSize * LABEL_SIZE_SCALE * 2, 6);
   });
 });
 
@@ -90,10 +101,42 @@ describe('halo and glyph stroke widths', () => {
     }
   });
 
-  it('leaves the default (unscaled) callers byte-identical', () => {
-    // capital at scale 1: fontSize 11. Halo max(3, 11*haloScale); glyph max(1, 0.99).
-    const w = widths({}, 1);
-    expect(w.some(x => x >= 3)).toBe(true);
-    expect(Math.min(...w)).toBeCloseTo(1, 6);
+  // The floors are expressed as fractions of `minFontSize` so they scale with a
+  // zoomed caller. At the DEFAULT minFontSize of 8 they must still equal the
+  // literals they replaced — 3 for the halo, 1 for the glyph stroke — or every
+  // unscaled caller (exports, blit path, globe tenant) silently shifts.
+  it('reproduces the old literal floors at the default minFontSize', () => {
+    // A tiny fontScale drives fontSize to the floor, so both widths land on
+    // their minimums rather than on their size-proportional terms.
+    const w = widths({ fontScale: 0.001 }, 1);
+    expect(Math.max(...w)).toBeCloseTo(3, 6);   // halo floor
+    expect(Math.min(...w)).toBeCloseTo(1, 6);   // glyph-stroke floor
+  });
+});
+
+// The zoom readout beside the scale bar reports this, so it has to agree with
+// the LOD that actually runs inside drawMapLabels.
+describe('smallestVisibleTier', () => {
+  it('names the finest tier the given zoom admits', () => {
+    expect(smallestVisibleTier(MAP2D_MAX_SCALE)).toBe('hamlet');
+    expect(smallestVisibleTier(ZOOM_THRESHOLDS.hamlet)).toBe('hamlet');
+    expect(smallestVisibleTier(ZOOM_THRESHOLDS.hamlet - 0.01)).toBe('village');
+    expect(smallestVisibleTier(ZOOM_THRESHOLDS.village - 0.01)).toBe('town');
+    expect(smallestVisibleTier(ZOOM_THRESHOLDS.town - 0.01)).toBe('city');
+    expect(smallestVisibleTier(MAP2D_MIN_SCALE)).toBe('capital');
+  });
+
+  it('agrees with what drawMapLabels actually draws', () => {
+    for (const scale of [0.6, 1, 2, 2.6, 3.2, 6]) {
+      const tier = smallestVisibleTier(scale);
+      if (!tier) continue;
+      const ctx = makeFakeCtx();
+      drawMapLabels(ctx, [label(tier)], project, scale, VIS, {});
+      expect(ctx.ops.some(o => o.op === 'fillText'), `${tier} at ${scale}`).toBe(true);
+    }
+  });
+
+  it('returns null below every threshold', () => {
+    expect(smallestVisibleTier(MAP2D_MIN_SCALE - 0.01)).toBe(null);
   });
 });
