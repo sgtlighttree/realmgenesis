@@ -147,6 +147,7 @@ export interface WorldParams {
   territorialWaters: number; // Max distance from land to claim water
   capitalSpacing: number;
   provinceSize: number; // 0.1 (Small) to 1.0 (Huge)
+  settlementDensity: number;
 
   numCultures: number; // 2-8, home count for the culture layer (C1)
 
@@ -156,17 +157,10 @@ export interface WorldParams {
   loreLevel: 1 | 2 | 3;
 }
 
-export interface TownData {
-    name: string;
-    cellId: number;
-    population: number;
-    isCapital: boolean;
-}
-
 export interface ProvinceData {
     id: number; // local id
     name: string;
-    towns: TownData[];
+    towns: Settlement[];
     totalPopulation: number;
     color?: string;
 }
@@ -181,8 +175,22 @@ export interface FactionData {
     description?: string; // Level 3
 }
 
+export type SettlementTier = 'capital' | 'city' | 'town' | 'village' | 'hamlet';
+
+export interface Settlement {
+  id: number;
+  cellId: number;
+  name: string;
+  population: number;
+  tier: SettlementTier;
+  factionId: number;
+  isCapital: boolean;
+  isPort: boolean;
+}
+
 export interface CivData {
     factions: FactionData[];
+    settlements: Settlement[];
 }
 
 // A culture region (C1): a terrain-affinity-driven population cluster,
@@ -297,6 +305,7 @@ export interface RouteData {
   // search. Never serialized (routes regenerate deterministically).
   cellIds: number[];
   kind: 'road' | 'searoute';
+  class: 'arterial' | 'local';
   fromCellId: number;
   toCellId: number;
 }
@@ -347,14 +356,33 @@ export interface LabelVisibility {
   borders: boolean;
   geography: boolean; // single toggle for all auto-detected geographic labels (B3)
   markers: boolean; // user-placed POI labels/pins (C4)
+  cities: boolean;
+  villages: boolean;
+  hamlets: boolean;
 }
 
+/**
+ * Settlement tiers default ON (changed S39). They were off, which made the
+ * Settlement Density slider look inert: towns/villages/hamlets are 79-85% of
+ * every settlement and exactly what the slider adds, while capitals are pinned
+ * at one per faction and cannot respond to it at all. Measured at 30k points,
+ * density 0.5 -> 2.0 placed 36 -> 141 settlements but drew 75 -> 86 labels
+ * under the old defaults, against 133 -> 243 with the tiers enabled.
+ *
+ * This costs nothing when zoomed out: `ZOOM_THRESHOLDS` already gates the three
+ * tiers by zoom (town 2.0, village 2.6, hamlet 3.2), and the draw count at
+ * scale 1 measured identical with them on and off. `provinces` stays off — it
+ * is an administrative overlay, not a settlement.
+ */
 export const DEFAULT_LABEL_VISIBILITY: LabelVisibility = {
   factions: true,
   capitals: true,
-  towns: false,
+  towns: true,
   provinces: false,
   borders: true,
   geography: true,
   markers: true,
+  cities: true,
+  villages: true,
+  hamlets: true,
 };

@@ -37,6 +37,8 @@ export interface VectorOverlayProps {
   mapLabels: MapLabel[];
   labelVisibility: LabelVisibility;
   labelTheme: LabelTheme;
+  /** See `PaintVectorOverlayParams.geoGlyphs`. */
+  geoGlyphs: boolean;
   overlayInk: OverlayInk;
   /** `style.palette.coast` — see the field doc on `PaintVectorOverlayParams.coastColor`. */
   coastColor: string;
@@ -65,7 +67,7 @@ export interface VectorOverlayProps {
  */
 export const VectorOverlay: React.FC<VectorOverlayProps> = ({
   size, dpr, scale, offsetX, offsetY, world, projection, boundaryPaths, contourSegments,
-  mapLabels, labelVisibility, labelTheme, overlayInk, coastColor, toggles,
+  mapLabels, labelVisibility, labelTheme, geoGlyphs, overlayInk, coastColor, toggles,
   rulerArc = null, highlightPath = null, cellOutlinePath = null, handleRef,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -87,7 +89,7 @@ export const VectorOverlay: React.FC<VectorOverlayProps> = ({
 
     const params: PaintVectorOverlayParams = {
       world, projection, size, toggles, boundaryPaths, contourSegments,
-      mapLabels, labelVisibility, labelTheme, overlayInk, coastColor,
+      mapLabels, labelVisibility, labelTheme, geoGlyphs, overlayInk, coastColor,
       // Line widths divide by `scale` (not `qualityDpr`) so strokes keep
       // constant screen weight across zoom — the vector transform above
       // already carries `dpr`.
@@ -97,7 +99,7 @@ export const VectorOverlay: React.FC<VectorOverlayProps> = ({
     paintVectorOverlay(ctx, params);
   }, [
     dpr, scale, offsetX, offsetY, size, world, projection, toggles, boundaryPaths,
-    contourSegments, mapLabels, labelVisibility, labelTheme, overlayInk, coastColor,
+    contourSegments, mapLabels, labelVisibility, labelTheme, geoGlyphs, overlayInk, coastColor,
     rulerArc, highlightPath, cellOutlinePath,
   ]);
 

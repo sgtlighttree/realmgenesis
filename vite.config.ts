@@ -24,6 +24,16 @@ export default defineConfig(({ mode }) => {
         }
       },
       test: {
+        // Agent worktrees under .claude/ are full checkouts of this repo, so
+        // the DEFAULT include glob ALSO matched .claude/worktrees/*/tests/*.test.ts
+        // — running every file once per stale worktree (measured: 4 copies = 5x
+        // the world generations) against OLD source. It surfaced only as an
+        // inflated test count. Anchoring `include` at this repo's own tests/
+        // excludes them by construction. Deliberately NOT done by importing
+        // `configDefaults` from 'vitest/config' to extend `exclude`: this file is
+        // loaded for `vite build` too, and a production install without
+        // devDependencies would fail to resolve it.
+        include: ['tests/**/*.test.ts'],
         // V3 terrain generation is ~9s per world on this machine and slower on
         // CI runners; several suites generate multiple worlds per test. The
         // default 5s per-test timeout is far too tight now that V3 is the live

@@ -53,6 +53,9 @@ const CIV_PERTURBATIONS: Record<string, Perturbation> = {
   civSizeVariance: { civSizeVariance: 1.0 },
   waterCrossingCost: { waterCrossingCost: 0.1 },
   territorialWaters: { territorialWaters: 0.9 },
+  // C: more settlements → more tier-multiplied cell populations (and province
+  // seeds), so the civ signature (which includes per-cell population) shifts.
+  settlementDensity: { settlementDensity: 4.0 },
 };
 
 // V3 terrain model params. V3 is the only terrain path, so these must all

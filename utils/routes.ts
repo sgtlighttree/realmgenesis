@@ -1,5 +1,5 @@
 import { isWaterCell, landTerrainStepCost, aStar } from './pathfinding';
-import type { Cell, Point, RouteData, WorldData, WorldParams } from '../types';
+import type { Cell, Point, RouteData, Settlement, SettlementTier, WorldData, WorldParams } from '../types';
 
 const MAX_ROAD_EXPANSIONS = 20000; // per-edge A* cap
 const MAX_ROAD_ANGLE = 1.2;        // skip MST edges longer than this (radians)
@@ -7,6 +7,12 @@ const MAX_SEA_EXPANSIONS = 40000;
 const PORT_TOP_FRACTION = 0.4;     // "major" ports = top 40% by population
 const SEA_NEIGHBORS = 3;           // each major port links to nearest ~3 ports
 const SEA_STEP = 1;                // uniform water step cost
+const LOCAL_MAX_EXPANSIONS = 400;  // deliberately tight A* cap for feeder roads
+
+// Only these tiers get arterial (MST/trunk/sea) treatment — gating out
+// village/hamlet keeps the all-pairs MST from blowing up on dense settlement
+// counts.
+export const ARTERIAL_TIERS = new Set<SettlementTier>(['capital', 'city', 'town']);
 
 function angle(a: Point, b: Point): number {
   const d = a.x * b.x + a.y * b.y + a.z * b.z;
@@ -36,15 +42,9 @@ function landComponentIds(world: WorldData, params: WorldParams): number[] {
 interface Town { cellId: number; factionId: number; population: number; isCapital: boolean; }
 
 function gatherTowns(world: WorldData): Town[] {
-  const towns: Town[] = [];
-  (world.civData?.factions ?? []).forEach((f, fi) => {
-    for (const prov of f.provinces) {
-      for (const t of prov.towns) {
-        towns.push({ cellId: t.cellId, factionId: fi, population: t.population, isCapital: t.isCapital });
-      }
-    }
-  });
-  return towns;
+  return (world.civData?.settlements ?? [])
+    .filter(s => ARTERIAL_TIERS.has(s.tier))
+    .map(s => ({ cellId: s.cellId, factionId: s.factionId, population: s.population, isCapital: s.isCapital }));
 }
 
 // Kruskal MST over the given town indices, weighted by great-circle distance.
@@ -104,7 +104,7 @@ export function computeRoutes(world: WorldData, params: WorldParams): RouteData[
       if (angle(cells[a].center, cells[b].center) > MAX_ROAD_ANGLE) continue;
       const path = aStar(cells, a, b, landStep, landHeuristic(cells, b, stepsPerRadian), MAX_ROAD_EXPANSIONS);
       if (path && path.length >= 2) {
-        routes.push({ path: path.map(id => cells[id].center), cellIds: [...path], kind: 'road', fromCellId: a, toCellId: b });
+        routes.push({ path: path.map(id => cells[id].center), cellIds: [...path], kind: 'road', class: 'arterial', fromCellId: a, toCellId: b });
       }
     }
   }
@@ -119,8 +119,52 @@ export function computeRoutes(world: WorldData, params: WorldParams): RouteData[
       if (angle(cells[A.cellId].center, cells[B.cellId].center) > MAX_ROAD_ANGLE) continue;
       const path = aStar(cells, A.cellId, B.cellId, landStep, landHeuristic(cells, B.cellId, stepsPerRadian), MAX_ROAD_EXPANSIONS);
       if (path && path.length >= 2) {
-        routes.push({ path: path.map(id => cells[id].center), cellIds: [...path], kind: 'road', fromCellId: A.cellId, toCellId: B.cellId });
+        routes.push({ path: path.map(id => cells[id].center), cellIds: [...path], kind: 'road', class: 'arterial', fromCellId: A.cellId, toCellId: B.cellId });
       }
+    }
+  }
+
+  // Local feeder roads: each village/hamlet gets a capped A* to its nearest
+  // same-faction, same-land-component hub (capital/city/town). A feeder that
+  // can't reach a hub within LOCAL_MAX_EXPANSIONS is dropped silently — that
+  // is the intended cost/coverage tradeoff, not an error.
+  const hubs = (world.civData?.settlements ?? []).filter(s => ARTERIAL_TIERS.has(s.tier));
+  const feeders = (world.civData?.settlements ?? []).filter(s => !ARTERIAL_TIERS.has(s.tier));
+  // Hubs are bucketed by (faction, land-component) ONCE. The previous form ran a
+  // `filter` + full `sort` per feeder with `angle()` — a Math.acos — called twice
+  // per comparison: at the documented ~1500 settlements that is ~10^7 acos calls
+  // and ~1000 array allocations, all on the main thread (computeRoutes runs in a
+  // setTimeout, not a worker), and it scales superlinearly with settlementDensity.
+  // The scan below is exactly equivalent: it still compares `angle()` values (not
+  // dot products, which order the same but can tie differently in floating point)
+  // and still breaks ties toward the lower cellId, matching the old
+  // `angleDiff || a.cellId - b.cellId` sort taking [0].
+  const hubsByGroup = new Map<string, Settlement[]>();
+  for (const h of hubs) {
+    if (comp[h.cellId] < 0) continue;
+    const key = `${h.factionId}:${comp[h.cellId]}`;
+    const bucket = hubsByGroup.get(key);
+    if (bucket) bucket.push(h); else hubsByGroup.set(key, [h]);
+  }
+
+  for (const f of feeders) {
+    if (comp[f.cellId] < 0) continue;
+    const candidates = hubsByGroup.get(`${f.factionId}:${comp[f.cellId]}`);
+    if (!candidates) continue;
+    const from = cells[f.cellId].center;
+    let hub: Settlement | undefined;
+    let bestAngle = Infinity;
+    for (const h of candidates) {
+      const d = angle(from, cells[h.cellId].center);
+      if (d < bestAngle || (d === bestAngle && hub !== undefined && h.cellId < hub.cellId)) {
+        bestAngle = d;
+        hub = h;
+      }
+    }
+    if (!hub) continue;
+    const path = aStar(cells, f.cellId, hub.cellId, landStep, landHeuristic(cells, hub.cellId, stepsPerRadian), LOCAL_MAX_EXPANSIONS);
+    if (path && path.length >= 2) {
+      routes.push({ path: path.map(id => cells[id].center), cellIds: [...path], kind: 'road', class: 'local', fromCellId: f.cellId, toCellId: hub.cellId });
     }
   }
 
@@ -157,7 +201,7 @@ export function computeRoutes(world: WorldData, params: WorldParams): RouteData[
           isWaterCell(cells[toId], params.seaLevel) ? SEA_STEP : (toId === goalId ? SEA_STEP : Infinity);
         const path = aStar(cells, p.cellId, goalId, seaStep, landHeuristic(cells, goalId, stepsPerRadian), MAX_SEA_EXPANSIONS);
         if (path && path.length >= 2) {
-          routes.push({ path: path.map(id => cells[id].center), cellIds: [...path], kind: 'searoute', fromCellId: p.cellId, toCellId: goalId });
+          routes.push({ path: path.map(id => cells[id].center), cellIds: [...path], kind: 'searoute', class: 'arterial', fromCellId: p.cellId, toCellId: goalId });
         }
       }
     }

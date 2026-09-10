@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import { ViewMode } from '../types';
-import { getMapStyle } from '../utils/mapStyle';
+import { getMapStyle, MAP_STYLES, MapStyleId } from '../utils/mapStyle';
 import { runStyle } from '../utils/mapStyle/passes';
 import { GrainSpec, HatchSpec, Substrate } from '../utils/mapStyle/substrate';
 import { PlacedGlyph, StyleRenderContext } from '../utils/mapStyle/types';
@@ -83,6 +83,22 @@ describe('runStyle', () => {
     const { sub, calls } = recorder();
     runStyle(getMapStyle('default'), makeCtx('biome'), sub);
     expect(calls).toEqual([]);
+  });
+
+  // `paintsRelief` is DECLARED on each style (a StylePass is an opaque closure
+  // with nothing to match on), so nothing stops it drifting from what the style
+  // actually draws. The label pass reads it to decide whether a `range` label
+  // may carry a mountain glyph, so a stale flag means two mountains side by
+  // side. Run each style and check the flag against real drawGlyph calls.
+  it('paintsRelief matches whether the style actually stamps glyphs', () => {
+    const oneGlyph = { x: 10, y: 10, kind: 'mountain', scale: 8, seedRot: 0, cellId: 0 };
+    for (const id of Object.keys(MAP_STYLES) as MapStyleId[]) {
+      const style = MAP_STYLES[id];
+      const { sub, calls } = recorder();
+      runStyle(style, makeCtx('biome', { glyphs: [oneGlyph] } as never), sub);
+      const drew = calls.some(c => c.op === 'drawGlyph');
+      expect(drew, `${id}.paintsRelief disagrees with its passes`).toBe(style.paintsRelief);
+    }
   });
 
   it('an empty pass list is the signal, not the style id', () => {

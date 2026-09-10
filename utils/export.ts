@@ -47,6 +47,13 @@ export const withParamDefaults = (params: WorldParams): WorldParams => ({
   // broken, not deliberately absent, so reloading it should give the fixed
   // behaviour.
   volcanism: typeof params.volcanism === 'number' && isFinite(params.volcanism) ? params.volcanism : 1.0,
+  // S35 (C settlement density): pre-settlement saves lack the key. Default 1.0,
+  // the shipped default. NOT optional politeness — `quota` multiplies by it, so
+  // `undefined` makes the quota NaN, `accepted.length >= NaN` never breaks the
+  // loop and `d < NaN` never rejects a candidate, and EVERY ranked land cell
+  // becomes a settlement (~70k on a 200k world). placeSettlements defends at its
+  // own read site too, because the browser-save load path bypasses this function.
+  settlementDensity: typeof params.settlementDensity === 'number' && isFinite(params.settlementDensity) ? params.settlementDensity : 1.0,
 });
 
 // Matches the options offered in the Export tab. 16K+ exceeded browser
@@ -354,7 +361,12 @@ const exportDymaxionRaster = (
       },
       2.5,
       labelVisibility,
-      { fontScale: width / 1024, theme: getMapStyle(mapStyleId).labelTheme },
+      {
+        fontScale: width / 1024,
+        theme: getMapStyle(mapStyleId).labelTheme,
+        // A relief style already stamps mountains/trees/dunes on the land.
+        geoGlyphs: !getMapStyle(mapStyleId).paintsRelief,
+      },
     );
   }
 
@@ -507,7 +519,12 @@ export const exportMap = async (
       },
       2.5,
       labelVisibility,
-      { fontScale: width / 1024, theme: getMapStyle(mapStyleId).labelTheme },
+      {
+        fontScale: width / 1024,
+        theme: getMapStyle(mapStyleId).labelTheme,
+        // A relief style already stamps mountains/trees/dunes on the land.
+        geoGlyphs: !getMapStyle(mapStyleId).paintsRelief,
+      },
     );
   }
 
@@ -544,26 +561,41 @@ export interface LoadedMap {
     markers?: MarkerData[];
 }
 
-export const saveMapConfig = (params: WorldParams, world?: WorldData) => {
+// Settlements regenerate deterministically from the seed and are duplicated
+// inside factions[].provinces[].towns (same objects, identity-shared), so the
+// flat list is dropped before serialization/storage to avoid writing every
+// settlement twice.
+const stripSettlements = (civData: CivData): Omit<CivData, 'settlements'> => ({
+  factions: civData.factions,
+});
+
+/**
+ * The serialized save payload. Pure and exported so it can be asserted without
+ * a DOM — `saveMapConfig` only wraps it in the download-link plumbing.
+ */
+export const buildMapConfig = (params: WorldParams, world?: WorldData) => {
   const date = new Date();
-  const dateStr = date.toISOString().split('T')[0].replace(/-/g, ''); // YYYYMMDD
-  
-  const content = {
-      version: "1.4",
+  return {
+      version: "1.5",
       date: date.toISOString(),
       params,
       // We only save the metadata (lore/names).
       // The geometry (borders/provinces) will be regenerated deterministically from the seed.
-      civData: world?.civData || null,
+      civData: world?.civData ? stripSettlements(world.civData) : null,
       // Sphere-anchored, so they carry over unchanged across regeneration.
       markers: world?.markers || null,
   };
+};
+
+export const saveMapConfig = (params: WorldParams, world?: WorldData) => {
+  const content = buildMapConfig(params, world);
+  const dateStr = content.date.split('T')[0].replace(/-/g, ''); // YYYYMMDD
 
   const dataStr = JSON.stringify(content, null, 2);
   const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-  
+
   const filename = `realmgenesis_${params.mapName || 'map'}_${dateStr}_${params.seed}.json`;
-  
+
   const linkElement = document.createElement('a');
   linkElement.setAttribute('href', dataUri);
   linkElement.setAttribute('download', filename);
@@ -600,6 +632,7 @@ export const validateWorldParams = (params: unknown): params is Record<string, u
         numCultures: [2, 8],
         capitalSpacing: [0, 1],
         provinceSize: [0.1, 1.0],
+        settlementDensity: [0, 2.0],
         civSizeVariance: [0, 1],
         waterCrossingCost: [0.1, 1.0],
         territorialWaters: [0.01, 1.0],
@@ -698,7 +731,9 @@ export const loadMapConfig = async (file: File): Promise<LoadedMap | null> => {
                     let civData: CivData | undefined;
                     if (json.civData != null) {
                         if (validateCivData(json.civData)) {
-                            civData = json.civData;
+                            // Stripped saves omit the flat list; normalise so the
+                            // resulting object still satisfies CivData.
+                            civData = { ...json.civData, settlements: json.civData.settlements ?? [] };
                         } else {
                             console.error("Ignoring malformed civData in config file; loading terrain only");
                         }
@@ -736,7 +771,12 @@ export interface SavedMapEntry {
     name: string;
     date: number; // timestamp
     params: WorldParams;
-    civData?: CivData;
+    // Stripped, not full CivData: `settlements` regenerates from the params and is
+    // never serialized (schema 1.5). Typing this `CivData` needed an `as CivData`
+    // cast at the write site and left every reader believing a required field was
+    // there — mergeFactions does an unguarded `civData.settlements.forEach`, so any
+    // future path installing a stored civData directly would have thrown.
+    civData?: Omit<CivData, 'settlements'>;
     markers?: MarkerData[];
 }
 
@@ -753,7 +793,13 @@ export const saveMapToBrowser = (name: string, params: WorldParams, civData?: Ci
     try {
         const current = getSavedMaps();
         const existingIdx = current.findIndex(m => m.name === name);
-        const entry: SavedMapEntry = { name, date: Date.now(), params, civData, markers };
+        const entry: SavedMapEntry = {
+            name,
+            date: Date.now(),
+            params,
+            civData: civData ? stripSettlements(civData) : undefined,
+            markers,
+        };
         
         if (existingIdx >= 0) {
             current[existingIdx] = entry;

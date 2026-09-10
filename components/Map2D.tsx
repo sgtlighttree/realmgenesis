@@ -18,7 +18,9 @@ import { placeGlyphs } from '../utils/mapStyle/placeGlyphs';
 import { Canvas2DSubstrate } from '../utils/mapStyle/substrateCanvas';
 import { seasonalTemperatureDelta } from '../utils/seasons';
 import { insideTri, barycentric, normalizeVec, toLonLat, lonLatToPoint3, getDymaxionNetTransform, projectDymaxionPoint, Point2, Point3 } from '../utils/geo';
-import { collectLabels, drawMapLabels } from '../utils/labels';
+import {
+  collectLabels, drawMapLabels, smallestVisibleTier, MAP2D_MAX_SCALE, MAP2D_MIN_SCALE,
+} from '../utils/labels';
 import { computeShadeMap, computeContourSegments, drawContourPaths, contourInterval } from '../utils/shading';
 import { drawCurrents2D } from './overlays/currents2D';
 import { computeScaleBar, computeInterruptedScaleBar, niceScaleBarLength } from '../utils/measure';
@@ -687,9 +689,22 @@ const Map2D: React.FC<{
         tCtx,
         mapLabels,
         dymaxionMarkerProject,
-        renderDpr,
+        // LOD reads the user's ZOOM, not the device pixel ratio. This argument
+        // used to be `renderDpr`, which conflated the two: `renderDpr` is
+        // capped at MAX_SHARP_DPR (3), so `ZOOM_THRESHOLDS.hamlet` (3.2) could
+        // never be satisfied and hamlets were unreachable on the Dymaxion
+        // projection at any zoom — the same defect as the globe's 1.15 cutoff
+        // against a 1.2 minDistance. `fontScale` below keeps the sizing that
+        // `renderDpr` was really there for, which is what it is for.
+        scaleRef.current,
         labelVisibility,
-        { theme: labelTheme },
+        {
+          // min(_, 2) reproduces the old `effectiveFontScale` exactly
+          // (`opts.fontScale ?? Math.min(scale, 2)`), so text size is unchanged.
+          fontScale: Math.min(renderDpr, 2),
+          theme: labelTheme,
+          geoGlyphs: !style.paintsRelief,
+        },
       );
 
       // Ruler arc: projected per-sample (not baked into the source equirect
@@ -911,7 +926,7 @@ const Map2D: React.FC<{
         // LOD tracks settled zoom without redrawing every cell per wheel tick.
         scaleRef.current,
         labelVisibility,
-        { theme: labelTheme },
+        { theme: labelTheme, geoGlyphs: !style.paintsRelief },
       );
       ctx.restore();
     }
@@ -1209,7 +1224,7 @@ const Map2D: React.FC<{
 
     const prevScale = scaleRef.current;
     const zoomFactor = event.deltaY < 0 ? 1.1 : 0.9;
-    const nextScale = clamp(prevScale * zoomFactor, 0.6, 6);
+    const nextScale = clamp(prevScale * zoomFactor, MAP2D_MIN_SCALE, MAP2D_MAX_SCALE);
 
     const prevOffset = offsetRef.current;
     const worldX = (mx - prevOffset.x) / prevScale;
@@ -1388,6 +1403,7 @@ const Map2D: React.FC<{
             mapLabels={mapLabels}
             labelVisibility={labelVisibility}
             labelTheme={labelTheme}
+            geoGlyphs={!style.paintsRelief}
             overlayInk={overlayInk}
             coastColor={style.palette.coast}
             toggles={{ showGrid, showRivers, showRoutes, showCurrents }}
@@ -1436,6 +1452,16 @@ const Map2D: React.FC<{
             style={{ width: `${scaleBar.px}px` }}
           />
           <span>{scaleBar.km.toLocaleString()} km at {scaleBar.lat}</span>
+          {/* Zoom readout. The label LOD is driven entirely by this number
+              against ZOOM_THRESHOLDS, so showing the finest tier it currently
+              admits turns "why did the hamlets vanish" into something readable
+              off the map instead of inferred from what is missing. */}
+          <span className="border-l border-white/15 pl-2 tabular-nums text-ink-muted">
+            {scale.toFixed(2)}x
+            <span className="ml-1 text-ink-faint">
+              {smallestVisibleTier(scale) ?? 'none'}
+            </span>
+          </span>
         </div>
       )}
       {world && (

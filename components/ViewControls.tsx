@@ -2,7 +2,7 @@ import React from 'react';
 import {
   Globe, Satellite, Mountain, Eye, Thermometer, Droplets, Layers, Flag,
   Landmark, Palette, Church, Users, Grid, Waves, Route, Sun, LineChart,
-  Pause, Play, Wind, Circle,
+  Pause, Play, Wind, Circle, MapPin,
 } from 'lucide-react';
 
 import { ViewMode, DisplayMode, LabelVisibility } from '../types';
@@ -99,14 +99,41 @@ export const VIEW_LAYER_OPTIONS: SelectOption<ViewMode>[] =
 export const PROJECTION_OPTIONS: SelectOption<DisplayMode>[] =
   DISPLAY_MODES.map(m => ({ value: m.mode, label: m.label }));
 
-export const OVERLAY_KEYS: [keyof LabelVisibility, string][] = [
-  ['borders', 'Faction Borders'],
-  ['factions', 'Faction Names'],
-  ['capitals', 'Capital Names'],
-  ['provinces', 'Province Names'],
-  ['towns', 'Town Names'],
-  ['geography', 'Geographic Names'],
-  ['markers', 'Markers'],
+/**
+ * The overlay list split into labelled groups.
+ *
+ * Flat, the five settlement tiers read as five unrelated switches buried among
+ * ten, which is how Settlement Density came to look inert — the tiers it adds
+ * were off and nothing on screen said where to turn them on. Grouped, they read
+ * as one control with a zoom note attached.
+ */
+export const OVERLAY_GROUPS: { title: string; hint?: string; keys: [keyof LabelVisibility, string][] }[] = [
+  {
+    title: 'Settlements',
+    hint: 'Smaller tiers appear as you zoom in',
+    keys: [
+      ['capitals', 'Capitals'],
+      ['cities', 'Cities'],
+      ['towns', 'Towns'],
+      ['villages', 'Villages'],
+      ['hamlets', 'Hamlets'],
+    ],
+  },
+  {
+    title: 'Territory',
+    keys: [
+      ['borders', 'Faction Borders'],
+      ['factions', 'Faction Names'],
+      ['provinces', 'Province Names'],
+    ],
+  },
+  {
+    title: 'Other',
+    keys: [
+      ['geography', 'Geographic Names'],
+      ['markers', 'Markers'],
+    ],
+  },
 ];
 
 export interface LayerToggle {
@@ -124,7 +151,7 @@ export interface LayerToggle {
  *
  * Deliberately NOT inside `buildLayerToggles`: that list feeds the Sys tab's
  * stacked rows as well as the strip, and the Sys tab already renders borders in
- * the Map Overlays group (`OVERLAY_KEYS`). Adding it there would put the same
+ * the Map Overlays group (`OVERLAY_GROUPS`). Adding it there would put the same
  * checkbox on screen twice. The strip has no such group — its chips are the only
  * quick access to any overlay — so it composes this one in on its own.
  *
@@ -140,6 +167,41 @@ export const buildBordersToggle = (p: ViewControlsProps): LayerToggle => ({
   onChange: (b) => { p.setLabelVisibility(prev => ({ ...prev, borders: b })); },
   accent: 'text-brand-soft',
 });
+
+/**
+ * The NAME overlays — settlement tiers, territory names, geography, markers —
+ * as strip toggles.
+ *
+ * These already exist as checkboxes in the Sys tab's Map Overlays group, but the
+ * strip's Overlays menu is what anyone reaches for to clear a map before taking
+ * a screenshot, and it carried only the line/shading layers. Having to open a
+ * sidebar tab to turn off labels is the reason this exists (Matt, S40).
+ *
+ * `borders` is deliberately NOT here — `buildBordersToggle` already composes it
+ * into the strip beside Roads & Routes, and listing it twice in one menu is
+ * worse than the inconsistency.
+ */
+export const buildLabelToggles = (p: ViewControlsProps): LayerToggle[] => {
+  const bind = (key: keyof LabelVisibility, label: string, icon: IconType): LayerToggle => ({
+    key,
+    label,
+    icon,
+    checked: p.labelVisibility[key],
+    onChange: (b) => { p.setLabelVisibility(prev => ({ ...prev, [key]: b })); },
+    accent: 'text-brand-soft',
+  });
+  return [
+    bind('capitals', 'Capital Names', Landmark),
+    bind('cities', 'City Names', Landmark),
+    bind('towns', 'Town Names', Landmark),
+    bind('villages', 'Village Names', Landmark),
+    bind('hamlets', 'Hamlet Names', Landmark),
+    bind('factions', 'Faction Names', Flag),
+    bind('provinces', 'Province Names', Flag),
+    bind('geography', 'Geographic Names', Mountain),
+    bind('markers', 'Markers', MapPin),
+  ];
+};
 
 /** The overlay layers, bound to live state. Order matches the Sys tab. */
 export const buildLayerToggles = (p: ViewControlsProps): LayerToggle[] => [
@@ -216,7 +278,14 @@ export const LayerToggleRow: React.FC<{ toggle: LayerToggle; className?: string 
   );
 };
 
-/** The Map Overlays group (icon header + indented per-kind checkboxes). */
+/**
+ * Flat view of every overlay toggle, derived from the groups so the two cannot
+ * drift. Kept exported for callers that want the list without the grouping.
+ */
+export const OVERLAY_KEYS: [keyof LabelVisibility, string][] =
+  OVERLAY_GROUPS.flatMap(g => g.keys);
+
+/** The Map Overlays group (icon header + grouped per-kind checkboxes). */
 export const OverlayToggles: React.FC<Pick<ViewControlsProps, 'labelVisibility' | 'setLabelVisibility'>> = ({
   labelVisibility, setLabelVisibility,
 }) => (
@@ -225,16 +294,24 @@ export const OverlayToggles: React.FC<Pick<ViewControlsProps, 'labelVisibility' 
       <Flag size={12} className={(labelVisibility.borders || labelVisibility.factions) ? 'text-brand-soft' : 'text-ink-faint'} />
       <label className="font-medium">Map Overlays</label>
     </div>
-    <div className="ml-5 space-y-1">
-      {OVERLAY_KEYS.map(([key, label]) => (
-        <div key={key} className="flex items-center justify-between text-xs text-ink-muted">
-          <label>{label}</label>
-          <input
-            type="checkbox"
-            checked={labelVisibility[key]}
-            onChange={(e) => { setLabelVisibility(prev => ({ ...prev, [key]: e.target.checked })); }}
-            className="bg-surface-hover"
-          />
+    <div className="ml-5 space-y-3">
+      {OVERLAY_GROUPS.map(group => (
+        <div key={group.title} className="space-y-1">
+          <div className="text-[10px] uppercase tracking-wide text-ink-faint">{group.title}</div>
+          {group.keys.map(([key, label]) => (
+            <div key={key} className="flex items-center justify-between text-xs text-ink-muted">
+              <label>{label}</label>
+              <input
+                type="checkbox"
+                checked={labelVisibility[key]}
+                onChange={(e) => { setLabelVisibility(prev => ({ ...prev, [key]: e.target.checked })); }}
+                className="bg-surface-hover"
+              />
+            </div>
+          ))}
+          {group.hint && (
+            <div className="text-[10px] text-ink-faint leading-snug pt-0.5">{group.hint}</div>
+          )}
         </div>
       ))}
     </div>
@@ -342,7 +419,12 @@ export const ViewStrip: React.FC<ViewControlsProps & { rotation?: RotationContro
   const layers = buildLayerToggles(p);
   const routeAt = layers.findIndex(t => t.key === 'routes');
   const at = routeAt < 0 ? layers.length : routeAt + 1;
-  const toggles = [...layers.slice(0, at), buildBordersToggle(p), ...layers.slice(at)];
+  const toggles = [
+    ...layers.slice(0, at), buildBordersToggle(p), ...layers.slice(at),
+    // Names last: the line/shading layers above are what the strip has always
+    // shown, so appending keeps their positions stable for muscle memory.
+    ...buildLabelToggles(p),
+  ];
 
   return (
     <div className="flex flex-1 flex-nowrap items-end gap-2 min-w-0 overflow-x-auto">

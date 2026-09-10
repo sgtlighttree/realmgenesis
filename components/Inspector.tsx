@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Eye, EyeOff, ChevronDown, ChevronUp, Ruler, MapPin, Trash2, Star } from 'lucide-react';
-import { WorldData, InspectMode, EditMode, TownData, MarkerKind } from '../types';
+import { WorldData, InspectMode, EditMode, Settlement, MarkerKind } from '../types';
 import { seasonalTemperatureDelta } from '../utils/seasons';
 import { formatElevation } from '../utils/datum';
 import Select from './Select';
@@ -136,7 +136,7 @@ const Inspector: React.FC<InspectorProps> = ({
 
   const faction = cell?.regionId !== undefined ? factionMap.get(cell.regionId) : null;
   const province = (faction && cell?.provinceId !== undefined) ? faction.provinces[cell.provinceId] : null;
-  const town = province?.towns.find((t: TownData) => t.cellId === cell?.id) ?? null;
+  const town = province?.towns.find((t: Settlement) => t.cellId === cell?.id) ?? null;
 
   const locationName = useMemo(() => {
     if (!cell || !world?.civData || !enabled) return null;

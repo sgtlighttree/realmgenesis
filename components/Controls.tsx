@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { WorldParams, ViewMode, LoreData, LandStyle, CivData, DisplayMode, DymaxionSettings, DymaxionControlMode, LabelVisibility, MarkerData } from '../types';
 import { RefreshCw, Globe, Mountain, Lock, Unlock, Shuffle, Layers, Zap, Save, Trash2, Image, Terminal, XCircle, ChevronDown, ChevronUp, FolderOpen, Box, Copy, Check, FileCode, FileJson } from 'lucide-react';
-import { exportMap, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
+import { exportMap, withParamDefaults, saveMapConfig, loadMapConfig, saveMapToBrowser, getSavedMaps, deleteSavedMap, ExportResolution, ProjectionType } from '../utils/export';
 import { downloadSVG, downloadGeoJSON } from '../utils/exportVector';
 import { NAME_STYLES } from '../utils/namegen';
 import { STAR_CLASSES, STAR_CLASS_LABELS } from '../utils/planetary';
@@ -404,11 +404,19 @@ const Controls: React.FC<ControlsProps> = ({
       }
   };
 
-  const handleLoadBrowser = (entryParams: WorldParams, civData?: CivData, markers?: MarkerData[]) => {
+  // civData comes back from localStorage STRIPPED — `settlements` is not
+  // serialized (schema 1.5), it regenerates. Normalise on read so downstream
+  // consumers get a structurally complete CivData; mergeFactions, for one, does an
+  // unguarded `civData.settlements.forEach`. Params are defaulted for the same
+  // reason: this path never passes through withParamDefaults, and an undefined
+  // settlementDensity makes placeSettlements' quota NaN.
+  const handleLoadBrowser = (entryParams: WorldParams, civData?: Omit<CivData, 'settlements'>, markers?: MarkerData[]) => {
       if (confirm("Load this map configuration? Unsaved changes will be lost.")) {
-          setParams(entryParams);
+          const p = withParamDefaults(entryParams);
+          const restored: CivData | undefined = civData ? { ...civData, settlements: [] } : undefined;
+          setParams(p);
           // Use the dedicated load function that handles restoration
-          setTimeout(() => onLoadWorld(entryParams, civData, markers), 50);
+          setTimeout(() => onLoadWorld(p, restored, markers), 50);
       }
   };
   
@@ -1251,6 +1259,18 @@ className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-bra
                   type="range" min="0.1" max="1.0" step="0.1"
                   value={params.provinceSize || 0.5}
                   onChange={(e) => { handleChange('provinceSize', parseFloat(e.target.value)); }}
+                  className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
+                />
+              </div>
+              <div className="space-y-1" title="How many settlements each realm plants. Higher = a denser, more populated-looking map. 0 is a deliberate capitals-only mode: with one settlement per realm there is only one province seed, so Province Size has no effect.">
+                <div className="flex justify-between text-xs text-ink-muted">
+                  <label>Settlement Density</label>
+                  <span>{(params.settlementDensity ?? 1.0).toFixed(1)}</span>
+                </div>
+                <input
+                  type="range" min="0" max="2" step="0.1"
+                  value={params.settlementDensity ?? 1.0}
+                  onChange={(e) => { handleChange('settlementDensity', parseFloat(e.target.value)); }}
                   className="w-full h-1 bg-surface-hover appearance-none cursor-pointer accent-brand-soft"
                 />
               </div>

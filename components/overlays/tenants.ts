@@ -10,6 +10,9 @@ import { ContourSegment, contourStroke } from '../../utils/shading';
 import { BorderSegment } from '../../utils/borders';
 import { LabelAnchor } from '../../utils/labelAnchors';
 import { MapLabel, drawMapLabels } from '../../utils/labels';
+import {
+  GLOBE_MAX_CAM_DIST, GLOBE_MIN_CAM_DIST, HAMLET_LABEL_MAX_DIST, VILLAGE_LABEL_MAX_DIST,
+} from '../markerLod';
 import { DEFAULT_LABEL_THEME, LabelTheme } from '../../utils/mapStyle/labelTheme';
 import { DEFAULT_OVERLAY_INK, OverlayInk } from '../../utils/mapStyle/overlayInk';
 import { LocalProjector } from './ScreenOverlay';
@@ -532,7 +535,7 @@ export function drawDymaxionTenant(
 export const LABEL_LIFT = 0.01;
 
 // `drawMapLabels`'s own LOD compares `scale` against `ZOOM_THRESHOLDS`, whose
-// max entry is 2.0. This tenant applies its OWN LOD first (the camDist cutoffs
+// max entry is 3.2. This tenant applies its OWN LOD first (the camDist cutoffs
 // below, kept verbatim from the old 3D `PointLabels` — see plan §3, "do not
 // unify the zoom LOD"), so `scale` must be pushed past every threshold to be a
 // no-op. Infinity is the most self-evident way to say "LOD off" at the call site.
@@ -551,6 +554,10 @@ const LABEL_SCALE_LOD_OFF = Infinity;
 // *how big* they render.
 const LABEL_FONT_SCALE = 1.2;
 
+// Re-exported so callers and tests reason about the LOD ladder and the camera
+// range from one import. See `components/markerLod.ts` for why they live there.
+export { GLOBE_MIN_CAM_DIST, GLOBE_MAX_CAM_DIST };
+
 // Geographic LOD tiers, transcribed verbatim from the old 3D `PointLabels`
 // (GEO_SMALL_KINDS / GEO_MID_KINDS), which itself already mirrors the 2D
 // ZOOM_THRESHOLDS relationship inversely (camDist UP = zoomed OUT, so a
@@ -564,11 +571,22 @@ const LOD_MID_GEO_KINDS = new Set(['sea', 'range', 'desert', 'forest']);
 // meshes (CurvedFactionLabel/CountryLabels, untouched by F2 — plan §1), so this
 // tenant must never emit one, on pain of a duplicate flat label under the
 // curved one.
-function passesGlobeLod(label: MapLabel, camDist: number): boolean {
+export function passesGlobeLod(label: MapLabel, camDist: number): boolean {
   if (label.kind === 'faction') return false;
-  if (label.kind === 'town') return camDist <= 2;
+  // Settlement tiers, coarsest-visible first. The village/hamlet cutoffs live in
+  // `components/markerLod.ts`; they used to be shared with CityMarkers' 3D pins
+  // so a dot and its name appeared together, and since S40 only capitals draw a
+  // pin, they govern these labels alone. Without these cases the tiers added in Task 5
+  // fell through to `return true`, i.e. the DENSEST tiers got the LEAST
+  // culling — hundreds of hamlet names drawn at full zoom-out.
+  if (label.kind === 'hamlet') return camDist <= HAMLET_LABEL_MAX_DIST;
+  if (label.kind === 'village') return camDist <= VILLAGE_LABEL_MAX_DIST;
+  if (label.kind === 'town') return camDist <= 2.5;
   if (label.kind === 'province') return camDist <= 3;
-  if (label.kind === 'capital') return camDist <= 4;
+  if (label.kind === 'city') return camDist <= 4;
+  // Capitals survive a fully zoomed-out globe; the cutoff is the camera's own
+  // maximum so it reads as "always" rather than as an arbitrary number.
+  if (label.kind === 'capital') return camDist <= GLOBE_MAX_CAM_DIST;
   if (LOD_SMALL_GEO_KINDS.has(label.kind)) return camDist <= 2.5;
   if (LOD_MID_GEO_KINDS.has(label.kind)) return camDist <= 3.5;
   return true;
@@ -606,6 +624,13 @@ export function drawLabelsTenant(
   camDist: number,
   visibility: LabelVisibility,
   theme: LabelTheme = DEFAULT_LABEL_THEME,
+  /**
+   * False when the active style bakes its own relief onto the globe texture
+   * (`bakeStyleTexture` in WorldViewer). The globe is NOT exempt from this —
+   * it wraps the real 2D style render — so a `range` label would otherwise set
+   * a mountain glyph on top of one the baked texture already shows.
+   */
+  geoGlyphs = true,
 ): void {
   if (anchors.length === 0) return;
 
@@ -633,6 +658,6 @@ export function drawLabelsTenant(
     projectLabel,
     LABEL_SCALE_LOD_OFF,
     visibility,
-    { fontScale: LABEL_FONT_SCALE, theme },
+    { fontScale: LABEL_FONT_SCALE, theme, geoGlyphs },
   );
 }

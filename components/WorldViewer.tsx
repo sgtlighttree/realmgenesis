@@ -4,7 +4,9 @@ import { OrbitControls, Stars, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import { WorldData, ViewMode, Cell, Point, InspectMode, DymaxionSettings, EditMode, LabelVisibility, DEFAULT_LABEL_VISIBILITY, MarkerData } from '../types';
 import { getCellColor } from '../utils/colors';
+import { TIER_MARKER_STYLE, settlementCellsByTier } from '../utils/settlements';
 import { getMapStyle, MapStyleId } from '../utils/mapStyle';
+import { GLOBE_MAX_CAM_DIST, GLOBE_MIN_CAM_DIST } from './markerLod';
 import { bakeStyleTexture, buildGlobeDirs } from '../utils/mapStyle/bakeTexture';
 import { createStyleTexture, createStyledGlobeMaterial } from '../utils/mapStyle/globeMaterial';
 import { useLabelFonts } from '../utils/mapStyle/useLabelFonts';
@@ -77,20 +79,17 @@ const CaptureFrame: React.FC<{
 // Plate widening used to close the seams between cells of differing height.
 // 1 = untouched (seams visible, the pre-existing look).
 
-const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode; smoothGlobe?: boolean }> = ({ world, viewMode, smoothGlobe = false }) => {
-    const capitalsRef = useRef<THREE.InstancedMesh>(null);
-    const townsRef = useRef<THREE.InstancedMesh>(null);
+// The camera range lives in `components/markerLod.ts` alongside the per-tier
+// label cutoffs `passesGlobeLod` uses. Only CAPITALS still draw a 3D pin here
+// (S40), so the village/hamlet marker cutoffs in that file now govern their
+// LABELS alone — which is why they stayed there rather than moving back.
+
+const CityMarkers: React.FC<{ world: WorldData; smoothGlobe?: boolean }> = ({ world, smoothGlobe = false }) => {
+    const capitalRef = useRef<THREE.InstancedMesh>(null);
     const dummy = useMemo(() => new THREE.Object3D(), []);
 
-    const { capitals, towns } = useMemo(() => {
-        const c: Cell[] = [];
-        const t: Cell[] = [];
-        world.cells.forEach(cell => {
-            if (cell.isCapital) c.push(cell);
-            else if (cell.isTown) t.push(cell);
-        });
-        return { capitals: c, towns: t };
-    }, [world]);
+    const byTier = useMemo(() => settlementCellsByTier(world), [world]);
+
 
     useEffect(() => {
         const yAxis = new THREE.Vector3(0, 1, 0);
@@ -110,24 +109,30 @@ const CityMarkers: React.FC<{ world: WorldData; viewMode: ViewMode; smoothGlobe?
             });
             mesh.instanceMatrix.needsUpdate = true;
         };
-        if (capitalsRef.current) updateMesh(capitalsRef.current, capitals, 0.08);
-        if (townsRef.current) updateMesh(townsRef.current, towns, 0.04);
-    }, [world, capitals, towns, dummy, smoothGlobe]);
+        if (capitalRef.current) updateMesh(capitalRef.current, byTier.capital, TIER_MARKER_STYLE.capital.height);
+    }, [world, byTier, dummy, smoothGlobe]);
 
     return (
         <>
-            {capitals.length > 0 && (
-                <InstancedMesh ref={capitalsRef} args={[undefined, undefined, capitals.length]} visible={true}>
-                    <CylinderGeometry args={[0.008, 0.008, 0.08, 6]} />
-                    <MeshBasicMaterial color="#ef4444" toneMapped={false} />
+            {byTier.capital.length > 0 && (
+                <InstancedMesh ref={capitalRef} args={[undefined, undefined, byTier.capital.length]} visible={true}>
+                    <CylinderGeometry args={[TIER_MARKER_STYLE.capital.radius, TIER_MARKER_STYLE.capital.radius, TIER_MARKER_STYLE.capital.height, TIER_MARKER_STYLE.capital.segments]} />
+                    <MeshBasicMaterial color={TIER_MARKER_STYLE.capital.color} toneMapped={false} />
                 </InstancedMesh>
             )}
-            {towns.length > 0 && (
-                <InstancedMesh ref={townsRef} args={[undefined, undefined, towns.length]} visible={viewMode === 'political'}>
-                    <CylinderGeometry args={[0.005, 0.005, 0.04, 5]} />
-                    <MeshBasicMaterial color="#ffffff" toneMapped={false} />
+            {byTier.capital.length > 0 && (
+                <InstancedMesh ref={capitalRef} args={[undefined, undefined, byTier.capital.length]} visible={true}>
+                    <CylinderGeometry args={[TIER_MARKER_STYLE.capital.radius, TIER_MARKER_STYLE.capital.radius, TIER_MARKER_STYLE.capital.height, TIER_MARKER_STYLE.capital.segments]} />
+                    <MeshBasicMaterial color={TIER_MARKER_STYLE.capital.color} toneMapped={false} />
                 </InstancedMesh>
             )}
+            {/* Only CAPITALS get a 3D pin (Matt's call, S40). The other tiers
+                were a field of white posts standing over their own labels — the
+                label already carries a tier glyph, so the pin was redundant
+                geometry that hid the map it marks. Their names still respond to
+                Settlement Density and to the camDist LOD; only the posts are
+                gone. TIER_MARKER_STYLE keeps its non-capital entries: exportGLB
+                and the 2D marker pass still read them. */}
         </>
     );
 };
@@ -577,6 +582,9 @@ const WorldMesh: React.FC<{
   // resolve; it is in the tenant deps so the overlay repaints then. Without it
   // the first paint silently keeps the fallback face — Canvas2D does not wait.
   const labelTheme = useLabelFonts(getMapStyle(mapStyleId).labelTheme);
+  // A relief style's mountains/trees/dunes reach the globe through
+  // `styleTexture` above, so geographic label glyphs must stand down there too.
+  const geoGlyphs = !getMapStyle(mapStyleId).paintsRelief;
   const overlayInk = getMapStyle(mapStyleId).overlayInk;
 
   // Refill runs synchronously before the next painted frame so a fresh
@@ -875,15 +883,15 @@ const WorldMesh: React.FC<{
     // no-ops until the next unrelated redraw (e.g. an orbit move). Folding the
     // flags into the id is the id-based idiom this seam already uses, applied
     // to a many-flags tenant instead of a one-flag tenant.
-    { id: `labels:${[labelVisibility.capitals, labelVisibility.towns, labelVisibility.provinces, labelVisibility.geography, labelVisibility.markers].map(Number).join('')}`,
+    { id: `labels:${[labelVisibility.capitals, labelVisibility.cities, labelVisibility.towns, labelVisibility.villages, labelVisibility.hamlets, labelVisibility.provinces, labelVisibility.geography, labelVisibility.markers].map(Number).join('')}`,
       visible: labelAnchors.length > 0,
       draw: (ctx, _proj, _world, project, smooth) =>
-        drawLabelsTenant(ctx, labelAnchors, project, smooth, camera.position.length(), labelVisibility, labelTheme) },
+        drawLabelsTenant(ctx, labelAnchors, project, smooth, camera.position.length(), labelVisibility, labelTheme, geoGlyphs) },
     // Ruler on top of everything — it is an active measurement affordance. Fixed
     // radius (clears peaks), not draped; see drawRulerTenant.
     { id: 'ruler', visible: !!rulerArc && rulerArc.length > 1,
       draw: (ctx, _proj, _world, project, smooth) => drawRulerTenant(ctx, rulerArc!, project, smooth, overlayInk) },
-  ], [showRivers, riverPolylines, showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, labelVisibility, borderSegments, showGrid, dymaxionSettings.showOverlay, dymaxionSettings.lon, dymaxionSettings.lat, dymaxionSettings.roll, dymaxionEdges, labelAnchors, camera, rulerArc, labelTheme, overlayInk]);
+  ], [showRivers, riverPolylines, showContours, contourSegments, showCurrents, world.currents, showRoutes, world.routes, labelVisibility, borderSegments, showGrid, dymaxionSettings.showOverlay, dymaxionSettings.lon, dymaxionSettings.lat, dymaxionSettings.roll, dymaxionEdges, labelAnchors, camera, rulerArc, labelTheme, geoGlyphs, overlayInk]);
 
   return (
     <Group>
@@ -916,7 +924,7 @@ const WorldMesh: React.FC<{
                 ) : (
                     <MeshStandardMaterial key="plain" vertexColors roughness={0.8} metalness={0.1} flatShading side={THREE.FrontSide} />
                 )}
-                <CityMarkers world={world} viewMode={viewMode} smoothGlobe={smoothGlobe} />
+                <CityMarkers world={world} smoothGlobe={smoothGlobe} />
                 <MarkerPins markers={world.markers ?? []} visible={labelVisibility.markers} />
                 <React.Suspense fallback={null}>
                     {/* CurvedFactionLabel stays 3D (curved textured meshes) — F2 does not
@@ -1127,8 +1135,8 @@ const WorldViewer: React.FC<{ world: WorldData | null; viewMode: ViewMode; showG
         )}
         <OrbitControls
           enablePan={false}
-          minDistance={1.2}
-          maxDistance={6}
+          minDistance={GLOBE_MIN_CAM_DIST}
+          maxDistance={GLOBE_MAX_CAM_DIST}
           enableRotate={!overlayMode}
           mouseButtons={orbitMouseButtons}
         />

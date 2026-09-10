@@ -69,4 +69,5 @@ export const styleBlueprint: MapStyle = {
     coastlinePass(BLUEPRINT_PALETTE),
     glyphPass(BLUEPRINT_PALETTE),
   ],
+  paintsRelief: true,
 };

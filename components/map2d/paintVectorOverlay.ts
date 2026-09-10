@@ -4,6 +4,7 @@ import { MarkerData, Point, RouteData, WorldData, LabelVisibility } from '../../
 import { toLonLat } from '../../utils/geo';
 import { drawMapLabels, MapLabel } from '../../utils/labels';
 import { OverlayInk } from '../../utils/mapStyle/overlayInk';
+import { SCREEN_DASH_PX, SCREEN_STROKE_PX, screenStroke } from './strokeWidths';
 import { LabelTheme } from '../../utils/mapStyle/labelTheme';
 import { ContourSegment, drawContourPaths } from '../../utils/shading';
 import { drawCurrents2D } from '../overlays/currents2D';
@@ -71,6 +72,12 @@ export interface PaintVectorOverlayParams {
   mapLabels: MapLabel[];
   labelVisibility: LabelVisibility;
   labelTheme: LabelTheme;
+  /**
+   * False when the active style paints its own relief glyphs, which suppresses
+   * the GEOGRAPHIC label glyphs so a range label does not set a second mountain
+   * beside one the style already drew. See `DrawLabelsOptions.geoGlyphs`.
+   */
+  geoGlyphs: boolean;
   overlayInk: OverlayInk;
   /**
    * Coastline/lake-outline stroke colour. `OverlayInk` (rivers/borders/roads/
@@ -207,7 +214,10 @@ export const drawMarkerPins = (
   ctx.save();
   ctx.fillStyle = '#f59e0b';
   ctx.strokeStyle = 'rgba(28, 18, 7, 0.9)';
-  ctx.lineWidth = Math.max(0.75, halfSize * 0.3);
+  // Proportional to the pin, with no absolute floor: `halfSize` arrives in the
+  // caller's transform units (three call sites, three different units), so a
+  // constant here is only right for one of them. See map2d/strokeWidths.ts.
+  ctx.lineWidth = halfSize * 0.3;
   for (const marker of markers) {
     const projected = project(marker.position);
     if (!projected) continue;
@@ -293,10 +303,14 @@ export const paintVectorOverlay = (
 ): void => {
   const {
     world, projection, size, toggles, boundaryPaths, contourSegments,
-    mapLabels, labelVisibility, labelTheme, overlayInk, coastColor, strokeScale,
+    mapLabels, labelVisibility, labelTheme, geoGlyphs, overlayInk, coastColor, strokeScale,
     rulerArc, highlightPath, cellOutlinePath,
   } = params;
   const s = strokeScale > 0 ? strokeScale : 1;
+  // Widths are named in SCREEN pixels and divided by `s` here, because the
+  // ambient transform already carries the zoom. See ./strokeWidths.ts for the
+  // floor-in-the-wrong-unit bug this replaced.
+  const px = (w: number): number => screenStroke(w, s);
 
   const pathGenerator = d3.geoPath(projection, ctx);
 
@@ -305,19 +319,19 @@ export const paintVectorOverlay = (
     ctx,
     boundaryPaths,
     coastColor,
-    Math.max(1, 1.5 / s),
-    Math.max(0.75, 1.2 / s),
-    Math.max(1, 2 / s),
+    px(SCREEN_STROKE_PX.coast),
+    px(SCREEN_STROKE_PX.lake),
+    px(SCREEN_STROKE_PX.border),
     overlayInk,
   );
 
   // 2. Contours.
-  drawContourPaths(ctx, pathGenerator, contourSegments, Math.max(0.75, 1.5 / s));
+  drawContourPaths(ctx, pathGenerator, contourSegments, px(SCREEN_STROKE_PX.contour));
 
   // 3. Graticule / grid.
   if (toggles.showGrid) {
     ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-    ctx.lineWidth = Math.max(0.5, 1 / s);
+    ctx.lineWidth = px(SCREEN_STROKE_PX.graticule);
     ctx.beginPath();
     pathGenerator(d3.geoGraticule().step([10, 10])());
     ctx.stroke();
@@ -325,12 +339,16 @@ export const paintVectorOverlay = (
 
   // 4. Rivers.
   if (toggles.showRivers && world.rivers) {
-    drawRiverPaths(ctx, world.rivers, projection, 1.5 / s, overlayInk);
+    drawRiverPaths(ctx, world.rivers, projection, px(SCREEN_STROKE_PX.river), overlayInk);
   }
 
   // 5. Routes (roads / sea routes).
   if (toggles.showRoutes && world.routes) {
-    drawRoutePaths(ctx, world.routes, projection, 1.4 / s, 1.2 / s, [5 / s, 4 / s]);
+    drawRoutePaths(
+      ctx, world.routes, projection,
+      px(SCREEN_STROKE_PX.road), px(SCREEN_STROKE_PX.seaRoute),
+      [px(SCREEN_DASH_PX[0]), px(SCREEN_DASH_PX[1])],
+    );
   }
 
   // 6. Ocean currents.
@@ -343,7 +361,7 @@ export const paintVectorOverlay = (
   if (rulerArc && rulerArc.length > 1) {
     ctx.save();
     ctx.strokeStyle = '#fbbf24';
-    ctx.lineWidth = Math.max(1, 2 / s);
+    ctx.lineWidth = px(SCREEN_STROKE_PX.ruler);
     ctx.globalAlpha = 0.9;
     ctx.beginPath();
     let lastLon: number | null = null;
@@ -369,7 +387,7 @@ export const paintVectorOverlay = (
     ctx.save();
     ctx.globalAlpha = 0.25;
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = Math.max(0.25, 0.5 / s);
+    ctx.lineWidth = px(SCREEN_STROKE_PX.cellOutline);
     ctx.stroke(cellOutlinePath);
     ctx.restore();
   }
@@ -378,7 +396,7 @@ export const paintVectorOverlay = (
   if (highlightPath) {
     ctx.save();
     ctx.strokeStyle = '#f9a8a8';
-    ctx.lineWidth = Math.max(1, 3 / s);
+    ctx.lineWidth = px(SCREEN_STROKE_PX.highlight);
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
     ctx.stroke(highlightPath);
@@ -399,7 +417,7 @@ export const paintVectorOverlay = (
   if (labelVisibility.markers && world.markers) {
     ctx.save();
     unmirror(ctx, size);
-    drawMarkerPins(ctx, world.markers, markerProject, Math.max(1.5, 2.5 / s));
+    drawMarkerPins(ctx, world.markers, markerProject, px(SCREEN_STROKE_PX.markerPin));
     ctx.restore();
   }
 
@@ -407,7 +425,19 @@ export const paintVectorOverlay = (
   if (mapLabels.length > 0) {
     ctx.save();
     unmirror(ctx, size);
-    drawMapLabels(ctx, mapLabels, markerProject, s, labelVisibility, { theme: labelTheme });
+    // The ambient transform here is `dpr * s` (VectorOverlay.redraw), so the
+    // zoom is ALREADY applied to everything drawn. Passing `s` as the font
+    // scale as well counted it twice and labels grew quadratically with zoom —
+    // the reason 2D label sizing read as "way off". Dividing by `s` gives
+    // constant on-screen text, the same treatment `strokeScale` already gives
+    // line widths and `2.5 / s` gives marker pins. `s` still goes in as the LOD
+    // argument, which is what it is for.
+    drawMapLabels(ctx, mapLabels, markerProject, s, labelVisibility, {
+      fontScale: 1 / s,
+      minFontSize: 8 / s,
+      theme: labelTheme,
+      geoGlyphs,
+    });
     ctx.restore();
   }
 };

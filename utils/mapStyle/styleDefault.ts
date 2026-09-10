@@ -36,4 +36,5 @@ export const styleDefault: MapStyle = {
   // paints its own fill. An empty pass list is also the signal a render path
   // uses to run its legacy loop instead — see MapStyle.passes.
   passes: [],
+  paintsRelief: false,
 };

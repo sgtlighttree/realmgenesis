@@ -1,5 +1,5 @@
 import * as d3 from 'd3';
-import { WorldData, ViewMode, Point } from '../types';
+import { WorldData, ViewMode, Point, SettlementTier } from '../types';
 import { buildFactionColorMap, buildCultureColorMap, buildReligionColorMap, getCellColor } from './colors';
 import { seasonalTemperatureDelta } from './seasons';
 import { toLonLat, Point3 } from './geo';
@@ -13,7 +13,8 @@ import { OverlayInk } from './mapStyle/overlayInk';
 import { runStyle } from './mapStyle/passes';
 import { placeGlyphs } from './mapStyle/placeGlyphs';
 import { SvgSubstrate } from './mapStyle/substrateSvg';
-import { collectLabels, LABEL_CONFIG } from './labels';
+import { collectLabels, glyphLayout, LABEL_CONFIG, LABEL_SIZE_SCALE } from './labels';
+import { labelGlyphPathData } from './labelGlyphs';
 import { elevationMetres } from './datum';
 
 // 'dymaxion' is a raster-only path (triangular net rasterization, not a
@@ -169,6 +170,8 @@ const buildLabelsGroup = (
   projectionType: VectorProjectionType,
   width: number,
   theme: LabelTheme,
+  /** False when the style paints its own relief — see `DrawLabelsOptions.geoGlyphs`. */
+  geoGlyphs: boolean,
 ): string => {
   const fontScale = width / 1024;
   const parts: string[] = [];
@@ -183,7 +186,14 @@ const buildLabelsGroup = (
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
 
     const config = LABEL_CONFIG[label.kind];
-    const fontSize = Math.max(8, config.baseFontSize * fontScale);
+    const fontSize = Math.max(8, config.baseFontSize * LABEL_SIZE_SCALE * fontScale);
+    const glyph = config.glyph && (geoGlyphs || config.face !== 'geo')
+      ? config.glyph : undefined;
+    // Identical arithmetic to the canvas pass — that shared helper is why the
+    // glyph stacks above the name rather than sitting beside it: this function
+    // is DOM-free by design and so has no `measureText` to lay out a width by.
+    const layout = glyph ? glyphLayout(fontSize, glyph) : null;
+    const textY = y + (layout ? layout.textDy : 0);
     const text = config.uppercase ? label.name.toUpperCase() : label.name;
     const family = config.face === 'geo' ? theme.geoFamily : theme.displayFamily;
     const fill = config.fill
@@ -192,8 +202,17 @@ const buildLabelsGroup = (
     const tracking = config.uppercase && theme.trackingEm !== 0
       ? ` letter-spacing="${(theme.trackingEm * fontSize).toFixed(2)}"` : '';
 
+    if (layout && glyph) {
+      const d = labelGlyphPathData(glyph, x, y + layout.glyphDy, layout.glyphSize);
+      parts.push(
+        `<path d="${d}" fill="none" stroke="${fill}" stroke-opacity="${config.alpha}" ` +
+        `stroke-width="${Math.max(1, fontSize * 0.09).toFixed(2)}" ` +
+        `stroke-linejoin="round" stroke-linecap="round"/>`,
+      );
+    }
+
     parts.push(
-      `<text x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-family="${escapeXml(family)}" ` +
+      `<text x="${x.toFixed(2)}" y="${textY.toFixed(2)}" font-family="${escapeXml(family)}" ` +
       `font-size="${fontSize.toFixed(2)}" font-weight="${config.fontWeight}"${styleAttr}${tracking} ` +
       `fill="${fill}" fill-opacity="${config.alpha}" stroke="${theme.halo}" ` +
       `stroke-width="${Math.max(2, fontSize * theme.haloScale * 0.8).toFixed(2)}" paint-order="stroke" ` +
@@ -239,7 +258,8 @@ export const exportSVG = (
   const mirror = `translate(${width},0) scale(-1,1)`;
 
   const style = getMapStyle(mapStyleId);
-  const labels = buildLabelsGroup(world, projection, projectionType, width, style.labelTheme);
+  const labels = buildLabelsGroup(
+    world, projection, projectionType, width, style.labelTheme, !style.paintsRelief);
   if (style.passes.length > 0) {
     // `mirrored: true` — the body is emitted inside the mirror group below, and
     // the substrate counter-transforms glyphs so they are not drawn backwards.
@@ -366,6 +386,8 @@ const buildCellFeatures = (world: WorldData): GeoJsonFeatureOut<PolygonGeometry>
   // Geometry is already geodesic lon/lat; this makes the vertical genuine too,
   // so QGIS/Blender open the file in consistent units.
   const { seaLevel, maxElevationM } = world.params;
+  const settlementTiers = new Map<number, SettlementTier>();
+  (world.civData?.settlements ?? []).forEach(s => settlementTiers.set(s.cellId, s.tier));
 
   world.cells.forEach((cell, i) => {
     const feature = world.geoJson.features[i];
@@ -390,7 +412,12 @@ const buildCellFeatures = (world: WorldData): GeoJsonFeatureOut<PolygonGeometry>
     }
     if (cell.population !== undefined) properties.population = cell.population;
     if (cell.isCapital !== undefined) properties.isCapital = cell.isCapital;
+    // `isTown` is now true for EVERY settlement, hamlets included, so on its own
+    // it no longer separates a city from a hamlet. Kept for compatibility (it
+    // still means "a settlement stands here") and paired with the tier.
     if (cell.isTown !== undefined) properties.isTown = cell.isTown;
+    const tier = settlementTiers.get(cell.id);
+    if (tier !== undefined) properties.settlementTier = tier;
 
     features.push({
       type: 'Feature',

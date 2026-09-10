@@ -178,4 +178,15 @@ export interface MapStyle {
    * instead. Do not compare against `id`; one invariant, one place.
    */
   passes: StylePass[];
+  /**
+   * True when `passes` includes a `glyphPass` — the style stamps procedural
+   * relief (mountains, trees, dunes) across the land itself.
+   *
+   * Read by the label pass, which then drops the GEOGRAPHIC label glyphs: a
+   * `range` label would otherwise set a second mountain beside one the style
+   * already drew. Declared rather than inferred because a `StylePass` is an
+   * opaque closure with nothing to match on — and per the note above, callers
+   * must not switch on `id`.
+   */
+  paintsRelief: boolean;
 }
