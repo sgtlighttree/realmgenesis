@@ -1,10 +1,17 @@
-import { BiomeType, Cell, CivData, CultureData, ReligionData, ViewMode } from '../types';
+import { BiomeType, Cell, CivData, CultureData, ReligionData, ViewMode, WorldData } from '../types';
 import * as THREE from 'three';
 import { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS } from './palette';
 import { determineBiome } from './worldGen';
 import { SEAWATER_FREEZE_C } from './seasons';
+import { formatElevation } from './datum';
 
 export { FACTION_COLORS, CULTURE_COLORS, RELIGION_COLORS };
+
+// Temperature-view ramp domain, in °C. Module-scoped so the fill (getCellColor)
+// and the legend (legendFor) read ONE definition — a shared literal is drift by
+// construction, which is the whole reason F5 exists.
+export const TEMP_MIN_C = -30;
+export const TEMP_MAX_C = 50;
 
 // Builds the live faction-color map from civData so every render/export path
 // (viewer, minimap, PNG, GLB) reflects user-edited faction colors identically.
@@ -217,9 +224,7 @@ export const getCellColor = (cell: Cell, mode: ViewMode, ctx: ColorContext): THR
       break;
 
     case 'temperature':
-      const minT = -30;
-      const maxT = 50;
-      const tNorm = Math.max(0, Math.min(1, (seasonalTemp - minT) / (maxT - minT)));
+      const tNorm = Math.max(0, Math.min(1, (seasonalTemp - TEMP_MIN_C) / (TEMP_MAX_C - TEMP_MIN_C)));
       color.setHSL(0.65 - (tNorm * 0.65), 0.8, 0.5);
       break;
 
@@ -336,4 +341,189 @@ export const getCellColor = (cell: Cell, mode: ViewMode, ctx: ColorContext): THR
   }
 
   return color;
+};
+
+// ---------------------------------------------------------------------------
+// F5: layer-aware legend. `legendFor(viewMode, world)` is the single source the
+// legend panel reads, beside `getCellColor` so the two cannot drift. Ramp stops
+// are SAMPLED from `getCellColor` (not a re-derived gradient), so a change to a
+// fill formula moves the legend with it for free. Returns `null` for layers
+// with no meaningful key (satellite, plates) — the panel is hidden there.
+// ---------------------------------------------------------------------------
+
+export interface LegendSwatch {
+  label: string;
+  color: string; // #rrggbb
+}
+
+export interface LegendRampStop {
+  pos: number; // 0..1 along the bar
+  color: string; // #rrggbb
+}
+
+export interface RampLegend {
+  kind: 'ramp';
+  title: string;
+  stops: LegendRampStop[];
+  minLabel: string;
+  maxLabel: string;
+  // Short-circuit cases the ramp itself never shows (ocean, uninhabited land) —
+  // they cover large screen areas, so they must be labelled beside the bar.
+  oob?: LegendSwatch[];
+  // A marked position on the bar (e.g. the sea-level discontinuity in Elevation).
+  tick?: { pos: number; label: string };
+}
+
+export interface SwatchesLegend {
+  kind: 'swatches';
+  title: string;
+  items: LegendSwatch[];
+}
+
+export type Legend = RampLegend | SwatchesLegend;
+
+const RAMP_STOPS = 16;
+const toHex = (c: THREE.Color): string => `#${c.getHexString()}`;
+
+// A synthetic land cell (height above the default sea level) used to probe the
+// fill functions. Only the fields a given ramp sweeps are overridden.
+const legendCell = (over: Partial<Cell>): Cell => ({
+  id: 0,
+  center: { x: 0, y: 0, z: 0 },
+  vertices: [],
+  neighbors: [],
+  height: 0.7,
+  plateId: 0,
+  temperature: 15,
+  moisture: 0.5,
+  biome: BiomeType.GRASSLAND,
+  ...over,
+});
+
+const sampleRamp = (
+  mode: ViewMode,
+  seaLevel: number,
+  cellAt: (pos: number) => Cell,
+): LegendRampStop[] =>
+  Array.from({ length: RAMP_STOPS + 1 }, (_, i) => {
+    const pos = i / RAMP_STOPS;
+    return { pos, color: toHex(getCellColor(cellAt(pos), mode, { seaLevel })) };
+  });
+
+export const legendFor = (mode: ViewMode, world: WorldData): Legend | null => {
+  const seaLevel = world.params.seaLevel;
+  const maxElevationM = world.params.maxElevationM;
+  const ctx: ColorContext = { seaLevel };
+  // A representative ocean cell — well below sea level so every water short-circuit fires.
+  const oceanColor = () => toHex(getCellColor(legendCell({ height: seaLevel * 0.4 }), mode, ctx));
+
+  switch (mode) {
+    // No categorical key and no single ramp — hide the panel entirely.
+    case 'satellite':
+    case 'plates':
+      return null;
+
+    case 'biome': {
+      const items: LegendSwatch[] = (Object.keys(BIOME_COLORS) as BiomeType[]).map((b) => ({
+        label: b,
+        color: BIOME_COLORS[b],
+      }));
+      // Sea-ice paints open ocean white in biome/satellite at cold seasons, yet
+      // it is a render overlay (cell.biome stays OCEAN) with no BIOME_COLORS
+      // entry — so it needs its own swatch to name what's on screen.
+      items.push({ label: 'Sea Ice', color: '#ffffff' });
+      return { kind: 'swatches', title: 'Biomes', items };
+    }
+
+    case 'political':
+    case 'province': {
+      // Province fills are derived shade-variants of each faction's base colour,
+      // so a faction swatch is the honest key for both layers (Matt's call, S46).
+      const items: LegendSwatch[] = (world.civData?.factions ?? []).map((f) => ({
+        label: f.name,
+        color: f.color,
+      }));
+      items.push({ label: 'Unclaimed', color: '#555555' });
+      return { kind: 'swatches', title: mode === 'province' ? 'Provinces' : 'Factions', items };
+    }
+
+    case 'culture':
+      return {
+        kind: 'swatches',
+        title: 'Cultures',
+        items: (world.cultures ?? []).map((c) => ({ label: c.name, color: c.color })),
+      };
+
+    case 'religion':
+      return {
+        kind: 'swatches',
+        title: 'Religions',
+        items: (world.religions ?? []).map((r) => ({ label: r.name, color: r.color })),
+      };
+
+    case 'temperature': {
+      const stops = sampleRamp(mode, seaLevel, (pos) =>
+        legendCell({ temperature: TEMP_MIN_C + pos * (TEMP_MAX_C - TEMP_MIN_C) }),
+      );
+      return {
+        kind: 'ramp',
+        title: 'Temperature',
+        stops,
+        minLabel: `${TEMP_MIN_C}°C`,
+        maxLabel: `${TEMP_MAX_C}°C`,
+      };
+    }
+
+    case 'moisture': {
+      const stops = sampleRamp(mode, seaLevel, (pos) => legendCell({ moisture: pos }));
+      return {
+        kind: 'ramp',
+        title: 'Rainfall',
+        stops,
+        minLabel: 'Dry',
+        maxLabel: 'Wet',
+        oob: [{ label: 'Ocean', color: oceanColor() }],
+      };
+    }
+
+    case 'population': {
+      // The fill maps population by log10(1 + pop) / 5, saturating at ~100k. We
+      // invert that so each sampled population lands at an even screen position.
+      const stops = sampleRamp(mode, seaLevel, (pos) =>
+        legendCell({ population: Math.pow(10, pos * 5) - 1 }),
+      );
+      return {
+        kind: 'ramp',
+        title: 'Population',
+        stops,
+        minLabel: '0',
+        maxLabel: '100k+',
+        oob: [
+          { label: 'Ocean', color: oceanColor() },
+          {
+            label: 'Uninhabited',
+            color: toHex(getCellColor(legendCell({ population: 0 }), mode, ctx)),
+          },
+        ],
+      };
+    }
+
+    case 'height':
+    case 'height_bw': {
+      // Full 0->1 field, since the fill is discontinuous at sea level; the tick
+      // marks that break. Elevation labels go through datum.ts (frac^2 curve),
+      // matching the Inspector rather than a linear map.
+      const stops = sampleRamp(mode, seaLevel, (pos) => legendCell({ height: pos }));
+      return {
+        kind: 'ramp',
+        title: mode === 'height_bw' ? 'Elevation (BW)' : 'Elevation',
+        stops,
+        minLabel: formatElevation(0, seaLevel, maxElevationM),
+        maxLabel: formatElevation(1, seaLevel, maxElevationM),
+        tick: { pos: seaLevel, label: 'Sea level' },
+      };
+    }
+  }
+
+  return null;
 };
