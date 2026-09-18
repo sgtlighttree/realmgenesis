@@ -489,8 +489,10 @@ export const legendFor = (mode: ViewMode, world: WorldData): Legend | null => {
     case 'population': {
       // The fill maps population by log10(1 + pop) / 5, saturating at ~100k. We
       // invert that so each sampled population lands at an even screen position.
+      // Floor at 1 so the first stop isn't pop=0 — that hits the uninhabited
+      // short-circuit and would open the bar on the grey already shown as OOB.
       const stops = sampleRamp(mode, seaLevel, (pos) =>
-        legendCell({ population: Math.pow(10, pos * 5) - 1 }),
+        legendCell({ population: Math.max(1, Math.pow(10, pos * 5) - 1) }),
       );
       return {
         kind: 'ramp',

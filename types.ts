@@ -332,6 +332,9 @@ export type DisplayMode =
   | 'winkeltripel'
   | 'dymaxion';
 export type InspectMode = 'click' | 'hover' | 'off';
+// Adding a mode here? Give it a branch in `legendFor` (utils/colors.ts) and a
+// row in `ALL_MODES` in tests/legend.test.ts — the coverage guard trips
+// otherwise (the paramLiveness analogue for legends).
 export type ViewMode = 'biome' | 'height' | 'height_bw' | 'temperature' | 'moisture' | 'plates' | 'political' | 'population' | 'province' | 'satellite' | 'culture' | 'religion';
 // D5: host star spectral class (hottest → coolest). Scales global insolation.
 export type StarClass = 'O' | 'B' | 'A' | 'F' | 'G' | 'K' | 'M';
