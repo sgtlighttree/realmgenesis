@@ -5,7 +5,8 @@ import WorldViewer from '../WorldViewer';
 import Map2D from '../Map2D';
 import Inspector from '../Inspector';
 import EditToolbar from '../EditToolbar';
-import { BiomeLegendList } from '../Legend';
+import { LayerLegend } from '../Legend';
+import { legendFor } from '../../utils/colors';
 import { MiniMapCanvas } from '../MiniMap';
 import DymaxionNetPreview from '../DymaxionNetPreview';
 import { ViewStrip } from '../ViewControls';
@@ -185,8 +186,20 @@ const ShellApp: React.FC = () => {
         />
       ),
     },
-    { key: 'biomes', title: 'Biomes', collapsible: true, node: <BiomeLegendList columns={2} /> },
   ];
+  // F5: the legend follows the LAYER dropdown, keyed to the same colour source
+  // as the map fill. `legendFor` returns null for layers with no key (satellite,
+  // plates) — the panel is dropped entirely there rather than showing a stale
+  // biome key. Only mounted once a world exists (nothing to key before that).
+  const legend = world ? legendFor(viewMode, world) : null;
+  if (legend) {
+    read.push({
+      key: 'legend',
+      title: legend.title,
+      collapsible: true,
+      node: <LayerLegend legend={legend} columns={2} />,
+    });
+  }
   // MiniMapCanvas renders null without a world, which would leave an empty
   // titled box; and it must be UNMOUNTED (not hidden) to stop its redraw.
   if (world && !noGlobe) {
