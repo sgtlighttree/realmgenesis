@@ -1,0 +1,1528 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TCoTG Map Editor</title>
+<style>
+:root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--fg:#e6edf3;--dim:#8b949e;--accent:#58a6ff;
+ --ocean:#0b2438;--landfill:#b9a878;--canon:#3fb950;--proposed:#58a6ff;--conflict:#f85149;--ruled:#bc8cff}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;-webkit-text-size-adjust:100%;background:var(--bg);color:var(--fg);font:13px/1.35 system-ui,-apple-system,sans-serif}
+#app{display:grid;grid-template-rows:auto 1fr auto;grid-template-columns:200px 1fr 320px;height:100vh;height:100dvh}
+#bar{grid-column:1/4;display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 8px;background:var(--panel);border-bottom:1px solid var(--line)}
+#left,#right{background:var(--panel);overflow:auto;padding:8px}
+#left{border-right:1px solid var(--line)}#right{border-left:1px solid var(--line)}
+#stage{position:relative;overflow:hidden;background:var(--ocean);min-width:0;min-height:0;touch-action:none;-webkit-user-select:none;-webkit-touch-callout:none}
+svg{width:100%;height:100%;display:block;user-select:none;touch-action:none}
+#status{grid-column:1/4;display:flex;gap:16px;padding:4px 10px;background:var(--panel);border-top:1px solid var(--line);color:var(--dim);font-variant-numeric:tabular-nums}
+button,select,input,textarea{font:inherit;color:var(--fg);background:#0d1117;border:1px solid var(--line);border-radius:5px;padding:3px 7px}
+button{cursor:pointer}button:hover{border-color:var(--accent)}
+button.on{background:#1f6feb;border-color:#1f6feb;color:#fff}
+button:disabled{opacity:.4;cursor:default}
+textarea{width:100%;min-height:120px;resize:vertical}input[type=text],input[type=number],select{width:100%}
+label.f{display:block;margin:8px 0 2px;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+h3{margin:12px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--dim)}
+.sep{width:1px;height:20px;background:var(--line);margin:0 4px}
+.lay{display:flex;align-items:center;gap:6px;padding:2px 0}
+.sw{width:10px;height:10px;border-radius:50%;display:inline-block}
+#ind{padding:2px 9px;border-radius:10px;font-size:12px;cursor:default}
+#ind.saved{background:#1a4d2e;color:#7ee787}#ind.unsaved{background:#5a4a12;color:#e3b341}#ind.error{background:#5c1a1a;color:#ff7b72;cursor:pointer}
+.row{display:flex;gap:6px}.row>*{flex:1}
+table{border-collapse:collapse;width:100%}td{padding:2px 4px;border-bottom:1px solid var(--line)}td:last-child{text-align:right}
+#flist{max-height:40vh;overflow:auto;margin-top:4px}
+#flist div{padding:2px 4px;border-radius:4px;cursor:pointer;display:flex;gap:6px;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#flist div:hover{background:#21262d}#flist div.sel{background:#1f3a5f}
+.hint{color:var(--dim);font-size:12px}
+.lbl{font-size:11px;paint-order:stroke;stroke:#0b1620;stroke-width:3px;stroke-linejoin:round;fill:#e6edf3;pointer-events:none}
+#banner{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:5;background:#5a4a12;border:1px solid #e3b341;color:#fff;padding:6px 10px;border-radius:6px;display:none;gap:8px;align-items:center;box-shadow:0 2px 8px #0008}
+#banner.show{display:flex}
+.rlbl{font-size:12px;letter-spacing:.14em;text-transform:uppercase;fill:#e6edf3;opacity:.7;pointer-events:none;paint-order:stroke;stroke:#0b1620;stroke-width:3px}
+
+/* ---------- mobile / touch ---------- */
+:root{--sat:env(safe-area-inset-top,0px);--sab:env(safe-area-inset-bottom,0px);--sal:env(safe-area-inset-left,0px);--sar:env(safe-area-inset-right,0px);--peekh:calc(70px + var(--sab))}
+.mob,#listdrawer,#tbar,#chips,#scrim,.sheethead{display:none}
+#modeBtn{display:inline-flex;padding:0;overflow:hidden;font-weight:600}
+#modeBtn span{padding:4px 11px;display:flex;align-items:center;justify-content:center;color:var(--dim)}
+#modeBtn span.act{background:#1f6feb;color:#fff}
+body.view .editonly{display:none!important}
+body.view #ind{display:none}
+#toast{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:50;background:#161b22ee;border:1px solid var(--line);padding:8px 12px;border-radius:8px;display:none;max-width:88%;text-align:center;pointer-events:none}
+#toast.show{display:block}
+body.touchy .lbl{font-size:12px}
+body.touchy button,body.touchy select,body.touchy input[type=text],body.touchy input[type=number]{min-height:44px;min-width:44px}
+body.touchy input,body.touchy textarea,body.touchy select{font-size:16px}
+body.touchy input[type=checkbox],body.touchy input[type=radio]{width:24px;height:24px;min-width:0;min-height:0}
+body.touchy .lay{min-height:44px}
+#chips{position:absolute;left:8px;right:8px;bottom:calc(var(--sheeth,0px) + 8px);z-index:22;gap:8px;flex-wrap:wrap;justify-content:center;pointer-events:none}
+#chips>*{pointer-events:auto}
+#chips button,#chips select{background:#161b22f0;min-height:44px;padding:4px 14px;border-radius:22px;width:auto}
+#chips button.on{background:#1f6feb}
+#chips button.done{background:#238636;border-color:#238636;color:#fff;font-weight:600}
+body.chips #chips{display:flex}
+body.narrow #app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto}
+body.narrow #bar{grid-column:1;padding:calc(6px + var(--sat)) calc(8px + var(--sar)) 6px calc(8px + var(--sal))}
+body.narrow #stage{grid-column:1;grid-row:2}
+body.narrow #status,body.narrow .desk{display:none}
+body.narrow .mob{display:inline-flex;align-items:center;justify-content:center}
+body.narrow .grow{flex:1}
+body.narrow .break{flex-basis:100%;height:0;padding:0;border:0}
+body.narrow #tbSearch{display:flex;flex:1 1 0;min-width:0}
+body.narrow #tbSearch input{width:100%}
+body.narrow #left,body.narrow #listdrawer{background:var(--panel);position:absolute;display:block;top:0;bottom:0;left:0;width:min(86%,340px);z-index:30;border:0;border-right:1px solid var(--line);transform:translateX(-102%);visibility:hidden;transition:transform .2s,visibility .2s;padding:8px 8px calc(8px + var(--sab)) calc(8px + var(--sal))}
+body.narrow #left.open,body.narrow #listdrawer.open{transform:none;visibility:visible}
+body.narrow #scrim{position:absolute;inset:0;z-index:25;background:#0008}
+body.narrow #scrim.show{display:block}
+body.narrow #flist{max-height:none}
+body.narrow #flist div{min-height:44px;padding:10px 6px}
+body.narrow #listdrawer h3{margin-top:4px}
+body.narrow #right{position:absolute;left:0;right:0;bottom:0;z-index:20;border:0;border-top:1px solid var(--line);border-radius:14px 14px 0 0;box-shadow:0 -4px 16px #0008;padding:0 calc(12px + var(--sar)) calc(12px + var(--sab)) calc(12px + var(--sal));max-height:74%;overflow:auto;transform:translateY(105%);visibility:hidden;transition:transform .2s,visibility .2s;touch-action:pan-y}
+body.narrow #right.peek,body.narrow #right.full{transform:none;visibility:visible}
+body.narrow #right.peek{height:var(--peekh);overflow:hidden}
+body.narrow .sheethead{display:block;position:sticky;top:0;z-index:2;background:var(--panel);min-height:58px;padding:8px 0 4px;touch-action:none;cursor:pointer;margin-bottom:4px}
+.grab{width:40px;height:4px;border-radius:2px;background:#484f58;margin:0 auto 8px}
+.hrow{display:flex;align-items:center;gap:8px}
+.hrow b{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px}
+.stchip{padding:1px 8px;border-radius:10px;border:1px solid var(--line);font-size:12px}
+body.narrow #tbar{display:flex;grid-column:1;grid-row:3;gap:4px;overflow-x:auto;overflow-y:hidden;background:var(--panel);border-top:1px solid var(--line);padding:4px calc(6px + var(--sar)) calc(4px + var(--sab)) calc(6px + var(--sal));scrollbar-width:none;-webkit-overflow-scrolling:touch}
+body.narrow #tbar::-webkit-scrollbar{display:none}
+body.narrow.view #tbar{display:none}
+#tbar button{flex:0 0 auto;min-width:58px;min-height:48px;padding:4px 6px}
+body.narrow #banner{max-width:94%;flex-wrap:wrap}
+.sdrawer{display:none;position:absolute;top:0;bottom:0;left:0;width:min(92%,340px);z-index:30;background:var(--panel);border-right:1px solid var(--line);box-shadow:4px 0 16px #0008;overflow:auto;padding:8px;touch-action:pan-y}
+.sdrawer.open{display:block}
+#gendrawer{width:min(96%,380px)}
+.gp{display:grid;grid-template-columns:1fr 70px;gap:4px 8px;align-items:center;margin:2px 0}
+.gp label{grid-column:1/3;font-size:11px;color:var(--dim);margin-top:4px;display:flex;justify-content:space-between}
+.gp input[type=range]{padding:0;border:0;background:transparent;width:100%}
+.gp .ov{color:#e3b341}.gp-reset{color:var(--accent);font-size:11px}
+.gsum{font-size:12px;border:1px solid var(--line);border-radius:5px;padding:6px;margin:6px 0}
+.gsum .bad{color:#f85149}.gsum .good{color:#3fb950}
+.gblk{border-top:1px solid var(--line);margin-top:8px;padding-top:4px}
+.zrow{padding:5px 4px;cursor:pointer;border-radius:4px}.zrow:hover{background:#ffffff10}
+body.narrow .sdrawer{padding:8px 8px calc(8px + var(--sab)) calc(8px + var(--sal))}
+.grow-r{display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid var(--line)}
+.grow-r .gn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.grow-r label{display:flex;align-items:center;gap:3px;color:var(--dim);font-size:11px}
+.badge{display:inline-block;min-width:16px;padding:0 5px;margin-left:4px;border-radius:9px;background:#f85149;color:#fff;font-size:11px;font-weight:700;text-align:center}
+#btnCanon.warn{border-color:#f85149;color:#ff7b72}
+.crow{padding:6px 8px;margin:6px 0;border-radius:6px;border:1px solid var(--line);border-left:4px solid var(--canon);cursor:pointer}
+.crow.bad{border-color:#f85149;background:#f8514922;border-left-color:#f85149}
+.crow b.ok{color:#7ee787}.crow b.badt{color:#ff7b72}
+.dh{display:flex;gap:6px;align-items:center}.dh h3{flex:1;margin:4px 0}
+#chips .rchip{background:#161b22f0;border:1px solid var(--line);border-radius:22px;padding:4px 12px;display:flex;align-items:center;gap:6px;min-height:44px}
+#chips .rchip input{width:120px;min-height:0;padding:0;border:0;background:transparent}
+#ptools input[type=range]{padding:0;border:0;background:transparent}
+</style>
+</head>
+<body>
+<div id="app">
+ <div id="bar">
+  <button id="modeBtn" title="View = read-only, Edit = changes autosave"><span data-m="view">View</span><span data-m="edit">Edit</span></button>
+  <span class="sep desk editonly"></span>
+  <button class="desk editonly" data-tool="select" title="V">Select (V)</button>
+  <button class="desk editonly" data-tool="pin" title="P">Pin (P)</button>
+  <button class="desk editonly" data-tool="note" title="N">Note (N)</button>
+  <button class="desk editonly" data-tool="polygon" title="G">Polygon (G)</button>
+  <button class="desk editonly" data-tool="polyline" title="L">Line (L)</button>
+  <button class="desk editonly" data-tool="edit" title="E">Vertices (E)</button>
+  <button class="desk editonly" data-tool="marquee" title="S">Marquee (S)</button>
+  <button class="desk editonly" data-tool="lasso" title="A">Lasso (A)</button>
+  <button class="desk editonly" data-tool="delete" title="D">Delete (D)</button>
+  <button class="desk editonly" data-tool="measure" title="M">Measure (M)</button>
+  <span class="sep desk editonly"></span>
+  <select id="polyType" class="desk editonly" style="width:auto" title="what Polygon/Line creates">
+   <option value="region">new polygon: region</option><option value="land">new polygon: land</option><option value="genzone">new polygon: genzone</option>
+   <option value="river">new line: river</option><option value="road">new line: road</option><option value="canal">new line: canal</option>
+  </select>
+  <span class="sep desk editonly"></span>
+  <button class="js-undo desk editonly" title="Ctrl/Cmd+Z">Undo</button><button class="js-redo desk editonly" title="Shift+Cmd+Z">Redo</button>
+  <button class="js-home desk" id="home">Home view</button><button id="fit" class="desk">Whole world</button>
+  <span class="grow" style="flex:1"></span>
+  <button id="btnLayers" class="mob">Layers</button><button id="btnList" class="mob">List</button><button class="js-home mob">Home</button>
+  <span class="break mob"></span>
+  <div id="tbSearch" class="mob"></div>
+  <button id="btnGen" title="Generation parameters">Generation</button><button id="btnGroups" title="Groups (tags)">Groups</button><button id="btnCanon" title="Canon checks">Canon<span id="canBadge" class="badge" hidden></span></button>
+  <span id="ind" class="unsaved">loading</span>
+ </div>
+ <div id="left">
+  <h3>Layers</h3><div id="layers"></div>
+  <h3>Marquee / lasso picks</h3><div id="selflt"></div>
+  <div id="ptools" class="editonly">
+   <h3>Proportional edit <span class="hint">(O)</span></h3>
+   <label class="lay"><input type="checkbox" id="peOn"> On (moves nearby points too)</label>
+   <label class="f">Falloff</label><select id="peFall"><option>smooth</option><option>sphere</option><option>root</option><option>linear</option><option>sharp</option><option>constant</option></select>
+   <label class="f">Radius km ( [ and ] , wheel while dragging)</label><input type="number" id="peR" min="5" max="5000" step="10"><input type="range" id="peRs" min="5" max="2000" step="5">
+   <label class="lay"><input type="checkbox" id="peSame"> Same feature only</label>
+   <div class="hint">Scope = the type checkboxes above; hidden/locked tags and generated coasts never move.</div>
+   <h3>Selection tools</h3>
+   <label class="f">Densify spacing km</label><input type="number" id="dsKm" value="20" min="0.5" step="1"><button id="btnDens" style="width:100%;margin-top:3px">Densify to N km</button>
+   <label class="f">Simplify tolerance km</label><input type="number" id="smTol" value="5" min="0.1" step="0.5"><button id="btnSimp" style="width:100%;margin-top:3px">Simplify</button>
+   <div class="hint">Acts on selected features, or on selected vertices (edges / runs between them).</div>
+  </div>
+  <div id="featwrap"><h3>Features</h3>
+  <div id="searchslot"><input type="text" id="search" placeholder="find / filter by name..." enterkeyhint="search" autocomplete="off"></div>
+  <div id="flist"></div></div>
+ </div>
+ <div id="stage"><svg id="svg"><g id="content"></g></svg>
+  <div id="listdrawer"><div id="listBody"></div></div><div id="grpdrawer" class="sdrawer"><div class="dh"><h3>Groups</h3><button data-close="1">Close</button></div>
+   <div id="grpList"></div>
+   <div id="grpAdd" class="editonly"><label class="f">Tag</label><input type="text" id="grpName" list="grpTags" placeholder="tag name" autocomplete="off"><datalist id="grpTags"></datalist>
+    <div class="hint" id="grpSelInfo" style="margin:4px 0"></div>
+    <div class="row"><button id="grpAddBtn">Add selection to tag...</button><button id="grpRemBtn">Remove tag from selection</button></div></div></div>
+  <div id="gendrawer" class="sdrawer"><div class="dh"><h3>Generation</h3><button data-close="1">Close</button></div><div id="genBody"></div></div>
+  <div id="candrawer" class="sdrawer"><div class="dh"><h3>Canon checks</h3><button data-close="1">Close</button></div><div id="canList"></div></div><div id="scrim"></div><div id="chips"></div><div id="toast"></div>
+  <div id="banner"><span>File changed on disk:</span><button id="bReload">Reload (lose local edits)</button><button id="bKeep">Keep mine (overwrite)</button></div></div>
+ <div id="right"></div>
+ <div id="tbar">
+  <button data-tool="select">Select</button><button data-tool="pin">Pin</button><button data-tool="note">Note</button>
+  <button data-tool="polygon">Polygon</button><button data-tool="polyline">Line</button><button data-tool="edit">Vertices</button>
+  <button data-tool="marquee">Marquee</button><button data-tool="lasso">Lasso</button><button data-tool="measure">Measure</button>
+  <button class="js-undo">Undo</button><button class="js-redo">Redo</button>
+ </div>
+ <div id="status"><span id="cur">lon -, lat -</span><span id="toolhint"></span><span id="zoom"></span><span id="genst" style="margin-left:auto"></span></div>
+</div>
+<script>
+'use strict';
+const STATUSES = ['canon', 'proposed', 'conflict', 'ruled'];
+const COL = {canon: '#3fb950', proposed: '#58a6ff', conflict: '#f85149', ruled: '#bc8cff'};
+const LAYERS = [['land', 'Land polygons'], ['intent', 'Intent shapes'], ['gen', 'Generated coast'], ['biome', 'Biome tint'], ['region', 'Regions'], ['genzone', 'Generation zones'], ['line', 'Rivers / roads'], ['pin', 'Pins'], ['note', 'Notes'], ['breach', 'Breach'], ['grid', 'Graticule']];
+const THINTS = {select: 'Tap to select. Drag a selected feature to move it; drag empty map to pan. Long-press removes from selection.', pin: 'Tap the map to place a pin.', note: 'Tap the map to place a note.',
+  polygon: 'Tap points, then Done (or tap the first point).', polyline: 'Tap points, then Done.', edit: 'Tap a feature, drag its vertices. Long-press a vertex deletes it.',
+  marquee: 'Drag a box. Chips: Add / Subtract / Inside. Long-press first = subtract.', lasso: 'Drag a loop. Chips: Add / Subtract / Inside.', delete: 'Tap a feature to delete it.', measure: 'Tap two points (pins snap).'};
+const HINTS = {select: 'Click to select (Shift multi-select), drag to move, box handles scale about the opposite side (Alt = centre, Shift = uniform) / rotate, arrows nudge. O = proportional edit. Wheel zoom, drag background to pan.', pin: 'Click to place a pin.', note: 'Click to place a note.',
+  polygon: 'Click points; dbl-click / Enter / click first point to finish. Esc cancels.', polyline: 'Click points; dbl-click / Enter to finish. Esc cancels.',
+  edit: 'Click vertex to select (Shift toggles), drag to move selected; click edge midpoint to insert; Delete removes selected vertices; Alt-click deletes one.',
+  marquee: 'Drag a rectangle (Shift adds, Alt subtracts). Left-panel checkboxes pick types; Vertices mode picks vertices across features.', lasso: 'Drag a freehand loop (Shift adds, Alt subtracts). See left-panel type filters.', delete: 'Click a feature to delete it.', measure: 'Click two points (pins snap). Third click restarts.'};
+const KEYS = {v: 'select', p: 'pin', n: 'note', g: 'polygon', l: 'polyline', m: 'measure', e: 'edit', d: 'delete', s: 'marquee', a: 'lasso'};
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const mql = q => (window.matchMedia ? window.matchMedia(q) : {matches: false});
+const UA_MOBILE = /Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+let narrow = mql('(max-width: 820px)').matches;
+const touchy = UA_MOBILE || mql('(pointer: coarse)').matches;
+const MODE_KEY = 'mapMode';
+let viewMode = (() => { let m = null; try { m = localStorage.getItem(MODE_KEY); } catch (e) { /* ignore */ } return m === 'view' || m === 'edit' ? m === 'view' : (narrow || touchy); })();
+const vm = {add: false, sub: false, full: false, ctr: false, uni: false};   /* on-screen modifier chips (Shift / Alt / fully-inside) */
+const M = e => ({shift: !!e.shiftKey || vm.add, alt: !!e.altKey || vm.sub, full: !!(e.altKey || e.ctrlKey || e.metaKey) || vm.full});
+const svg = $('#svg'), content = $('#content');
+let S = null, tool = 'select', sel = null, msel = new Set(), vsel = new Set(), vflag = false, draft = [], meas = [], cursor = null;
+let view = {k: 4, tx: 0, ty: 0};
+const vis = Object.fromEntries(LAYERS.map(l => [l[0], true]));
+vis.biome = false;
+/* clean view (Matt, 2026-10-11): a reading map. Tooling layers off (intent outlines, gen zones, arcs, claims, notes, unplaced
+   pins, Breach handles); restores the previous layer set when turned off. Per device. */
+const CLEAN_KEY = 'mapClean', CLEAN_VIS = {land: false, intent: false, gen: true, biome: true, region: true, genzone: false, line: true, pin: true, note: false, breach: true, grid: true};
+let clean = false, cleanPrev = null;
+function setClean(on) {
+  if (on === clean) return;
+  if (on) { cleanPrev = {...vis}; Object.assign(vis, CLEAN_VIS); } else Object.assign(vis, cleanPrev || Object.fromEntries(LAYERS.map(l => [l[0], l[0] !== 'biome'])));
+  clean = on; try { localStorage.setItem(CLEAN_KEY, on ? JSON.stringify(cleanPrev) : ''); } catch (e) { /* ignore */ }
+}
+try { const c = localStorage.getItem(CLEAN_KEY); if (c) { cleanPrev = JSON.parse(c); Object.assign(vis, CLEAN_VIS); clean = true; } } catch (e) { /* ignore */ }
+const tooling = f => clean && ((f.type === 'line' && f.kind === 'arc') || (f.type === 'pin' && f.kind === 'unplaced') || (f.type === 'region' && (f.kind === 'claim' || f.kind === 'archipelago')));
+const shown = f => vis[layerOf(f)] && !tooling(f);
+const layerOf = f => f.type === 'land' && f.kind === 'intent' ? 'intent' : f.type === 'region' && f.kind === 'genzone' ? 'genzone' : f.type;   /* intent shapes get their own layer toggle */
+let undoStack = [], redoStack = [], fieldCk = false, dirty = 0, saving = false, saveTimer = null, saveErr = '';
+let down = null, mq = null, lastNudge = 0;
+let vx = new Set(); /* multi-feature vertex selection, keys 'id#idx' (idx -1 = pin/note point) */
+const FLT_KEY = 'mapSelFilter';
+const flt = {land: true, region: true, line: true, pin: true, note: true, verts: false};
+try { const o = JSON.parse(localStorage.getItem(FLT_KEY) || 'null'); if (o) for (const k of Object.keys(flt)) if (typeof o[k] === 'boolean') flt[k] = o[k]; } catch (e) { /* storage unavailable */ }
+function saveFlt() { try { localStorage.setItem(FLT_KEY, JSON.stringify(flt)); } catch (e) { /* ignore */ } }
+
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const rnd = v => Math.round(v * 1000) / 1000;
+const clampLL = (lon, lat) => [rnd(Math.max(-180, Math.min(180, lon))), rnd(Math.max(-90, Math.min(90, lat)))];
+const W = () => svg.clientWidth, H = () => svg.clientHeight;
+const X = lon => lon * view.k + view.tx, Y = lat => view.ty - lat * view.k;
+const lonOf = x => (x - view.tx) / view.k, latOf = y => (view.ty - y) / view.k;
+const feat = id => S.features.find(f => f.id === id);
+const isPt = f => f.type === 'pin' || f.type === 'note';
+const R = () => S.planet.radius_km;
+
+/* ---------- groups (tags): hide / lock are per-device, kept in localStorage ---------- */
+const GRP_KEY = 'mapGroupState';
+const grpHid = new Set(), grpLock = new Set(), grpNoBorder = new Set();
+try { const o = JSON.parse(localStorage.getItem(GRP_KEY) || 'null'); if (o) { (o.hidden || []).forEach(t => grpHid.add(String(t))); (o.locked || []).forEach(t => grpLock.add(String(t))); (o.noBorder || []).forEach(t => grpNoBorder.add(String(t))); } } catch (e) { /* storage unavailable */ }
+function saveGrp() { try { localStorage.setItem(GRP_KEY, JSON.stringify({hidden: [...grpHid], locked: [...grpLock], noBorder: [...grpNoBorder]})); } catch (e) { /* ignore */ } }
+// Nation colours: fixed for known countries, hashed hue for any other tag.
+const NATION_COL = {dolma: '#d9534f', asahi: '#4a8fe7', wi: '#e0a526', barsdorf: '#a99ad6', 'bandit-lands': '#9c7a4f', unplaced: '#888888', sea: '#5bc0de'};
+function tagCol(t) { if (NATION_COL[t]) return NATION_COL[t]; let h = 0; for (const ch of t) h = (h * 31 + ch.charCodeAt(0)) % 360; return `hsl(${h},55%,58%)`; }
+const nationOf = f => tagsOf(f).find(t => NATION_COL[t] && t !== 'unplaced' && t !== 'sea');
+const borderOff = f => f.type === 'region' && tagsOf(f).some(t => grpNoBorder.has(t));
+const tagsOf = f => Array.isArray(f.groups) ? f.groups.filter(t => typeof t === 'string') : [];
+const isHid = f => (grpHid.size > 0 && tagsOf(f).some(t => grpHid.has(t))) || (grpNoBorder.size > 0 && f.type === 'region' && tagsOf(f).some(t => grpNoBorder.has(t))); // border-off regions are hidden for picking too
+const isLock = f => grpLock.size > 0 && tagsOf(f).some(t => grpLock.has(t));
+const peOf = f => isLock(f) ? ' pointer-events="none"' : '';
+
+/* ---------- geometry ---------- */
+const rad = d => d * Math.PI / 180, deg = r => r * 180 / Math.PI;
+function vec(lon, lat) { const a = rad(lon), b = rad(lat); return [Math.cos(b) * Math.cos(a), Math.cos(b) * Math.sin(a), Math.sin(b)]; }
+function ll(v) { return [deg(Math.atan2(v[1], v[0])), deg(Math.asin(Math.max(-1, Math.min(1, v[2]))))]; }
+function gcKm(a, b) {
+  const dl = rad(b[0] - a[0]), p1 = rad(a[1]), p2 = rad(b[1]);
+  const h = Math.sin((p2 - p1) / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  return 2 * R() * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+function gcSample(a, b) {            // sampled great-circle path, split at the antimeridian
+  const va = vec(...a), vb = vec(...b);
+  const ang = Math.acos(Math.max(-1, Math.min(1, va[0] * vb[0] + va[1] * vb[1] + va[2] * vb[2])));
+  const n = Math.max(2, Math.ceil(deg(ang) * 2));
+  const segs = []; let cur = [], prev = null;
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, s = Math.sin(ang);
+    const A = s < 1e-9 ? 1 - t : Math.sin((1 - t) * ang) / s, B = s < 1e-9 ? t : Math.sin(t * ang) / s;
+    const p = ll([A * va[0] + B * vb[0], A * va[1] + B * vb[1], A * va[2] + B * vb[2]]);
+    if (prev && Math.abs(p[0] - prev[0]) > 180) { segs.push(cur); cur = []; }
+    cur.push(p); prev = p;
+  }
+  segs.push(cur); return segs;
+}
+function breachPts() {               // one list of {lon,lat,wave} samples around the great circle
+  const {lat, lon} = S.breach.pole, p = vec(lon, lat);
+  let u = Math.abs(p[2]) > 0.99 ? [1, 0, 0] : [0, 0, 1];
+  const dot = u[0] * p[0] + u[1] * p[1] + u[2] * p[2];
+  u = [u[0] - dot * p[0], u[1] - dot * p[1], u[2] - dot * p[2]];
+  const ul = Math.hypot(...u); u = u.map(x => x / ul);
+  const v = [p[1] * u[2] - p[2] * u[1], p[2] * u[0] - p[0] * u[2], p[0] * u[1] - p[1] * u[0]];
+  const segs = []; let cur = [], prev = null;
+  for (let i = 0; i <= 720; i++) {
+    const t = i * Math.PI / 360;
+    const q = [0, 1, 2].map(j => u[j] * Math.cos(t) + v[j] * Math.sin(t));
+    const [lo, la] = ll(q);
+    const pt = [lo, Math.max(-89.5, Math.min(89.5, la + 0.9 * Math.sin(lo * 0.22) + 0.4 * Math.sin(lo * 0.61)))];
+    if (prev && Math.abs(lo - prev) > 180) { segs.push(cur); cur = []; }
+    cur.push(pt); prev = lo;
+  }
+  segs.push(cur);
+  return segs;
+}
+function toKm(p, c) { return [R() * rad(p[0] - c[0]) * Math.max(1e-3, Math.cos(rad(p[1]))), R() * rad(p[1] - c[1])]; }   // sinusoidal (equal-area) frame about c
+function fromKm(v, c) { const la = c[1] + deg(v[1] / R()); return [c[0] + deg(v[0] / (R() * Math.max(1e-3, Math.cos(rad(la))))), la]; }
+function inPoly(p, poly) {
+  let ins = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > p[1]) !== (yj > p[1]) && p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) ins = !ins;
+  }
+  return ins;
+}
+function areaKm2(ring) {
+  let s = 0;
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i], b = ring[(i + 1) % ring.length];
+    s += rad(b[0] - a[0]) * (2 + Math.sin(rad(a[1])) + Math.sin(rad(b[1])));
+  }
+  return Math.abs(s) * R() * R() / 2;
+}
+function centroid(ring) {
+  let a = 0, cx = 0, cy = 0;
+  for (let i = 0; i < ring.length; i++) {
+    const [x1, y1] = ring[i], [x2, y2] = ring[(i + 1) % ring.length], c = x1 * y2 - x2 * y1;
+    a += c; cx += (x1 + x2) * c; cy += (y1 + y2) * c;
+  }
+  if (Math.abs(a) < 1e-9) return ring[0];
+  return [cx / (3 * a), cy / (3 * a)];
+}
+
+/* ---------- proportional editing (one code path: selection transform T, others follow with falloff weight) ---------- */
+const PE_KEY = 'mapPropEdit';
+const FALL = {smooth: t => 1 - t * t * (3 - 2 * t), sphere: t => Math.sqrt(Math.max(0, 1 - t * t)), root: t => Math.sqrt(Math.max(0, 1 - t)), linear: t => 1 - t, sharp: t => (1 - t) * (1 - t), constant: () => 1};
+const pe = {on: false, R: 300, fall: 'smooth', same: false};
+const clampR = r => Math.max(5, Math.min(5000, r));
+try { const o = JSON.parse(localStorage.getItem(PE_KEY) || 'null'); if (o) { if (Number.isFinite(+o.R)) pe.R = clampR(+o.R); if (FALL[o.fall]) pe.fall = o.fall; pe.same = !!o.same; } } catch (e) { /* storage unavailable */ }
+function savePE() { try { localStorage.setItem(PE_KEY, JSON.stringify({R: pe.R, fall: pe.fall, same: pe.same})); } catch (e) { /* ignore */ } }
+const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+function peBuild(d, Rcap) {   /* cache great-circle km from each unselected in-scope point to the nearest selected vertex/edge (original positions) */
+  const keys = new Set(d.refs.map(r => r.f.id + '#' + r.i)), fids = new Set(d.refs.map(r => r.f.id)), ov = new Map(), els = [];
+  d.refs.forEach((r, i) => { const v = vec(...d.orig[i]); ov.set(r.f.id + '#' + r.i, v); els.push({a: v}); });
+  for (const id of fids) {
+    const f = feat(id); if (!f || isPt(f)) continue; const g = f.geometry, n = g.length, cl = f.type !== 'line';
+    for (let j = 0; j < (cl ? n : n - 1); j++) {
+      const a = ov.get(id + '#' + j), b = ov.get(id + '#' + ((j + 1) % n)); if (!a || !b) continue;
+      const c = cross3(a, b), l = Math.hypot(...c); if (l < 1e-9) continue;
+      els.push({a, b, n: c.map(x => x / l)});
+    }
+  }
+  const bb = bboxOf(d.orig), latM = deg(Rcap / R()), la0 = bb[1] - latM, la1 = bb[3] + latM, mx = Math.max(Math.abs(la0), Math.abs(la1));
+  const lonM = mx >= 85 ? 360 : latM / Math.cos(rad(mx));
+  const dist = p => {
+    let best = Infinity;
+    for (const e of els) {
+      let c = dot3(p, e.a); if (c > 1) c = 1; else if (c < -1) c = -1; let ang = Math.acos(c);
+      if (e.n) {
+        const sp = dot3(p, e.n), qq = [p[0] - sp * e.n[0], p[1] - sp * e.n[1], p[2] - sp * e.n[2]], ql = Math.hypot(...qq);
+        if (ql > 1e-9 && dot3(cross3(e.a, qq), e.n) >= 0 && dot3(cross3(qq, e.b), e.n) >= 0) ang = Math.min(ang, Math.asin(Math.min(1, Math.abs(sp))));
+      }
+      if (ang < best) best = ang;
+    }
+    return best * R();
+  };
+  const list = [];
+  for (const f of S.features) {
+    if (isHid(f) || isLock(f) || !shown(f)) continue;
+    const mine = fids.has(f.id); if (pe.same && !mine) continue; if (!mine && !flt[f.type]) continue;
+    const pts = isPt(f) ? [[f.geometry.lon, f.geometry.lat]] : f.geometry;
+    pts.forEach((p, k) => {
+      const i = isPt(f) ? -1 : k; if (keys.has(f.id + '#' + i)) return;
+      if (p[1] < la0 || p[1] > la1 || p[0] < bb[0] - lonM || p[0] > bb[2] + lonM) return;
+      const dk = dist(vec(p[0], p[1])); if (dk < Rcap) list.push({f, i, p0: [p[0], p[1]], d: dk});
+    });
+  }
+  return {Rcap, list};
+}
+function interpT(p, q, w, fc) {
+  if (fc) { const a = toKm(p, fc), b = toKm(q, fc); return fromKm([a[0] + w * (b[0] - a[0]), a[1] + w * (b[1] - a[1])], fc); }
+  return [p[0] + w * (q[0] - p[0]), p[1] + w * (q[1] - p[1])];
+}
+function applyT(d, T) {   /* T = {fn: lonlat -> lonlat, fc: local-frame centre or null} */
+  d.refs.forEach((rf, i) => setP(rf, T.fn(d.orig[i])));
+  if (!pe.on) { if (d.pe) for (const c of d.pe.list) setP(c, c.p0); return; }
+  if (!d.pe || pe.R > d.pe.Rcap) d.pe = peBuild(d, clampR(pe.R * 1.5));
+  for (const c of d.pe.list) { const w = c.d < pe.R ? FALL[pe.fall](c.d / pe.R) : 0; setP(c, w > 0 ? (T.rotw ? T.rotw(c.p0, w) : interpT(c.p0, T.fn(c.p0), w, T.fc)) : c.p0); }
+}
+/* ---------- sphere-correct move: rotation on the unit sphere ---------- */
+function rotV(v, ax, th) { const c = Math.cos(th), s = Math.sin(th), d = dot3(ax, v) * (1 - c), x = cross3(ax, v); return [v[0] * c + x[0] * s + ax[0] * d, v[1] * c + x[1] * s + ax[1] * d, v[2] * c + x[2] * s + ax[2] * d]; }
+function rotLL(p, ax, th) { const q = ll(rotV(vec(p[0], p[1]), ax, th)); q[0] += 360 * Math.round((p[0] - q[0]) / 360); return q; }   /* lon kept continuous with the input */
+function rotFromTo(a, b) {   /* {ax, th}: rotation about a x b taking lon/lat a to b, or null if degenerate */
+  const va = vec(a[0], a[1]), vb = vec(b[0], b[1]), c = cross3(va, vb), l = Math.hypot(...c); if (l < 1e-12) return null;
+  return {ax: c.map(x => x / l), th: Math.atan2(l, dot3(va, vb))};
+}
+function sphCentroid(pts) { let x = 0, y = 0, z = 0; for (const p of pts) { const v = vec(p[0], p[1]); x += v[0]; y += v[1]; z += v[2]; } const q = ll([x, y, z].map(t => t / (Math.hypot(x, y, z) || 1))); return q; }
+/* point p relative to centre a (bearing + angular distance), re-placed at the same bearing/distance from b */
+function azMove(p, a, b) {
+  const f1 = rad(a[1]), l1 = rad(a[0]), f2 = rad(p[1]), l2 = rad(p[0]), dl = l2 - l1;
+  const dd = 2 * Math.asin(Math.min(1, Math.sqrt(Math.sin((f2 - f1) / 2) ** 2 + Math.cos(f1) * Math.cos(f2) * Math.sin(dl / 2) ** 2)));
+  if (dd < 1e-12) return [b[0], b[1]];
+  const brg = Math.atan2(Math.sin(dl) * Math.cos(f2), Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl));
+  const g1 = rad(b[1]), m1 = rad(b[0]);
+  const g2 = Math.asin(Math.sin(g1) * Math.cos(dd) + Math.cos(g1) * Math.sin(dd) * Math.cos(brg));
+  const m2 = m1 + Math.atan2(Math.sin(brg) * Math.sin(dd) * Math.cos(g1), Math.cos(dd) - Math.sin(g1) * Math.sin(g2));
+  let lon = m2 * 180 / Math.PI; lon += 360 * Math.round((p[0] + (b[0] - a[0]) - lon) / 360);
+  return [lon, g2 * 180 / Math.PI];
+}
+const HOPP = {nw: 'se', se: 'nw', ne: 'sw', sw: 'ne', n: 's', s: 'n', e: 'w', w: 'e'};
+function dragT(d, cur, mods) {
+  if (d.mode === 'gmove') {
+    /* North-preserving move: the selection centroid follows the cursor (rotation start->cursor), then every point is
+       re-placed at its original bearing + great-circle distance from the centroid. True size and orientation to north are
+       kept wherever the shape is grabbed (a pure rotation would turn the shape when grabbed off-centre). */
+    const r = rotFromTo(d.start, cur);
+    if (!r) return {fn: p => [p[0], p[1]], rotw: (p, w) => [p[0], p[1]], fc: null};
+    if (!d.mc) d.mc = sphCentroid(d.orig);
+    const C = d.mc, moveC = th => rotLL(C, r.ax, th);
+    const C1 = moveC(r.th);
+    return {fn: p => azMove(p, C, C1), rotw: (p, w) => azMove(p, C, moveC(w * r.th)), fc: null};
+  }
+  if (d.mode === 'rot') {
+    const c = d.c, v = toKm(cur, c), ang = Math.atan2(v[1], v[0]) - Math.atan2(d.h0[1], d.h0[0]), co = Math.cos(ang), si = Math.sin(ang);
+    return {fn: p => { const k = toKm(p, c); return fromKm([k[0] * co - k[1] * si, k[0] * si + k[1] * co], c); }, fc: c};
+  }
+  /* scale: anchor = opposite handle (Alt: box centre), in the equal-area frame centred ON the anchor so it cannot move */
+  const [x0, y0, x1, y1] = d.bb, [cx, cy] = d.c, hd = d.h.hd;
+  const HP = {nw: [x0, y1], ne: [x1, y1], sw: [x0, y0], se: [x1, y0], n: [cx, y1], s: [cx, y0], e: [x1, cy], w: [x0, cy]};
+  const hp = HP[hd], fc = mods.alt ? d.c : HP[HOPP[hd]], ch = Math.max(1e-3, Math.cos(rad(hp[1])));
+  const h0 = [R() * rad(hp[0] - fc[0]) * ch, R() * rad(hp[1] - fc[1])], v = [R() * rad(cur[0] - fc[0]) * ch, R() * rad(cur[1] - fc[1])];
+  let sx, sy;
+  if (mods.shift) { sx = sy = (v[0] * h0[0] + v[1] * h0[1]) / (h0[0] ** 2 + h0[1] ** 2 || 1); }
+  else { sx = Math.abs(h0[0]) < 1e-6 ? 1 : v[0] / h0[0]; sy = Math.abs(h0[1]) < 1e-6 ? 1 : v[1] / h0[1]; }
+  const cl = k => Math.max(0.02, Math.min(50, k)); sx = cl(sx); sy = cl(sy);
+  return {fn: p => { const k = toKm(p, fc); return fromKm([k[0] * sx, k[1] * sy], fc); }, fc};
+}
+const DRAGM = ['gmove', 'scale', 'rot'];
+function dragApply(d, cur, mods) { d.last = {cur, mods}; applyT(d, dragT(d, cur, mods)); }
+function redrag(mods) {
+  if (!down || !down.moved || !down.last || !DRAGM.includes(down.mode)) return;
+  dragApply(down, down.last.cur, mods || down.last.mods); changed(); render(); updArea();
+}
+function geoCircle(c, km) {   /* sampled geodesic circle (list of lon/lat segments, split at the antimeridian) */
+  const ang = km / R(), v = vec(c[0], c[1]); let u = Math.abs(v[2]) > 0.99 ? [1, 0, 0] : [0, 0, 1];
+  const dd = dot3(u, v); u = [u[0] - dd * v[0], u[1] - dd * v[1], u[2] - dd * v[2]]; const ul = Math.hypot(...u); u = u.map(x => x / ul);
+  const w = cross3(v, u), segs = []; let cur = [], prev = null;
+  for (let i = 0; i <= 96; i++) {
+    const t = i * Math.PI / 48, q = [0, 1, 2].map(j => v[j] * Math.cos(ang) + Math.sin(ang) * (u[j] * Math.cos(t) + w[j] * Math.sin(t)));
+    const p = ll(q); if (prev && Math.abs(p[0] - prev[0]) > 180) { segs.push(cur); cur = []; } cur.push(p); prev = p;
+  }
+  segs.push(cur); return segs;
+}
+function peOverlay() {
+  if (!pe.on || viewMode || !S) return '';
+  const drg = !!(down && down.refs && down.moved && DRAGM.includes(down.mode)), refs = drg ? down.refs : (SELT.includes(tool) ? selRefs() : []);
+  if (!refs.length) return '';
+  const cs = refs.length <= 6 ? refs.map(getP) : (drg && cursor ? [cursor] : []); let o = '';
+  for (const c of cs) for (const sg of geoCircle(c, pe.R)) o += `<path class="pecirc" d="${pathOf(sg, false)}" fill="none" stroke="#e3b341" stroke-width="1.5" stroke-dasharray="6 4" pointer-events="none"/>`;
+  if (cs.length) o += `<text class="lbl" x="${X(cs[0][0]) + 8}" y="${Y(cs[0][1]) - 8}" style="fill:#e3b341">R ${Math.round(pe.R)} km, ${pe.fall}</text>`;
+  return o;
+}
+function syncPE() {
+  const a = $('#peOn'); if (!a) return;
+  a.checked = pe.on; $('#peFall').value = pe.fall; $('#peSame').checked = pe.same;
+  if (document.activeElement !== $('#peR')) $('#peR').value = Math.round(pe.R);
+  $('#peRs').value = Math.min(2000, pe.R); const l = $('#prLbl'); if (l) l.textContent = Math.round(pe.R) + ' km';
+  updChips();
+}
+function setR(r) { pe.R = clampR(r); savePE(); syncPE(); if (down && down.moved) redrag(); else render(); }
+function togglePE(on) { pe.on = on === undefined ? !pe.on : on; syncPE(); if (down && down.moved) redrag(); else render(); }
+
+/* ---------- densify / simplify (selection: whole features, or the selected vertices) ---------- */
+function opTargets() {
+  const o = [];
+  if (vx.size) { const m = new Map(); for (const k of vx) { const j = k.lastIndexOf('#'), id = k.slice(0, j), i = +k.slice(j + 1), f = feat(id); if (!f || isPt(f) || i < 0) continue; if (!m.has(id)) m.set(id, new Set()); m.get(id).add(i); } for (const [id, set] of m) o.push({f: feat(id), set, vx: true}); }
+  else if (vmode() && vsel.size) o.push({f: feat(sel), set: new Set(vsel)});
+  else for (const id of msel) { const f = feat(id); if (f && !isPt(f) && !isHid(f) && !isLock(f)) o.push({f, set: null}); }
+  return o;
+}
+function remapSel(t, map, extra) {
+  const ns = new Set(); if (t.set) for (const i of t.set) if (map[i] >= 0) ns.add(map[i]); for (const i of extra || []) ns.add(i);
+  if (t.vx) { for (const k of [...vx]) if (k.startsWith(t.f.id + '#')) vx.delete(k); for (const i of ns) vx.add(t.f.id + '#' + i); }
+  else if (t.set) vsel = ns;
+}
+function densify(N) {
+  if (viewMode) return; const ts = opTargets(); if (!ts.length) { toast('Select a polygon, line or vertices first'); return; }
+  if (!(N >= 0.5)) { toast('Spacing must be >= 0.5 km'); return; }
+  const plan = []; let add = 0;
+  for (const t of ts) {
+    const g = t.f.geometry, n = g.length, cl = t.f.type !== 'line', ng = [], map = [], extra = [];
+    for (let i = 0; i < n; i++) {
+      ng.push(g[i]); map[i] = ng.length - 1; let j = i + 1; if (j >= n) { if (!cl) continue; j = 0; }
+      if (t.set && !(t.set.has(i) && t.set.has(j))) continue;
+      const a = g[i], b = g[j], m = Math.ceil(gcKm(a, b) / N);
+      for (let k = 1; k < m; k++) { ng.push([rnd(a[0] + (b[0] - a[0]) * k / m), rnd(a[1] + (b[1] - a[1]) * k / m)]); extra.push(ng.length - 1); add++; }
+    }
+    plan.push({t, ng, map, extra});
+  }
+  if (!add) { toast('Nothing to densify at ' + N + ' km'); return; }
+  if (add > 100000) { toast('Refused: would add ' + add + ' vertices'); return; }
+  checkpoint(); for (const p of plan) { p.t.f.geometry = p.ng; remapSel(p.t, p.map, p.extra); }
+  fieldCk = false; changed(); renderAll(); toast('Densified: +' + add + ' vertices');
+}
+function segDistKm(p, a, b) {   /* planar km distance from p to chord a-b (straight in lon/lat, as drawn) in a local sinusoidal frame */
+  const co = Math.max(1e-3, Math.cos(rad((a[1] + b[1]) / 2))), f = q => [R() * rad(q[0] - a[0]) * co, R() * rad(q[1] - a[1])];
+  const P = f(p), B = f(b), l2 = B[0] ** 2 + B[1] ** 2; let t = l2 < 1e-12 ? 0 : (P[0] * B[0] + P[1] * B[1]) / l2; t = Math.max(0, Math.min(1, t));
+  return Math.hypot(P[0] - t * B[0], P[1] - t * B[1]);
+}
+function dpKeep(pts, idx, tol, keep) {   /* Douglas-Peucker over pts[idx[0]]..pts[idx[last]]; idx = index list; endpoints kept */
+  const st = [[0, idx.length - 1]]; keep.add(idx[0]); keep.add(idx[idx.length - 1]);
+  while (st.length) {
+    const [lo, hi] = st.pop(); if (hi - lo < 2) continue; let bi = -1, bd = tol;
+    for (let k = lo + 1; k < hi; k++) { const dd = segDistKm(pts[idx[k]], pts[idx[lo]], pts[idx[hi]]); if (dd > bd) { bd = dd; bi = k; } }
+    if (bi >= 0) { keep.add(idx[bi]); st.push([lo, bi], [bi, hi]); }
+  }
+}
+function simplify(tol) {
+  if (viewMode) return; const ts = opTargets(); if (!ts.length) { toast('Select a polygon, line or vertices first'); return; }
+  if (!(tol > 0)) { toast('Tolerance must be > 0 km'); return; }
+  const plan = []; let drop = 0;
+  for (const t of ts) {
+    const g = t.f.geometry, n = g.length, cl = t.f.type !== 'line', min = cl ? 3 : 2, keep = new Set();
+    const all = !t.set || t.set.size >= n;
+    if (all) {
+      const idx = [...g.keys()];
+      if (cl) {
+        let fi = 0, fd = -1; g.forEach((p, i) => { const dd = gcKm(g[0], p); if (dd > fd) { fd = dd; fi = i; } });
+        if (fi === 0) continue;
+        dpKeep(g, idx.slice(0, fi + 1), tol, keep); dpKeep(g, [...idx.slice(fi), 0], tol, keep);
+      } else dpKeep(g, idx, tol, keep);
+    } else {
+      let st = 0; if (cl) { while (st < n && !(t.set.has(st) && !t.set.has((st - 1 + n) % n))) st++; if (st >= n) st = 0; }
+      const order = [...g.keys()].map((_, k) => (k + st) % n); let run = [];
+      const flush = () => { if (run.length >= 3) dpKeep(g, run, tol, keep); else run.forEach(i => keep.add(i)); run = []; };
+      for (const i of order) { if (t.set.has(i)) run.push(i); else { flush(); keep.add(i); } }
+      flush();
+    }
+    if (keep.size < min || keep.size >= n) continue;
+    const map = [], ng = []; g.forEach((p, i) => { if (keep.has(i)) { map[i] = ng.length; ng.push(p); } else map[i] = -1; });
+    plan.push({t, ng, map}); drop += n - ng.length;
+  }
+  if (!drop) { toast('Nothing to simplify at ' + tol + ' km'); return; }
+  checkpoint(); for (const p of plan) { p.t.f.geometry = p.ng; remapSel(p.t, p.map); }
+  fieldCk = false; changed(); renderAll(); toast('Simplified: -' + drop + ' vertices');
+}
+
+/* ---------- state / undo / save ---------- */
+function snap() { return JSON.stringify(S); }
+function checkpoint() { undoStack.push(snap()); if (undoStack.length > 200) undoStack.shift(); redoStack = []; updUndo(); }
+function changed() { if (viewMode) return; dirty++; setInd('unsaved'); clearTimeout(saveTimer); saveTimer = setTimeout(save, 1000); }
+function updUndo() { $$('.js-undo').forEach(b => { b.disabled = !undoStack.length; }); $$('.js-redo').forEach(b => { b.disabled = !redoStack.length; }); }
+function setInd(k, t) { const e = $('#ind'); e.className = k; e.textContent = t || k; e.title = saveErr; }
+let baseRev = null, diskRev = null, conflict = false;
+const isUnsaved = () => $('#ind').className !== 'saved';
+function showBanner(on) { $('#banner').classList.toggle('show', on); }
+async function save() {
+  if (viewMode || saving || conflict) { return; }
+  saving = true; const mine = dirty;
+  try {
+    const hd = {'Content-Type': 'application/json'}; if (baseRev) hd['X-Map-Rev'] = baseRev;
+    if (viewMode) { saving = false; return; }   /* hard guard: View mode never POSTs */
+    const r = await fetch('/state', {method: 'POST', headers: hd, body: JSON.stringify(S)});
+    if (r.status === 409) { conflict = true; diskRev = r.headers.get('X-Map-Rev'); saveErr = 'conflict'; setInd('error', 'conflict'); showBanner(true); saving = false; return; }
+    if (!r.ok) throw new Error(r.status + ' ' + await r.text());
+    baseRev = r.headers.get('X-Map-Rev') || baseRev;
+    saveErr = ''; if (mine === dirty) setInd('saved'); else { saving = false; return save(); }
+  } catch (e) { saveErr = String(e); setInd('error', 'error (click to retry)'); }
+  saving = false;
+}
+$('#ind').onclick = () => { if ($('#ind').className === 'error' && !conflict) save(); };
+window.addEventListener('beforeunload', e => { if (!viewMode && $('#ind').className !== 'saved') { e.preventDefault(); e.returnValue = ''; } });
+function normalize() { S.planet = S.planet || {radius_km: 5600}; S.speeds = S.speeds || {}; S.breach = S.breach || {pole: {lat: 40, lon: 10}, note: ''}; S.features = S.features || []; genEnsure(); }
+async function reloadFromDisk() {
+  const r = await fetch('/state'); if (!r.ok) throw new Error(r.status);
+  S = await r.json(); normalize(); baseRev = r.headers.get('X-Map-Rev'); diskRev = null; conflict = false;
+  clearTimeout(saveTimer); undoStack = []; redoStack = []; draft = []; meas = []; vsel = new Set(); vx = new Set();
+  for (const id of [...msel]) if (!feat(id)) msel.delete(id);
+  if (sel && !feat(sel)) sel = null;
+  showBanner(false); setInd('saved'); renderAll(); updUndo();
+}
+$('#bReload').onclick = () => reloadFromDisk().catch(e => { saveErr = String(e); setInd('error', 'reload failed'); });
+$('#bKeep').onclick = () => { baseRev = diskRev || baseRev; conflict = false; showBanner(false); dirty++; save(); };
+setInterval(async () => {
+  if (!S || !baseRev || down || saving || conflict) return;
+  try {
+    const r = await fetch('/state', {method: 'HEAD', cache: 'no-store'}); const rev = r.headers.get('X-Map-Rev');
+    if (!r.ok || !rev || rev === baseRev || down || saving) return;
+    diskRev = rev;
+    if (viewMode || !isUnsaved()) await reloadFromDisk(); else { conflict = true; showBanner(true); }
+  } catch (e) { /* offline: ignore */ }
+}, 3000);
+function restore(json) {
+  S = JSON.parse(json); vsel = new Set(); vx = new Set(); for (const id of [...msel]) if (!feat(id)) msel.delete(id); if (sel && !feat(sel)) sel = null; draft = []; meas = [];
+  renderAll(); changed();
+}
+function undo() { if (viewMode || !undoStack.length) return; redoStack.push(snap()); restore(undoStack.pop()); updUndo(); fieldCk = false; }
+function redo() { if (viewMode || !redoStack.length) return; undoStack.push(snap()); restore(redoStack.pop()); updUndo(); fieldCk = false; }
+$$('.js-undo').forEach(b => { b.onclick = undo; }); $$('.js-redo').forEach(b => { b.onclick = redo; });
+
+/* ---------- rendering ---------- */
+function pathOf(pts, close) { return 'M' + pts.map(p => X(p[0]).toFixed(1) + ',' + Y(p[1]).toFixed(1)).join('L') + (close ? 'Z' : ''); }
+function render() { mainRings = null;
+  if (!S) return;
+  const w = W(), h = H(); let o = '';
+  o += `<defs><filter id="fuzz" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="3.5"/></filter></defs>`;
+  o += `<rect x="0" y="0" width="${w}" height="${h}" fill="#0b2438" data-bg="1"/>`;
+  o += `<rect x="${X(-180)}" y="${Y(90)}" width="${360 * view.k}" height="${180 * view.k}" fill="#0f304b" data-bg="1"/>`;
+  if (vis.grid) {
+    for (let lo = -180; lo <= 180; lo += 10) o += `<line x1="${X(lo)}" y1="${Y(90)}" x2="${X(lo)}" y2="${Y(-90)}" stroke="${lo % 30 ? '#ffffff14' : '#ffffff30'}" stroke-width="1"/>`;
+    for (let la = -90; la <= 90; la += 10) o += la === 0 ? '' : `<line x1="${X(-180)}" y1="${Y(la)}" x2="${X(180)}" y2="${Y(la)}" stroke="${la % 30 ? '#ffffff14' : '#ffffff30'}" stroke-width="1"/>`;
+    o += `<line x1="${X(-180)}" y1="${Y(0)}" x2="${X(180)}" y2="${Y(0)}" stroke="#e3b341" stroke-width="1.5" stroke-dasharray="6 4" opacity=".7"/>`;
+    if (view.k > 2) { for (let lo = -150; lo <= 180; lo += 30) o += `<text class="lbl" x="${X(lo) + 2}" y="${Y(0) - 3}" fill="#e3b341">${lo}°</text>`; for (let la = -60; la <= 90; la += 30) if (la) o += `<text class="lbl" x="${X(-180) + 3}" y="${Y(la) - 2}">${la}°</text>`; }
+  }
+  for (const ly of ['land', 'intent']) if (vis[ly]) for (const f of S.features) if (f.type === 'land' && layerOf(f) === ly && !isHid(f)) o += polyEl(f);
+  o += genEl();
+  if (vis.region) for (const f of S.features) if (f.type === 'region' && f.kind !== 'genzone' && !isHid(f) && !borderOff(f) && !tooling(f)) o += polyEl(f);
+  if (vis.genzone) for (const f of S.features) if (f.type === 'region' && f.kind === 'genzone' && !isHid(f)) o += polyEl(f);
+  for (const f of S.features) { const ly = layerOf(f); if ((ly === 'region' || ly === 'land' || ly === 'intent') && vis[ly] && !isHid(f) && !tooling(f)) o += polyLabel(f); }
+  if (vis.breach) o += breachEl();
+  if (vis.line) for (const f of S.features) if (f.type === 'line' && f.kind !== 'border' && !isHid(f) && !tooling(f)) o += lineEl(f);   // hard borders read from the region colours (Matt, 2026-10-08); the lines stay in the data
+  if (vis.pin) for (const f of S.features) if (f.type === 'pin' && !isHid(f) && !tooling(f)) o += pinEl(f);
+  if (vis.note) for (const f of S.features) if (f.type === 'note' && !isHid(f)) o += noteEl(f);
+  o += ptLabels();
+  o += overlayEl();
+  content.innerHTML = o;
+  $('#zoom').textContent = 'zoom ' + view.k.toFixed(1) + ' px/deg';
+  updCanon();
+}
+/* ---------- generated coast (read-only, from library/maps/generated/*.json via GET /generated/) ---------- */
+const GEN = {};   /* group -> {rev, data, href} */
+const lodIdx = () => view.k < 4 ? 2 : view.k < 14 ? 1 : 0;   /* zoom (px/deg) -> LOD: 0 full, 1 ~1/4, 2 ~1/16 vertices */
+function biomeHref(b) {
+  try {
+    const c = document.createElement('canvas'); c.width = b.w; c.height = b.h;
+    const cx = c.getContext('2d'), im = cx.createImageData(b.w, b.h), pal = [[0, 0, 0, 0]];
+    for (const k of b.classes) { const v = parseInt(k.color.slice(1), 16); pal[k.id] = [(v >> 16) & 255, (v >> 8) & 255, v & 255, 255]; }
+    let p = 0;
+    for (let i = 0; i < b.rle.length; i += 2) { const col = pal[b.rle[i]] || pal[0]; for (let n = b.rle[i + 1]; n > 0; n--, p++) im.data.set(col, p * 4); }
+    cx.putImageData(im, 0, 0); return c.toDataURL('image/png');
+  } catch (e) { return null; }
+}
+function genEl() {
+  if (!vis.gen && !vis.biome) return '';
+  const w = W(), h = H(), li = lodIdx(); let fills = '', clip = '', imgs = '', lakes = '';
+  for (const gr of Object.values(GEN)) {
+    for (const f of gr.data.features) {
+      const b = f.bbox; if (b && (X(b[2]) < -5 || X(b[0]) > w + 5 || Y(b[1]) < -5 || Y(b[3]) > h + 5)) continue;
+      const d = pathOf(f.lod[Math.min(li, f.lod.length - 1)], true);
+      if (f.kind === 'lake') { lakes += `<path d="${d}"/>`; continue; }   // generated lakes: drawn as water on top of land
+      fills += `<path d="${d}"/>`; clip += d;
+    }
+    const bi = gr.data.biome;
+    if (vis.biome && bi && gr.href) imgs += `<image href="${gr.href}" x="${X(bi.bbox[0])}" y="${Y(bi.bbox[3])}" width="${(bi.bbox[2] - bi.bbox[0]) * view.k}" height="${(bi.bbox[3] - bi.bbox[1]) * view.k}" preserveAspectRatio="none" clip-path="url(#genclip)" opacity=".82"/>`;
+  }
+  if (!fills) return '';
+  return `<g pointer-events="none">` + (vis.gen ? `<g fill="#c9b27c" fill-opacity=".94" stroke="#1d1a12" stroke-width="1.1" stroke-linejoin="round">${fills}</g>` : '') +
+    (imgs ? `<clipPath id="genclip"><path d="${clip}"/></clipPath>${imgs}<g fill="none" stroke="#1d1a12" stroke-width="1" stroke-linejoin="round"><path d="${clip}"/></g>` : '') +
+    (lakes && vis.gen ? `<g fill="#3e78a8" stroke="#1d1a12" stroke-width="1" stroke-linejoin="round">${lakes}</g>` : '') + `</g>`;
+}
+async function loadGenerated() {
+  try {
+    const r = await fetch('/generated/', {cache: 'no-store'}); if (!r.ok) return;
+    const files = (await r.json()).files || [], names = new Set(files.map(x => x.name)); let ch = false;
+    for (const n of Object.keys(GEN)) if (!names.has(n)) { delete GEN[n]; ch = true; }
+    for (const x of files) {
+      if (GEN[x.name] && GEN[x.name].rev === x.rev) continue;
+      const rr = await fetch('/generated/' + encodeURIComponent(x.name) + '.json', {cache: 'no-store'}); if (!rr.ok) continue;
+      const data = await rr.json(); if (!data || !Array.isArray(data.features)) continue;
+      GEN[x.name] = {rev: x.rev, data, href: data.biome ? biomeHref(data.biome) : null}; ch = true;
+    }
+    if (ch && S) { render(); renderLeft(); }
+  } catch (e) { /* server without /generated/ or offline: ignore */ }
+}
+setInterval(loadGenerated, 5000);
+const PRI = {ruled: 0, canon: 0, conflict: 1, proposed: 2};
+function ptLabels() {   /* pin/note labels: constant on-screen size, overlapping ones hidden (selected, then canon/ruled, win) */
+  const fs = touchy ? 12 : 11, w = W(), h = H(), items = [];
+  for (const f of S.features) {
+    if (!((f.type === 'pin' && vis.pin) || (f.type === 'note' && vis.note)) || isHid(f) || tooling(f)) continue;
+    const x = X(f.geometry.lon), y = Y(f.geometry.lat); if (x < -20 || x > w + 20 || y < -20 || y > h + 20) continue;
+    items.push({f, x, y, pr: msel.has(f.id) ? -1 : (PRI[f.status] ?? 2)});
+  }
+  items.sort((a, b) => a.pr - b.pr);
+  const boxes = []; let o = '';
+  for (const it of items) {
+    const f = it.f, off = f.type === 'pin' ? 9 : 11, tw = String(f.name || '').length * fs * 0.56 + 6;
+    const b = [it.x + off - 2, it.y - fs + 1, it.x + off + tw, it.y + 5];
+    if (boxes.some(q => b[0] < q[2] && b[2] > q[0] && b[1] < q[3] && b[3] > q[1])) continue;
+    boxes.push(b);
+    o += `<text class="lbl" x="${it.x + off}" y="${it.y + 4}"${f.type === 'note' ? ' style="font-style:italic"' : ''}>${esc(f.name)}</text>`;
+  }
+  return o;
+}
+const hitC = (x, y, r, attrs) => touchy ? `<circle ${attrs} cx="${x}" cy="${y}" r="${r}" fill="transparent"/>` : '';
+function polyEl(f) {
+  const c = COL[f.status] || '#888', s = msel.has(f.id), ring = f.geometry;
+  const intent = layerOf(f) === 'intent';
+  if (f.type === 'region' && f.kind === 'claim') { // editable claim: dashed nation outline, no fill (borders = land within it, see README)
+    const cn = nationOf(f), cc = cn ? tagCol(cn) : c;
+    return `<path data-id="${esc(f.id)}"${peOf(f)} d="${pathOf(ring, true)}" fill="${cc}" fill-opacity="${s ? .08 : 0.001}" stroke="${s ? c : cc}" stroke-width="${s ? 3 : 1.4}" stroke-dasharray="3 5" stroke-opacity=".9"/>`;
+  }
+  if (f.type === 'region' && f.kind === 'genzone') {   // generation zone: dotted outline + wander label
+    const [cx, cy] = centroid(ring), w = zoneEff(f).wander_km, xs = ring.map(q => X(q[0])), big = Math.max(...xs) - Math.min(...xs) > 30;
+    return `<path data-id="${esc(f.id)}"${peOf(f)} d="${pathOf(ring, true)}" fill="#e3b341" fill-opacity="${s ? .14 : 0.001}" stroke="${s ? '#fff' : '#e3b341'}" stroke-width="${s ? 3 : 1.8}" stroke-dasharray="1.5 4.5" stroke-linecap="round"/>` +
+      (big ? `<text class="lbl" x="${X(cx)}" y="${Y(cy)}" text-anchor="middle" fill="#e3b341" pointer-events="none">~${Math.round(w)} km</text>` : '');
+  }
+  if (f.type === 'region' && f.kind === 'lake') return `<path data-id="${esc(f.id)}"${peOf(f)} d="${pathOf(ring, true)}" fill="#3e78a8" fill-opacity=".9" stroke="${s ? '#fff' : '#1d1a12'}" stroke-width="${s ? 3 : 1.2}" stroke-linejoin="round"/>`;   // lake: water drawn over land
+  const nat = f.type === 'region' && f.kind === 'political' ? nationOf(f) : null;
+  const fill = f.type === 'land' ? '#b9a878' : nat ? tagCol(nat) : c, fo = intent ? .13 : f.type === 'land' ? .88 : nat ? .28 : .16;
+  const sc = nat && !s ? tagCol(nat) : c;
+  if (nat && f.edge === 'fuzzy' && !s) { // medieval frontier: soft edge, hard lines only where nations meet (kind "border" lines)
+    const d = pathOf(ring, true);
+    return `<path d="${d}" fill="${fill}" fill-opacity="${fo}" stroke="${sc}" stroke-width="6" stroke-opacity=".55" filter="url(#fuzz)" pointer-events="none"/>` +
+      `<path data-id="${esc(f.id)}"${peOf(f)} d="${d}" fill="transparent" stroke="none"/>`;
+  }
+  return `<path data-id="${esc(f.id)}"${peOf(f)} d="${pathOf(ring, true)}" fill="${fill}" fill-opacity="${fo}" stroke="${sc}" stroke-width="${s ? 3.5 : intent ? 1.3 : 1.6}" stroke-linejoin="round"${f.type === 'region' && !nat ? ' stroke-dasharray="7 3"' : intent ? ' stroke-dasharray="6 4"' : ''}/>`;
+}
+function ringSpan(g) { let a = 0; for (let i = 0, j = g.length - 1; i < g.length; j = i++) a += (g[j][0] - g[i][0]) * (g[j][1] + g[i][1]); return Math.abs(a); }
+let mainRings = null; // rebuilt once per render()
+function isMainRing(f) {
+  if (!mainRings) {
+    const best = new Map();
+    for (const o of S.features) if (o.type === 'region' && !isHid(o)) { const a = ringSpan(o.geometry), cur = best.get(o.name); if (!cur || a > cur[0]) best.set(o.name, [a, o]); }
+    mainRings = new Set([...best.values()].map(v => v[1]));
+  }
+  return mainRings.has(f);
+}
+function polyLabel(f) {
+  const [cx, cy] = centroid(f.geometry), x = X(cx), y = Y(cy);
+  const xs = f.geometry.map(p => X(p[0])), ext = Math.max(...xs) - Math.min(...xs);
+  if (ext < 24) return '';
+  if (f.type === 'region' && !isMainRing(f)) return ''; // one label per country, on its largest ring
+  return `<text class="${f.type === 'region' ? 'rlbl' : 'lbl'}" x="${x}" y="${y}" text-anchor="middle" style="${f.type === 'land' ? 'font-style:italic;opacity:.65' : ''}">${esc(f.name)}</text>`;
+}
+function lineEl(f) {
+  const c = COL[f.status] || '#888', s = msel.has(f.id);
+  const dash = f.kind === 'road' ? '8 4' : f.kind === 'canal' ? '2 3' : f.kind === 'arc' ? '9 5' : '';
+  const col = f.kind === 'arc' && !s ? '#f0a020' : f.kind === 'border' && !s ? '#f1ece0' : f.kind === 'river' && f.status === 'proposed' ? '#6cc4ff' : c;
+  return `<path data-id="${esc(f.id)}"${peOf(f)} d="${pathOf(f.geometry, false)}" fill="none" stroke="transparent" stroke-width="${touchy ? 26 : 12}"/>` +
+    `<path d="${pathOf(f.geometry, false)}" fill="none" stroke="${col}" stroke-width="${s ? 3.5 : 2}" stroke-dasharray="${dash}" stroke-linecap="round" pointer-events="none"/>` +
+    (view.k > 4 ? `<text class="lbl" x="${X(f.geometry[0][0]) + 4}" y="${Y(f.geometry[0][1]) - 4}">${esc(f.name)}</text>` : '');
+}
+function pinEl(f) {
+  const x = X(f.geometry.lon), y = Y(f.geometry.lat), c = clean ? '#f4efe4' : (COL[f.status] || '#888'), s = msel.has(f.id);
+  return `<g data-id="${esc(f.id)}"${peOf(f)} style="cursor:pointer">${s ? `<circle cx="${x}" cy="${y}" r="11" fill="none" stroke="#fff" stroke-width="2"/>` : ''}` +
+    `<circle cx="${x}" cy="${y}" r="5.5" fill="${c}" stroke="#fff" stroke-width="1.3"/>${hitC(x, y, 18, '')}</g>`;
+}
+function noteEl(f) {
+  const x = X(f.geometry.lon), y = Y(f.geometry.lat), c = COL[f.status] || '#888', s = msel.has(f.id);
+  return `<g data-id="${esc(f.id)}"${peOf(f)} style="cursor:pointer">${s ? `<rect x="${x - 11}" y="${y - 11}" width="22" height="22" rx="3" fill="none" stroke="#fff" stroke-width="2"/>` : ''}` +
+    `<rect x="${x - 7}" y="${y - 7}" width="14" height="14" rx="2" fill="#e3b341" stroke="${c}" stroke-width="2.2"/><path d="M${x - 4},${y - 2}h8M${x - 4},${y + 1}h8M${x - 4},${y + 4}h5" stroke="#3b2f00" stroke-width="1"/>${hitC(x, y, 18, '')}</g>`;
+}
+function breachEl() {
+  const segs = breachPts(), d = segs.map(sg => pathOf(sg, false)).join('');
+  let o = clean ? '' : `<path d="${d}" data-role="breachline" fill="none" stroke="#35d0ff" stroke-opacity=".16" stroke-width="${Math.max(14, view.k * 3)}" stroke-linejoin="round" pointer-events="stroke" style="cursor:ew-resize"><title>Drag to shift the Breach east/west (tilt kept)</title></path>`;
+  o += `<path d="${d}" fill="none" stroke="#7fe3ff" stroke-width="2.2" stroke-dasharray="10 4" pointer-events="none"/>`;
+  const cx = W() / 2; let best = null;
+  for (const pts of segs) for (let i = 1; i < pts.length - 1; i++) { const x = X(pts[i][0]), y = Y(pts[i][1]); if (y < 0 || y > H() || x < 0 || x > W()) continue; if (!best || Math.abs(x - cx) < best.dx) best = {dx: Math.abs(x - cx), i, pts}; }
+  if (best) {
+    const pts = best.pts, a = pts[best.i - 1], b = pts[best.i + 1];
+    let ang = deg(Math.atan2(Y(b[1]) - Y(a[1]), X(b[0]) - X(a[0]))); if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
+    const x = X(pts[best.i][0]), y = Y(pts[best.i][1]);
+    o += `<text class="lbl" transform="translate(${x},${y - 8}) rotate(${ang})" text-anchor="middle" style="fill:#7fe3ff;letter-spacing:.2em;font-size:12px">THE GREAT BREACH</text>`;
+  }
+  const p = S.breach.pole, px = X(p.lon), py = Y(p.lat);
+  if (!clean) o += `<g data-role="pole" style="cursor:grab"><path d="M${px},${py - 9}L${px + 9},${py}L${px},${py + 9}L${px - 9},${py}Z" fill="#35d0ff" stroke="#fff" stroke-width="1.5"/>${hitC(px, py, 20, '')}</g><text class="lbl" x="${px + 12}" y="${py + 4}" style="fill:#7fe3ff">Breach pole (drag)</text>`;
+  return o;
+}
+function overlayEl() {
+  let o = '';
+  if (draft.length) {
+    const pts = cursor ? [...draft, cursor] : draft;
+    o += `<path d="${pathOf(pts, false)}" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="5 3" pointer-events="none"/>`;
+    draft.forEach(p => o += `<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="4" fill="#fff" pointer-events="none"/>`);
+  }
+  if (meas.length) {
+    meas.forEach(p => o += `<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="5" fill="#e3b341" stroke="#000" pointer-events="none"/>`);
+    if (meas.length === 2) for (const seg of gcSample(meas[0], meas[1])) o += `<path d="${pathOf(seg, false)}" fill="none" stroke="#e3b341" stroke-width="2.5" pointer-events="none"/>`;
+  }
+  const f = sel && feat(sel);
+  if (f && vmode()) {
+    const g = f.geometry, closed = f.type !== 'line', n = g.length;
+    if (tool === 'edit') for (let i = 0; i < (closed ? n : n - 1); i++) {
+      const a = g[i], b = g[(i + 1) % n];
+      o += `<circle data-role="mid" data-idx="${i}" cx="${X((a[0] + b[0]) / 2)}" cy="${Y((a[1] + b[1]) / 2)}" r="3.5" fill="#0d1117" stroke="#fff" stroke-width="1" style="cursor:copy"${touchy ? ' pointer-events="none"' : ''}/>` + hitC(X((a[0] + b[0]) / 2), Y((a[1] + b[1]) / 2), 15, `data-role="mid" data-idx="${i}"`);
+    }
+    g.forEach((p, i) => o += `<circle ${touchy ? '' : `data-role="vtx" data-idx="${i}"`} cx="${X(p[0])}" cy="${Y(p[1])}" r="${vsel.has(i) ? 7 : 6}" fill="${vsel.has(i) ? '#58a6ff' : '#fff'}" stroke="${vsel.has(i) ? '#fff' : (COL[f.status] || '#000')}" stroke-width="2" style="cursor:move"${touchy ? ' pointer-events="none"' : ''}/>` + hitC(X(p[0]), Y(p[1]), 16, `data-role="vtx" data-idx="${i}"`));
+  }
+  if (vx.size) {
+    const pe = tool === 'select' || tool === 'edit' ? '' : ' pointer-events="none"';
+    for (const r of vxRefs()) { const p = getP(r), x = X(p[0]), y = Y(p[1]); o += isPt(r.f) ? `<circle cx="${x}" cy="${y}" r="12" fill="none" stroke="#58a6ff" stroke-width="2.5" pointer-events="none"/>` : `<circle ${touchy ? '' : 'data-role="xv"'} cx="${x}" cy="${y}" r="5.5" fill="#58a6ff" stroke="#fff" stroke-width="2" style="cursor:move"${touchy ? ' pointer-events="none"' : pe}/>` + (pe ? '' : hitC(x, y, 16, 'data-role="xv"')); }
+  }
+  o += peOverlay();
+  o += boxEl();
+  if (mq && mq.moved) {
+    if (mq.kind === 'marq') { const x0 = Math.min(X(mq.a[0]), X(mq.b[0])), y0 = Math.min(Y(mq.a[1]), Y(mq.b[1])); o += `<rect x="${x0}" y="${y0}" width="${Math.abs(X(mq.a[0]) - X(mq.b[0]))}" height="${Math.abs(Y(mq.a[1]) - Y(mq.b[1]))}" fill="#58a6ff22" stroke="#58a6ff" stroke-dasharray="4 3" pointer-events="none"/>`; }
+    else o += `<path d="${pathOf(mq.path, true)}" fill="#58a6ff22" stroke="#58a6ff" stroke-dasharray="4 3" pointer-events="none"/>`;
+  }
+  return o;
+}
+function renderAll() { pruneSel(); render(); renderPanel(); renderLeft(); updTools(); if (drawer === 'gen') renderGen(); }
+
+/* ---------- panels ---------- */
+const matchQ = f => { const q = $('#search').value.trim().toLowerCase(); return !q || (f.name + ' ' + f.kind + ' ' + f.status + ' ' + f.type).toLowerCase().includes(q); };
+function searchGo() {
+  const m = S.features.filter(matchQ); if (!m.length) { toast('No match'); return; }
+  select(m[0].id); zoomTo(m[0]); closeDrawer();
+}
+function genNote() {
+  const gs = Object.entries(GEN); if (!gs.length) return '<div class="hint" style="margin-top:6px">No generated coasts (library/maps/generated/).</div>';
+  let o = '<div class="hint" style="margin-top:6px">Generated (read-only): ' + gs.map(([n, g]) => `${esc(n)} (seed ${esc(g.data.generator && g.data.generator.seed)}, ${g.data.features.length} isles)`).join('; ') + '</div>';
+  const bg = gs.find(([, g]) => g.data.biome);
+  if (vis.biome && bg) o += '<div class="hint" style="margin-top:4px">' + bg[1].data.biome.classes.map(k => `<div><span class="sw" style="background:${esc(k.color)};border-radius:2px"></span> ${esc(k.name)}</div>`).join('') + '</div>';
+  return o;
+}
+function renderLeft() {
+  $('#layers').innerHTML = `<label class="lay"><input type="checkbox" data-clean="1" ${clean ? 'checked' : ''}> <b>Clean view</b></label><div class="hint" style="margin:0 0 4px">A reading map: intent outlines, gen zones, arcs, claims, footprints, notes and unplaced pins off.</div>` + LAYERS.map(([k, n]) => `<label class="lay"><input type="checkbox" data-layer="${k}" ${vis[k] ? 'checked' : ''}> ${n}</label>`).join('') +
+    (clean ? '' : '<div class="hint" style="margin-top:6px">' + STATUSES.map(s => `<span class="sw" style="background:${COL[s]}"></span> ${s}`).join(' &nbsp;') + '</div>') + genNote();
+  $('#selflt').innerHTML = [['land', 'Land'], ['region', 'Regions'], ['line', 'Lines (rivers/roads)'], ['pin', 'Pins'], ['note', 'Notes']].map(([k, n]) => `<label class="lay"><input type="checkbox" data-flt="${k}" ${flt[k] ? 'checked' : ''}> ${n}</label>`).join('') +
+    `<div style="margin-top:4px"><label class="lay"><input type="radio" name="fltmode" data-fltmode="whole" ${flt.verts ? '' : 'checked'}> Whole features</label><label class="lay"><input type="radio" name="fltmode" data-fltmode="verts" ${flt.verts ? 'checked' : ''}> Vertices</label></div>` +
+    '<div class="hint">Whole: any vertex inside picks it (Alt = fully inside). Vertices: picks vertices across features.</div>';
+  if (drawer === 'groups') renderGroups();
+  $('#flist').innerHTML = S.features.filter(matchQ)
+    .map(f => `<div data-fid="${esc(f.id)}" class="${msel.has(f.id) ? 'sel' : ''}"><span class="sw" style="background:${COL[f.status] || '#888'}"></span>${esc(f.name)}<span class="hint">&nbsp;${f.type}</span></div>`).join('');
+}
+// Mapping tools are metric; airspeeds in knots (aviation), ground speeds in km/h. Legacy *_mph keys still work.
+function speedUnit(k) { return /_kt$/.test(k) ? {lbl: 'kt', km: d => d / 1.852} : /_mph$/.test(k) ? {lbl: 'mph', km: d => d / 1.609344} : {lbl: 'km/h', km: d => d}; }
+function fmtT(h) { return h < 1 ? Math.max(1, Math.round(h * 60)) + ' min' : h < 72 ? h.toFixed(1) + ' h' : (h / 24).toFixed(1) + ' days'; }
+function measureHtml() {
+  if (!meas.length) return '';
+  let o = '<h3>Measure</h3>';
+  o += meas.map((p, i) => `<div class="hint">${'AB'[i]}: ${p[0].toFixed(2)}°, ${p[1].toFixed(2)}°</div>`).join('');
+  if (meas.length === 2) {
+    const km = gcKm(meas[0], meas[1]), nm = km / 1.852;
+    o += `<div style="margin:6px 0"><b>${km.toFixed(1)} km</b> <span class="hint">/ ${(km / 1.609344).toFixed(1)} mi / ${nm.toFixed(1)} nm (great circle, R=${R()} km)</span></div><table>`;
+    for (const [k, v] of Object.entries(S.speeds)) { const u = speedUnit(k); o += `<tr><td>${esc(k.replace(/_(mph|kmh|kt)$/, '').replace(/_/g, ' '))} <span class="hint">${u.lbl === 'kt' ? `${v}kt / ${Math.round(v * 1.852)}km/h` : `${v} ${u.lbl}`}</span></td><td>${fmtT(u.km(km) / v)}</td></tr>`; }
+    o += '</table><div class="hint">Continuous travel, 24 h days.</div>';
+  }
+  return o;
+}
+function renderPanel() { renderPanelBody(); updSheet(); }
+function renderPanelBody() {
+  const f = sel && feat(sel); let o = '';
+  if (msel.size > 1) {
+    o = `<h3>${msel.size} features selected</h3><div class="hint">Drag to move, box handles scale (Shift = uniform) / rotate, arrows nudge (Shift 10x).</div><div id="selArea">${areaHtml()}</div><div class="row" style="margin-top:10px"><button id="del">Delete all</button></div>`;
+    $('#right').innerHTML = o; $('#del').onclick = () => delFeatures([...msel]); return;
+  }
+  if (!f && vx.size) {
+    const n = new Set([...vx].map(k => k.slice(0, k.lastIndexOf('#')))).size;
+    $('#right').innerHTML = `<h3>${vx.size} vertices/points selected</h3><div class="hint">Across ${n} feature${n === 1 ? '' : 's'}. Select tool (V): drag a dot to move, box handles scale (Shift = uniform) / rotate, arrows nudge. Esc clears.</div>`; return;
+  }
+  if (!f) {
+    const b = S.breach;
+    o = `<h3>Nothing selected</h3><div class="hint">${esc((touchy ? THINTS : HINTS)[tool])}</div>` + measureHtml() +
+      `<h3>Breach</h3><div class="row"><div><label class="f">Pole lat</label><input type="number" step="0.1" id="bLat" value="${b.pole.lat}"></div><div><label class="f">Pole lon</label><input type="number" step="0.1" id="bLon" value="${b.pole.lon}"></div></div><div class="hint">Drag the Breach line to shift it east/west (tilt kept); drag the pole to tilt it.</div>` +
+      `<label class="f">Note</label><textarea id="bNote">${esc(b.note)}</textarea>` +
+      `<h3>Planet</h3><label class="f">Radius km</label><input type="number" id="pR" value="${S.planet.radius_km}"><div class="hint">Speeds are in map-state.json under "speeds" (ground km/h, air kt).</div>`;
+    $('#right').innerHTML = o;
+    $('#bLat').oninput = e => fld(() => { S.breach.pole.lat = Math.max(-90, Math.min(90, +e.target.value || 0)); render(); });
+    $('#bLon').oninput = e => fld(() => { S.breach.pole.lon = Math.max(-180, Math.min(180, +e.target.value || 0)); render(); });
+    $('#bNote').oninput = e => fld(() => { S.breach.note = e.target.value; });
+    $('#pR').oninput = e => fld(() => { S.planet.radius_km = Math.max(1, +e.target.value || 5600); });
+    return;
+  }
+  const kinds = [...new Set(S.features.map(x => x.kind))].filter(Boolean);
+  o = `<h3>${f.type}</h3><label class="f">Name</label><input type="text" id="fName" value="${esc(f.name)}">` +
+    `<div class="row"><div><label class="f">Kind</label><input type="text" id="fKind" list="kinds" value="${esc(f.kind)}"><datalist id="kinds">${kinds.map(k => `<option value="${esc(k)}">`).join('')}</datalist></div>` +
+    `<div><label class="f">Status</label><select id="fStatus">${STATUSES.map(s => `<option ${s === f.status ? 'selected' : ''}>${s}</option>`).join('')}</select></div></div>` +
+    `<label class="f">Note</label><textarea id="fNote">${esc(f.note)}</textarea>` +
+    `<label class="f">Cites</label><input type="text" id="fCites" value="${esc(f.cites)}" placeholder="ep37 L1017">`;
+  if (isPt(f)) o += `<div class="row"><div><label class="f">Lon</label><input type="number" step="0.01" id="fLon" value="${f.geometry.lon}"></div><div><label class="f">Lat</label><input type="number" step="0.01" id="fLat" value="${f.geometry.lat}"></div></div>`;
+  else {
+    o += `<div class="hint" style="margin-top:8px">${f.geometry.length} vertices` + (vsel.size ? `, ${vsel.size} selected` : '') + `</div><div id="selArea">${areaHtml()}</div>`;
+  }
+  if (f.type === 'region' && f.kind === 'genzone') o += `<div class="gblk"><h3>Generation zone</h3>${zoneHtml(f)}</div>`;
+  o += `<div class="row" style="margin-top:10px"><button id="zoomTo">Zoom to</button><button id="del">Delete</button></div>` + measureHtml();
+  $('#right').innerHTML = o;
+  $('#fName').oninput = e => fld(() => { f.name = e.target.value; render(); renderLeft(); });
+  $('#fKind').oninput = e => fld(() => { f.kind = e.target.value; });
+  $('#fStatus').onchange = e => fld(() => { f.status = e.target.value; render(); renderLeft(); });
+  $('#fNote').oninput = e => fld(() => { f.note = e.target.value; });
+  $('#fCites').oninput = e => fld(() => { f.cites = e.target.value; });
+  if (isPt(f)) {
+    $('#fLon').oninput = e => fld(() => { f.geometry.lon = clampLL(+e.target.value || 0, 0)[0]; render(); });
+    $('#fLat').oninput = e => fld(() => { f.geometry.lat = clampLL(0, +e.target.value || 0)[1]; render(); });
+  }
+  $('#zoomTo').onclick = () => zoomTo(f);
+  $('#del').onclick = () => delFeatures([f.id]);
+  for (const id of ['#fName', '#fKind', '#fNote', '#fCites', '#fLon', '#fLat', '#bLat', '#bLon', '#bNote', '#pR']) { const e = $(id); if (e) e.onblur = () => { fieldCk = false; }; }
+}
+function areaHtml() {
+  const fs = [...msel].map(feat).filter(f => f && f.type !== 'line' && !isPt(f)); if (!fs.length) return '';
+  let tot = 0; const rows = fs.map(f => { const a = areaKm2(f.geometry); tot += a; return `<tr><td>${esc(f.name)}</td><td>${Math.round(a).toLocaleString()} km²</td></tr>`; });
+  return `<h3>Area (R=${R()} km)</h3><table>${rows.join('')}${fs.length > 1 ? `<tr><td><b>Total</b></td><td><b>${Math.round(tot).toLocaleString()} km²</b></td></tr>` : ''}</table>`;
+}
+function updArea() { const e = $('#selArea'); if (e) e.innerHTML = areaHtml(); }
+function fld(fn) { if (viewMode) return; if (!fieldCk) { checkpoint(); fieldCk = true; } fn(); changed(); }
+function updTools() {
+  document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === tool));
+  const on = $('#tbar [data-tool].on'), tb = $('#tbar');
+  if (on && narrow) tb.scrollLeft = Math.max(0, Math.min(tb.scrollWidth, on.offsetLeft - (tb.clientWidth - on.offsetWidth) / 2));
+  $('#toolhint').textContent = tool + ': ' + (touchy ? THINTS : HINTS)[tool];
+  updChips();
+  svg.style.cursor = tool === 'select' || tool === 'edit' ? 'default' : tool === 'delete' ? 'not-allowed' : 'crosshair';
+}
+function setTool(t) { if (viewMode) return; tool = t; if (narrow) toast(THINTS[t]); draft = []; mq = null; fieldCk = false; if (t === 'edit') vflag = true; else if (t !== 'marquee' && t !== 'lasso') vflag = false; if (t !== 'measure') meas = []; renderAll(); }
+function setSel(ids, primary) { vx = new Set(); msel = new Set(ids); sel = ids.length ? (primary && msel.has(primary) ? primary : ids[ids.length - 1]) : null; vsel = new Set(); fieldCk = false; }
+function select(id) {
+  const f = id && feat(id); if (f && isLock(f)) { toast('Locked by a group'); return; }
+  setSel(id ? [id] : []); renderAll();
+}
+function vmode() { const f = sel && feat(sel); return !!(vflag && f && !isPt(f) && msel.size === 1 && (tool === 'edit' || ((tool === 'marquee' || tool === 'lasso') && !flt.verts))); }
+const getP = r => isPt(r.f) ? [r.f.geometry.lon, r.f.geometry.lat] : r.f.geometry[r.i];
+function setP(r, p) { const q = clampLL(p[0], p[1]); if (isPt(r.f)) { r.f.geometry.lon = q[0]; r.f.geometry.lat = q[1]; } else r.f.geometry[r.i] = q; }
+function vxRefs() { const o = []; for (const k of vx) { const j = k.lastIndexOf('#'), f = feat(k.slice(0, j)), i = +k.slice(j + 1); if (f && (isPt(f) ? i === -1 : i < f.geometry.length)) o.push({f, i}); } return o; }
+function selRefs() {
+  if (vx.size) return vxRefs();
+  if (vmode()) { const f = feat(sel); return [...vsel].filter(i => i < f.geometry.length).map(i => ({f, i})); }
+  const o = []; for (const id of msel) { const f = feat(id); if (!f) continue; if (isPt(f)) o.push({f, i: -1}); else f.geometry.forEach((_, i) => o.push({f, i})); }
+  return o;
+}
+function bboxOf(pts) { const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; }
+function boxInfo() {
+  if (viewMode || !['select', 'edit', 'marquee', 'lasso'].includes(tool) || !S) return null;
+  const refs = selRefs(); if (refs.length < 2) return null;
+  const bb = bboxOf(refs.map(getP)); if (bb[2] - bb[0] < 1e-9 && bb[3] - bb[1] < 1e-9) return null;
+  return {bb, c: [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2]};
+}
+function boxEl() {
+  const b = boxInfo(); if (!b) return ''; const pad = 7, [x0, y0, x1, y1] = [X(b.bb[0]) - pad, Y(b.bb[3]) - pad, X(b.bb[2]) + pad, Y(b.bb[1]) + pad], xm = (x0 + x1) / 2;
+  let o = `<rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="none" stroke="#e3b341" stroke-dasharray="5 3" pointer-events="none"/>`;
+  o += `<line x1="${xm}" y1="${y0}" x2="${xm}" y2="${y0 - 22}" stroke="#e3b341" pointer-events="none"/><circle ${touchy ? 'pointer-events="none"' : 'data-role="rot"'} cx="${xm}" cy="${y0 - 26}" r="5.5" fill="#e3b341" stroke="#000" style="cursor:alias"/>${hitC(xm, y0 - 26, 18, 'data-role="rot"')}`;
+  const ym = (y0 + y1) / 2;
+  for (const [h, x, y, cur] of [['nw', x0, y0, 'nwse'], ['ne', x1, y0, 'nesw'], ['sw', x0, y1, 'nesw'], ['se', x1, y1, 'nwse'], ['n', xm, y0, 'ns'], ['s', xm, y1, 'ns'], ['e', x1, ym, 'ew'], ['w', x0, ym, 'ew']]) {
+    const sd = h.length === 1, hw = sd ? (touchy ? 12 : 9) : 10;   /* side handles are rounded, corners square */
+    o += `<rect ${touchy ? 'pointer-events="none"' : `data-role="hdl" data-h="${h}"`} x="${x - hw / 2}" y="${y - hw / 2}" width="${hw}" height="${hw}" rx="${sd ? hw / 2 : 0}" fill="${sd ? '#fff' : '#e3b341'}" stroke="#000" style="cursor:${cur}-resize"/>` + (touchy ? `<rect data-role="hdl" data-h="${h}" x="${x - (sd ? 20 : 16)}" y="${y - (sd ? 20 : 16)}" width="${sd ? 40 : 32}" height="${sd ? 40 : 32}" fill="transparent"/>` : '');
+  }
+  return o;
+}
+
+/* ---------- mobile chrome: toast, chips, drawers, sheet, mode, layout ---------- */
+let toastT = null;
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2600); }
+function updChips() {
+  const chip = (k, label, on, cls) => `<button data-chip="${k}" class="${on ? 'on ' : ''}${cls || ''}">${label}</button>`;
+  let o = '';
+  if (!viewMode && (narrow || touchy)) {
+    if (SELT.includes(tool) && boxInfo()) o += chip('ctr', 'Anchor: ' + (vm.ctr ? 'Center' : 'Opposite'), vm.ctr) + chip('uni', 'Uniform', vm.uni);
+    if (SELT.includes(tool)) o += chip('prop', 'Prop', pe.on);
+    if (SELT.includes(tool) && pe.on) o += `<label class="rchip">R <input type="range" data-chip="pr" min="5" max="2000" step="5" value="${Math.min(2000, pe.R)}"><span id="prLbl">${Math.round(pe.R)} km</span></label>`;
+    if (SELT.includes(tool)) o += chip('add', 'Add', vm.add);
+    if (tool === 'marquee' || tool === 'lasso') o += chip('sub', 'Subtract', vm.sub) + chip('full', 'Fully inside', vm.full);
+    if (vmode() && vsel.size) o += `<button data-chip="delv">Delete ${vsel.size} vertex${vsel.size > 1 ? 'es' : ''}</button>`;
+    if (tool === 'polygon' || tool === 'polyline') {
+      const pt = $('#polyType').value, opts = tool === 'polygon' ? [['region', 'region'], ['land', 'land'], ['genzone', 'genzone']] : [['river', 'river'], ['road', 'road'], ['canal', 'canal']];
+      o += `<select data-chip="ptype">${opts.map(([v, n]) => `<option value="${v}"${v === pt ? ' selected' : ''}>${n}</option>`).join('')}</select>`;
+      if (draft.length) o += chip('cancel', 'Cancel') + chip('done', 'Done', false, 'done');
+    }
+  }
+  const el = $('#chips'); el.innerHTML = o; document.body.classList.toggle('chips', !!o);
+}
+$('#chips').addEventListener('click', e => {
+  const b = e.target.closest('[data-chip]'); if (!b || b.tagName === 'SELECT' || b.tagName === 'INPUT') return; const k = b.dataset.chip;
+  if (k === 'ctr') vm.ctr = !vm.ctr; else if (k === 'uni') vm.uni = !vm.uni; else if (k === 'prop') { pe.on = !pe.on; syncPE(); render(); }
+  else if (k === 'add') { vm.add = !vm.add; if (vm.add) vm.sub = false; } else if (k === 'sub') { vm.sub = !vm.sub; if (vm.sub) vm.add = false; } else if (k === 'full') vm.full = !vm.full;
+  else if (k === 'delv') { delVertices(); return; } else if (k === 'done') { finishDraft(); return; } else if (k === 'cancel') { draft = []; renderAll(); return; }
+  updChips();
+});
+$('#chips').addEventListener('input', e => { const t = e.target; if (t.dataset.chip === 'pr') { setR(+t.value); const l = $('#prLbl'); if (l) l.textContent = Math.round(pe.R) + ' km'; } });
+$('#chips').addEventListener('change', e => { const t = e.target; if (t.dataset.chip === 'ptype') { if (![...$('#polyType').options].some(o => o.value === t.value)) return; $('#polyType').value = t.value; } });
+let drawer = null;
+function openDrawer(n) {
+  drawer = drawer === n ? null : n; $('#left').classList.toggle('open', drawer === 'layers'); $('#listdrawer').classList.toggle('open', drawer === 'list');
+  $('#grpdrawer').classList.toggle('open', drawer === 'groups'); $('#gendrawer').classList.toggle('open', drawer === 'gen'); $('#candrawer').classList.toggle('open', drawer === 'canon');
+  $('#scrim').classList.toggle('show', !!drawer && narrow);
+  if (drawer === 'groups') renderGroups(); if (drawer === 'gen') { renderGen(); pollRegen(true); } if (drawer === 'canon') { canonHtml = ''; updCanon(); }
+}
+function closeDrawer() { if (drawer) openDrawer(drawer); }
+$('#btnGen').onclick = () => openDrawer('gen'); $('#btnGroups').onclick = () => openDrawer('groups'); $('#btnCanon').onclick = () => openDrawer('canon');
+$$('[data-close]').forEach(b => { b.onclick = closeDrawer; });
+$('#btnLayers').onclick = () => openDrawer('layers'); $('#btnList').onclick = () => openDrawer('list'); $('#scrim').onclick = closeDrawer;
+let sheetFull = false, sheetKey = '';
+function sheetInfo() {
+  const f = sel && feat(sel);
+  if (msel.size > 1) return {name: msel.size + ' features selected', sub: 'tap to expand'};
+  if (f) return {name: f.name || '(unnamed)', status: f.status, sub: f.type + (f.kind ? ' · ' + f.kind : '')};
+  if (vx.size) return {name: vx.size + ' vertices selected'};
+  if (meas.length) return {name: 'Measure', sub: meas.length === 2 ? gcKm(meas[0], meas[1]).toFixed(1) + ' km' : 'tap a second point'};
+  return null;
+}
+function updSheet() {
+  const r = $('#right');
+  if (viewMode) { r.querySelectorAll('input,textarea').forEach(x => { x.readOnly = true; }); r.querySelectorAll('select').forEach(x => { x.disabled = true; }); const d = $('#del'); if (d) d.style.display = 'none'; }
+  if (!narrow) { r.classList.remove('peek', 'full'); $('#stage').style.setProperty('--sheeth', '0px'); return; }
+  const info = sheetInfo(), key = [...msel].join(',') + '|' + (vx.size ? 'v' : '') + (meas.length ? 'm' : '');
+  if (key !== sheetKey) { sheetKey = key; sheetFull = false; }
+  if (!info) { r.classList.remove('peek', 'full'); $('#stage').style.setProperty('--sheeth', '0px'); return; }
+  const c = info.status ? COL[info.status] : '#888';
+  r.insertAdjacentHTML('afterbegin', `<div class="sheethead"><div class="grab"></div><div class="hrow"><span class="sw" style="background:${c}"></span><b>${esc(info.name)}</b>` +
+    (info.status ? `<span class="stchip" style="color:${c};border-color:${c}">${esc(info.status)}</span>` : '') + `<span class="hint">${sheetFull ? '&#9660;' : '&#9650;'}</span></div>${info.sub ? `<div class="hint">${esc(info.sub)}</div>` : ''}</div>`);
+  r.classList.toggle('full', sheetFull); r.classList.toggle('peek', !sheetFull);
+  $('#stage').style.setProperty('--sheeth', (sheetFull ? r.offsetHeight : r.offsetHeight) + 'px');
+}
+(function sheetGrip() {
+  const r = $('#right'); let g = null;
+  r.addEventListener('pointerdown', e => { if (!e.target.closest('.sheethead')) return; g = {y: e.clientY, id: e.pointerId}; try { r.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ } });
+  const end = e => {
+    if (!g || e.pointerId !== g.id) return; const dy = e.clientY - g.y; g = null;
+    sheetFull = Math.abs(dy) < 10 ? !sheetFull : dy < 0; updSheet_(); };
+  r.addEventListener('pointerup', end); r.addEventListener('pointercancel', () => { g = null; });
+  function updSheet_() { renderPanelBody(); updSheet(); }
+})();
+async function setMode(m) {
+  const toView = m === 'view'; if (toView === viewMode) return;
+  if (toView && S) {
+    clearTimeout(saveTimer); for (let i = 0; i < 40 && saving; i++) await new Promise(r => setTimeout(r, 50));
+    if (isUnsaved() && !conflict) await save();
+    if (isUnsaved() || conflict) { toast('Unsaved changes or a conflict: resolve before View mode.'); return; }
+  }
+  viewMode = toView; try { localStorage.setItem(MODE_KEY, m); } catch (e) { /* ignore */ }
+  tool = 'select'; draft = []; mq = null; meas = []; vflag = false; vx = new Set(); vsel = new Set(); vm.add = vm.sub = vm.full = vm.ctr = vm.uni = false; down = null;
+  if (toView) { msel = new Set(msel.size === 1 ? msel : []); if (!msel.size) sel = null; }
+  applyChrome(); if (S) renderAll();
+}
+function applyChrome() {
+  const b = document.body; b.classList.toggle('view', viewMode); b.classList.toggle('narrow', narrow); b.classList.toggle('touchy', touchy);
+  $$('#modeBtn span').forEach(sp => sp.classList.toggle('act', (sp.dataset.m === 'view') === viewMode));
+  layoutNodes();
+}
+function layoutNodes() {
+  const left = $('#left'), right = $('#right'), stage = $('#stage'), search = $('#search'), fw = $('#featwrap');
+  if (narrow) { stage.append(left, right); $('#tbSearch').append(search); $('#listBody').append(fw); }
+  else { $('#app').insertBefore(left, stage); $('#app').insertBefore(right, $('#tbar')); $('#searchslot').append(search); left.append(fw); if (drawer && drawer !== 'groups' && drawer !== 'canon' && drawer !== 'gen') closeDrawer(); else $('#scrim').classList.remove('show'); }
+}
+$('#modeBtn').onclick = () => setMode(viewMode ? 'edit' : 'view');
+window.addEventListener('resize', () => {
+  const n = mql('(max-width: 820px)').matches;
+  if (n !== narrow) { narrow = n; applyChrome(); if (S) renderAll(); }
+});
+
+/* ---------- groups panel ---------- */
+function allTags() { const m = new Map(); for (const f of S.features) for (const t of new Set(tagsOf(f))) m.set(t, (m.get(t) || 0) + 1); return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])); }
+function renderGroups() {
+  if (!S) return; const tags = allTags();
+  $('#grpList').innerHTML = tags.length ? tags.map(([t, n]) => `<div class="grow-r" data-tag="${esc(t)}"><span class="gn" data-act="pick" title="${esc(t)}"><span style="display:inline-block;width:.8em;height:.8em;border-radius:2px;margin-right:.35em;vertical-align:-1px;background:${tagCol(t)}"></span>${esc(t)} <span class="hint">${n}</span></span>` +
+    `<label><input type="checkbox" data-act="show" ${grpHid.has(t) ? '' : 'checked'}>show</label><label><input type="checkbox" data-act="lock" ${grpLock.has(t) ? 'checked' : ''}>lock</label>` +
+    (S.features.some(f => f.type === 'region' && tagsOf(f).includes(t)) ? `<label title="Show this tag's region borders"><input type="checkbox" data-act="border" ${grpNoBorder.has(t) ? '' : 'checked'}>border</label>` : '') +
+    `<button class="editonly" data-act="all">Select all</button></div>`).join('') : '<div class="hint">No tags yet. Select features, type a tag below and use "Add selection to tag...".</div>';
+  $('#grpTags').innerHTML = tags.map(([t]) => `<option value="${esc(t)}">`).join('');
+  $('#grpSelInfo').textContent = selIds().length + ' feature(s) selected';
+}
+const selIds = () => { const s = new Set(msel); for (const k of vx) s.add(k.slice(0, k.lastIndexOf('#'))); return [...s].filter(id => feat(id)); };
+function pruneSel() {
+  for (const id of [...msel]) { const f = feat(id); if (!f || isHid(f) || isLock(f)) msel.delete(id); }
+  for (const k of [...vx]) { const f = feat(k.slice(0, k.lastIndexOf('#'))); if (!f || isHid(f) || isLock(f)) vx.delete(k); }
+  if (sel && !msel.has(sel)) { sel = [...msel].pop() || null; vsel = new Set(); }
+}
+function selectTag(t, add) {
+  const ids = S.features.filter(f => tagsOf(f).includes(t) && !isHid(f) && !isLock(f)).map(f => f.id);
+  if (!ids.length) { toast('Nothing selectable under "' + t + '" (hidden or locked)'); return; }
+  const all = add ? [...new Set([...msel, ...ids])] : ids; // Shift+Select all joins the current selection
+  tool = 'select'; vflag = false; draft = []; mq = null; setSel(all); renderAll(); toast((add ? '+' + ids.length + ' (' + all.length + ' total)' : ids.length + ' selected') + ': ' + t); if (narrow && !add) closeDrawer();
+}
+$('#grpList').addEventListener('click', e => {
+  const r = e.target.closest('[data-tag]'), a = e.target.dataset.act || (e.target.closest('[data-act]') || {dataset: {}}).dataset.act; if (!r || !a) return; const t = r.dataset.tag;
+  if (a === 'all') { if (!viewMode) selectTag(t, e.shiftKey); } else if (a === 'pick') $('#grpName').value = t;
+});
+$('#grpList').addEventListener('change', e => {
+  const r = e.target.closest('[data-tag]'), a = e.target.dataset.act; if (!r || !a) return; const t = r.dataset.tag;
+  if (a === 'show') { e.target.checked ? grpHid.delete(t) : grpHid.add(t); } else if (a === 'lock') { e.target.checked ? grpLock.add(t) : grpLock.delete(t); } else if (a === 'border') { e.target.checked ? grpNoBorder.delete(t) : grpNoBorder.add(t); } else return;
+  saveGrp(); pruneSel(); renderAll();
+});
+function tagSel(add) {
+  if (viewMode) return; const t = $('#grpName').value.trim(), ids = selIds();
+  if (!t) { toast('Type a tag name first'); return; } if (!ids.length) { toast('Nothing selected'); return; }
+  checkpoint(); let n = 0;
+  for (const id of ids) {
+    const f = feat(id), has = Array.isArray(f.groups) && f.groups.includes(t);
+    if (add && !has) { if (!Array.isArray(f.groups)) f.groups = []; f.groups.push(t); n++; }
+    else if (!add && has) { f.groups = f.groups.filter(x => x !== t); if (!f.groups.length) delete f.groups; n++; }
+  }
+  if (!n) { undoStack.pop(); updUndo(); toast('No change'); return; }
+  fieldCk = false; changed(); renderAll(); toast((add ? 'Added to "' : 'Removed from "') + t + '": ' + n);
+}
+$('#grpAddBtn').onclick = () => tagSel(true); $('#grpRemBtn').onclick = () => tagSel(false);
+
+/* ---------- canon checks (warn only) ---------- */
+const MI_KM = 1.609344; let canonHtml = '';
+function ptOf(f) { if (!f) return null; if (isPt(f)) return [f.geometry.lon, f.geometry.lat]; if (f.type === 'region' || f.type === 'land') return centroid(f.geometry); return null; }
+function bearingDeg(a, b) {
+  const p1 = rad(a[1]), p2 = rad(b[1]), dl = rad(b[0] - a[0]);
+  return (deg(Math.atan2(Math.sin(dl) * Math.cos(p2), Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl))) + 360) % 360;
+}
+function evalConstraints() {
+  return (Array.isArray(S.constraints) ? S.constraints : []).map(c => {
+    const fa = feat(c.a), fb = feat(c.b), pa = ptOf(fa), pb = ptOf(fb), r = {c, fa, fb, bad: false, miss: false, val: null, drift: 0, txt: ''};
+    if (!pa || !pb) { r.bad = r.miss = true; r.txt = 'missing endpoint: ' + (!pa ? c.a : c.b); return r; }
+    const kind = c.kind || 'eq', toKm = v => +v * MI_KM, tol = Number.isFinite(+c.tol_km) ? +c.tol_km : Number.isFinite(+c.tol_mi) ? toKm(c.tol_mi) : 0;
+    if (kind === 'bearing') {
+      const t = Number.isFinite(+c.tol_deg) ? +c.tol_deg : Number.isFinite(+c.tol_mi) ? +c.tol_mi : 0, b = bearingDeg(pa, pb), d = ((b - (+c.bearing_deg || 0) + 540) % 360) - 180;
+      r.val = b; r.drift = d; r.bad = Math.abs(d) > t; r.txt = `${b.toFixed(1)} deg, target ${+c.bearing_deg || 0} +/-${t} (bearing), drift ${d >= 0 ? '+' : ''}${d.toFixed(1)}`;
+    } else {
+      const km = gcKm(pa, pb), tg = Number.isFinite(+c.target_km) ? +c.target_km : toKm(c.target_mi || 0), d = km - tg; r.val = km; r.drift = d;
+      r.bad = kind === 'max' ? km > tg + tol : Math.abs(d) > tol;
+      r.txt = `${km.toFixed(1)} km, target ${kind === 'max' ? '<= ' : ''}${tg.toFixed(1)} ${kind === 'max' ? '+' : '+/-'}${tol.toFixed(1)} (${kind}), drift ${d >= 0 ? '+' : ''}${d.toFixed(1)} km`;
+    }
+    return r;
+  });
+}
+function updCanon() {
+  if (!S) return; const rs = evalConstraints(), n = rs.filter(r => r.bad).length, bd = $('#canBadge');
+  bd.hidden = !n; bd.textContent = n; $('#btnCanon').classList.toggle('warn', n > 0);
+  if (!$('#candrawer').classList.contains('open')) return;
+  const h = rs.length ? rs.map((r, i) => `<div class="crow ${r.bad ? 'bad' : ''}" data-ci="${i}"><div><b class="${r.bad ? 'badt' : 'ok'}">${r.miss ? 'MISSING' : r.bad ? 'DRIFTED' : 'OK'}</b> ${esc(r.fa ? r.fa.name : r.c.a)} &rarr; ${esc(r.fb ? r.fb.name : r.c.b)}</div><div class="hint">${esc(r.txt)}</div></div>`).join('') +
+    `<div class="hint">Warn only: nothing is blocked. Great-circle km use planet.radius_km (${R()} km).</div>` : '<div class="hint">No constraints. Add a top-level "constraints" array to map-state.json (see README).</div>';
+  if (h !== canonHtml) { canonHtml = h; $('#canList').innerHTML = h; }
+}
+$('#canList').addEventListener('click', e => {
+  const r = e.target.closest('[data-ci]'); if (!r) return; const x = evalConstraints()[+r.dataset.ci], pa = x && ptOf(x.fa), pb = x && ptOf(x.fb); if (!pa || !pb) return;
+  zoomTo({type: 'line', geometry: [pa, pb]}); if (narrow) closeDrawer();
+});
+
+/* ---------- feature ops ---------- */
+const uid = () => 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+function addFeature(f) { if (viewMode) return; checkpoint(); S.features.push(f); setSel([f.id]); changed(); renderAll(); const n = $('#fName'); if (n) { n.focus(); n.select(); } }
+function delFeatures(ids) { if (viewMode || !ids.length) return; checkpoint(); const k = new Set(ids); S.features = S.features.filter(f => !k.has(f.id)); setSel([...msel].filter(i => !k.has(i))); changed(); renderAll(); }
+function delVertices() {
+  if (viewMode) return; const f = feat(sel); if (!f || !vsel.size) return; const min = f.type === 'line' ? 2 : 3;
+  if (f.geometry.length - vsel.size < min) { $('#toolhint').textContent = 'Refused: ' + (f.type === 'line' ? 'a line needs 2' : 'a polygon needs 3') + ' vertices at least.'; return; }
+  checkpoint(); f.geometry = f.geometry.filter((_, i) => !vsel.has(i)); vsel = new Set(); changed(); renderAll();
+}
+function nudge(sx, sy, st) {   /* sphere rotation: sx/sy = -1|0|1 (east/north), st = arc step in degrees at the selection centroid */
+  if (viewMode) return; const refs = selRefs(); if (!refs.length) return; const now = Date.now();
+  if (now - lastNudge > 700) checkpoint(); lastNudge = now;
+  const ps = refs.map(getP), cv = [0, 0, 0]; ps.forEach(p => { const v = vec(p[0], p[1]); cv[0] += v[0]; cv[1] += v[1]; cv[2] += v[2]; });
+  const cl = Math.hypot(...cv) || 1, c = cv.map(x => x / cl), lat = Math.asin(Math.max(-1, Math.min(1, c[2]))), lon = Math.atan2(c[1], c[0]);
+  let T = (p) => p;
+  if (sx) { const th = sx * Math.min(rad(10), rad(st) / Math.max(0.05, Math.cos(lat))); T = p => rotLL(p, [0, 0, 1], th); }   /* about the polar axis: a pure eastward turn */
+  else if (sy) { const nrm = [-Math.sin(lat) * Math.cos(lon), -Math.sin(lat) * Math.sin(lon), Math.cos(lat)], ax = cross3(c, nrm), al = Math.hypot(...ax);
+    if (al > 1e-9) { const a = ax.map(x => x / al), th = sy * rad(st); T = p => rotLL(p, a, th); } }   /* about the local east axis through the centroid */
+  refs.forEach((r, i) => setP(r, T(ps[i]))); changed(); render(); updArea();
+}
+function finishDraft() {
+  if (viewMode) { draft = []; return; }
+  const poly = tool === 'polygon', t = $('#polyType').value;
+  if (draft.length < (poly ? 3 : 2)) { draft = []; render(); return; }
+  let type, kind;
+  if (poly && t === 'genzone') {
+    const g = draft; draft = []; const c = centroid(g), tg = new Set();
+    for (const l of S.features) if (l.type === 'land' && (inPoly(c, l.geometry) || g.some(q => inPoly(q, l.geometry)))) tagsOf(l).forEach(x => tg.add(x));
+    if (!tg.size) toast('No landmass under this zone: tag it in Groups.');
+    addFeature({id: uid(), type: 'region', kind: 'genzone', name: 'Genzone', status: 'proposed', note: '', cites: '', groups: [...tg], params: {}, feather_km: genDef().feather_km, priority: 0, geometry: g}); return;
+  }
+  if (poly) { type = t === 'land' ? 'land' : 'region'; kind = type === 'land' ? 'island' : 'feudal'; }
+  else { type = 'line'; kind = ['river', 'road', 'canal'].includes(t) ? t : 'river'; }
+  const g = draft; draft = [];
+  addFeature({id: uid(), type, kind, name: 'New ' + (type === 'line' ? kind : type), status: 'proposed', note: '', cites: '', geometry: g});
+}
+function zoomTo(f) {
+  let pts = isPt(f) ? [[f.geometry.lon, f.geometry.lat]] : f.geometry;
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const dx = Math.max(x1 - x0, 4), dy = Math.max(y1 - y0, 3);
+  view.k = Math.min(W() / (dx * 1.4), H() / (dy * 1.4), 120);
+  view.tx = W() / 2 - (x0 + x1) / 2 * view.k; view.ty = H() / 2 + (y0 + y1) / 2 * view.k; render();
+}
+function homeView() { view.k = Math.min(W() / 115, H() / 80); view.tx = W() / 2 - (-12) * view.k; view.ty = H() / 2 + 38 * view.k; render(); }
+function fitView() { view.k = Math.min(W() / 360, H() / 180); view.tx = W() / 2; view.ty = H() / 2; render(); }
+$$('.js-home').forEach(b => { b.onclick = homeView; }); $('#fit').onclick = fitView;
+
+/* ---------- pointer ---------- */
+function evLL(e) { const r = svg.getBoundingClientRect(); return [lonOf(e.clientX - r.left), latOf(e.clientY - r.top)]; }
+function evXY(e) { const r = svg.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+function hit(e) {
+  const t = e.target.closest ? e.target.closest('[data-id],[data-role]') : null;
+  if (!t) return {};
+  return {id: t.dataset.id, role: t.dataset.role, hd: t.dataset.h, idx: t.dataset.idx !== undefined ? +t.dataset.idx : undefined};
+}
+const SELT = ['select', 'edit', 'marquee', 'lasso'];
+const ptrs = new Map(); let gest = null, lastTap = null;
+const vibe = () => { try { navigator.vibrate && navigator.vibrate(20); } catch (e) { /* ignore */ } };
+svg.addEventListener('contextmenu', e => { if (touchy) e.preventDefault(); });
+svg.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (e.pointerType !== 'mouse') ptrs.set(e.pointerId, {x: e.clientX, y: e.clientY});
+  try { svg.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ }
+  if (ptrs.size >= 2) { startGesture(); e.preventDefault(); return; }
+  pdown(e);
+});
+function startGesture() {
+  if (down) { clearTimeout(down.lp); down = null; }
+  mq = null;
+  const [a, b] = [...ptrs.values()], r = svg.getBoundingClientRect(), mx = (a.x + b.x) / 2 - r.left, my = (a.y + b.y) / 2 - r.top;
+  gest = {d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, k0: view.k, lon: lonOf(mx), lat: latOf(my)};
+}
+function updGesture() {
+  const [a, b] = [...ptrs.values()]; if (!a || !b) return; const r = svg.getBoundingClientRect(), mx = (a.x + b.x) / 2 - r.left, my = (a.y + b.y) / 2 - r.top;
+  view.k = Math.max(1.2, Math.min(600, gest.k0 * (Math.hypot(a.x - b.x, a.y - b.y) || 1) / gest.d0));
+  view.tx = mx - gest.lon * view.k; view.ty = my + gest.lat * view.k; render();
+}
+function armLongPress() {
+  const d = down; if (!d || !d.touch) return;
+  d.lp = setTimeout(() => {
+    if (down !== d || d.moved) return; const h = d.h;
+    if (tool === 'edit' && h.role === 'vtx') { const f = feat(sel), min = f.type === 'line' ? 2 : 3; if (f.geometry.length > min) { checkpoint(); f.geometry.splice(h.idx, 1); vsel = new Set(); changed(); renderAll(); toast('Vertex deleted'); } }
+    else if (tool === 'marquee' || tool === 'lasso') { d.lpSub = true; toast('Subtract mode'); vibe(); return; }
+    else if ((tool === 'select' || tool === 'edit') && h.id) { setSel([...msel].filter(i => i !== h.id)); renderAll(); toast('Removed from selection'); }
+    else return;
+    vibe(); down = null; mq = null;
+  }, 500);
+}
+function pdown(e) {
+  const h = hit(e), [x, y] = evXY(e), m = M(e), touch = e.pointerType !== 'mouse';
+  down = {x, y, moved: false, mode: 'pan', h, view: {...view}, ck: false, start: evLL(e), touch};
+  if (viewMode) { e.preventDefault(); return; }
+  const startRefs = () => { down.refs = selRefs(); down.orig = down.refs.map(getP); const b = boxInfo(); down.c = b ? b.c : null; down.bb = b ? b.bb : null; };
+  if (h.role === 'pole') down.mode = 'pole';
+  else if (h.role === 'breachline') { down.mode = 'breachshift'; down.lon0 = S.breach.pole.lon; }
+  else if ((tool === 'select' || tool === 'edit') && h.role === 'xv') { startRefs(); down.mode = 'gmove'; }
+  else if (SELT.includes(tool) && (h.role === 'hdl' || h.role === 'rot')) {
+    startRefs(); if (!down.c) { down = null; return; }
+    const y1 = down.bb[3];
+    down.mode = h.role === 'rot' ? 'rot' : 'scale'; down.h0 = toKm([down.c[0], y1 + 26 / view.k], down.c);
+  } else if (tool === 'edit' && h.role === 'vtx') {
+    const f = feat(sel);
+    if (e.altKey) { const min = f.type === 'line' ? 2 : 3; if (f.geometry.length > min) { checkpoint(); f.geometry.splice(h.idx, 1); vsel = new Set(); changed(); renderAll(); } down = null; return; }
+    if (m.shift) { vsel.has(h.idx) ? vsel.delete(h.idx) : vsel.add(h.idx); renderAll(); down = null; e.preventDefault(); return; }
+    if (!vsel.has(h.idx)) { vsel = new Set([h.idx]); renderAll(); } else down.collapseV = h.idx;
+    startRefs(); down.mode = 'gmove';
+  } else if (tool === 'edit' && h.role === 'mid') {
+    const f = feat(sel); checkpoint(); down.ck = true;
+    const a = f.geometry[h.idx], b = f.geometry[(h.idx + 1) % f.geometry.length];
+    f.geometry.splice(h.idx + 1, 0, [rnd((a[0] + b[0]) / 2), rnd((a[1] + b[1]) / 2)]); changed();
+    vsel = new Set([h.idx + 1]); startRefs(); down.mode = 'gmove'; down.moved = true; renderAll();
+  } else if (h.id && touch && tool === 'select' && !msel.has(h.id)) {
+    down.tapSel = h.id;          /* touch: dragging an unselected feature pans; a tap selects it */
+  } else if (h.id && (tool === 'select' || tool === 'edit')) {
+    if (tool === 'select' && m.shift) { const ids = [...msel]; const i = ids.indexOf(h.id); if (i >= 0) ids.splice(i, 1); else ids.push(h.id); setSel(ids, i >= 0 ? null : h.id); renderAll(); down = null; e.preventDefault(); return; }
+    if (!msel.has(h.id)) setSel([h.id]); else { sel = h.id; if (msel.size > 1) down.collapse = h.id; }
+    fieldCk = false; renderAll();
+    if (tool === 'select') { startRefs(); down.mode = 'gmove'; }
+  } else if (h.id && tool === 'delete') { delFeatures([h.id]); down = null; return; }
+  else if (tool === 'marquee' || tool === 'lasso') {
+    down.mode = tool; mq = {kind: tool === 'marquee' ? 'marq' : 'lasso', a: down.start, b: down.start, path: [down.start], moved: false};
+  }
+  if (down) armLongPress();
+  e.preventDefault();
+}
+window.addEventListener('pointermove', e => {
+  if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, {x: e.clientX, y: e.clientY});
+  if (gest) { updGesture(); return; }
+  const r = svg.getBoundingClientRect(), inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+  if (inside) { cursor = evLL(e); $('#cur').textContent = `lon ${cursor[0].toFixed(2)}, lat ${cursor[1].toFixed(2)}`; if (draft.length && !down) render(); }
+  if (!down) return;
+  const [x, y] = evXY(e), dx = x - down.x, dy = y - down.y;
+  if (!down.moved && Math.hypot(dx, dy) < (down.touch ? 8 : 4)) return;
+  down.moved = true; clearTimeout(down.lp);
+  if (down.mode === 'pan') { view.tx = down.view.tx + dx; view.ty = down.view.ty + dy; render(); return; }
+  const cur = evLL(e);
+  if (mq) { mq.moved = true; mq.b = cur; if (mq.kind === 'lasso') mq.path.push(cur); render(); return; }
+  if (!down.ck) { checkpoint(); down.ck = true; }
+  if (down.mode === 'pole') { const [lo, la] = clampLL(cur[0], cur[1]); S.breach.pole.lon = lo; S.breach.pole.lat = la; }
+  else if (down.mode === 'breachshift') { let lo = down.lon0 + (cur[0] - down.start[0]); lo = ((lo + 540) % 360) - 180; S.breach.pole.lon = Math.round(lo * 100) / 100; }   // rotation about the polar axis: pure east/west shift, tilt kept
+  else if (DRAGM.includes(down.mode)) dragApply(down, cur, {alt: e.altKey || vm.ctr, shift: e.shiftKey || vm.uni});
+  changed(); render(); updArea();
+});
+function pend(e, cancelled) {
+  const wasG = !!gest; ptrs.delete(e.pointerId);
+  try { svg.releasePointerCapture(e.pointerId); } catch (x) { /* ignore */ }
+  if (wasG) { if (ptrs.size < 2) gest = null; return; }
+  if (!down) return; const d = down; down = null; clearTimeout(d.lp);
+  if (cancelled) { mq = null; renderAll(); return; }
+  if (mq) { finishSelect(e, d); mq = null; renderAll(); return; }
+  if (d.moved) { if (d.mode !== 'pan') renderPanel(); return; }
+  if (d.touch && (viewMode || SELT.includes(tool))) {     /* double-tap = zoom in */
+    const now = performance.now();
+    if (lastTap && now - lastTap.t < 350 && Math.hypot(lastTap.x - d.x, lastTap.y - d.y) < 30) {
+      lastTap = null; const k = Math.min(600, view.k * 2), lon = lonOf(d.x), lat = latOf(d.y);
+      view.k = k; view.tx = d.x - lon * k; view.ty = d.y + lat * k; render(); return;
+    }
+    lastTap = {t: now, x: d.x, y: d.y};
+  }
+  if (viewMode) { if (d.h.id) setSel([d.h.id]); else if (!d.h.role) setSel([]); renderAll(); return; }
+  if (d.tapSel) { const ids = [...msel]; if (vm.add) { const i = ids.indexOf(d.tapSel); if (i >= 0) ids.splice(i, 1); else ids.push(d.tapSel); setSel(ids, d.tapSel); } else setSel([d.tapSel]); renderAll(); return; }
+  if (d.collapseV !== undefined) { vsel = new Set([d.collapseV]); renderAll(); return; }
+  if (d.collapse) { setSel([d.collapse]); renderAll(); return; }
+  clickAction(e, d.h);
+}
+window.addEventListener('pointerup', e => pend(e, false));
+window.addEventListener('pointercancel', e => pend(e, true));
+function finishSelect(e, d) {
+  const q = mq, a = q.a, b = q.b, m = M(e); if (d.lpSub) m.alt = true; const full = m.full;
+  const inside = q.kind === 'marq'
+    ? p => p[0] >= Math.min(a[0], b[0]) && p[0] <= Math.max(a[0], b[0]) && p[1] >= Math.min(a[1], b[1]) && p[1] <= Math.max(a[1], b[1])
+    : p => q.path.length >= 3 && inPoly(p, q.path);
+  const combine = (base, hits) => hits === null ? (m.shift || m.alt ? [...base] : [])
+    : m.alt ? [...base].filter(x => !hits.includes(x)) : m.shift ? [...new Set([...base, ...hits])] : hits;
+  if (flt.verts) {
+    let hits = null;
+    if (d.moved) {
+      hits = [];
+      for (const f of S.features) {
+        if (!shown(f) || !flt[f.type] || isHid(f) || isLock(f)) continue;
+        if (isPt(f)) { if (inside([f.geometry.lon, f.geometry.lat])) hits.push(f.id + '#-1'); }
+        else f.geometry.forEach((p, i) => { if (inside(p)) hits.push(f.id + '#' + i); });
+      }
+    }
+    const out = combine(vx, hits); setSel([]); vx = new Set(out); return;
+  }
+  const vm = vmode(), base = vm ? vsel : msel; let hits = [];
+  if (!d.moved) hits = null;
+  else if (vm) { const f = feat(sel); f.geometry.forEach((p, i) => { if (inside(p)) hits.push(i); }); }
+  else for (const f of S.features) {
+    if (!shown(f) || !flt[f.type] || isHid(f) || isLock(f)) continue;
+    const pts = isPt(f) ? [[f.geometry.lon, f.geometry.lat]] : f.geometry;
+    if (pts.length && (full ? pts.every(inside) : pts.some(inside))) hits.push(f.id);
+  }
+  const out = combine(base, hits);
+  if (vm) vsel = new Set(out); else setSel(out);
+}
+function clickAction(e, h) {
+  const p = evLL(e), [lo, la] = clampLL(p[0], p[1]);
+  if (tool === 'select' || tool === 'edit') { if (!h.id && !h.role) { if (vmode() && vsel.size) vsel = new Set(); else setSel([]); renderAll(); } return; }
+  if (tool === 'pin' || tool === 'note') {
+    addFeature({id: uid(), type: tool, kind: tool === 'pin' ? 'place' : 'question', name: 'New ' + tool, status: 'proposed', note: '', cites: '', geometry: {lon: lo, lat: la}}); return;
+  }
+  if (tool === 'polygon' || tool === 'polyline') {
+    if (tool === 'polygon' && draft.length >= 3) {
+      const f = draft[0]; if (Math.hypot(X(f[0]) - X(lo), Y(f[1]) - Y(la)) < (touchy ? 20 : 9)) { finishDraft(); return; }
+    }
+    draft.push([lo, la]); render(); updChips(); return;
+  }
+  if (tool === 'measure') {
+    let pt = [lo, la];
+    if (h.id) { const f = feat(h.id); if (f && isPt(f)) pt = [f.geometry.lon, f.geometry.lat]; }
+    if (meas.length >= 2) meas = []; meas.push(pt); renderAll();
+  }
+}
+svg.addEventListener('dblclick', () => {
+  if ((tool === 'polygon' || tool === 'polyline') && draft.length) { draft.pop(); finishDraft(); }
+});
+svg.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (down && pe.on && DRAGM.includes(down.mode)) { setR(pe.R * Math.exp(-e.deltaY * 0.0015)); return; }   /* no zoom while dragging with proportional edit: wheel = radius */
+  const [x, y] = evXY(e), lon = lonOf(x), lat = latOf(y);
+  view.k = Math.max(1.2, Math.min(600, view.k * Math.exp(-e.deltaY * 0.0015)));
+  view.tx = x - lon * view.k; view.ty = y + lat * view.k; render();
+}, {passive: false});
+
+/* ---------- keys / wiring ---------- */
+function modKey(e) { if (e.key !== 'Alt' && e.key !== 'Shift') return; redrag({alt: e.altKey || vm.ctr, shift: e.shiftKey || vm.uni}); }
+window.addEventListener('keyup', modKey);
+window.addEventListener('keydown', e => {
+  if (e.key === 'Alt') e.preventDefault();   /* Firefox/Windows would focus the menu bar */
+  modKey(e); if (e.key === 'Alt') return;
+  if (viewMode && e.key !== 'Escape') return;
+  const tg = e.target, typing = tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.tagName === 'SELECT') && tg.type !== 'checkbox';
+  if (e.key === 'Escape') { if (typing) tg.blur(); else if (draft.length || meas.length) { draft = []; meas = []; } else if (vx.size) vx = new Set(); else if (vmode() && vsel.size) vsel = new Set(); else if (tool !== 'select') { tool = 'select'; vflag = false; } else setSel([]); renderAll(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { if (typing) return; e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') { if (typing) return; e.preventDefault(); redo(); return; }
+  if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === 'Enter' && draft.length) { finishDraft(); return; }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && sel) { e.preventDefault(); if (vmode() && vsel.size) delVertices(); else delFeatures([...msel]); return; }
+  if (e.key.startsWith('Arrow') && (sel || vx.size)) { e.preventDefault(); const st = e.shiftKey ? 1 : 0.1; nudge(e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0, e.key === 'ArrowUp' ? 1 : e.key === 'ArrowDown' ? -1 : 0, st); return; }
+  if (e.key === 'o' || e.key === 'O') { togglePE(); return; }
+  if (e.key === '[') { setR(pe.R / 1.15); return; } if (e.key === ']') { setR(pe.R * 1.15); return; }
+  const t = KEYS[e.key.toLowerCase()]; if (t) setTool(t);
+});
+$('#peOn').onchange = e => togglePE(e.target.checked);
+$('#peFall').onchange = e => { pe.fall = e.target.value; savePE(); render(); };
+$('#peSame').onchange = e => { pe.same = e.target.checked; savePE(); };
+$('#peR').oninput = e => { const v = +e.target.value; if (v > 0) { pe.R = clampR(v); savePE(); $('#peRs').value = Math.min(2000, pe.R); render(); } };
+$('#peRs').oninput = e => setR(+e.target.value);
+$('#btnDens').onclick = () => densify(+$('#dsKm').value); $('#btnSimp').onclick = () => simplify(+$('#smTol').value);
+document.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
+$('#selflt').addEventListener('change', e => { const t = e.target; if (t.dataset.flt) flt[t.dataset.flt] = t.checked; else if (t.dataset.fltmode) flt.verts = t.dataset.fltmode === 'verts'; else return; saveFlt(); renderAll(); });
+$('#layers').addEventListener('change', e => { if (e.target.dataset.clean) { setClean(e.target.checked); renderLeft(); render(); return; } const k = e.target.dataset.layer; if (k) { if (clean) { clean = false; cleanPrev = null; try { localStorage.setItem(CLEAN_KEY, ''); } catch (er) { /* ignore */ } setTimeout(renderLeft); } vis[k] = e.target.checked; render(); if (k === 'biome') renderLeft(); } });
+$('#flist').addEventListener('click', e => { const d = e.target.closest('[data-fid]'); if (d) { select(d.dataset.fid); zoomTo(feat(d.dataset.fid)); } });
+$('#search').addEventListener('input', () => { renderLeft(); if (narrow && $('#search').value && drawer !== 'list') openDrawer('list'); });
+$('#search').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); searchGo(); e.target.blur(); } });
+$('#flist').addEventListener('click', () => { if (narrow) closeDrawer(); });
+window.addEventListener('resize', render);
+
+
+/* ---------- generation params (state.gen + genzones), regenerate via POST /regen ---------- */
+const GEN_DEF = {wander_km: 40, rough: 1, detail_wl_km: 170, aridity: 0, feather_km: 30};
+const GEN_SEED_GROUPS = {wi: 15, haldei: 70, 'asahi-arch': 70};   /* plan v4: WI tight, Haldei/Asahi wild */
+const GPS = [['wander_km', 'Wander km', 0, 150, 1], ['rough', 'Roughness', 0, 2, 0.05], ['detail_wl_km', 'Detail wavelength km', 5, 300, 1], ['aridity', 'Aridity', -1, 1, 0.05], ['feather_km', 'Feather km', 0, 200, 1]];
+const BIOME_NAMES = ['desert', 'steppe', 'mediterranean', 'temperate', 'subtropical', 'tropical', 'forest', 'boreal', 'tundra', 'alpine', 'ice'];   /* coastgen biome names */
+function genEnsure() {
+  if (!S || S.gen) return;
+  S.gen = {defaults: {...GEN_DEF}, groups: {}};
+  for (const t of landTags()) if (GEN_SEED_GROUPS[t] !== undefined) S.gen.groups[t] = {wander_km: GEN_SEED_GROUPS[t]};
+}
+function landTags() { const m = new Set(); for (const f of S.features) if (f.type === 'land') tagsOf(f).forEach(t => m.add(t)); return [...m].sort(); }
+const genDef = () => ({...GEN_DEF, ...((S.gen && S.gen.defaults) || {})});
+const grpEff = g => ({...genDef(), ...((S.gen && S.gen.groups && S.gen.groups[g]) || {})});
+function zoneEff(f) {   /* effective params of a genzone: own params over its first group's values; feather is top-level */
+  const g = (tagsOf(f)[0]) || null, base = g ? grpEff(g) : genDef(), pr = f.params || {};
+  const o = {...base, ...pr}; if (Number.isFinite(+f.feather_km)) o.feather_km = +f.feather_km; return o;
+}
+function slRow(tgt, k, lab, mn, mx, st, val, ov) {
+  return `<label><span>${lab}${ov ? ' <span class="ov" title="overridden">*</span>' : ''}</span>${ov && !viewMode ? `<a href="#" class="gp-reset" data-ptgt="${esc(tgt)}" data-pk="${k}" title="back to inherited">reset</a>` : ''}</label>` +
+    `<input type="range" class="gpi" data-ptgt="${esc(tgt)}" data-pk="${k}" min="${mn}" max="${mx}" step="${st}" value="${val}"${viewMode ? ' disabled' : ''}>` +
+    `<input type="number" class="gpi" data-ptgt="${esc(tgt)}" data-pk="${k}" min="${mn}" max="${mx}" step="${st}" value="${val}"${viewMode ? ' disabled' : ''}>`;
+}
+function zoneHtml(f) {
+  const e = zoneEff(f), pr = f.params || {}, t = 'z:' + f.id;
+  let o = '<div class="gp">' + GPS.map(([k, l, a, b, st]) => slRow(t, k, l, a, b, st, e[k], k === 'feather_km' ? Number.isFinite(+f.feather_km) : pr[k] !== undefined)).join('') + '</div>';
+  o += `<div class="row"><div><label class="f">Priority</label><input type="number" step="1" class="gpi" data-ptgt="${esc(t)}" data-pk="priority" value="${Number.isFinite(+f.priority) ? +f.priority : 0}"${viewMode ? ' disabled' : ''}></div>` +
+    `<div><label class="f">Biome</label><select class="gpi" data-ptgt="${esc(t)}" data-pk="biome"${viewMode ? ' disabled' : ''}><option value="">none</option>${BIOME_NAMES.map(b => `<option${pr.biome === b ? ' selected' : ''}>${b}</option>`).join('')}</select></div></div>` +
+    `<label class="lay"><input type="checkbox" class="gpi" data-ptgt="${esc(t)}" data-pk="arcs_on" ${pr.arcs_on ? 'checked' : ''}${viewMode ? ' disabled' : ''}> Arcs on in this zone</label>` +
+    `<div class="hint">Groups: ${esc(tagsOf(f).join(', ') || 'none (tag it in Groups)')}. Higher priority wins; params blend across the feather.</div>`;
+  return o;
+}
+function gpSet(tgt, k, raw, reset) {
+  const [kind, id] = [tgt.slice(0, 1), tgt.slice(2)];
+  if (kind === 'g') {
+    S.gen = S.gen || {defaults: {...GEN_DEF}, groups: {}}; S.gen.groups = S.gen.groups || {}; const o = S.gen.groups[id] = S.gen.groups[id] || {};
+    if (reset) delete o[k]; else if (k === 'seed') { if (raw === '' || !Number.isFinite(+raw)) delete o.seed; else o.seed = Math.round(+raw); } else o[k] = +raw;
+  } else if (kind === 'd') { S.gen.defaults[k] = +raw; }
+  else {
+    const f = feat(id); if (!f) return; f.params = f.params || {};
+    if (k === 'priority') f.priority = Math.round(+raw) || 0;
+    else if (k === 'feather_km') { if (reset) delete f.feather_km; else f.feather_km = +raw; }
+    else if (k === 'biome') { if (raw) f.params.biome = raw; else delete f.params.biome; }
+    else if (k === 'arcs_on') f.params.arcs_on = !!raw;
+    else if (reset) delete f.params[k]; else f.params[k] = +raw;
+  }
+}
+document.addEventListener('input', e => {
+  const t = e.target; if (!t.classList || !t.classList.contains('gpi') || viewMode || !S) return;
+  const raw = t.type === 'checkbox' ? t.checked : t.value; if ((t.type === 'range' || t.type === 'number') && !Number.isFinite(+raw)) return;
+  fld(() => gpSet(t.dataset.ptgt, t.dataset.pk, raw, false));
+  if (t.type === 'range' || t.type === 'number') for (const x of document.querySelectorAll('.gpi')) if (x !== t && x.dataset.ptgt === t.dataset.ptgt && x.dataset.pk === t.dataset.pk) x.value = t.value;
+  render();
+});
+document.addEventListener('change', e => { if (e.target.classList && e.target.classList.contains('gpi')) { fieldCk = false; if (drawer === 'gen') renderGen(); else renderPanelBody(); } });
+document.addEventListener('click', e => {
+  const a = e.target.closest && e.target.closest('.gp-reset'); if (!a) return; e.preventDefault(); if (viewMode) return;
+  fld(() => gpSet(a.dataset.ptgt, a.dataset.pk, null, true)); fieldCk = false; renderAll();
+});
+const GENST = {running: false, group: null, summary: null, err: '', msg: ''};
+let regenPoll = null;
+function sumHtml(s) {
+  if (!s) return '';
+  if (s.error) return `<div class="gsum"><span class="bad">${esc(s.group || '')}: ${esc(s.error)}</span></div>`;
+  const ok = (b, n) => `<span class="${b ? 'good' : 'bad'}">${n} ${b ? 'ok' : 'FAIL'}</span>`, n = (v, d) => Number.isFinite(+v) ? (+v).toFixed(d === undefined ? 0 : d) : '?';
+  const iss = Array.isArray(s.topology_issues) ? s.topology_issues : [];
+  return `<div class="gsum"><b>${esc(s.group)}</b>: area ${n(s.area_km2).replace(/\B(?=(\d{3})+$)/g, ',')} km² (intent ${n(s.intent_area_km2)})<br>coast deviation p95 ${n(s.coast_dev_p95_km, 1)} km, max ${n(s.coast_dev_max_km, 1)} km<br>` +
+    `topology ${s.topology_ok ? '<span class="good">ok</span>' : `<span class="bad">${iss.length} issue${iss.length === 1 ? '' : 's'}</span>`}${iss.length ? ': ' + esc(iss.slice(0, 4).map(x => typeof x === 'string' ? x : JSON.stringify(x)).join('; ')) : ''}<br>` +
+    `pins: ${ok(s.pins_land_ok, 'land')} ${ok(s.pins_water_ok, 'water')} ${ok(s.pins_coastal_ok, 'coastal')}<br><span class="hint">${n(s.runtime_s, 1)} s, ${n(s.peak_mb)} MB${s.topology_ok ? '' : '; nothing written'}</span></div>`;
+}
+function renderGen() {
+  const el = $('#genBody'); if (!el || !S) return; genEnsure();
+  const tags = landTags(), zones = S.features.filter(f => f.type === 'region' && f.kind === 'genzone'), busy = GENST.running;
+  let o = `<div class="hint">Per-group defaults (state.gen) and generation zones. Edits autosave; Regenerate saves first, then runs coastgen on the saved file.</div>` +
+    `<div class="row editonly" style="margin:6px 0"><button id="genNew">New genzone</button></div>` +
+    `<div id="genStat">${busy ? `<div class="gsum">Running ${esc(GENST.group)}...</div>` : ''}${sumHtml(GENST.summary)}${GENST.msg ? `<div class="hint bad">${esc(GENST.msg)}</div>` : ''}</div>`;
+  for (const g of tags) {
+    const ov = (S.gen.groups && S.gen.groups[g]) || {}, e = grpEff(g), t = 'g:' + g, zs = zones.filter(z => tagsOf(z).includes(g));
+    o += `<div class="gblk"><h3><span style="display:inline-block;width:.8em;height:.8em;border-radius:2px;background:${tagCol(g)};margin-right:.4em"></span>${esc(g)}</h3><div class="gp">` +
+      GPS.map(([k, l, a, b, st]) => slRow(t, k, l, a, b, st, e[k], ov[k] !== undefined)).join('') + '</div>' +
+      `<div class="row"><div><label class="f">Seed</label><input type="number" step="1" class="gpi" data-ptgt="${esc(t)}" data-pk="seed" value="${ov.seed ?? ''}" placeholder="default"${viewMode ? ' disabled' : ''}></div>` +
+      `<div class="editonly" style="align-self:end"><button class="js-regen" data-g="${esc(g)}"${busy ? ' disabled' : ''}>Regenerate ${esc(g)}</button></div></div>` +
+      (zs.length ? `<div class="hint" style="margin-top:6px">Zones</div>` + zs.map(z => `<div class="zrow" data-zid="${esc(z.id)}"><span style="color:#e3b341">&#9679;</span> ${esc(z.name)} <span class="hint">wander ${Math.round(zoneEff(z).wander_km)} km, prio ${Number.isFinite(+z.priority) ? +z.priority : 0}</span></div>`).join('') : '') + '</div>';
+  }
+  const orphan = zones.filter(z => !tagsOf(z).some(t => tags.includes(t)));
+  if (orphan.length) o += `<div class="gblk"><div class="hint">Zones without a landmass tag</div>` + orphan.map(z => `<div class="zrow" data-zid="${esc(z.id)}">${esc(z.name)}</div>`).join('') + '</div>';
+  const keep = el.parentNode.scrollTop; el.innerHTML = o; el.parentNode.scrollTop = keep;
+  if (!tags.length) el.insertAdjacentHTML('beforeend', '<div class="hint">No landmass tags (tag land features in Groups).</div>');
+}
+$('#genBody').addEventListener('click', e => {
+  const z = e.target.closest('[data-zid]'); if (z) { const f = feat(z.dataset.zid); if (f) { select(f.id); zoomTo(f); if (narrow) closeDrawer(); } return; }
+  if (e.target.id === 'genNew') { if (viewMode) return; $('#polyType').value = 'genzone'; setTool('polygon'); if (narrow) closeDrawer(); toast('Draw the zone, then Done.'); return; }
+  const b = e.target.closest('.js-regen'); if (b) regen(b.dataset.g);
+});
+async function regen(g) {
+  if (viewMode || GENST.running) return;
+  GENST.msg = ''; clearTimeout(saveTimer);
+  for (let i = 0; i < 40 && saving; i++) await new Promise(r => setTimeout(r, 50));
+  if (isUnsaved() && !conflict) await save();
+  if (isUnsaved() || conflict || !baseRev) { GENST.msg = 'Unsaved changes or a conflict: resolve first.'; renderGen(); return; }
+  try {
+    const r = await fetch('/regen', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({group: g, rev: baseRev})});
+    if (r.status !== 202) { GENST.msg = 'Regenerate refused (' + r.status + '): ' + (await r.text()); renderGen(); return; }
+    GENST.running = true; GENST.group = g; GENST.summary = null; renderGen(); pollRegen();
+  } catch (e) { GENST.msg = 'Regenerate failed: ' + e; renderGen(); }
+}
+// Status-bar line for background regeneration (also toasts on finish, since the bar is hidden on phones).
+let genDoneT = null;
+function genStatus(s, was) {
+  const el = $('#genst'); if (!el) return;
+  if (s.running) {
+    const sec = Math.max(0, Math.round(Date.now() / 1000 - (s.started || Date.now() / 1000)));
+    el.textContent = `Regenerating ${s.group}… ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')} (usually 2–3 min)`; el.style.color = '#e3b341';
+    clearTimeout(genDoneT); return;
+  }
+  if (!was) return;
+  const sm = s.last_summary || {};
+  const ok = !sm.error && sm.topology_ok !== false;
+  const msg = ok ? `${s.group || sm.group} regenerated: coast p95 ${sm.coast_dev_p95_km ?? '?'} km, topology ok${sm.pins_coastal_ok === false || sm.pins_water_ok === false ? ', PIN CHECK FAILED' : ''}`
+                 : `${s.group || sm.group} regen failed: ${(sm.topology_issues || []).join('; ') || sm.error || 'see Generation panel'}`;
+  el.textContent = msg; el.style.color = ok ? '#3fb950' : '#f85149'; toast(msg);
+  clearTimeout(genDoneT); genDoneT = setTimeout(() => { el.textContent = ''; }, 30000);
+}
+async function pollRegen(once) {
+  clearTimeout(regenPoll);
+  try {
+    const r = await fetch('/regen/status', {cache: 'no-store'}); if (!r.ok) return; const s = await r.json(), was = GENST.running;
+    GENST.running = !!s.running; GENST.group = s.group; if (s.last_summary) GENST.summary = s.last_summary; GENST.err = s.stderr_tail || '';
+    if (was && !s.running) { loadGenerated(); if (s.stderr_tail && (!s.last_summary || s.last_summary.error)) GENST.msg = s.stderr_tail.slice(-300); }
+    genStatus(s, was);
+    if (drawer === 'gen') renderGen();
+    if (s.running) regenPoll = setTimeout(pollRegen, 1500);
+  } catch (e) { /* offline */ }
+  if (!once && GENST.running) regenPoll = setTimeout(pollRegen, 1500);
+}
+
+/* ---------- boot ---------- */
+(async function boot() {
+  applyChrome(); syncPE();
+  try {
+    const r = await fetch('/state'); if (!r.ok) throw new Error(r.status);
+    S = await r.json(); baseRev = r.headers.get('X-Map-Rev'); normalize();
+    setInd('saved'); applyChrome(); homeView(); renderAll(); updUndo(); loadGenerated(); pollRegen(true); // pick up a regen already running
+  } catch (e) { setInd('error', 'load failed: ' + e); }
+})();
+</script>
+</body>
+</html>

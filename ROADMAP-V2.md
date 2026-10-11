@@ -22,6 +22,10 @@ Started 2026-10-07. V1 (spherical Voronoi cells, see `ROADMAP.md`) is retired as
 | Local server (stdlib; guarded `/regen`) | `tools/map/serve.py` | dev server / backend API |
 | Transforms (borders, merges, spreads) | `tools/map/transforms/` | library functions |
 | Data contract | `tools/map/README.md` ("Generation contract v3") | API/schema docs |
+| Regional close-up (zoom of the locked map + fine octaves) | `tools/map/terrain/closeup.py` | regional detail DEMs |
+| Venv launcher (pinned numpy/Pillow) | `tools/map/py`, `setup-venv.sh` | backend env |
+
+**Snapshot + lessons:** `v2/` holds a read-only copy of these tools (2026-10-11, tcotg `7c02c70`). `v2/FINDINGS.md` lists what the run taught: wild → bake → tight workflow, protect modes, fBm normalisation, gates that lied, the engine-facing gazetteer need.
 
 ## Outputs (tile-ready, standard formats)
 

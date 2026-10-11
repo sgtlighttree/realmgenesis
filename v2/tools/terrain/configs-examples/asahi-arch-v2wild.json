@@ -1,0 +1,49 @@
+{
+ "style": {
+  "detail_w": 1.2,
+  "detail_oct": 7,
+  "detail_wl_km": 210,
+  "gain": 0.6,
+  "warp2_amp_km": 60,
+  "warp2_wl_km": 330,
+  "intent_w": 0.8,
+  "base_w": 0.7,
+  "arc_w": 1.0,
+  "ridged_w": 0.6,
+  "intent_sig_km": [
+   40,
+   15
+  ]
+ },
+ "arcs": [],
+ "min_island_km2": 40,
+ "group": "asahi-arch",
+ "min_island_rules": [],
+ "simplify_eps_cells": 0.06,
+ "area_tol": 0.005,
+ "file_budget_bytes": 1500000,
+ "biome": {
+  "res_deg": 0.1,
+  "aridity": 0,
+  "wind": "auto",
+  "elev_scale_m": 1500,
+  "zones": []
+ },
+ "_note": "v2 wild for the Asahi archipelago (canon: Greece-like archipelago): tight prior so islands stay separate; lost_intents should stay small. 2026-10-08.",
+ "intent_small_weight": 1.0,
+ "protect_small_km2": 10000000.0,
+ "protect_small_feather_km": 60,
+ "protect_small_sea_feather_km": 100,
+ "protect_small_gate_km": 40,
+ "protect_detail": {
+  "amp_km": 120.0,
+  "wl_km": 250,
+  "oct": 7,
+  "gain": 0.7,
+  "ref_km2": 600000,
+  "min_scale": 0.25,
+  "channel_km": 60
+ },
+ "_note2": "2026-10-11: every intent protected (drawn layout kept, strait can't fuse) and displaced by multi-scale protect_detail (fbm std ~0.25*amp) for crenellation; wild relief inland. Bake held.",
+ "protect_only": true
+}

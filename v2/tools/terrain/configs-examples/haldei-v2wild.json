@@ -1,0 +1,139 @@
+{
+ "style": {
+  "detail_w": 1.35,
+  "detail_oct": 7,
+  "detail_wl_km": 210,
+  "gain": 0.6,
+  "warp2_amp_km": 140,
+  "warp2_wl_km": 330,
+  "intent_w": 0.45,
+  "base_w": 0.7,
+  "arc_w": 1.0,
+  "ridged_w": 0.6,
+  "intent_sig_km": [
+   250,
+   60
+  ]
+ },
+ "arcs": [],
+ "min_island_km2": 90,
+ "group": "haldei",
+ "min_island_rules": [],
+ "simplify_eps_cells": 0.06,
+ "area_tol": 0.005,
+ "file_budget_bytes": 1500000,
+ "biome": {
+  "res_deg": 0.1,
+  "aridity": 0,
+  "wind": "auto",
+  "elev_scale_m": 1500,
+  "zones": [
+   {
+    "name": "Emerald coast warm current",
+    "biome": "subtropical",
+    "ring": [
+     [
+      52.375813,
+      39.340615
+     ],
+     [
+      51.210891,
+      38.767923
+     ],
+     [
+      50.766125,
+      38.556471
+     ],
+     [
+      50.650801,
+      38.44465
+     ],
+     [
+      50.451016,
+      38.575265
+     ],
+     [
+      50.609696,
+      38.719476
+     ],
+     [
+      51.070939,
+      38.940036
+     ],
+     [
+      52.236016,
+      39.513345
+     ]
+    ]
+   }
+  ]
+ },
+ "_note": "v2 wild for Haldei (--wild-group haldei): intent_w raised from WI's 0.34 so the continent holds; pocket + isthmus protected by genzones. 2026-10-07.",
+ "protect_overrides": {
+  "Isthmus neck": {
+   "feather_km": 120,
+   "sea_feather_km": 450
+  },
+  "Canon pocket": {
+   "feather_km": 150,
+   "sea_feather_km": 400
+  }
+ },
+ "protect_extra": [
+  {
+   "name": "The Weir (ep40:467)",
+   "pin": "pin-weir",
+   "radius_km": 35,
+   "feather_km": 60,
+   "sea_feather_km": 150,
+   "gate_km": 10
+  }
+ ],
+ "land_checks": [
+  {
+   "pin": "pin-weir",
+   "dirs": [
+    "W",
+    "E"
+   ],
+   "km": [
+    30,
+    50
+   ]
+  }
+ ],
+ "conjugate": {
+  "group": "barsdorf",
+  "weight": 0.25,
+  "band_km": 250,
+  "reach_km": 1100
+ },
+ "basins": {
+  "amp": 3.5,
+  "wl_km": 900,
+  "thr": 0.12,
+  "inland_km": 200,
+  "ramp_km": 150,
+  "min_lake_km2": 2500,
+  "layers": [
+   {
+    "thr": 0.05,
+    "wl_km": 500,
+    "amp": 3.5,
+    "inland_km": 200,
+    "ramp_km": 150,
+    "lon_range": [
+     58,
+     85
+    ],
+    "lon_feather_deg": 3,
+    "avoid_pin": "pin-capital",
+    "avoid_km": 700,
+    "lat_range": [
+     38,
+     52
+    ]
+   }
+  ]
+ }
+}

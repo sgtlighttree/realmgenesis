@@ -1,0 +1,7 @@
+#!/bin/sh
+# Run a map tool with the project venv (numpy + Pillow), independent of which version bare `python3` points at.
+#   tools/map/py tools/map/terrain/coastgen.py --group wi
+#   tools/map/py tools/map/serve.py --host 0.0.0.0
+d=$(cd "$(dirname "$0")" && pwd)
+[ -x "$d/.venv/bin/python" ] || { echo "tools/map/.venv missing: run tools/map/setup-venv.sh" >&2; exit 1; }
+exec "$d/.venv/bin/python" "$@"
