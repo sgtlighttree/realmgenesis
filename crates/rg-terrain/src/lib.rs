@@ -16,6 +16,7 @@
 //! from the tile address (ARCHITECTURE §4).
 
 pub mod erosion_filter;
+pub mod network;
 pub mod tile;
 
 pub use tile::{tile_indices, TileData, TileGenerator, TILE_CELLS};
