@@ -15,7 +15,7 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
   - **Realistic terrain** (`docs/design/terrain-model.md`), checked against Earth:
     - tectonics → stream-power erosion (Braun–Willett + Priority-Flood; Hack h 0.54, concavity verified analytically) → hypsometric calibration (mean land 841 m vs Earth 840) → climate;
     - streamed detail = Johansen erosion filter (3D, MPL-2.0 port) on a drained macro interpolant (hills off since s01, see the current goal below);
-    - rivers + lakes in the layers; world file schema 3;
+    - rivers + lakes in the layers; world file schema 4;
     - CDLOD geomorph on the globe tiles.
   - Polar ice/snow edges are noise-perturbed (no longer latitude circles). The HUD shows fps vs cpu ms, tiles and altitude.
   - Controls sidebar toggles (`«`/`»` button at the top-left of the viewport, or **H**). It starts hidden when the window is under 700 px wide.
@@ -31,31 +31,35 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 
 ## Current goal (Matt, s01): "very realistic, mathematically and scientifically accurate terrain", **plus bathymetry**
 
-Scorecard: `cargo run -p rg-pipeline --release --example probe_realism -- 3` (scores the FINAL surface; `RG_RES`, `RG_EROSION_RES`, `RG_PROBE_SURFACE=macro`, detail `RG_*` knobs; worlds cached in `target/probe-cache/`). Eyes: `--example river_map -- <seed> <lat> <lon> <half_km> <out.png>` (`RG_MAP_FULL=1` for the detailed surface).
+**Tools:**
+- Scorecard: `cargo run -p rg-pipeline --release --example probe_realism -- 3`. `RG_PROBE_SURFACE=net` is the network via sub-patches; `=gully` the old detail; `=macro` the bare macro. It reports depressions, coherence/aspect (orientation), and 90 m slopes. Worlds are cached in `target/probe-cache/`, keyed by binary build time.
+- Eyes: `--example river_map -- <seed> <lat> <lon> <half_km> <out.png>`, with `RG_MAP_FULL=1` for the final surface. Also `--example probe_bathymetry -- <seed>` and `--example bench_tiles`. `RG_NET_PROF=1` prints patch-build profiling.
+- **Always check renders, not just numbers** (s01 lesson: the scorecard said Earth-like while the hillshade showed fishbones and mesas).
 
-- **Done (s01):**
-  - Erosion runs at the preset res (no 512 cap); 20 steps (same laws as 50).
-  - Drained macro interpolant `sample_drained` (bilinear + diagonal-valley carve): bare-macro depressions 9.5% → 0.05–3%. A pure triangle split is fully drained but showed facets; rejected.
-  - Rho8 (topological diagonals), initial roughness scaled by relief, lithology σ_lnK 0.3: straight channel steps 65% → 43–48%. This fixes Matt's "rivers too straight" combs.
-  - Hills off (they caused 13–16% depressions). Gully steering by a 3 km central difference (no crease lines at macro cell edges).
-  - Strict f32 remap; PF fill of upsampled macro; world schema 3 (height_res, macro_interp id, erosion seed).
-- **Scorecard now (seed 3, mountain boxes):**
-  - res 320: depressions 0.1–1.2%, slopes 6–9° mean (too gentle: coarse macro).
-  - res 768: depressions 1.7–5%, slopes 14–17° mean, p99 55° (tail too heavy).
-- **Bathymetry done:** mean depth 3652–3687 m vs Earth 3688; depth bands within ~1–4 points (table in `docs/design/terrain-model.md` §4; `--example probe_bathymetry`).
-- **Drained detail network is live** (`rg-terrain/src/detail_net.rs`, design `docs/design/drained-detail-network.md` v1.1). Scorecard (net, res 320): depressions 0.00% in every box, mountains 16.5–20° mean / p99 ~32°, lowland 2.1°. `terrain_realism` passes unchanged (it was red, from the hills-off change).
-- **Next, in order:**
-  1. **Network follow-ups:**
-     - tile cost (bench_tile) and the web build;
-     - visual check (`river_map` with `RG_MAP_FULL=1`, native screenshot): straight polyline valleys need midpoint displacement;
-     - final-surface hypsometry (mean is ~100 m below the macro): a strictly increasing remap g with g(0) = 0;
-     - LOD fade pops at junctions;
-     - stored receivers instead of the flow_dir snapping;
-     - retire the gully/hill code once the app is happy.
-  2. **C1 macro:** square tonal blocks at the macro cell edges, since the shading of a C0 surface jumps there. A monotone bicubic plus the diagonal carve is one candidate; the network detail may cover it.
-  3. **Bathymetry follow-ups:** abyssal-hill fabric along spreading direction, fracture zones, submarine canyons, streamed seafloor detail.
-  4. Smooth river curves (map layer + corridor) instead of node-to-node straight segments.
-  5. Reviewer leftovers: lithology tied to crust/terranes instead of isotropic noise; χ-analysis instead of the circular U/K concavity; validate the shipped (remapped) surface.
+**State (all pushed):**
+- **Macro:** erosion at the preset res; 20 steps; Rho8 with topological diagonals; relief-scaled roughness; lithology σ 0.3; k_sn = U/K from the committed uplift (schema 4).
+- **Bathymetry:** Parsons age distribution, GlobSed sediment, Hoggard dynamic topography, Harris plateaus, narrow trenches. Mean ocean depth 3652–3687 m vs Earth 3688; bands within a few points.
+- **Detail = drained detail network** (`rg-terrain/src/detail_net.rs`; design `docs/design/drained-detail-network.md` v1.1 plus the log):
+  - min of valley wedges, drained by construction;
+  - junction-up stream-power channels, incised below the coarser surface;
+  - children attach to the lowest coarser wedge;
+  - sibling chaining by hillslope rank;
+  - per-channel junction angles, thinning, staggered LOD with an ancestor-consistent fade;
+  - meandering 3-piece child channels; Catmull-Rom level-0 trunks;
+  - flat hydraulic-geometry floors, band-limited;
+  - exact block pruning and hierarchical candidate lists;
+  - caches budgeted by bytes.
+- **Scorecard** (seed 3, res 320): depressions **0.00%** in every box; mountains 15–23° mean, p99 31–35°; lowland 2.1°; coherence 0.28–0.49 (old gullies 0.48–0.91).
+- **River overlay:** coverage in the layer alpha, faded when zoomed in. This fixes Matt's "terrain near rivers doesn't generate".
+- **Web preview v7** at the URL above, with all of the above.
+
+**Next, in order:**
+1. **Tile cost:** 85–240 ms per tile natively (gullies: 9–33). Ideas: per-level window reuse across tiles, cheaper attach for the finest level, and eventually the GPU port. The web is single-threaded, so it streams slowly.
+2. **Looks:** the uniform flat floodplain band of big rivers; faint arcs (reach walls); verify the globe app natively (Xvfb), including river areas.
+3. **Final-surface hypsometry** (mean ~100 m below macro): a strictly increasing remap g with g(0) = 0. Stored receivers instead of flow_dir snapping.
+4. Retire the gully/hill code once the app is happy; update `docs/design/terrain-model.md` §3 to the network.
+5. **"Alive world" layer:** research in `docs/research/2026-11-02-alive-world-features.md`. Top 5: habitability/population → names → burgs → cultures → states. Licence flags are in the doc.
+6. Reviewer leftovers: lithology tied to crust/terranes; χ-analysis.
 
 ## Settled decisions (don't re-litigate)
 
