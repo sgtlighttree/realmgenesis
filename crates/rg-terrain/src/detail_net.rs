@@ -74,6 +74,11 @@ const MAX_GRADIENT: f64 = 1.5;
 /// Profiling counters (native, RG_NET_PROF): candidate lists built, total length.
 #[cfg(not(target_arch = "wasm32"))]
 static CAND_STATS: [std::sync::atomic::AtomicUsize; 2] = [std::sync::atomic::AtomicUsize::new(0), std::sync::atomic::AtomicUsize::new(0)];
+/// Reach wall length, spacings. The wall is sized per channel to climb from the bed to an
+/// upper bound of the local cap by `reach_end` (gentle, not a 10 km cliff: walls that won
+/// briefly drew dark crescent scarps, s01). Wedge reach in total: 2 + WALL_LEN spacings.
+const WALL_LEN: f64 = 1.5;
+const REACH_TOTAL: f64 = 2.0 + WALL_LEN;
 /// Pieces per child channel (meander).
 const CHILD_PIECES: usize = 3;
 /// Pieces per curved level-0 edge.
@@ -128,6 +133,9 @@ pub struct Channel {
     /// Beyond `reach` (m) the wedge rises steeply (`wall_k` per m²), so it never wins there.
     pub reach: f64,
     pub wall_k: f64,
+    /// Where the wall has climbed past any land height the wedge could compete with
+    /// (reach + WALL_LEN spacings): beyond it the wedge never wins.
+    pub reach_end: f64,
     /// Effective level spacing for LOD presence (m): the level spacing × a hashed factor in
     /// [0.75, 1.33], so siblings fade in at different zooms. A parent's (≥ 3/1.33 × the
     /// child's level spacing) always exceeds its child's, so a parent is never less present.
@@ -284,6 +292,8 @@ pub struct DetailNet {
     ridge_alpha: f64,
     /// Erodibility K of the macro solve, m^(1−2m)/yr (k_sn = U/K).
     k_erodibility: f64,
+    /// Upper bound of the cap's gradient (m/m), from the steepest macro edge.
+    cap_gradient: f64,
 }
 
 impl DetailNet {
@@ -297,8 +307,23 @@ impl DetailNet {
         }
         let memo = Arc::new(std::array::from_fn(|_| std::sync::Mutex::new(HashMap::new())));
         let cand_memo = Arc::new(std::array::from_fn(|_| std::sync::Mutex::new(HashMap::new())));
+        // Steepest macro edge (axis and diagonal neighbours): a triangle facet's gradient is at
+        // most √2 × its steepest edge; the cap multiplies heights by ≤ 1 + α.
+        let h = &macro_net.height;
+        let mut steepest = 0.0f64;
+        for (k, face, i, j, d) in h.iter_samples() {
+            for (di, dj) in [(1i32, 0i32), (0, 1), (1, 1), (1, -1)] {
+                let (ii, jj) = (i as i32 + di, j as i32 + dj);
+                if ii < 0 || jj < 0 || ii > h.res as i32 || jj > h.res as i32 {
+                    continue;
+                }
+                let m = h.index(face, ii as u32, jj as u32);
+                let dist = (h.sample_dir(face, ii as u32, jj as u32) - d).length() * radius_m;
+                steepest = steepest.max(((h.data[m] - h.data[k]) as f64).abs() / dist.max(1.0));
+            }
+        }
         let ridge_alpha = tune("RG_RIDGE", RIDGE_ALPHA);
-        Self { macro_net, radius_m, salt: seed ^ 0xD371_0A11_C4A7_0001, spacing, cells, memo, cand_memo, ridge_alpha, k_erodibility: 1.0e-5 }
+        Self { macro_net, radius_m, salt: seed ^ 0xD371_0A11_C4A7_0001, spacing, cells, memo, cand_memo, ridge_alpha, k_erodibility: 1.0e-5, cap_gradient: steepest * std::f64::consts::SQRT_2 * (1.0 + RIDGE_ALPHA.max(0.0) + 0.5) + 0.01 }
     }
 
     /// Set the macro solve's erodibility K (default 1e-5), used for k_sn = U/K.
@@ -338,7 +363,7 @@ impl DetailNet {
         };
         let base = all.len();
         let b = &coarser[k - 1];
-        b.for_each_near(pc, 3.0 * b.spacing_m + b.max_len + r_cell, |ch| all.push(*ch));
+        b.for_each_near(pc, REACH_TOTAL * b.spacing_m + b.max_len + r_cell, |ch| all.push(*ch));
         // Only the new level's entries can repeat (seam windows); dedupe those.
         let mut fresh = all.split_off(base);
         fresh.sort_by(|a, b| a.up.x.total_cmp(&b.up.x).then(a.up.y.total_cmp(&b.up.y)).then(a.up.z.total_cmp(&b.up.z)).then(a.down.x.total_cmp(&b.down.x)));
@@ -395,6 +420,15 @@ impl DetailNet {
         self.ridge_alpha * t.clamp(0.0, RIDGE_FULL_M)
     }
 
+    /// Wall stiffness so the wedge exceeds any cap value it could meet by `reach_end`:
+    /// (upper bound of the cap within reach − bed) / wall length².
+    fn wall_for(&self, head: DVec3, len: f64, reach: f64, spacing: f64, z_down: f64) -> (f64, f64) {
+        let wall = WALL_LEN * spacing;
+        let reach_end = reach + wall;
+        let cap_max = self.cap(head) + self.cap_gradient * (len + reach_end);
+        (((cap_max - z_down).max(1.0) + 1.0) / (wall * wall), reach_end)
+    }
+
     /// The cap U = T + R(T).
     pub fn cap(&self, p: DVec3) -> f64 {
         let t = self.macro_tri(p);
@@ -437,7 +471,8 @@ impl DetailNet {
             w: 0.25 * l0,
             floor,
             reach: 2.0 * l0,
-            wall_k: 1.0e4 / (l0 * l0),
+            wall_k: self.wall_for(s.up, len, 2.0 * l0, l0, s.z_down).0,
+            reach_end: self.wall_for(s.up, len, 2.0 * l0, l0, s.z_down).1,
             lod_spacing: l0,
             len_m: len,
             s0: 0.0,
@@ -462,10 +497,10 @@ impl DetailNet {
         let rank_extra = 2.0 * (SIBLING_SEARCH + SIBLING_MAX_LEN);
         // + one parent spacing (3 ℓ_k): candidate lists are read from the parent cell's centre.
         // + one spacing for the meander bulge (≤ 0.15 × a channel ≤ 5.4 ℓ_k).
-        let c = ((rank_extra + (3.0 + 4.5 * ATTACH_SEARCH) * 3.0 + 3.0) / 2.0).max(8.25 * ATTACH_SEARCH) + 1.5;
+        let c = ((rank_extra + (REACH_TOTAL + 4.5 * ATTACH_SEARCH) * 3.0 + 3.0) / 2.0).max(8.25 * ATTACH_SEARCH) + 1.5;
         // Level 0: level-1 rank-0 heads sit at (c + rank_extra)/3 ℓ_0 and read level-0 wedges
         // whose heads are within 3 ℓ_0 + an edge (≤ 1.5 ℓ_0) of them.
-        if k == 0 { ((c + rank_extra) / 3.0 + 3.0 + 1.5 + 1.0 + 0.5) * self.spacing[0] } else { c * self.spacing[k] }
+        if k == 0 { ((c + rank_extra) / 3.0 + REACH_TOTAL + 1.5 + 1.0 + 0.5) * self.spacing[0] } else { c * self.spacing[k] }
     }
 
     /// The cell-local facts that decide a level-k cell's channel: its point, the coarser
@@ -476,7 +511,7 @@ impl DetailNet {
         // Per-cell randomness (three uniforms) breaks the lattice's regularity.
         let hsh = lattice::hash(self.salt ^ 0x5EED_0000_0000_0000 ^ k as u64, c);
         let u = |i: u32| ((hsh >> (i * 21)) & 0x1F_FFFF) as f64 / 0x1F_FFFF as f64;
-        if u(0) > KEEP_FRACTION {
+        if u(0) > tune("RG_KEEP", KEEP_FRACTION) {
             return None; // thinning: drainage density varies; dropping a channel is always safe
         }
         let t_q = self.macro_tri(q);
@@ -596,7 +631,8 @@ impl DetailNet {
             w,
             floor: floor_width(lk * lk * 1.0e-6) * (1.0 - 0.8 * threshold_fraction(ksn)),
             reach: 2.0 * lk,
-            wall_k: 1.0e4 / (lk * lk),
+            wall_k: self.wall_for(q, len, 2.0 * lk, lk, z_a).0,
+            reach_end: self.wall_for(q, len, 2.0 * lk, lk, z_a).1,
             lod_spacing,
             len_m: len,
             s0: 0.0,
@@ -799,7 +835,7 @@ impl Patch {
             for ch in &b.chans {
                 // A block can feel this channel only within reach + its wall (1.5 × reach)
                 // of the segment: test the blocks overlapping the segment's padded box.
-                let lim = ch.reach * 1.5 + half_diag;
+                let lim = ch.reach_end + half_diag;
                 let ((x0, y0), (x1, y1)) = (to_xy(ch.up), to_xy(ch.down));
                 let bi = |v: f64| ((v + radius_m) / block_m).floor();
                 let (bx0, bx1) = (bi(x0.min(x1) - lim).max(0.0), bi(x0.max(x1) + lim).min(blocks_per_side as f64 - 1.0));
@@ -886,6 +922,28 @@ impl Patch {
         }
         // Land stays land: every wedge is ≥ 0 (z ≥ 0 at sea) and the cap → 0 at the coast.
         best.map(|h| h.max(1.0e-3_f64.min(u)))
+    }
+
+    /// Diagnostics: true where the active wedge is inside its reach wall (d > reach), the
+    /// source of small crescent scarps.
+    pub fn in_wall(&self, p: DVec3) -> bool {
+        let t0 = self.net.sample_tri(p);
+        let mut best = (t0 + self.ridge_alpha * t0.clamp(0.0, RIDGE_FULL_M), false);
+        let rel = p - self.center;
+        let (x, y) = (rel.dot(self.east) * self.planet_r, rel.dot(self.north) * self.planet_r);
+        let bx = (((x + self.radius_m) / self.block_m).floor().max(0.0) as usize).min(self.blocks_per_side - 1);
+        let by = (((y + self.radius_m) / self.block_m).floor().max(0.0) as usize).min(self.blocks_per_side - 1);
+        for ch in &self.blocks[by * self.blocks_per_side + bx] {
+            let (d, t) = ch.nearest(p, self.planet_r);
+            let pres = ch.presence(self.cutoffs[0]);
+            if pres > 0.0 {
+                let w = ch.wedge(d, t, pres, self.cutoffs[0], ch.inherited_offset(self.cutoffs[0]));
+                if w < best.0 {
+                    best = (w, d > ch.reach);
+                }
+            }
+        }
+        best.1
     }
 
     /// Diagnostics: the active term at `p` for the patch's own band-limit: `None` if the cap
