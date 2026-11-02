@@ -1,0 +1,270 @@
+//! Realism scorecard for the **final** surface (macro + streamed detail), in several boxes:
+//! `cargo run -p rg-pipeline --release --example probe_realism -- <seed> [half_km]`
+//!
+//! Env: `RG_RES` (tectonics res), `RG_EROSION_RES`, `RG_EROSION_STEPS`, plus the detail
+//! overrides `TerrainSampler` reads (`RG_HILL_SLOPE`, `RG_GULLY_STRENGTH`, ...).
+//! The generated world is cached in `target/probe-cache/`, so re-runs that only change detail
+//! settings skip generation.
+//!
+//! Per box (three of the most rugged macro spots, one ordinary lowland):
+//! - **depressions:** Priority-Flood fill on a 250 m grid, box edges = outlets. Share of land
+//!   in closed depressions and their mean depth. Earth's fluvial landscapes: ~1% at this scale.
+//! - **flow agreement:** on macro river cells (> 3000 km²), share where the final surface's
+//!   D8 steepest descent is within 60° of the macro flow. Random = 33%.
+//! - **slope:** 90 m central differences (SRTM-like), degrees.
+use rg_pipeline::{generate, World, WorldParams};
+use rg_world::WorldFile;
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
+
+fn env<T: std::str::FromStr>(k: &str) -> Option<T> {
+    std::env::var(k).ok().and_then(|v| v.parse().ok())
+}
+
+fn world(seed: u64) -> World {
+    let mut p = WorldParams::default();
+    p.tectonics.seed = seed;
+    if let Some(r) = env("RG_RES") {
+        p.tectonics.res = r;
+    }
+    if let Some(r) = env("RG_EROSION_RES") {
+        p.erosion.res = r;
+    }
+    if let Some(s) = env("RG_EROSION_STEPS") {
+        p.erosion.steps = s;
+    }
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/probe-cache");
+    let path = dir.join(format!(
+        "s{seed}-t{}-e{}-n{}-g{}.rgw",
+        p.tectonics.res,
+        p.erosion.res,
+        p.erosion.steps,
+        rg_pipeline::file::WORLD_SCHEMA
+    ));
+    if env::<u8>("RG_NO_CACHE").is_none()
+        && let Ok(bytes) = std::fs::read(&path)
+        && let Ok(f) = WorldFile::read_from(&bytes[..])
+        && let Ok(w) = rg_pipeline::file::from_file(&f)
+    {
+        eprintln!("loaded {}", path.display());
+        return w;
+    }
+    let t0 = std::time::Instant::now();
+    let w = generate(&p);
+    eprintln!(
+        "generate {:.1} s (tectonics {:.0} ms, erosion {:.0} ms, macro res {})",
+        t0.elapsed().as_secs_f64(),
+        w.timings.tectonics_ms,
+        w.timings.erosion_ms,
+        w.tectonics.height_m.res
+    );
+    let _ = std::fs::create_dir_all(&dir);
+    let mut buf = Vec::new();
+    rg_pipeline::file::to_file(&w).write_to(&mut buf).unwrap();
+    let _ = std::fs::write(&path, buf);
+    w
+}
+
+fn unit(lat: f64, lon: f64) -> glam::DVec3 {
+    glam::DVec3::new(lat.cos() * lon.cos(), lat.cos() * lon.sin(), lat.sin())
+}
+
+/// Box centres: the three most rugged macro spots at least 1500 km apart, then a lowland.
+fn pick_boxes(w: &World) -> Vec<(&'static str, f64, f64)> {
+    let f = &w.tectonics.height_m;
+    let res = f.res;
+    let mut rugged: Vec<(f32, glam::DVec3)> = Vec::new();
+    let mut low: Vec<glam::DVec3> = Vec::new();
+    for (k, face, i, j, d) in f.iter_samples() {
+        if i == 0 || j == 0 || i == res || j == res || f.data[k] <= 0.0 {
+            continue;
+        }
+        let nb = [f.index(face, i + 1, j), f.index(face, i - 1, j), f.index(face, i, j + 1), f.index(face, i, j - 1)];
+        let relief = nb.iter().map(|&n| (f.data[n] - f.data[k]).abs()).fold(0.0f32, f32::max);
+        if f.data[k] > 500.0 {
+            rugged.push((relief, d));
+        } else if f.data[k] > 50.0 && f.data[k] < 300.0 && nb.iter().all(|&n| f.data[n] > 30.0) {
+            low.push(d);
+        }
+    }
+    rugged.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let r = w.params.tectonics.radius_m;
+    let mut picked: Vec<glam::DVec3> = Vec::new();
+    for (_, d) in rugged {
+        if picked.iter().all(|p| p.angle_between(d) * r > 1.5e6) {
+            picked.push(d);
+        }
+        if picked.len() == 3 {
+            break;
+        }
+    }
+    let ll = |d: glam::DVec3| (d.z.asin(), d.y.atan2(d.x));
+    let names = ["mountain A", "mountain B", "mountain C"];
+    let mut out: Vec<_> = picked.iter().zip(names).map(|(d, n)| (n, ll(*d).0, ll(*d).1)).collect();
+    if let Some(d) = low.get(low.len() / 2) {
+        out.push(("lowland", ll(*d).0, ll(*d).1));
+    }
+    out
+}
+
+struct Score {
+    depress_pct: f64,
+    depth_m: f64,
+    agree_pct: f64,
+    river_cells: usize,
+    slope: [f64; 4], // mean, p50, p90, p99
+    macro_slope_mean: f64,
+}
+
+fn score(w: &World, s: &rg_terrain::TerrainSampler, lat0: f64, lon0: f64, half: f64) -> Score {
+    let r = w.params.tectonics.radius_m;
+    let hy = w.hydrology.as_ref().expect("erosion on");
+    let at = |x: f64, y: f64| unit(lat0 + y / r, lon0 + x / (r * lat0.cos()));
+    let sp = 250.0;
+    let n = (2.0 * half / sp) as usize;
+    let dir_at = |i: usize, j: usize| at(-half + i as f64 * sp, -half + j as f64 * sp);
+    // RG_PROBE_SURFACE=macro scores the bare macro surface (bilinear committed heights).
+    let macro_only = std::env::var("RG_PROBE_SURFACE").is_ok_and(|v| v == "macro");
+    let surf = |d: glam::DVec3, wl: f64| if macro_only { s.macro_height(d) } else { s.height(d, wl).0 };
+    let h: Vec<f64> = (0..n * n).map(|k| surf(dir_at(k % n, k / n), sp)).collect();
+
+    // Priority-Flood fill with the box edge (and the sea) as outlet.
+    #[derive(PartialEq)]
+    struct It(f64, usize);
+    impl Eq for It {}
+    impl Ord for It {
+        fn cmp(&self, o: &Self) -> Ordering {
+            o.0.total_cmp(&self.0).then(o.1.cmp(&self.1))
+        }
+    }
+    impl PartialOrd for It {
+        fn partial_cmp(&self, o: &Self) -> Option<Ordering> {
+            Some(self.cmp(o))
+        }
+    }
+    const NB: [(i64, i64); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+    let mut filled = h.clone();
+    let mut done = vec![false; n * n];
+    let mut heap = BinaryHeap::new();
+    for k in 0..n * n {
+        let (i, j) = (k % n, k / n);
+        if i == 0 || j == 0 || i == n - 1 || j == n - 1 || h[k] <= 0.0 {
+            done[k] = true;
+            heap.push(It(h[k], k));
+        }
+    }
+    while let Some(It(hc, c)) = heap.pop() {
+        let (ci, cj) = ((c % n) as i64, (c / n) as i64);
+        for (di, dj) in NB {
+            let (ni, nj) = (ci + di, cj + dj);
+            if ni < 0 || nj < 0 || ni >= n as i64 || nj >= n as i64 {
+                continue;
+            }
+            let k = nj as usize * n + ni as usize;
+            if done[k] {
+                continue;
+            }
+            done[k] = true;
+            filled[k] = filled[k].max(hc);
+            heap.push(It(filled[k], k));
+        }
+    }
+    let land = h.iter().filter(|&&x| x > 0.0).count().max(1);
+    let depths: Vec<f64> = (0..n * n).map(|k| filled[k] - h[k]).filter(|&d| d > 0.5).collect();
+    let depth_m = depths.iter().sum::<f64>() / depths.len().max(1) as f64;
+
+    let (mut agree, mut total) = (0usize, 0usize);
+    for j in 1..n - 1 {
+        for i in 1..n - 1 {
+            let k = j * n + i;
+            let d = dir_at(i, j);
+            if h[k] <= 0.0 || hy.drainage_km2.sample(d) < 3000.0 {
+                continue;
+            }
+            let f = hy.flow_dir.nearest(d);
+            let macro_dir = glam::DVec3::new(f[0] as f64, f[1] as f64, f[2] as f64);
+            if macro_dir.length() < 0.5 {
+                continue;
+            }
+            let mut best = (0.0, glam::DVec3::ZERO);
+            for (di, dj) in NB {
+                let (ni, nj) = ((i as i64 + di) as usize, (j as i64 + dj) as usize);
+                let dist = sp * ((di * di + dj * dj) as f64).sqrt();
+                let sl = (filled[k] - filled[nj * n + ni]) / dist;
+                if sl > best.0 {
+                    best = (sl, (dir_at(ni, nj) - d).normalize());
+                }
+            }
+            if best.0 > 0.0 {
+                total += 1;
+                if best.1.dot(macro_dir) > 0.5 {
+                    agree += 1;
+                }
+            }
+        }
+    }
+
+    // 90 m slopes at 2000 pseudo-random points (only on land).
+    let mut rng = 12345u64;
+    let mut next = || {
+        rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (rng >> 11) as f64 / (1u64 << 53) as f64
+    };
+    let d = 45.0;
+    let (mut deg, mut mdeg) = (Vec::new(), Vec::new());
+    for _ in 0..2000 {
+        let (x, y) = ((next() * 2.0 - 1.0) * half, (next() * 2.0 - 1.0) * half);
+        let hh = |x: f64, y: f64| surf(at(x, y), 40.0);
+        if hh(x, y) <= 0.0 {
+            continue;
+        }
+        let gx = (hh(x + d, y) - hh(x - d, y)) / (2.0 * d);
+        let gy = (hh(x, y + d) - hh(x, y - d)) / (2.0 * d);
+        deg.push((gx * gx + gy * gy).sqrt().atan().to_degrees());
+        let mh = |x: f64, y: f64| s.macro_height(at(x, y));
+        let gx = (mh(x + d, y) - mh(x - d, y)) / (2.0 * d);
+        let gy = (mh(x, y + d) - mh(x, y - d)) / (2.0 * d);
+        mdeg.push((gx * gx + gy * gy).sqrt().atan().to_degrees());
+    }
+    deg.sort_by(f64::total_cmp);
+    let q = |f: f64| deg.get(((deg.len().max(1) - 1) as f64 * f) as usize).copied().unwrap_or(0.0);
+    let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len().max(1) as f64;
+    Score {
+        depress_pct: depths.len() as f64 / land as f64 * 100.0,
+        depth_m,
+        agree_pct: agree as f64 / total.max(1) as f64 * 100.0,
+        river_cells: total,
+        slope: [mean(&deg), q(0.5), q(0.9), q(0.99)],
+        macro_slope_mean: mean(&mdeg),
+    }
+}
+
+fn main() {
+    let seed: u64 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(3);
+    let half_km: f64 = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(40.0);
+    let w = world(seed);
+    let s = rg_pipeline::terrain_sampler(&w);
+    let boxes = pick_boxes(&w);
+    let scores: Vec<Score> = std::thread::scope(|sc| {
+        let (w, s) = (&w, &s);
+        let hs: Vec<_> = boxes.iter().map(|&(_, la, lo)| sc.spawn(move || score(w, s, la, lo, half_km * 1000.0))).collect();
+        hs.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    println!("box          lat     lon    depress  depth  agree(cells)  slope° mean/p50/p90/p99   macro°");
+    for ((name, la, lo), sc) in boxes.iter().zip(&scores) {
+        println!(
+            "{name:<11} {:6.1} {:7.1}   {:5.2}%  {:4.0} m  {:3.0}% ({:4})   {:4.1} {:4.1} {:4.1} {:4.1}      {:4.1}",
+            la.to_degrees(),
+            lo.to_degrees(),
+            sc.depress_pct,
+            sc.depth_m,
+            sc.agree_pct,
+            sc.river_cells,
+            sc.slope[0],
+            sc.slope[1],
+            sc.slope[2],
+            sc.slope[3],
+            sc.macro_slope_mean
+        );
+    }
+}

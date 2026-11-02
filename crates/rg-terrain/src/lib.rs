@@ -100,7 +100,7 @@ impl TerrainSampler {
 
     /// Macro (committed) height at a unit direction, metres above sea level.
     pub fn macro_height(&self, dir: DVec3) -> f64 {
-        self.macro_h.sample_f64(dir)
+        self.macro_h.sample_drained(dir)
     }
 
     /// Full height (metres above sea level) at `dir`, keeping only detail octaves with a

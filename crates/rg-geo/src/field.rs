@@ -107,8 +107,48 @@ impl CubeField<f32> {
         top + (bot - top) * fy
     }
 
+    /// Piecewise-linear sample on triangles, in f64: each cell is split along the diagonal
+    /// through its **lowest corner**. Use this for drained heights (macro terrain).
+    ///
+    /// Why: on a surface routed with D8 (8 neighbours), a node can drain diagonally across a
+    /// cell. Bilinear interpolation averages in the two other corners there, so a diagonal
+    /// valley rises mid-cell and dams itself (measured: up to ~10% of mountain land in
+    /// closed depressions, 150 m deep). If node d drains diagonally to a, then a is lower
+    /// than both other corners (otherwise the shorter, steeper axis neighbour would have
+    /// been d's receiver), so a is the cell's lowest corner and the split keeps a–d as an
+    /// edge. Every drainage edge is then a triangle edge, and a piecewise-linear surface has
+    /// minima only at vertices, so a drained (filled) field interpolates without depressions.
+    /// Continuous everywhere (linear along every cell edge, like bilinear).
+    pub fn sample_drained(&self, dir: DVec3) -> f64 {
+        let (face, u, v) = CubeFace::from_dir(dir);
+        let r = self.res as f64;
+        let x = ((u + 1.0) * 0.5 * r).clamp(0.0, r);
+        let y = ((v + 1.0) * 0.5 * r).clamp(0.0, r);
+        let (i0, j0) = ((x.floor() as u32).min(self.res - 1), (y.floor() as u32).min(self.res - 1));
+        let (fx, fy) = (x - i0 as f64, y - j0 as f64);
+        let a = self.data[self.index(face, i0, j0)] as f64;
+        let b = self.data[self.index(face, i0 + 1, j0)] as f64;
+        let c = self.data[self.index(face, i0, j0 + 1)] as f64;
+        let d = self.data[self.index(face, i0 + 1, j0 + 1)] as f64;
+        tri_interp(a, b, c, d, fx, fy)
+    }
+
     pub fn min_max(&self) -> (f32, f32) {
         self.data.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)))
+    }
+}
+
+/// Interpolate a cell with corners a = (0,0), b = (1,0), c = (0,1), d = (1,1), split into
+/// two triangles along the diagonal through the lowest corner (see
+/// [`CubeField::sample_drained`]). Ties go to the a–d diagonal.
+#[inline]
+pub fn tri_interp(a: f64, b: f64, c: f64, d: f64, fx: f64, fy: f64) -> f64 {
+    if a.min(d) <= b.min(c) {
+        // Diagonal a–d: triangles (a, b, d) below it, (a, c, d) above it.
+        if fx >= fy { a + (b - a) * fx + (d - b) * fy } else { a + (c - a) * fy + (d - c) * fx }
+    } else {
+        // Diagonal b–c: triangles (a, b, c) and (b, c, d).
+        if fx + fy <= 1.0 { a + (b - a) * fx + (c - a) * fy } else { d + (c - d) * (1.0 - fx) + (b - d) * (1.0 - fy) }
     }
 }
 
@@ -134,6 +174,45 @@ mod tests {
             let d = d.normalize();
             assert!((f.sample(d) - d.z as f32).abs() < 0.01);
         }
+    }
+
+    #[test]
+    fn tri_interp_hits_corners_and_is_continuous() {
+        for &(a, b, c, d) in &[(0.0, 5.0, 7.0, 1.0), (4.0, 0.0, 1.0, 9.0), (3.0, 3.0, 3.0, 3.0)] {
+            assert_eq!(tri_interp(a, b, c, d, 0.0, 0.0), a);
+            assert_eq!(tri_interp(a, b, c, d, 1.0, 0.0), b);
+            assert_eq!(tri_interp(a, b, c, d, 0.0, 1.0), c);
+            assert_eq!(tri_interp(a, b, c, d, 1.0, 1.0), d);
+            // Linear along each edge (so neighbouring cells agree).
+            let mid = |p: f64, q: f64| (p + q) * 0.5;
+            assert!((tri_interp(a, b, c, d, 0.5, 0.0) - mid(a, b)).abs() < 1e-12);
+            assert!((tri_interp(a, b, c, d, 1.0, 0.5) - mid(b, d)).abs() < 1e-12);
+            assert!((tri_interp(a, b, c, d, 0.5, 1.0) - mid(c, d)).abs() < 1e-12);
+            assert!((tri_interp(a, b, c, d, 0.0, 0.5) - mid(a, c)).abs() < 1e-12);
+            // No jumps across the diagonals inside the cell.
+            for k in 0..=100 {
+                let t = k as f64 / 100.0;
+                let e = 1e-9;
+                assert!((tri_interp(a, b, c, d, t + e, t) - tri_interp(a, b, c, d, t, t + e)).abs() < 1e-6);
+                assert!((tri_interp(a, b, c, d, t + e, 1.0 - t) - tri_interp(a, b, c, d, t - e, 1.0 - t)).abs() < 1e-6);
+            }
+        }
+    }
+
+    /// A valley draining diagonally (d → a, with b and c as ridges) stays monotone along the
+    /// diagonal; bilinear interpolation dams it mid-cell.
+    #[test]
+    fn diagonal_valley_is_not_dammed() {
+        let (a, b, c, d) = (0.0, 100.0, 100.0, 10.0);
+        let mut prev = f64::MAX;
+        for k in (0..=100).rev() {
+            let t = k as f64 / 100.0;
+            let h = tri_interp(a, b, c, d, t, t);
+            assert!(h <= prev, "rises at t = {t}");
+            prev = h;
+        }
+        let bilinear_mid = (a + b + c + d) / 4.0;
+        assert!(bilinear_mid > d, "bilinear would dam this valley");
     }
 
     #[test]
