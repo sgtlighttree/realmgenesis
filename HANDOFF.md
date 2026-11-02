@@ -12,6 +12,11 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
   - Web preview artifact: https://claude.ai/artifact/1Tq1v7fz6zdbLTtUoLMPME. **Confirmed working by Matt on his Android phone** (claude.ai app, 2026-11-02): WebGPU in the artifact frame works on mobile too. GPU probe: https://claude.ai/artifact/64fD9SPXY3zpiZh8HjAURZ.
   - **M1a tile streaming on the globe** (`docs/design/tile-streaming.md`): zoom from orbit to the ground, Google Earth–style camera (drag pans, right-drag/Shift-drag/two fingers tilt and turn), worker-thread tile generation natively, frame-budgeted on the web. The web preview is not yet tested with tiles.
   - Quality presets Draft 192 / Normal 320 (default) / High 448 / XHigh 640 / Ultra 1024, plus Custom in km per cell (capped at 1024). Ultra ≈ 19 s tectonics, 1.04 GB peak (4-core container).
+  - **Realistic terrain** (`docs/design/terrain-model.md`), checked against Earth:
+    - tectonics → stream-power erosion (Braun–Willett + Priority-Flood; Hack h 0.54, concavity verified analytically) → hypsometric calibration (mean land 841 m vs Earth 840) → climate;
+    - streamed detail = hills + Johansen erosion filter (3D, MPL-2.0 port), giving 15–20° mean slopes in mountains and 0.6° on plains;
+    - rivers + lakes in the layers; world file schema 2;
+    - CDLOD geomorph on the globe tiles.
   - Polar ice/snow edges are noise-perturbed (no longer latitude circles). The HUD shows fps vs cpu ms, tiles and altitude.
   - Controls sidebar toggles (`«`/`»` button at the top-left of the viewport, or **H**). It starts hidden when the window is under 700 px wide.
   - CI: `.github/workflows/build.yml` (test + clippy, macOS arm64 / Windows / Linux binaries, web bundle). **All green on 496a464** (run 41410046937). The toolchain is pinned to 1.97.0 in `rust-toolchain.toml`, because CI stable (1.99) added clippy lints that broke `-D warnings`.
@@ -55,6 +60,7 @@ Post-MVP: LOD tile streaming, tier B climate, sculpting, the vector layer, erosi
    - Tier A weaknesses, listed in the rg-climate agent report (s01 log): dry Brazil-analogue interiors, weak monsoon, cold mid-latitude west coasts in winter.
    - Satellite palette tuning.
    - Tectonics: smooth Voronoi-ish plate borders, no fracture zones, land p99 about 6200 m.
+3. **Terrain follow-ups:** detail isn't routed against the macro network between 5 and 30 km (closed depressions possible); peaks reach about 9–10 km with detail; tile CPU cost is about 40 ms deep, so the web build streams slowly (fix = GPU port).
 3. **M1b:** `rg-gpu` compute tile generation, with a 3D integer-lattice noise port (see the review notes in the design doc); `Job` stepping for world generation (it still blocks with a busy overlay; Ultra ≈ 20 s).
    **M1c:** detail albedo close up (the global layer is ~10–20 km/px, so it's blurry); LOD normal seams; tile-height picking; a clearance check ahead of the camera; 2D map tiles.
 4. Tier B climate on the GPU (see the research doc).
