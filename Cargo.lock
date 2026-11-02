@@ -2692,6 +2692,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rg-erosion"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "png",
+ "rg-geo",
+ "rg-tectonics",
+]
+
+[[package]]
 name = "rg-geo"
 version = "0.1.0"
 dependencies = [
