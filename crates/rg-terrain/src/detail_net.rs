@@ -19,7 +19,7 @@
 //! Evaluation is per **patch**: gather the channels that can reach a region (a tile, a probe
 //! box), bin them, then evaluate each point against its bin.
 
-use crate::network::{MacroNet, Segment};
+use crate::network::{MacroNet, Node, Segment};
 use glam::DVec3;
 use rg_geo::lattice::{self, Cell};
 use rg_geo::{CubeFace, CubeField};
@@ -64,6 +64,8 @@ const RIDGE_ALPHA: f64 = 0.3;
 /// well within one parent spacing; a head with nothing in range simply has no channel.
 /// Sets the gather margins (see `DetailNet::margin`).
 const ATTACH_SEARCH: f64 = 1.2;
+/// Pieces per curved level-0 edge.
+const CURVE_PIECES: usize = 4;
 /// Fade-out terms (see `wedge`): large enough that a faded channel never wins.
 /// A faded channel's bed climbs this steeply (m/m) from its junction, and its walls this
 /// steeply, so a channel at presence 0 never wins anywhere but its junction.
@@ -715,16 +717,90 @@ impl MacroNet {
                     continue;
                 }
                 if let Some(m) = self.receiver(n) {
-                    out.push(Segment {
-                        up: d,
-                        down: self.dir(m),
-                        z_up: self.height_at(n),
-                        z_down: self.height_at(m).max(0.0),
-                        area_km2: self.area_km2.data[self.height.index(n.face, n.i, n.j)] as f64,
-                        uplift_mm_yr: self.uplift_at(n),
-                    });
+                    self.curved_edge(n, m, out);
                 }
             }
+        }
+    }
+
+    /// The node draining into `n` with the largest area (the main stem upstream), if any.
+    fn main_donor(&self, n: Node) -> Option<Node> {
+        let mut best: Option<(f32, Node)> = None;
+        for dj in -1..=1i64 {
+            for di in -1..=1i64 {
+                let m = self.node(n.face, n.i as i64 + di, n.j as i64 + dj);
+                if m == n || self.receiver(m) != Some(n) {
+                    continue;
+                }
+                let a = self.area_km2.data[self.height.index(m.face, m.i, m.j)];
+                if best.is_none_or(|(ba, bm)| a > ba || (a == ba && m < bm)) {
+                    best = Some((a, m));
+                }
+            }
+        }
+        best.map(|b| b.1)
+    }
+
+    /// The edge n → m as `CURVE_PIECES` segments along a centripetal Catmull-Rom curve
+    /// through (main donor of n, n, m, receiver of m). The curve passes through the nodes, so
+    /// junctions and node heights stay exact; z is linear by arc length (strictly monotone).
+    /// Bulge ≤ 0.15 × the edge; an edge stays straight where the curve would dip under the
+    /// macro cap (the river would vanish there).
+    fn curved_edge(&self, n: Node, m: Node, out: &mut Vec<Segment>) {
+        let (p1, p2) = (self.dir(n), self.dir(m));
+        let p0 = self.main_donor(n).map_or(p1 * 2.0 - p2, |d| self.dir(d));
+        let p3 = self.receiver(m).map_or(p2 * 2.0 - p1, |r| self.dir(r));
+        let z_up = self.height_at(n);
+        let z_down = self.height_at(m).max(0.0);
+        let area_km2 = self.area_km2.data[self.height.index(n.face, n.i, n.j)] as f64;
+        let uplift = self.uplift_at(n);
+        // Centripetal knots (α = 0.5): no cusps or self-intersections.
+        let knot = |a: DVec3, b: DVec3| (a - b).length().sqrt().max(1e-12);
+        let (t0, t1) = (0.0, knot(p0, p1));
+        let t2 = t1 + knot(p1, p2);
+        let t3 = t2 + knot(p2, p3);
+        let lerp = |a: DVec3, b: DVec3, ta: f64, tb: f64, t: f64| a * ((tb - t) / (tb - ta)) + b * ((t - ta) / (tb - ta));
+        let at = |t: f64| {
+            let a1 = lerp(p0, p1, t0, t1, t);
+            let a2 = lerp(p1, p2, t1, t2, t);
+            let a3 = lerp(p2, p3, t2, t3, t);
+            let b1 = lerp(a1, a2, t0, t2, t);
+            let b2 = lerp(a2, a3, t1, t3, t);
+            lerp(b1, b2, t1, t2, t).normalize()
+        };
+        let chord = (p2 - p1).length();
+        let mut pts: Vec<DVec3> = (0..=CURVE_PIECES).map(|i| at(t1 + (t2 - t1) * i as f64 / CURVE_PIECES as f64)).collect();
+        pts[0] = p1;
+        pts[CURVE_PIECES] = p2;
+        // Bound the bulge, and keep the bed under the cap.
+        let mut straight = false;
+        for (i, q) in pts.iter_mut().enumerate().take(CURVE_PIECES).skip(1) {
+            let f = i as f64 / CURVE_PIECES as f64;
+            let on_chord = (p1 + (p2 - p1) * f).normalize();
+            let dev = (*q - on_chord).length();
+            if dev > 0.15 * chord {
+                *q = (on_chord + (*q - on_chord) * (0.15 * chord / dev)).normalize();
+            }
+            let z = z_up + (z_down - z_up) * f;
+            let tq = self.height.sample_tri(*q);
+            if tq < z + 1.0 {
+                straight = true;
+            }
+        }
+        if straight {
+            for (i, q) in pts.iter_mut().enumerate() {
+                *q = (p1 + (p2 - p1) * (i as f64 / CURVE_PIECES as f64)).normalize();
+            }
+        }
+        // z by arc length.
+        let lens: Vec<f64> = pts.windows(2).map(|w| (w[1] - w[0]).length()).collect();
+        let total: f64 = lens.iter().sum::<f64>().max(1e-15);
+        let mut s_acc = 0.0;
+        for (i, w) in pts.windows(2).enumerate() {
+            let za = z_up + (z_down - z_up) * (s_acc / total);
+            s_acc += lens[i];
+            let zb = z_up + (z_down - z_up) * (s_acc / total);
+            out.push(Segment { up: w[0], down: w[1], z_up: za, z_down: zb, area_km2, uplift_mm_yr: uplift });
         }
     }
 }
