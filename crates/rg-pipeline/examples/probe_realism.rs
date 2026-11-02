@@ -12,58 +12,12 @@
 //! - **flow agreement:** on macro river cells (> 3000 km²), share where the final surface's
 //!   D8 steepest descent is within 60° of the macro flow. Random = 33%.
 //! - **slope:** 90 m central differences (SRTM-like), degrees.
-use rg_pipeline::{generate, World, WorldParams};
-use rg_world::WorldFile;
+#[path = "common/mod.rs"]
+mod common;
+use common::world;
+use rg_pipeline::World;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
-
-fn env<T: std::str::FromStr>(k: &str) -> Option<T> {
-    std::env::var(k).ok().and_then(|v| v.parse().ok())
-}
-
-fn world(seed: u64) -> World {
-    let mut p = WorldParams::default();
-    p.tectonics.seed = seed;
-    if let Some(r) = env("RG_RES") {
-        p.tectonics.res = r;
-    }
-    if let Some(r) = env("RG_EROSION_RES") {
-        p.erosion.res = r;
-    }
-    if let Some(s) = env("RG_EROSION_STEPS") {
-        p.erosion.steps = s;
-    }
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/probe-cache");
-    let path = dir.join(format!(
-        "s{seed}-t{}-e{}-n{}-g{}.rgw",
-        p.tectonics.res,
-        p.erosion.res,
-        p.erosion.steps,
-        rg_pipeline::file::WORLD_SCHEMA
-    ));
-    if env::<u8>("RG_NO_CACHE").is_none()
-        && let Ok(bytes) = std::fs::read(&path)
-        && let Ok(f) = WorldFile::read_from(&bytes[..])
-        && let Ok(w) = rg_pipeline::file::from_file(&f)
-    {
-        eprintln!("loaded {}", path.display());
-        return w;
-    }
-    let t0 = std::time::Instant::now();
-    let w = generate(&p);
-    eprintln!(
-        "generate {:.1} s (tectonics {:.0} ms, erosion {:.0} ms, macro res {})",
-        t0.elapsed().as_secs_f64(),
-        w.timings.tectonics_ms,
-        w.timings.erosion_ms,
-        w.tectonics.height_m.res
-    );
-    let _ = std::fs::create_dir_all(&dir);
-    let mut buf = Vec::new();
-    rg_pipeline::file::to_file(&w).write_to(&mut buf).unwrap();
-    let _ = std::fs::write(&path, buf);
-    w
-}
 
 fn unit(lat: f64, lon: f64) -> glam::DVec3 {
     glam::DVec3::new(lat.cos() * lon.cos(), lat.cos() * lon.sin(), lat.sin())
@@ -239,11 +193,74 @@ fn score(w: &World, s: &rg_terrain::TerrainSampler, lat0: f64, lon0: f64, half: 
     }
 }
 
+/// Channel straightness on the macro network: for channel samples (> 1000 km²), the share of
+/// downstream steps that keep exactly the same flow direction, and the longest straight run.
+/// Plain D8 on a smooth tilted surface gives long parallel straight runs.
+fn straightness(w: &World) -> (f64, usize, usize) {
+    let hm = &w.tectonics.height_m;
+    let hy = w.hydrology.as_ref().expect("erosion on");
+    let (a, fd) = (&hy.drainage_km2, &hy.flow_dir);
+    let ang = a.spacing_rad();
+    let v = |f: [f32; 3]| glam::DVec3::new(f[0] as f64, f[1] as f64, f[2] as f64);
+    let next = |d: glam::DVec3| -> Option<glam::DVec3> {
+        let f = v(fd.nearest(d));
+        if f.length() < 0.5 || a.nearest(d) < 1000.0 {
+            return None;
+        }
+        // Step to the downstream sample: diagonal steps are ~1.41 cells.
+        let step = (d + f * ang * 1.2).normalize();
+        Some(step)
+    };
+    let (mut same, mut total, mut longest) = (0usize, 0usize, 0usize);
+    for (k, _, _, _, d) in a.iter_samples() {
+        if a.data[k] < 1000.0 || v(fd.data[k]).length() < 0.5 {
+            continue;
+        }
+        let f0 = v(fd.data[k]);
+        if let Some(n) = next(d) {
+            let f1 = v(fd.nearest(n));
+            if f1.length() > 0.5 {
+                total += 1;
+                let grad = (hm.sample_drained(d) - hm.sample_drained(n)) / (ang * 1.2 * w.params.tectonics.radius_m);
+                let flat = grad < 2e-4;
+                FLAT.with(|c| { let mut c = c.borrow_mut(); if flat { c.0 += 1 } else { c.2 += 1 } });
+                if f0.dot(f1) > 0.9995 {
+                    FLAT.with(|c| { let mut c = c.borrow_mut(); if flat { c.1 += 1 } else { c.3 += 1 } });
+                    same += 1;
+                    // Walk the run (only from its upstream end would be cheaper; fine here).
+                    let (mut run, mut p, mut fp) = (1usize, n, f1);
+                    while run < 200 {
+                        let Some(q) = next(p) else { break };
+                        let fq = v(fd.nearest(q));
+                        if fq.length() < 0.5 || fp.dot(fq) <= 0.9995 {
+                            break;
+                        }
+                        run += 1;
+                        p = q;
+                        fp = fq;
+                    }
+                    longest = longest.max(run);
+                }
+            }
+        }
+    }
+    (same as f64 / total.max(1) as f64 * 100.0, longest, total)
+}
+
+thread_local! {
+    /// (flat steps, flat straight, sloped steps, sloped straight)
+    static FLAT: std::cell::RefCell<(usize, usize, usize, usize)> = const { std::cell::RefCell::new((0, 0, 0, 0)) };
+}
+
 fn main() {
     let seed: u64 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(3);
     let half_km: f64 = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(40.0);
     let w = world(seed);
     let s = rg_pipeline::terrain_sampler(&w);
+    let (pct, longest, steps) = straightness(&w);
+    println!("channels: {pct:.0}% of {steps} steps continue straight, longest straight run {longest} cells");
+    let (f, fs, sl, ss) = FLAT.with(|c| *c.borrow());
+    println!("  flats (< 0.2 m/km): {:.0}% of steps, {:.0}% straight; slopes: {:.0}% straight", f as f64 / steps.max(1) as f64 * 100.0, fs as f64 / f.max(1) as f64 * 100.0, ss as f64 / sl.max(1) as f64 * 100.0);
     let boxes = pick_boxes(&w);
     let scores: Vec<Score> = std::thread::scope(|sc| {
         let (w, s) = (&w, &s);

@@ -59,6 +59,7 @@ pub(crate) fn measure(
     net: &Network,
     cell_area: &[f64],
     uplift: &[f64],
+    erodibility: &[f64],
     radius_m: f64,
     p: &ErosionParams,
     fill_steps: u32,
@@ -100,7 +101,8 @@ pub(crate) fn measure(
             sy.push(s.ln());
             if uplift[i] > 0.0 {
                 nx.push(a_km2.ln());
-                ny.push((s / uplift[i]).ln());
+                // Steady state: S = (U/K)·A^-m, so S·K/U isolates the A^-m scaling.
+                ny.push((s * erodibility[i] / uplift[i]).ln());
             }
         }
     }

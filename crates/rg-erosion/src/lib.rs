@@ -57,7 +57,7 @@ pub mod stats;
 mod uplift;
 
 pub use solver::{
-    erode, implicit_step, priority_flood_fill, solve, Column, ErosionParams, ErosionResult, MassBudget, Network,
+    erode, implicit_step, implicit_step_varying, priority_flood_fill, solve, solve_with_k, Column, ErosionParams, ErosionResult, MassBudget, Network,
     RiverSegment, Solved, UpliftSource,
 };
 pub use stats::ErosionStats;

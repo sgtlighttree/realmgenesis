@@ -2,7 +2,7 @@
 //!
 //! Runs tectonics then erosion, prints timings + geomorphic stats, and writes equirect PNGs:
 //! `before.png` / `after.png` (hillshaded hypsometric tint, rivers on `after`).
-//! Keys: duration, steps, k, m, umax, maxres.
+//! Keys: duration, steps, k, m, umax, maxres, uexp, ubase, belt, elev, hyps, kvar, rough, rho8, seed.
 use glam::DVec3;
 use rg_erosion::{erode, ErosionParams};
 use rg_geo::CubeField;
@@ -29,6 +29,10 @@ fn main() {
             "belt" => p.belt_width_km = v,
             "elev" => p.uplift_source = if v > 0.0 { rg_erosion::UpliftSource::Elevation } else { rg_erosion::UpliftSource::Tectonic },
             "hyps" => p.hypsometry_scale = v,
+            "kvar" => p.k_variability = v,
+            "rough" => p.initial_roughness_m = v,
+            "rho8" => p.rho8 = v > 0.0,
+            "seed" => p.seed = v as u64,
             _ => panic!("unknown key {k}"),
         }
     }

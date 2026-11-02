@@ -61,6 +61,10 @@ pub fn to_file(w: &World) -> WorldFile {
             "belt_width_km": w.params.erosion.belt_width_km,
             "oceanic_crust_uplift": w.params.erosion.oceanic_crust_uplift,
             "scale_by_convergence_rate": w.params.erosion.scale_by_convergence_rate,
+            "rho8": w.params.erosion.rho8,
+            "k_variability": w.params.erosion.k_variability,
+            "lithology_scale_km": w.params.erosion.lithology_scale_km,
+            "initial_roughness_m": w.params.erosion.initial_roughness_m,
             "hydrology_res": w.hydrology.as_ref().map(|h| h.drainage_km2.res),
         },
     });
@@ -207,6 +211,10 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
             belt_width_km: eh["belt_width_km"].as_f64().unwrap_or(400.0),
             oceanic_crust_uplift: eh["oceanic_crust_uplift"].as_f64().unwrap_or(0.5),
             scale_by_convergence_rate: eh["scale_by_convergence_rate"].as_bool().unwrap_or(true),
+            rho8: eh["rho8"].as_bool().unwrap_or(false),
+            k_variability: eh["k_variability"].as_f64().unwrap_or(0.0),
+            lithology_scale_km: eh["lithology_scale_km"].as_f64().unwrap_or(250.0),
+            initial_roughness_m: eh["initial_roughness_m"].as_f64().unwrap_or(0.0),
             ..Default::default()
         }
     } else {

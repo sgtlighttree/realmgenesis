@@ -77,6 +77,7 @@ pub fn generate(params: &WorldParams) -> World {
         // The "mountains" setting scales the target hypsometry (Earth = 1.0).
         let mut ep = params.erosion.clone();
         ep.hypsometry_scale = params.tectonics.mountain_scale as f64 * params.erosion.hypsometry_scale;
+        ep.seed = params.tectonics.seed;
         let r = rg_erosion::erode(&tectonics, params.tectonics.radius_m, &ep);
         tectonics.height_m = r.height_m;
         Hydrology {

@@ -58,6 +58,25 @@ pub struct ErosionParams {
     pub oceanic_crust_uplift: f64,
     /// `Tectonic` source: scale belt uplift by the plates' closing speed (mean = 1).
     pub scale_by_convergence_rate: bool,
+    /// Lithology: standard deviation of ln K across the planet (0 = uniform rock). Default 0.3:
+    /// at 13–30 km cells rock strength is averaged over many units; 0.6 pushed basin
+    /// hypsometry and Hack's exponent to the edge of Earth's range (s01 log). Rock
+    /// erodibility varies ~10× between lithologies (e.g. Stock & Montgomery 1999); rivers
+    /// route around resistant rock, which breaks up straight, parallel drainage.
+    pub k_variability: f64,
+    /// Correlation length of the lithology field, km.
+    pub lithology_scale_km: f64,
+    /// Roughness of the initial land surface, m (white, per node). Braun & Willett (2013)
+    /// start from small random noise; on a perfectly smooth tilted surface the drainage
+    /// network has nothing to organise around.
+    pub initial_roughness_m: f64,
+    /// Route with Rho8 (Fairfield & Leymarie 1991) instead of plain D8: each node's diagonal
+    /// neighbours get a random effective distance in [1, 2] axis spacings instead of √2.
+    /// Plain D8 sends every node of a smooth tilted surface the same grid direction, which
+    /// gives long, straight, parallel rivers; Rho8 follows the true aspect on average.
+    pub rho8: bool,
+    /// Seed for Rho8 (the pipeline sets it from the world seed).
+    pub seed: u64,
     /// Smallest drainage area drawn as a river, km².
     pub river_min_area_km2: f64,
     /// Hypsometric calibration: land heights are quantile-mapped onto the land hypsometric
@@ -84,6 +103,11 @@ impl Default for ErosionParams {
             belt_width_km: 400.0,
             oceanic_crust_uplift: 0.5,
             scale_by_convergence_rate: true,
+            k_variability: 0.3,
+            lithology_scale_km: 250.0,
+            initial_roughness_m: 20.0,
+            rho8: true,
+            seed: 0,
             river_min_area_km2: 20_000.0,
             hypsometry_scale: 1.0,
         }
@@ -117,6 +141,52 @@ pub struct ErosionResult {
 // ---------------------------------------------------------------------------------------
 // The numerical core: arrays in, arrays out. `erode()` and the tests both call these.
 // ---------------------------------------------------------------------------------------
+
+/// Per-node erodibility: `K · exp(σ · z)`, with z a smooth noise field of unit variance and
+/// correlation length `lithology_scale_km` (log-normal, as rock strength data are).
+fn lithology(grid: &Grid, radius_m: f64, p: &ErosionParams) -> Vec<f64> {
+    if p.k_variability <= 0.0 {
+        return vec![p.k; grid.n];
+    }
+    // Value noise on a jittered 3D lattice is enough here; smoothness matters, not isotropy.
+    let cell = p.lithology_scale_km * 1000.0 / radius_m; // lattice spacing on the unit sphere
+    let seed = p.seed ^ 0x0001_1740_106E;
+    let lattice = |x: i64, y: i64, z: i64| {
+        let key = (x as u64).wrapping_mul(73_856_093) ^ (y as u64).wrapping_mul(19_349_663) ^ (z as u64).wrapping_mul(83_492_791);
+        unit_hash(seed, key) * 2.0 - 1.0
+    };
+    let smooth = |t: f64| t * t * (3.0 - 2.0 * t);
+    let value = |q: DVec3| {
+        let b = q.floor();
+        let f = q - b;
+        let (x, y, z) = (b.x as i64, b.y as i64, b.z as i64);
+        let (u, v, w) = (smooth(f.x), smooth(f.y), smooth(f.z));
+        let l = |dx, dy, dz| lattice(x + dx, y + dy, z + dz);
+        let lerp = |a: f64, b: f64, t: f64| a + (b - a) * t;
+        lerp(
+            lerp(lerp(l(0, 0, 0), l(1, 0, 0), u), lerp(l(0, 1, 0), l(1, 1, 0), u), v),
+            lerp(lerp(l(0, 0, 1), l(1, 0, 1), u), lerp(l(0, 1, 1), l(1, 1, 1), u), v),
+            w,
+        )
+    };
+    // Two octaves: the correlation length and half of it.
+    let z: Vec<f64> = par_map(grid.n, |i| {
+        let q = grid.dir[i] / cell;
+        value(q) + 0.5 * value(q * 2.0 + DVec3::splat(17.3))
+    });
+    let mean = z.iter().sum::<f64>() / z.len() as f64;
+    let sd = (z.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / z.len() as f64).sqrt().max(1e-9);
+    z.iter().map(|v| p.k * (p.k_variability * (v - mean) / sd).exp()).collect()
+}
+
+/// Deterministic hash of (seed, i) to [0, 1) (splitmix64 finaliser).
+fn unit_hash(seed: u64, i: u64) -> f64 {
+    let mut z = seed ^ i.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    (z >> 11) as f64 / (1u64 << 53) as f64
+}
 
 /// A routed drainage network and the per-node data one implicit step needs.
 pub struct Column<'a> {
@@ -167,6 +237,11 @@ impl MassBudget {
 /// `Δh_i = U_i·Δt − F_i·(h_i' − h_r')`, and the last term is exactly the river's
 /// incision `K·A^m·S'·Δt` with the *new* slope `S'`. That is what we sum as eroded volume.
 pub fn implicit_step(c: &Column, h: &mut [f64], k: f64, m: f64, dt: f64) -> MassBudget {
+    implicit_step_varying(c, h, |_| k, m, dt)
+}
+
+/// As [`implicit_step`], with erodibility `k(node)` varying in space (lithology).
+pub fn implicit_step_varying(c: &Column, h: &mut [f64], k: impl Fn(usize) -> f64, m: f64, dt: f64) -> MassBudget {
     let mut b = MassBudget::default();
     for &i in c.stack {
         let i = i as usize;
@@ -175,7 +250,7 @@ pub fn implicit_step(c: &Column, h: &mut [f64], k: f64, m: f64, dt: f64) -> Mass
         }
         let r = c.receiver[i] as usize;
         let hr = if c.base[r] { 0.0 } else { h[r] };
-        let f = k * dt * c.drainage_m2[i].powf(m) / c.length_m[i].max(1.0);
+        let f = k(i) * dt * c.drainage_m2[i].powf(m) / c.length_m[i].max(1.0);
         let new = (h[i] + c.uplift_m_yr[i] * dt + f * hr) / (1.0 + f);
         b.uplift_m3 += c.uplift_m_yr[i] * dt * c.cell_area_m2[i];
         b.eroded_m3 += f * (new - hr) * c.cell_area_m2[i];
@@ -197,9 +272,23 @@ pub struct Solved {
 /// Run `p.steps` implicit steps of duration `p.duration_myr / p.steps` on `h` (metres, with
 /// `ocean` nodes as base level), re-routing the network each step.
 pub fn solve(grid: &Grid, radius_m: f64, h: &mut [f64], ocean: &[bool], uplift_m_yr: &[f64], p: &ErosionParams) -> Solved {
+    solve_with_k(grid, radius_m, h, ocean, uplift_m_yr, &vec![p.k; grid.n], p)
+}
+
+/// As [`solve`], with a per-node erodibility `k` (m^(1−2m)/yr) instead of the uniform `p.k`.
+pub fn solve_with_k(
+    grid: &Grid,
+    radius_m: f64,
+    h: &mut [f64],
+    ocean: &[bool],
+    uplift_m_yr: &[f64],
+    k: &[f64],
+    p: &ErosionParams,
+) -> Solved {
     let n = grid.n;
     let cell_area: Vec<f64> = grid.weight.iter().map(|w| *w as f64 * 4.0 * std::f64::consts::PI * radius_m * radius_m).collect();
     let mut net = Network::new(n);
+    net.rho8_seed = p.rho8.then_some(p.seed);
     let mut budget = MassBudget::default();
     let mut filled_steps = 0u32;
     let steps = p.steps.max(1);
@@ -231,7 +320,7 @@ pub fn solve(grid: &Grid, radius_m: f64, h: &mut [f64], ocean: &[bool], uplift_m
             base: ocean,
             cell_area_m2: &cell_area,
         };
-        budget.add(implicit_step(&col, h, p.k, p.m, dt));
+        budget.add(implicit_step_varying(&col, h, |i| k[i], p.m, dt));
     }
     Solved { net, budget, filled_steps }
 }
@@ -249,8 +338,16 @@ pub fn erode(tectonic: &TectonicSnapshot, radius_m: f64, p: &ErosionParams) -> E
     let weight: Vec<f64> = grid.weight.iter().map(|&w| w as f64).collect();
 
     // Input heights on the solve grid.
-    let h0: Vec<f64> = par_map(n, |i| tectonic_h.sample(grid.dir[i]) as f64);
+    let mut h0: Vec<f64> = par_map(n, |i| tectonic_h.sample(grid.dir[i]) as f64);
     let ocean: Vec<bool> = h0.iter().map(|&h| h <= 0.0).collect();
+    // Initial roughness (land only; the coast stays where tectonics put it).
+    if p.initial_roughness_m > 0.0 {
+        for i in (0..n).filter(|&i| !ocean[i]) {
+            let r = (unit_hash(p.seed ^ 0x0005_EED0_FA11, i as u64) - 0.5) * 2.0 * p.initial_roughness_m;
+            h0[i] = (h0[i] + r).max(h0[i].min(1.0));
+        }
+    }
+    let k_field = lithology(&grid, radius_m, p);
 
     let mut land_h: Vec<f64> = (0..n).filter(|&i| !ocean[i]).map(|i| h0[i]).collect();
     land_h.sort_by(f64::total_cmp);
@@ -261,10 +358,11 @@ pub fn erode(tectonic: &TectonicSnapshot, radius_m: f64, p: &ErosionParams) -> E
 
     let mut h = h0.clone();
     let mut net = Network::new(n);
+    net.rho8_seed = p.rho8.then_some(p.seed);
     let mut filled_steps = 0u32;
     let mut budget = MassBudget::default();
     if p.enabled && !land_h.is_empty() {
-        let solved = solve(&grid, radius_m, &mut h, &ocean, &uplift, p);
+        let solved = solve_with_k(&grid, radius_m, &mut h, &ocean, &uplift, &k_field, p);
         net = solved.net;
         budget = solved.budget;
         filled_steps = solved.filled_steps;
@@ -293,7 +391,7 @@ pub fn erode(tectonic: &TectonicSnapshot, radius_m: f64, p: &ErosionParams) -> E
 
     // Geomorphic stats on the physics output (the remap below is monotonic, so drainage
     // is untouched, but slope magnitudes change).
-    let mut stats = stats::measure(&grid, &h, &ocean, &net, &area_m2, &uplift, radius_m, p, filled_steps, scale);
+    let mut stats = stats::measure(&grid, &h, &ocean, &net, &area_m2, &uplift, &k_field, radius_m, p, filled_steps, scale);
     stats.uplift_from_tectonics = uplift_used == UpliftSource::Tectonic;
     stats.mass_balance_error = mass_balance_error;
 
@@ -364,6 +462,8 @@ pub struct Network {
     pub stack: Vec<u32>,
     /// Drainage area including the node's own cell, m² (0 at sea).
     pub area: Vec<f64>,
+    /// `Some(seed)` routes with Rho8 (see [`ErosionParams::rho8`]); `None` is plain D8.
+    pub rho8_seed: Option<u64>,
     donors_start: Vec<u32>,
     donors: Vec<u32>,
 }
@@ -374,6 +474,7 @@ impl Network {
             receiver: (0..n as u32).collect(),
             stack: Vec::with_capacity(n),
             area: vec![0.0; n],
+            rho8_seed: None,
             donors_start: vec![0; n + 1],
             donors: vec![0; n],
         }
@@ -382,16 +483,28 @@ impl Network {
     /// Steepest-descent receivers. Returns the number of land pits (no lower neighbour).
     /// Ties go to the lower node index, so routing is deterministic.
     pub fn route(&mut self, grid: &Grid, h: &[f64], ocean: &[bool]) -> usize {
+        let rho8 = self.rho8_seed;
         let rec: Vec<u32> = par_map(grid.n, |i| {
             if ocean[i] {
                 return i as u32;
             }
+            // Rho8: one random number per node, fixed for the whole run.
+            let diag_len = rho8.map(|seed| 2.0 - unit_hash(seed, i as u64));
+            let axis = grid.neighbors(i).iter().map(|&j| (grid.dir[i] - grid.dir[j as usize]).length()).fold(f64::MAX, f64::min);
             let mut best = i as u32;
             let mut best_s = 0.0;
             for &j in grid.neighbors(i) {
                 let j = j as usize;
                 let hj = if ocean[j] { 0.0f64.min(h[j]) } else { h[j] };
-                let d = (grid.dir[i] - grid.dir[j]).length();
+                let mut d = (grid.dir[i] - grid.dir[j]).length();
+                // Diagonal neighbours are ~√2 axis spacings away. Rho8 replaces √2 with a
+                // random value in [1, 2] (never below 1, so a diagonal receiver is still the
+                // lowest corner of its cell; `CubeField::sample_drained` relies on that).
+                if let Some(f) = diag_len
+                    && d > 1.2 * axis
+                {
+                    d *= f / std::f64::consts::SQRT_2;
+                }
                 let s = (h[i] - hj) / d;
                 if s > best_s || (s == best_s && s > 0.0 && (j as u32) < best) {
                     best_s = s;
