@@ -134,6 +134,9 @@ pub struct ErosionResult {
     pub flow_dir: CubeField<[f32; 3]>,
     /// Depth of standing water in closed basins at the end (lakes), m.
     pub lake_depth_m: CubeField<f32>,
+    /// Rock uplift rate, mm/yr, at the erosion grid's resolution. At stream-power steady
+    /// state it is also the erosion rate, and `k_sn = U/K`: streamed detail reads it.
+    pub uplift_mm_yr: CubeField<f32>,
     pub rivers: Vec<RiverSegment>,
     pub stats: ErosionStats,
 }
@@ -475,6 +478,7 @@ pub fn erode(tectonic: &TectonicSnapshot, radius_m: f64, p: &ErosionParams) -> E
     };
     let drainage_km2 = to_field(&net.area.iter().map(|a| a * 1.0e-6).collect::<Vec<_>>());
     let lake_depth_m = to_field(&lake);
+    let uplift_mm_yr = to_field(&uplift.iter().map(|u| u * 1000.0).collect::<Vec<_>>());
     let mut flow_dir = CubeField::<[f32; 3]>::new(res);
     for (k, v) in flow_dir.data.iter_mut().enumerate() {
         let i = grid.sample_node[k] as usize;
@@ -496,7 +500,7 @@ pub fn erode(tectonic: &TectonicSnapshot, radius_m: f64, p: &ErosionParams) -> E
         })
         .collect();
 
-    ErosionResult { height_m, drainage_km2, flow_dir, lake_depth_m, rivers, stats }
+    ErosionResult { height_m, drainage_km2, flow_dir, lake_depth_m, uplift_mm_yr, rivers, stats }
 }
 
 /// The drainage network: receivers, the topological stack and drainage areas.

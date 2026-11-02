@@ -28,14 +28,11 @@ use std::sync::Arc;
 
 /// Stream-power concavity θ = m/n (n = 1), as in the macro solve.
 const THETA: f64 = 0.45;
-/// Erodibility K, m^(1−2m)/yr (the macro solve's default), turning k_sn into erosion rate.
-const K_ERODIBILITY: f64 = 1.0e-5;
+/// k_sn at which hillslopes are ~63% of the way to threshold, m^0.9 (Ouimet et al. 2009).
+const KSN_SATURATE: f64 = 100.0;
 /// Threshold hillslope gradient (tan 33°): soil-mantled slopes stop steepening here
 /// (Montgomery & Brandon 2002; Roering et al. 2007).
 const S_CRIT: f64 = 0.649;
-/// Erosion rate at which hillslopes approach threshold, m/yr (slopes saturate above a few
-/// tenths of a mm/yr: Montgomery & Brandon 2002, Larsen & Montgomery 2012).
-const E_SATURATE: f64 = 3.0e-4;
 /// Steepest channel a profile may have (colluvial/debris-flow channels), m/m.
 const S_CHANNEL_MAX: f64 = 0.5;
 /// Hilltop slope as a share of the valley-wall slope: slowly eroding (convex divides) and
@@ -121,10 +118,11 @@ impl Channel {
     }
 }
 
-/// How close hillslopes are to threshold (0 = diffusive lowland, 1 = threshold): from the
-/// erosion rate E = K·k_sn (n = 1).
+/// How close hillslopes are to threshold (0 = diffusive lowland, 1 = threshold): mean
+/// hillslope gradient rises with k_sn and saturates near 100–150 m^0.9 (Ouimet, Whipple &
+/// Granger 2009, "Beyond threshold hillslopes", Geology; θ_ref = 0.45).
 fn threshold_fraction(ksn: f64) -> f64 {
-    1.0 - (-(K_ERODIBILITY * ksn) / E_SATURATE).exp()
+    1.0 - (-ksn / tune("RG_KSN_SAT", KSN_SATURATE)).exp()
 }
 
 /// Valley-wall gradient from k_sn.
@@ -161,6 +159,8 @@ pub struct DetailNet {
     /// built in any order agree. Sharded to keep worker threads from queueing.
     memo: Arc<[MemoShard; 16]>,
     ridge_alpha: f64,
+    /// Erodibility K of the macro solve, m^(1−2m)/yr (k_sn = U/K).
+    k_erodibility: f64,
 }
 
 impl DetailNet {
@@ -174,7 +174,13 @@ impl DetailNet {
         }
         let memo = Arc::new(std::array::from_fn(|_| std::sync::Mutex::new(HashMap::new())));
         let ridge_alpha = tune("RG_RIDGE", RIDGE_ALPHA);
-        Self { macro_net, radius_m, salt: seed ^ 0xD371_0A11_C4A7_0001, spacing, cells, memo, ridge_alpha }
+        Self { macro_net, radius_m, salt: seed ^ 0xD371_0A11_C4A7_0001, spacing, cells, memo, ridge_alpha, k_erodibility: 1.0e-5 }
+    }
+
+    /// Set the macro solve's erodibility K (default 1e-5), used for k_sn = U/K.
+    pub fn with_erodibility(mut self, k: f64) -> Self {
+        self.k_erodibility = k;
+        self
     }
 
     /// The macro surface T: drained triangle split.
@@ -204,9 +210,17 @@ impl DetailNet {
     fn level0_channel(&self, s: &Segment) -> Channel {
         let l0 = self.spacing[0];
         let len = (s.up - s.down).length() * self.radius_m;
-        let slope = ((s.z_up - s.z_down) / len.max(1.0)).max(1.0e-5);
-        let area = (s.area_km2 * 1.0e6).max(l0 * l0);
-        let ksn = slope * area.powf(THETA);
+        // k_sn: at stream-power steady state k_sn = U/K exactly (n = 1), from the stored
+        // uplift. Fallback (older files): S·A^θ from the macro edge, inflated on lowlands
+        // because macro heights are hypsometry-remapped, not physical.
+        let ksn = match s.uplift_mm_yr {
+            Some(u) => (u * 1.0e-3 / self.k_erodibility).max(0.1),
+            None => {
+                let slope = ((s.z_up - s.z_down) / len.max(1.0)).max(1.0e-5);
+                let area = (s.area_km2 * 1.0e6).max(l0 * l0);
+                slope * area.powf(THETA)
+            }
+        };
         let s_wall = wall_slope(ksn).max(0.002);
         // Floodplain width grows like √A (hydraulic geometry); bounded to the cell.
         let floor = (300.0 * (s.area_km2 / 1000.0).max(0.0).sqrt()).clamp(50.0, 0.25 * l0);
@@ -511,6 +525,7 @@ impl MacroNet {
                         z_up: self.height_at(n),
                         z_down: self.height_at(m).max(0.0),
                         area_km2: self.area_km2.data[self.height.index(n.face, n.i, n.j)] as f64,
+                        uplift_mm_yr: self.uplift_at(n),
                     });
                 }
             }

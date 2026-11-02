@@ -15,7 +15,8 @@ use serde_json::json;
 /// with the drained interpolant (`macro_interp`); erosion seed, Rho8, lithology, roughness.
 /// Older files load; their macro is now read with the drained interpolant too (streamed
 /// detail is not under the contract yet: `DETAIL_GENERATOR_VERSION` = 0).
-pub const WORLD_SCHEMA: u32 = 3;
+/// 4 (s01): `hydrology.uplift_mm_yr` (optional chunk; older files load without it).
+pub const WORLD_SCHEMA: u32 = 4;
 
 pub fn to_file(w: &World) -> WorldFile {
     let t = &w.params.tectonics;
@@ -81,6 +82,9 @@ pub fn to_file(w: &World) -> WorldFile {
         let fd: Vec<f32> = h.flow_dir.data.iter().flat_map(|v| v.iter().copied()).collect();
         hydro_chunks.push(Chunk::f32s("hydrology.flow_dir", &fd));
         hydro_chunks.push(Chunk::f32s("hydrology.lake_depth_m", &h.lake_depth_m.data));
+        if let Some(u) = &h.uplift_mm_yr {
+            hydro_chunks.push(Chunk::f32s("hydrology.uplift_mm_yr", &u.data));
+        }
         let rv: Vec<f32> = h
             .rivers
             .iter()
@@ -243,6 +247,7 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
                 drainage_km2: f32_field("hydrology.drainage_km2")?,
                 flow_dir: CubeField { res: hres, data: fd.as_chunks::<3>().0.to_vec() },
                 lake_depth_m: f32_field("hydrology.lake_depth_m")?,
+                uplift_mm_yr: if f.chunk("hydrology.uplift_mm_yr").is_some() { Some(f32_field("hydrology.uplift_mm_yr")?) } else { None },
                 rivers: rv
                     .as_chunks::<7>()
                     .0

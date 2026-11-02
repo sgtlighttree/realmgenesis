@@ -19,6 +19,8 @@ pub struct Segment {
     pub z_up: f64,
     pub z_down: f64,
     pub area_km2: f64,
+    /// Rock uplift rate at `up`, mm/yr, if the world stores it.
+    pub uplift_mm_yr: Option<f64>,
 }
 
 /// A macro sample address. `i`, `j` in `0..=res`.
@@ -36,12 +38,26 @@ pub struct MacroNet {
     pub height: Arc<CubeField<f32>>,
     pub flow_dir: Arc<CubeField<[f32; 3]>>,
     pub area_km2: Arc<CubeField<f32>>,
+    /// Rock uplift rate (mm/yr), same resolution, if stored (world schema ≥ 4).
+    pub uplift_mm_yr: Option<Arc<CubeField<f32>>>,
 }
 
 impl MacroNet {
     /// `None` if the fields don't share a resolution.
     pub fn new(height: Arc<CubeField<f32>>, flow_dir: Arc<CubeField<[f32; 3]>>, area_km2: Arc<CubeField<f32>>) -> Option<Self> {
-        (height.res == flow_dir.res && height.res == area_km2.res).then_some(Self { height, flow_dir, area_km2 })
+        (height.res == flow_dir.res && height.res == area_km2.res).then_some(Self { height, flow_dir, area_km2, uplift_mm_yr: None })
+    }
+
+    /// Attach the uplift field (ignored if its resolution differs).
+    pub fn with_uplift(mut self, u: Arc<CubeField<f32>>) -> Self {
+        if u.res == self.height.res {
+            self.uplift_mm_yr = Some(u);
+        }
+        self
+    }
+
+    pub fn uplift_at(&self, n: Node) -> Option<f64> {
+        self.uplift_mm_yr.as_ref().map(|u| u.data[u.index(n.face, n.i, n.j)] as f64)
     }
 
     pub fn res(&self) -> u32 {
@@ -137,6 +153,7 @@ impl MacroNet {
                     z_up: self.height_at(n),
                     z_down,
                     area_km2: self.area_km2.data[self.index(n)] as f64,
+                    uplift_mm_yr: self.uplift_at(n),
                 });
             }
         }

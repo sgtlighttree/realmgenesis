@@ -91,7 +91,11 @@ fn score(w: &World, s: &rg_terrain::TerrainSampler, lat0: f64, lon0: f64, half: 
             std::sync::Arc::new(hy.drainage_km2.clone()),
         )
         .expect("hydrology at macro res");
-        rg_terrain::detail_net::DetailNet::new(mn, w.params.tectonics.radius_m, w.params.tectonics.seed)
+        let mn = match &hy.uplift_mm_yr {
+            Some(u) => mn.with_uplift(std::sync::Arc::new(u.clone())),
+            None => mn,
+        };
+        rg_terrain::detail_net::DetailNet::new(mn, w.params.tectonics.radius_m, w.params.tectonics.seed).with_erodibility(w.params.erosion.k)
     });
     let patches: std::cell::RefCell<std::collections::HashMap<(i64, i64, u64), rg_terrain::detail_net::Patch>> = Default::default();
     let rr = w.params.tectonics.radius_m;

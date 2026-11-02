@@ -41,6 +41,9 @@ pub struct Hydrology {
     pub flow_dir: CubeField<[f32; 3]>,
     /// Standing water depth in closed basins, m.
     pub lake_depth_m: CubeField<f32>,
+    /// Rock uplift rate, mm/yr (= erosion rate at steady state). None in files before
+    /// schema 4.
+    pub uplift_mm_yr: Option<CubeField<f32>>,
     pub rivers: Vec<RiverSegment>,
     pub stats: ErosionStats,
 }
@@ -84,6 +87,7 @@ pub fn generate(params: &WorldParams) -> World {
             drainage_km2: r.drainage_km2,
             flow_dir: r.flow_dir,
             lake_depth_m: r.lake_depth_m,
+            uplift_mm_yr: Some(r.uplift_mm_yr),
             rivers: r.rivers,
             stats: r.stats,
         }
