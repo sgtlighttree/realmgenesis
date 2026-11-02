@@ -103,6 +103,9 @@ struct Globals {
     eye: [f32; 4],
     params: [f32; 4],
     map: [f32; 4],
+    /// Globe LOD: x = pixels per radian, y = cell size (px) at which a tile shows its
+    /// parent's surface (morph 0), z = morph range (px). See `vs_tile`.
+    lod: [f32; 4],
 }
 
 struct Targets {
@@ -123,6 +126,9 @@ pub struct PlanetRenderer {
     bind_group: wgpu::BindGroup,
     /// The streamed globe terrain.
     pub tiles: TileCache,
+    /// Split threshold (projected cell size, px) used by selection; geomorphing must use
+    /// the same scale so a tile equals its parent exactly where the parent would be drawn.
+    pub max_cell_px: f64,
     targets: Option<Targets>,
 }
 
@@ -187,7 +193,7 @@ impl PlanetRenderer {
             immediate_size: 0,
         });
         let vattrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32, 2 => Float32x3, 3 => Float32, 4 => Float32];
-        let iattrs = wgpu::vertex_attr_array![5 => Float32x3, 6 => Float32, 7 => Float32];
+        let iattrs = wgpu::vertex_attr_array![5 => Float32x3, 6 => Float32, 7 => Float32, 8 => Float32];
         let tile_buffers = [
             Some(wgpu::VertexBufferLayout {
                 array_stride: std::mem::size_of::<TileVertex>() as u64,
@@ -250,6 +256,7 @@ impl PlanetRenderer {
             heights,
             bind_group,
             tiles,
+            max_cell_px: 6.0,
             targets: None,
         };
         r.set_layer(device, queue, &LayerImage { width: 1, height: 1, rgba: vec![40, 80, 120, 255] });
@@ -396,6 +403,12 @@ impl PlanetRenderer {
             eye: [eye.x as f32, eye.y as f32, eye.z as f32, 1.0],
             params: [style.relief_shading, if style.ocean_specular { 1.0 } else { 0.0 }, style.radius_m as f32, w],
             map: [map.center_lon as f32, map.center_lat as f32, map.width_rad as f32, aspect as f32],
+            lod: [
+                (t.size[1] as f64 / (2.0 * (0.5 * cam.fov_y).tan())) as f32,
+                (self.max_cell_px * 0.5) as f32,
+                (self.max_cell_px * 0.35) as f32,
+                0.0,
+            ],
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&g));
 

@@ -394,7 +394,7 @@ impl RealmApp {
                 viewport_h_px: size_px[1] as f64,
                 fov_y: self.camera.fov_y,
                 tau_px: 2.0,
-                max_cell_px: 6.0,
+                max_cell_px: r.max_cell_px,
                 max_level: 14,
                 now_s: now,
             });

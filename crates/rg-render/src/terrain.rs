@@ -37,7 +37,9 @@ pub struct TileInstance {
     pub offset: [f32; 3],
     pub morph: f32,
     pub skirt_m: f32,
-    pub _pad: [f32; 3],
+    /// Ground size of one of this tile's cells, metres (for distance-based geomorphing).
+    pub cell_m: f32,
+    pub _pad: [f32; 2],
 }
 
 /// A tile ready for upload.
@@ -270,7 +272,7 @@ impl TileCache {
         let cell = std::f64::consts::FRAC_PI_2 * v.radius_m / (self.cells_per_tile * (1u64 << id.level) as f64);
         let skirt = (t.parent_error_m * v.exaggeration + cell * 0.25 + 5.0) as f32;
         let off = (t.center - v.eye).as_vec3();
-        self.draw.push((id, TileInstance { offset: off.to_array(), morph: morph as f32, skirt_m: skirt, _pad: [0.0; 3] }));
+        self.draw.push((id, TileInstance { offset: off.to_array(), morph: morph as f32, skirt_m: skirt, cell_m: cell as f32, _pad: [0.0; 2] }));
     }
 
     fn evict(&mut self) {

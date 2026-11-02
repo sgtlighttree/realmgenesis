@@ -26,7 +26,8 @@ pub struct TileData {
     pub normals: Vec<[f32; 3]>,
     /// Height above sea level (m, negative under the sea) at this tile's level.
     pub heights: Vec<f32>,
-    /// The same points at the parent's level, for the morph-in.
+    /// The parent tile's *mesh* surface under each vertex (parent-level heights, linearly
+    /// interpolated along the parent's triangles): the geomorph target.
     pub parent_heights: Vec<f32>,
     /// 1.0 for skirt vertices, 0.0 for grid vertices.
     pub skirt: Vec<f32>,
@@ -66,6 +67,10 @@ impl TileGenerator {
         // that match the neighbouring tile's, so lighting has no seams. Apron samples past
         // a face edge use uv_to_dir's smooth extrapolation, fine for a normal estimate.
         let m = N + 2;
+        // Heights on the (N+2)² grid (one apron ring for normals). The gully filter's slope
+        // comes from fixed 250 m finite differences inside `levels`, not from this grid, so
+        // every LOD level sees the same slope and a child's parent-level heights match the
+        // parent tile exactly (needed for seamless geomorphing).
         let mut surf = vec![DVec3::ZERO; m * m]; // true (exaggeration 1) surface
         let mut dirs = vec![DVec3::ZERO; m * m];
         let mut lv = vec![crate::HeightLevels { macro_h: 0.0, h: 0.0, h_parent: 0.0, h_child: 0.0 }; m * m];
@@ -126,6 +131,24 @@ impl TileGenerator {
                 let mid = id.face.uv_to_dir(u0 + (i as f64 + 0.5) * du, v0 + (j as f64 + 0.5) * dv);
                 let e = (self.sampler.macro_height(mid).max(0.0) - avg).abs();
                 out.child_error_m = out.child_error_m.max(e);
+            }
+        }
+        // Morph target: the *parent mesh's* surface at each vertex. Even (i, j) vertices
+        // coincide with parent vertices, so they keep the parent-level height. Odd ones lie
+        // on parent edges (average of the two ends) or on the parent quad's a–d diagonal,
+        // which is how quads are split into triangles (average of those corners). Morphing
+        // fully to this makes a fine tile identical to its coarser neighbour at the border.
+        let hp: Vec<f32> = out.parent_heights.clone();
+        let at = |i: usize, j: usize| hp[j * N + i];
+        for j in 0..N {
+            for i in 0..N {
+                let v = match (i % 2, j % 2) {
+                    (0, 0) => at(i, j),
+                    (1, 0) => 0.5 * (at(i - 1, j) + at(i + 1, j)),
+                    (0, 1) => 0.5 * (at(i, j - 1) + at(i, j + 1)),
+                    _ => 0.5 * (at(i - 1, j - 1) + at(i + 1, j + 1)),
+                };
+                out.parent_heights[j * N + i] = v;
             }
         }
         // Skirt: copies of the border. The shader drops them below the surface by a

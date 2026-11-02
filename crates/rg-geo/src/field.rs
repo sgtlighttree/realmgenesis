@@ -88,6 +88,25 @@ impl CubeField<f32> {
         top + (bot - top) * fy
     }
 
+    /// Bilinear sample at a unit direction, interpolated in f64. Use this when the result
+    /// is differentiated: f32 interpolation of values ~1e4 adds ~1e-3 rounding noise,
+    /// which finite differences turn into slope noise.
+    pub fn sample_f64(&self, dir: DVec3) -> f64 {
+        let (face, u, v) = CubeFace::from_dir(dir);
+        let r = self.res as f64;
+        let x = ((u + 1.0) * 0.5 * r).clamp(0.0, r);
+        let y = ((v + 1.0) * 0.5 * r).clamp(0.0, r);
+        let (i0, j0) = ((x.floor() as u32).min(self.res - 1), (y.floor() as u32).min(self.res - 1));
+        let (fx, fy) = (x - i0 as f64, y - j0 as f64);
+        let a = self.data[self.index(face, i0, j0)] as f64;
+        let b = self.data[self.index(face, i0 + 1, j0)] as f64;
+        let c = self.data[self.index(face, i0, j0 + 1)] as f64;
+        let d = self.data[self.index(face, i0 + 1, j0 + 1)] as f64;
+        let top = a + (b - a) * fx;
+        let bot = c + (d - c) * fx;
+        top + (bot - top) * fy
+    }
+
     pub fn min_max(&self) -> (f32, f32) {
         self.data.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)))
     }

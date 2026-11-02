@@ -15,4 +15,20 @@ fn main() {
     for (h, lat, lon) in pts.iter().step_by(400).take(8) {
         println!("{h:7.0} m  lat {lat:7.2}  lon {lon:7.2}");
     }
+    // Rugged spots: largest height difference to a neighbouring sample (steep macro relief).
+    let res = f.res;
+    let mut rugged: Vec<(f32, f64, f64)> = Vec::new();
+    for (k, face, i, j, d) in f.iter_samples() {
+        if i == 0 || j == 0 || i == res || j == res || f.data[k] <= 500.0 {
+            continue;
+        }
+        let nb = [f.index(face, i + 1, j), f.index(face, i - 1, j), f.index(face, i, j + 1), f.index(face, i, j - 1)];
+        let relief = nb.iter().map(|&n| (f.data[n] - f.data[k]).abs()).fold(0.0f32, f32::max);
+        rugged.push((relief, d.z.asin().to_degrees(), d.y.atan2(d.x).to_degrees()));
+    }
+    rugged.sort_by(|a, b| b.0.total_cmp(&a.0));
+    println!("-- rugged (max neighbour step, m):");
+    for (r, lat, lon) in rugged.iter().step_by(300).take(6) {
+        println!("{r:7.0} m  lat {lat:7.2}  lon {lon:7.2}");
+    }
 }

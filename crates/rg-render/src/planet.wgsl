@@ -10,6 +10,7 @@ struct Globals {
     eye: vec4<f32>,      // xyz camera position (globe)
     params: vec4<f32>,   // x: relief shading strength, y: ocean specular on/off, z: radius m, w: exaggeration (globe) / hillshade exaggeration (map)
     map: vec4<f32>,      // x: centre lon (rad), y: centre lat (rad), z: view width (rad of lon), w: aspect (w/h)
+    lod: vec4<f32>,      // x: px per radian, y: cell px where tiles show their parent surface, z: morph range px
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
@@ -61,6 +62,7 @@ struct TileIn {
     @location(5) offset: vec3<f32>,
     @location(6) morph: f32,
     @location(7) skirt_m: f32,
+    @location(8) cell_m: f32,
 };
 
 struct TileOut {
@@ -76,7 +78,14 @@ fn vs_tile(v: TileIn) -> TileOut {
     let local = v.offset + v.pos;              // sea-level point relative to the eye
     let up = normalize(g.eye.xyz + local);     // direction only: f32 is plenty
     let exag = g.params.w;
-    let h = mix(v.parent_height_m, v.height_m, v.morph);
+    // Geomorph (CDLOD-style): where this tile's cells project small enough that its parent
+    // would be drawn instead, show the parent's surface exactly; blend to full detail as
+    // cells grow. Neighbouring tiles of different levels then meet without steps. Combined
+    // with the time-based morph-in for freshly streamed tiles.
+    let dist = max(length(local), 1.0);
+    let cell_px = v.cell_m / dist * g.lod.x;
+    let dist_morph = clamp((cell_px - g.lod.y) / max(g.lod.z, 0.01), 0.0, 1.0);
+    let h = mix(v.parent_height_m, v.height_m, min(v.morph, dist_morph));
     let lift = max(h, 0.0) * exag - v.skirt * v.skirt_m;
     var o: TileOut;
     o.rel = local + up * lift;

@@ -15,6 +15,7 @@
 //! enough down to centimetres. The GPU port must switch to integer lattice coordinates
 //! from the tile address (ARCHITECTURE §4).
 
+pub mod erosion_filter;
 pub mod tile;
 
 pub use tile::{tile_indices, TileData, TileGenerator, TILE_CELLS};
@@ -35,15 +36,21 @@ pub struct TerrainSampler {
     pub radius_m: f64,
     salt: u32,
     ridge_salt: u32,
+    gully_salt: u32,
     /// Wavelength of the first detail octave (m): about two macro cells.
     base_wavelength_m: f64,
+    /// Wavelength of the first erosion-filter octave (m).
+    pub gully_wavelength_m: f64,
+    /// Metres per erosion-filter unit (maps the filter's first octave to the above).
+    gully_unit_m: f64,
+    /// Amplitude tuning (see the constants of the same name).
+    hill_slope: f64,
+    gully_strength: f64,
     /// Finest wavelength ever generated (m).
     floor_wavelength_m: f64,
 }
 
-/// Amplitude ratio between successive octaves. 0.58 ≈ a Hurst exponent of 0.8, close to
-/// measured spectra of real terrain (rougher than the textbook 0.5).
-const GAIN: f64 = 0.58;
+
 
 impl TerrainSampler {
     pub fn new(macro_h: Arc<CubeField<f32>>, radius_m: f64, seed: u64) -> Self {
@@ -53,14 +60,19 @@ impl TerrainSampler {
             radius_m,
             salt: rg_noise::salt(seed, 0x7E44),
             ridge_salt: rg_noise::salt(seed, 0x7E45),
+            gully_salt: rg_noise::salt(seed, 0x7E46),
             base_wavelength_m: 2.0 * macro_cell_m,
+            gully_wavelength_m: GULLY_WAVELENGTH_M,
+            gully_unit_m: GULLY_WAVELENGTH_M / (0.15 * 0.7),
+            hill_slope: tune("RG_HILL_SLOPE", HILL_SLOPE),
+            gully_strength: tune("RG_GULLY_STRENGTH", GULLY_STRENGTH),
             floor_wavelength_m: 12.0,
         }
     }
 
     /// Macro (committed) height at a unit direction, metres above sea level.
     pub fn macro_height(&self, dir: DVec3) -> f64 {
-        self.macro_h.sample(dir) as f64
+        self.macro_h.sample_f64(dir)
     }
 
     /// Full height (metres above sea level) at `dir`, keeping only detail octaves with a
@@ -76,6 +88,26 @@ impl TerrainSampler {
     /// - `h_child`: the child level (≥ ½ × that), used to measure this tile's error.
     pub fn levels(&self, dir: DVec3, min_wavelength_m: f64) -> HeightLevels {
         let m = self.macro_height(dir);
+        if m <= 0.0 {
+            return HeightLevels { macro_h: m, h: m, h_parent: m, h_child: m };
+        }
+        // Single-point queries estimate the slope by forward differences; tiles pass the
+        // slope from their own grid instead (see `tile.rs`), which is much cheaper.
+        let east = DVec3::Z.cross(dir).normalize_or(DVec3::X);
+        let north = dir.cross(east);
+        let step = 250.0;
+        let ang = step / self.radius_m;
+        let b0 = self.base_surface(dir);
+        let be = self.base_surface((dir + east * ang).normalize());
+        let bn = self.base_surface((dir + north * ang).normalize());
+        let grad3 = east * ((be - b0) / step) + north * ((bn - b0) / step);
+        self.levels_with_slope(dir, min_wavelength_m, grad3)
+    }
+
+    /// As [`Self::levels`], with the slope (3D tangent gradient, m/m) of the base surface
+    /// supplied by the caller.
+    pub fn levels_with_slope(&self, dir: DVec3, min_wavelength_m: f64, grad3: DVec3) -> HeightLevels {
+        let m = self.macro_height(dir);
         // Oceans render flat at sea level, so skip detail there entirely (~70% of the
         // planet). The coast fade below makes this continuous at m = 0.
         if m <= 0.0 {
@@ -85,43 +117,161 @@ impl TerrainSampler {
         let lim_parent = (2.0 * min_wavelength_m).max(self.floor_wavelength_m);
         let lim_child = (0.5 * min_wavelength_m).max(self.floor_wavelength_m);
 
-        // Context: rugged in mountains, gentle on lowlands.
-        let amp0 = 90.0 + 0.16 * m;
-        let ridged_w = smoothstep(400.0, 2800.0, m);
+        // 1. Hills: low-frequency relief between the macro cell size and the largest gully
+        //    wavelength, band-limited per LOD.
+        let hl = self.hills(dir, m, [lim, lim_parent, lim_child]);
 
-        let (mut d, mut d_parent, mut d_child) = (0.0, 0.0, 0.0);
+        // 2. Gullies: the erosion filter carves branching drainage down the slope of the
+        //    *full* hill surface (not band-limited, so gully directions don't shift between
+        //    LOD levels). The macro surface is already river-eroded, so its slopes lead into
+        //    the macro valleys and the gullies drain into them.
+        let g = if lim_child <= self.gully_wavelength_m {
+            // Ridge/valley position in the hill relief (high = ridge), for the filter's rounding.
+            let hill_scale = self.hill_slope * HILL_ROLLOFF_M / std::f64::consts::TAU * 2.0;
+            let fade = (hl.full / hill_scale.max(1.0)).clamp(-1.0, 1.0);
+            let unit = self.gully_unit_m;
+            let pos = dir * (self.radius_m / unit);
+            let cut = [lim, lim_parent, lim_child].map(|c| c / unit);
+            erosion_filter::erosion_filter_sphere(
+                pos,
+                dir,
+                grad3,
+                (m + hl.full) / unit,
+                fade,
+                &erosion_filter::FilterParams::default(),
+                cut,
+                DIFFUSION_WAVELENGTH_M / unit,
+                self.gully_salt,
+            )
+        } else {
+            erosion_filter::Banded::default()
+        };
+        // Valley depth follows local relief: full in mountains, gentle on lowland plains.
+        let relief = self.relief(dir, m);
+        let u = self.gully_unit_m * self.gully_strength * relief;
+        HeightLevels {
+            macro_h: m,
+            h: coast_rule(m, hl.level + g.at_level * u),
+            h_parent: coast_rule(m, hl.parent + g.at_parent * u),
+            h_child: coast_rule(m, hl.child + g.at_child * u),
+        }
+    }
+
+    /// Hill octaves (fBm + ridges in mountains) from two macro cells down to twice the
+    /// first gully wavelength: the full sum plus the three LOD-banded sums.
+    fn hills(&self, dir: DVec3, m: f64, cutoffs: [f64; 3]) -> Hills {
+        let [lim, lim_parent, lim_child] = cutoffs;
+        // Uneroded relief below the macro grid's resolution: a constant-slope spectrum
+        // (each octave adds slopes of about HILL_SLOPE) scaled by how mountainous the macro
+        // terrain is. The gully filter then carves valleys into this, as in Johansen's
+        // design, which assumes a base already rough at the gully scale.
+        let relief = self.relief(dir, m);
+        // No ridged noise: (1 − |n|)² kinks along every zero-contour of the noise, drawing long
+        // crisp arcs (seen at 25 km, s01). The gully filter sharpens ridges physically instead.
+        let ridged_w = 0.0;
+        let mut out = Hills::default();
         let mut wl = self.base_wavelength_m;
-        let mut amp = amp0;
         let mut octave = 0u32;
-        while wl >= lim_child && octave < 24 {
+        while wl >= self.gully_wavelength_m && octave < 12 {
+            // Constant slope below HILL_ROLLOFF_M; amplitude saturates above it (relief is
+            // limited by rock strength, and the macro surface already carries the long
+            // wavelengths).
+            let amp = self.hill_slope * wl / std::f64::consts::TAU / (1.0 + wl / HILL_ROLLOFF_M) * relief;
             let p = dir * (self.radius_m / wl);
             let off = DVec3::new(octave as f64 * 31.7, octave as f64 * -17.3, octave as f64 * 9.1);
             let n = rg_noise::gradient3(p + off, self.salt.wrapping_add(octave));
-            // Ridged octaves for the first few (large) scales in mountains: crests and
-            // valleys instead of blobs.
-            let v = if ridged_w > 0.0 && octave < 6 {
-                // Classic ridge (1 − |n|)²: a sharp crest where n = 0, smooth everywhere
-                // else. (An earlier (1 − 1.6|n|)² creased along |n| = 0.625: scalloped arcs.)
+            let v = if ridged_w > 0.0 {
+                // Classic ridge (1 − |n|)²: sharp crests.
                 let r = 1.0 - rg_noise::gradient3(p - off, self.ridge_salt.wrapping_add(octave)).abs();
                 n * (1.0 - ridged_w) + (r * r * 2.0 - 0.8) * ridged_w
             } else {
                 n
             };
             let c = v * amp;
-            d_child += c;
+            out.full += c;
+            if wl >= lim_child {
+                out.child += c;
+            }
             if wl >= lim {
-                d += c;
+                out.level += c;
             }
             if wl >= lim_parent {
-                d_parent += c;
+                out.parent += c;
             }
-            amp *= GAIN;
             wl *= 0.5;
             octave += 1;
         }
-        HeightLevels { macro_h: m, h: coast_rule(m, d), h_parent: coast_rule(m, d_parent), h_child: coast_rule(m, d_child) }
+        out
+    }
+
+    /// How rugged the terrain is here, 0–1: local relief follows how steep the committed
+    /// macro surface is (active, incising belts are steep), **not** elevation (a high
+    /// plateau like Tibet is gentle; a low coastal range can be brutally steep). Measured
+    /// on the macro field alone by 10 km differences, so it's smooth and identical at every
+    /// LOD. Fades to nothing at sea level.
+    pub fn relief(&self, dir: DVec3, m: f64) -> f64 {
+        let east = DVec3::Z.cross(dir).normalize_or(DVec3::X);
+        let north = dir.cross(east);
+        let step = 10_000.0;
+        let ang = step / self.radius_m;
+        let me = self.macro_height((dir + east * ang).normalize());
+        let mw = self.macro_height((dir - east * ang).normalize());
+        let mn = self.macro_height((dir + north * ang).normalize());
+        let ms = self.macro_height((dir - north * ang).normalize());
+        let slope = (((me - mw) / (2.0 * step)).powi(2) + ((mn - ms) / (2.0 * step)).powi(2)).sqrt();
+        let belt = smoothstep(RELIEF_SLOPE_LO, RELIEF_SLOPE_HI, slope);
+        (HILL_LOWLAND + (1.0 - HILL_LOWLAND) * belt) * smoothstep(0.0, 300.0, m)
+    }
+
+    /// The full hill surface (macro + all hill octaves), whose slope steers the gullies.
+    pub fn base_surface(&self, dir: DVec3) -> f64 {
+        let m = self.macro_height(dir);
+        if m <= 0.0 {
+            return m;
+        }
+        m + self.hills(dir, m, [0.0, 0.0, 0.0]).full
     }
 }
+
+/// Native-only tuning override from an environment variable (for parameter sweeps in the
+/// container; unset in normal use, so generation stays deterministic).
+fn tune(var: &str, default: f64) -> f64 {
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(v) = std::env::var(var).ok().and_then(|v| v.parse().ok()) {
+        return v;
+    }
+    let _ = var;
+    default
+}
+
+#[derive(Default)]
+struct Hills {
+    full: f64,
+    level: f64,
+    parent: f64,
+    child: f64,
+}
+
+/// Hill relief: slope contributed by each octave in mountains (×relief), and the share of
+/// that kept on lowland plains.
+const HILL_SLOPE: f64 = 1.5;
+const HILL_LOWLAND: f64 = 0.12;
+/// Macro slope range mapping to relief 0 → 1 (tan of slope, measured over 20 km).
+const RELIEF_SLOPE_LO: f64 = 0.004;
+const RELIEF_SLOPE_HI: f64 = 0.04;
+/// Wavelength above which hill amplitude stops growing, metres.
+const HILL_ROLLOFF_M: f64 = 4000.0;
+/// First (largest) gully wavelength, metres.
+const GULLY_WAVELENGTH_M: f64 = 4000.0;
+
+/// Hillslope-diffusion length: gully octaves shorter than this are progressively smoothed
+/// (soil creep), as on real hillslopes.
+const DIFFUSION_WAVELENGTH_M: f64 = 150.0;
+
+/// Valley/gully depth multiplier. The filter's octave amplitude is strength/cell_scale·λ
+/// (≈ 0.31 λ at 1.0), i.e. constant slope per octave (gain 0.5 with lacunarity 2): at
+/// 0.15 each octave contributes slopes up to ~0.3, and several stack in steep terrain.
+const GULLY_STRENGTH: f64 = 2.0;
 
 /// Heights of one point at three LOD levels; see [`TerrainSampler::levels`].
 #[derive(Clone, Copy, Debug, PartialEq)]
