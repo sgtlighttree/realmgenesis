@@ -53,7 +53,16 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 - **River overlay:** coverage in the layer alpha, faded when zoomed in. This fixes Matt's "terrain near rivers doesn't generate".
 - **Web preview v7** at the URL above, with all of the above.
 
-**Next, in order:**
+**Climate → erosion (done):** precipitation-weighted drainage; climate runs before and after erosion; wettest third of land erodes 7.1× the driest (it was 0.98×).
+
+**Scientific review (s01 log, "Whole-pipeline scientific review"):** next steps in its order:
+1. Earth reference harness (SRTM/GEBCO crops) + final-surface metrics (slope–area, Hack, Horton/Tokunaga, spectrum, shelf width, continental slope, ridge axis).
+2. Endorheic basins/lakes from a water balance (climate is now in erosion).
+3. Crustal thickness + isostasy instead of the hypsometric remap (hypsometry as a check only).
+4. Sediment: transport-limited deposition (Yuan et al. 2019) and deltas/fans.
+5. Glacial (ELA buzzsaw, U-valleys); ridge–transform segmentation; abyssal-hill fabric.
+
+**Also next:**
 1. **Tile cost:** 85–240 ms per tile natively (gullies: 9–33). Ideas: per-level window reuse across tiles, cheaper attach for the finest level, and eventually the GPU port. The web is single-threaded, so it streams slowly.
 2. **Looks:** the uniform flat floodplain band of big rivers; faint arcs (reach walls); verify the globe app natively (Xvfb), including river areas.
 3. **Final-surface hypsometry** (mean ~100 m below macro): a strictly increasing remap g with g(0) = 0. Stored receivers instead of flow_dir snapping.
