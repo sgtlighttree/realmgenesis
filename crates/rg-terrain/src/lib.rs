@@ -100,8 +100,10 @@ impl TerrainSampler {
             // Ridged octaves for the first few (large) scales in mountains: crests and
             // valleys instead of blobs.
             let v = if ridged_w > 0.0 && octave < 6 {
-                let r = 1.0 - rg_noise::gradient3(p - off, self.ridge_salt.wrapping_add(octave)).abs() * 1.6;
-                n * (1.0 - ridged_w) + (r * r * 2.0 - 0.7) * ridged_w
+                // Classic ridge (1 − |n|)²: a sharp crest where n = 0, smooth everywhere
+                // else. (An earlier (1 − 1.6|n|)² creased along |n| = 0.625: scalloped arcs.)
+                let r = 1.0 - rg_noise::gradient3(p - off, self.ridge_salt.wrapping_add(octave)).abs();
+                n * (1.0 - ridged_w) + (r * r * 2.0 - 0.8) * ridged_w
             } else {
                 n
             };

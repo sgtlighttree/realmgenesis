@@ -115,6 +115,19 @@ impl TileGenerator {
                 out.parent_error_m = out.parent_error_m.max((lv[k].h.max(0.0) - lv[k].h_parent.max(0.0)).abs());
             }
         }
+        // Macro undersampling: a coarse tile's cells can be wider than the macro field's,
+        // so mountains between vertices get cut off. Compare the macro height at each cell
+        // centre with the average of its corners and fold that into the split error.
+        for j in 0..N - 1 {
+            for i in 0..N - 1 {
+                let k = (j + 1) * m + (i + 1);
+                let corners = [lv[k].macro_h, lv[k + 1].macro_h, lv[k + m].macro_h, lv[k + m + 1].macro_h];
+                let avg = corners.iter().map(|h| h.max(0.0)).sum::<f64>() / 4.0;
+                let mid = id.face.uv_to_dir(u0 + (i as f64 + 0.5) * du, v0 + (j as f64 + 0.5) * dv);
+                let e = (self.sampler.macro_height(mid).max(0.0) - avg).abs();
+                out.child_error_m = out.child_error_m.max(e);
+            }
+        }
         // Skirt: copies of the border. The shader drops them below the surface by a
         // per-tile depth, hiding cracks against coarser neighbours.
         for (i, j) in skirt_border() {

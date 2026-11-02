@@ -97,12 +97,7 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
     ui.add(egui::Slider::new(&mut t.continent_count_hint, 1..=12).text("continents"));
     ui.add(egui::Slider::new(&mut t.mountain_scale, 0.3..=2.0).text("mountains"));
     ui.add(egui::Slider::new(&mut t.roughness, 0.3..=2.0).text("roughness"));
-    ui.horizontal(|ui| {
-        ui.label("Detail");
-        for (label, res) in [("Draft", 96), ("Normal", 192), ("High", 288)] {
-            ui.selectable_value(&mut t.res, res, label);
-        }
-    });
+    detail_picker(ui, &mut t.res, t.radius_m);
     let generate = egui::Button::new(egui::RichText::new("Generate world").strong())
         .fill(theme::ACCENT.linear_multiply(0.45));
     if ui.add_sized([ui.available_width(), 30.0], generate).on_hover_text("G").clicked() {
@@ -146,12 +141,8 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
     if layer != app.layer {
         app.push(Command::SetLayer(layer));
     }
-    let mut mesh_changed = false;
-    mesh_changed |= ui.add(egui::Slider::new(&mut app.display.exaggeration, 1.0..=80.0).text("relief ×")).drag_stopped();
-    mesh_changed |= ui.add(egui::Slider::new(&mut app.display.mesh_res, 64..=320).text("globe mesh")).drag_stopped();
-    if mesh_changed {
-        app.push(Command::RebuildMesh);
-    }
+    ui.add(egui::Slider::new(&mut app.display.exaggeration, 1.0..=60.0).text("relief × (orbit)"))
+        .on_hover_text("Vertical exaggeration seen from orbit. It fades to 1.5× as you zoom in to the ground.");
     ui.add(egui::Slider::new(&mut app.style.map_exaggeration, 1.0..=40.0).text("map hillshade"));
     if ui.button("Reset view").clicked() {
         app.push(Command::ResetCamera);
@@ -174,20 +165,103 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
     // ---------------------------------------------------------------- perf
     section(ui, "Performance");
     let s = &app.stats;
-    ui.monospace(format!("frame    {:6.1} ms (worst {:.0})", s.avg_ms(), s.worst_ms()));
+    let fps = match s.fps(crate::app::now_s()) {
+        Some(f) => format!("{f:6.0}"),
+        None => "  idle".to_string(),
+    };
+    ui.monospace(format!("fps      {fps}"))
+        .on_hover_text("Frames actually presented in the last second. 'idle' = not repainting (nothing is moving).");
+    ui.monospace(format!("cpu      {:6.1} ms (worst {:.1})", s.cpu_avg_ms(), s.cpu_worst_ms()))
+        .on_hover_text("Time our code spends per frame (UI + render submission), averaged over 2 s. GPU time isn't included.");
     if let Some(w) = app.world.as_ref() {
         ui.monospace(format!("tecton.  {:6.0} ms", w.timings.tectonics_ms));
         ui.monospace(format!("climate  {:6.0} ms", w.timings.climate_ms));
     }
     ui.monospace(format!("bake     {:6.0} ms", s.bake_ms));
-    ui.monospace(format!("mesh     {:6.0} ms  {} tris", s.mesh_ms, s.triangles));
+    if app.view == ViewMode::Globe {
+        ui.monospace(format!("tiles    {:>4} drawn  {:>4} cached", s.tiles_drawn, s.tiles_resident))
+            .on_hover_text("Terrain tiles on screen / held in memory. Each is 64×64 cells.");
+        ui.monospace(format!("loading  {:>4}", s.tiles_in_flight));
+        let alt = app.camera.altitude_m();
+        let alt = if alt >= 10_000.0 { format!("{:.0} km", alt / 1000.0) } else { format!("{alt:.0} m") };
+        ui.monospace(format!("altitude {alt:>8}  relief ×{:.1}", s.exaggeration));
+    }
     ui.label(egui::RichText::new(&app.adapter_info).small().color(theme::MUTED));
     ui.add_space(4.0);
     ui.label(
-        egui::RichText::new("G generate · R random · H panel · M map/globe · 1–8 layers · drag to move · scroll to zoom")
+        egui::RichText::new(
+            "G generate · R random · H panel · M map/globe · 1–8 layers · drag to move · scroll to zoom · \
+             right-drag (or Shift+drag, or two fingers) to tilt and turn",
+        )
             .small()
             .color(theme::MUTED),
     );
+}
+
+/// Base-grid resolution presets (cube-face cells per edge). Cell size is about
+/// `pi/2 * radius / res`, so on an Earth-sized planet Draft is ~52 km and Ultra ~10 km.
+const DETAIL_PRESETS: [(&str, u32); 5] =
+    [("Draft", 192), ("Normal", 320), ("High", 448), ("XHigh", 640), ("Ultra", 1024)];
+const DETAIL_MIN_RES: u32 = 32;
+const DETAIL_MAX_RES: u32 = 1536;
+
+/// Size of one grid cell in km for a given resolution and planet radius.
+fn cell_km(res: u32, radius_m: f64) -> f64 {
+    std::f64::consts::FRAC_PI_2 * radius_m / 1000.0 / res as f64
+}
+
+/// The "Detail" row: preset buttons, a custom slider in km per cell, and a readout.
+fn detail_picker(ui: &mut egui::Ui, res: &mut u32, radius_m: f64) {
+    // Whether "Custom" is the chosen mode. It's kept in egui's temporary memory, because
+    // a custom value can equal a preset's value and the buttons then look the same.
+    let mode_id = egui::Id::new("detail_custom_mode");
+    let mut custom = ui.data(|d| d.get_temp::<bool>(mode_id)).unwrap_or(false);
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Detail");
+        for (label, res) in DETAIL_PRESETS {
+            if ui.selectable_label(!custom && *res == res, label).clicked() {
+                *res = res;
+                custom = false;
+            }
+        }
+        let is_custom_value = !DETAIL_PRESETS.iter().any(|&(_, r)| r == *res);
+        if ui.selectable_label(custom || is_custom_value, "Custom").clicked() {
+            custom = true;
+        }
+    });
+    if custom || !DETAIL_PRESETS.iter().any(|&(_, r)| r == *res) {
+        let mut km = cell_km(*res, radius_m);
+        let slider = egui::Slider::new(&mut km, 5.0..=100.0).logarithmic(true).text("km / cell").max_decimals(0);
+        if ui.add(slider).changed() {
+            let res = (std::f64::consts::FRAC_PI_2 * radius_m / 1000.0 / km).round();
+            *res = (res as u32).clamp(DETAIL_MIN_RES, DETAIL_MAX_RES);
+        }
+    }
+    ui.data_mut(|d| d.insert_temp(mode_id, custom));
+
+    let points = 6.0 * (*res as f64 + 1.0).powi(2);
+    ui.label(
+        egui::RichText::new(format!(
+            "≈ {:.0} km cells · {:.1} M points · est. {}",
+            cell_km(*res, radius_m),
+            points / 1.0e6,
+            fmt_seconds(estimate_generate_s(*res)),
+        ))
+        .small()
+        .color(theme::MUTED),
+    );
+}
+
+/// Rough generation time (tectonics + climate), fitted to release-build timings on a
+/// 4-core x86 machine: about 16 µs per cell of `res²`, near-linear in the point count.
+/// The web build is single-threaded, so it's several times slower.
+fn estimate_generate_s(res: u32) -> f64 {
+    let native = 1.6e-5 * (res as f64).powi(2) + 0.2;
+    if cfg!(target_arch = "wasm32") { native * 3.0 } else { native }
+}
+
+fn fmt_seconds(s: f64) -> String {
+    if s < 10.0 { format!("{s:.1} s") } else { format!("{s:.0} s") }
 }
 
 fn status_bar(app: &RealmApp, ui: &mut egui::Ui) {
@@ -205,10 +279,18 @@ fn viewport(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) 
     let rect = ui.available_rect_before_wrap();
     let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
     let aspect = (rect.width() / rect.height().max(1.0)) as f64;
-    if response.dragged() {
+    let multi = ui.input(|i| i.multi_touch());
+    if let (ViewMode::Globe, Some(mt)) = (app.view, multi) {
+        // Two fingers: twist to turn, slide up/down to tilt (pinch zoom is handled below).
+        app.camera.orbit(-mt.rotation_delta as f64, -mt.translation_delta.y as f64 * 0.005);
+    } else if response.dragged() {
         let d = response.drag_delta();
+        let rotate = response.dragged_by(egui::PointerButton::Secondary)
+            || response.dragged_by(egui::PointerButton::Middle)
+            || ui.input(|i| i.modifiers.shift);
         match app.view {
-            ViewMode::Globe => app.camera.drag(d.x as f64, d.y as f64, rect.height() as f64),
+            ViewMode::Globe if rotate => app.camera.orbit(d.x as f64 * 0.006, -d.y as f64 * 0.006),
+            ViewMode::Globe => app.camera.pan(d.x as f64, d.y as f64, rect.height() as f64),
             ViewMode::Map => app.map.drag(d.x as f64, d.y as f64, rect.width() as f64),
         }
     }
@@ -271,7 +353,7 @@ fn viewport(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) 
         ui.painter().rect_filled(r, 6.0, theme::PANEL.gamma_multiply(0.92));
         ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, msg, egui::FontId::proportional(15.0), theme::TEXT);
     }
-    if response.dragged() || response.hovered() || app.busy.is_some() {
+    if response.dragged() || response.hovered() || app.busy.is_some() || app.streaming {
         ui.ctx().request_repaint();
     }
 }

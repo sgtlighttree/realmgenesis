@@ -4,9 +4,13 @@
 //! M1 replaces the mesh with the streamed tile quadtree.
 
 pub mod camera;
+pub mod earth_camera;
 pub mod mesh;
 pub mod planet;
+pub mod terrain;
 
 pub use camera::OrbitCamera;
+pub use earth_camera::EarthCamera;
 pub use mesh::{PlanetMesh, Vertex};
+pub use terrain::{SelectView, Selection, TileCache, TileInstance, TileUpload, TileVertex};
 pub use planet::{HeightImage, LayerImage, MapView, PlanetRenderer, RenderStyle, ViewMode};

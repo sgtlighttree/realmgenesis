@@ -13,8 +13,6 @@ pub enum Command {
     RandomizeSeed,
     /// Re-run only the climate with the current planet parameters.
     RerunClimate,
-    /// Rebuild the globe mesh (display settings changed).
-    RebuildMesh,
     SetLayer(Layer),
     SetView(ViewMode),
     ResetCamera,

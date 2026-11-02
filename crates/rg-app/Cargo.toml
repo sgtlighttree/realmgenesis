@@ -15,6 +15,7 @@ rg-noise.workspace = true
 rg-render.workspace = true
 rg-pipeline = { path = "../rg-pipeline" }
 rg-world = { path = "../rg-world" }
+rg-terrain = { path = "../rg-terrain" }
 eframe.workspace = true
 egui.workspace = true
 egui-wgpu = "0.37"

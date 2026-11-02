@@ -8,7 +8,7 @@ struct Globals {
     view_proj: mat4x4<f32>,
     sun_dir: vec4<f32>,  // xyz towards the sun (planet frame)
     eye: vec4<f32>,      // xyz camera position (globe)
-    params: vec4<f32>,   // x: relief shading strength, y: ocean specular on/off, z: radius m, w: map exaggeration
+    params: vec4<f32>,   // x: relief shading strength, y: ocean specular on/off, z: radius m, w: exaggeration (globe) / hillshade exaggeration (map)
     map: vec4<f32>,      // x: centre lon (rad), y: centre lat (rad), z: view width (rad of lon), w: aspect (w/h)
 };
 
@@ -45,39 +45,66 @@ fn height_at(uv: vec2<f32>) -> f32 {
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
-// ---------------------------------------------------------------- globe
+// ---------------------------------------------------------------- globe (streamed tiles)
+//
+// Camera-relative: g.view_proj has the eye at the origin, and each tile instance carries
+// (tile centre − eye) computed in f64 on the CPU. g.eye is the absolute eye (f32, ~0.5 m
+// precision), used only for directions (local up, lat/lon), never for positions.
+// g.params.w is the vertical exaggeration in globe mode.
 
-struct VsIn {
+struct TileIn {
     @location(0) pos: vec3<f32>,
     @location(1) height_m: f32,
     @location(2) normal: vec3<f32>,
+    @location(3) parent_height_m: f32,
+    @location(4) skirt: f32,
+    @location(5) offset: vec3<f32>,
+    @location(6) morph: f32,
+    @location(7) skirt_m: f32,
 };
 
-struct GlobeOut {
+struct TileOut {
     @builtin(position) clip: vec4<f32>,
-    @location(0) world: vec3<f32>,
+    @location(0) rel: vec3<f32>,
     @location(1) height_m: f32,
     @location(2) normal: vec3<f32>,
+    @location(3) up: vec3<f32>,
 };
 
 @vertex
-fn vs_globe(v: VsIn) -> GlobeOut {
-    var o: GlobeOut;
-    o.clip = g.view_proj * vec4<f32>(v.pos, 1.0);
-    o.world = v.pos;
-    o.height_m = v.height_m;
-    o.normal = v.normal;
+fn vs_tile(v: TileIn) -> TileOut {
+    let local = v.offset + v.pos;              // sea-level point relative to the eye
+    let up = normalize(g.eye.xyz + local);     // direction only: f32 is plenty
+    let exag = g.params.w;
+    let h = mix(v.parent_height_m, v.height_m, v.morph);
+    let lift = max(h, 0.0) * exag - v.skirt * v.skirt_m;
+    var o: TileOut;
+    o.rel = local + up * lift;
+    o.clip = g.view_proj * vec4<f32>(o.rel, 1.0);
+    o.height_m = h;
+    // Steepen the exaggeration-1 normal by the exaggeration.
+    let n = v.normal;
+    let along = dot(n, up);
+    o.normal = normalize(up * along + (n - up * along) * exag);
+    o.up = up;
     return o;
 }
 
 @fragment
-fn fs_globe(i: GlobeOut) -> @location(0) vec4<f32> {
-    let up = normalize(i.world);
+fn fs_tile(i: TileOut) -> @location(0) vec4<f32> {
+    let up = normalize(i.up);
     let lon = atan2(up.y, up.x);
     let lat = asin(clamp(up.z, -1.0, 1.0));
-    let base = albedo(lon, lat);
+    var base = albedo(lon, lat);
+    // Steep slopes show bare rock whatever the biome (the biome layer is ~km-scale).
+    if (i.height_m > 0.0) {
+        let slope = 1.0 - dot(normalize(i.normal), normalize(i.up));
+        let rock = smoothstep(0.12, 0.35, slope) * g.params.x;
+        base = mix(base, vec3<f32>(0.20, 0.18, 0.16), rock * 0.7);
+    }
     let sun = normalize(g.sun_dir.xyz);
-    let view = normalize(g.eye.xyz - i.world);
+    let dist = length(i.rel);
+    let view = -i.rel / max(dist, 1e-3);
     let ocean = i.height_m < 0.0;
     var n = up;
     if (!ocean) {
@@ -92,8 +119,17 @@ fn fs_globe(i: GlobeOut) -> @location(0) vec4<f32> {
         let hlf = normalize(sun + view);
         lit += vec3<f32>(1.0, 0.95, 0.85) * pow(max(dot(n, hlf), 0.0), 400.0) * 0.35 * day;
     }
+    // Atmosphere: a rim at grazing angles from orbit, aerial haze with distance near the
+    // ground (scaled to the planet radius so it works for any planet size).
     let rim = pow(1.0 - max(dot(up, view), 0.0), 3.0);
+    let sky = vec3<f32>(0.42, 0.60, 0.92) * (0.25 + 0.75 * day);
     lit += vec3<f32>(0.30, 0.50, 0.90) * rim * 0.30 * (0.2 + 0.8 * day);
+    // Haze only matters near the ground: from orbit a ray crosses little air (the rim
+    // covers the limb). Fade it in below ~3% of the radius in altitude.
+    let altitude = length(g.eye.xyz) - g.params.z;
+    let near_ground = 1.0 - smoothstep(0.004 * g.params.z, 0.03 * g.params.z, altitude);
+    let haze = (1.0 - exp(-dist / (g.params.z * 0.02))) * near_ground;
+    lit = mix(lit, sky, clamp(haze, 0.0, 1.0) * 0.6);
     return vec4<f32>(lit, 1.0);
 }
 

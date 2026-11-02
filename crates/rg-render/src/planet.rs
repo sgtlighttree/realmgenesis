@@ -4,10 +4,10 @@
 //! app bakes for the active layer: satellite, Köppen, plates…) and **height texture**
 //! (metres, used for 2D hillshade). The globe additionally uses a displaced mesh.
 
-use crate::{OrbitCamera, PlanetMesh, Vertex};
+use crate::terrain::{TileCache, TileInstance, TileVertex};
+use crate::EarthCamera;
 use bytemuck::{Pod, Zeroable};
 use glam::DVec3;
-use wgpu::util::DeviceExt;
 
 pub const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -113,7 +113,7 @@ struct Targets {
 }
 
 pub struct PlanetRenderer {
-    globe_pipeline: wgpu::RenderPipeline,
+    tile_pipeline: wgpu::RenderPipeline,
     map_pipeline: wgpu::RenderPipeline,
     bgl: wgpu::BindGroupLayout,
     globals: wgpu::Buffer,
@@ -121,14 +121,15 @@ pub struct PlanetRenderer {
     albedo: wgpu::Texture,
     heights: wgpu::Texture,
     bind_group: wgpu::BindGroup,
-    vertex_buf: Option<wgpu::Buffer>,
-    index_buf: Option<wgpu::Buffer>,
-    index_count: u32,
+    /// The streamed globe terrain.
+    pub tiles: TileCache,
     targets: Option<Targets>,
 }
 
 impl PlanetRenderer {
-    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+    /// `tile_indices` / `tile_cells`: the shared tile index buffer and cells per tile edge
+    /// (from rg-terrain). `tile_capacity`: max resident tiles.
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, tile_indices: &[u32], tile_cells: u32, tile_capacity: usize) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("planet"),
             source: wgpu::ShaderSource::Wgsl(include_str!("planet.wgsl").into()),
@@ -185,12 +186,20 @@ impl PlanetRenderer {
             bind_group_layouts: &[Some(&bgl)],
             immediate_size: 0,
         });
-        let attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32, 2 => Float32x3];
-        let globe_buffers = [Some(wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as u64,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &attrs,
-        })];
+        let vattrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32, 2 => Float32x3, 3 => Float32, 4 => Float32];
+        let iattrs = wgpu::vertex_attr_array![5 => Float32x3, 6 => Float32, 7 => Float32];
+        let tile_buffers = [
+            Some(wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<TileVertex>() as u64,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &vattrs,
+            }),
+            Some(wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<TileInstance>() as u64,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &iattrs,
+            }),
+        ];
         let make_pipeline = |label, vs, fs, buffers: &[Option<wgpu::VertexBufferLayout>], depth: bool, cull| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
@@ -225,13 +234,14 @@ impl PlanetRenderer {
                 cache: None,
             })
         };
-        let globe_pipeline = make_pipeline("globe", "vs_globe", "fs_globe", &globe_buffers, true, Some(wgpu::Face::Back));
+        let tile_pipeline = make_pipeline("tiles", "vs_tile", "fs_tile", &tile_buffers, true, Some(wgpu::Face::Back));
         let map_pipeline = make_pipeline("map", "vs_map", "fs_map", &[], false, None);
 
         let (albedo, heights) = Self::make_textures(device, 1, 1, 1, 1);
         let bind_group = Self::make_bind_group(device, &bgl, &globals, &albedo, &sampler, &heights);
+        let tiles = TileCache::new(device, tile_indices, tile_cells, tile_capacity);
         let mut r = Self {
-            globe_pipeline,
+            tile_pipeline,
             map_pipeline,
             bgl,
             globals,
@@ -239,9 +249,7 @@ impl PlanetRenderer {
             albedo,
             heights,
             bind_group,
-            vertex_buf: None,
-            index_buf: None,
-            index_count: 0,
+            tiles,
             targets: None,
         };
         r.set_layer(device, queue, &LayerImage { width: 1, height: 1, rgba: vec![40, 80, 120, 255] });
@@ -319,20 +327,6 @@ impl PlanetRenderer {
         write_texture(queue, &self.heights, img.width, img.height, 4, bytemuck::cast_slice(&img.metres));
     }
 
-    pub fn upload_mesh(&mut self, device: &wgpu::Device, mesh: &PlanetMesh) {
-        self.vertex_buf = Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("planet vertices"),
-            contents: bytemuck::cast_slice(&mesh.vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        }));
-        self.index_buf = Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("planet indices"),
-            contents: bytemuck::cast_slice(&mesh.indices),
-            usage: wgpu::BufferUsages::INDEX,
-        }));
-        self.index_count = mesh.indices.len() as u32;
-    }
-
     /// Ensure the offscreen targets match `size`. Returns true if they were recreated, in
     /// which case the caller must re-register `output_view()` with its UI.
     pub fn resize(&mut self, device: &wgpu::Device, size: [u32; 2]) -> bool {
@@ -374,13 +368,17 @@ impl PlanetRenderer {
         self.targets.as_ref().map(|t| &t.resolve_view)
     }
 
-    /// Draw one frame into the offscreen target. Call `resize` first.
+    /// Draw one frame into the offscreen target. Call `resize` first, and for the globe,
+    /// `tiles.select(..)` first (it decides what gets drawn).
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
-        &self,
+        &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         mode: ViewMode,
-        cam: &OrbitCamera,
+        cam: &EarthCamera,
+        clearance_m: f64,
+        exaggeration: f64,
         map: &MapView,
         style: &RenderStyle,
     ) {
@@ -388,22 +386,36 @@ impl PlanetRenderer {
         let aspect = t.size[0] as f64 / t.size[1] as f64;
         let eye = cam.eye();
         let s = style.sun_dir.normalize();
+        let w = match mode {
+            ViewMode::Globe => exaggeration as f32,
+            ViewMode::Map => style.map_exaggeration,
+        };
         let g = Globals {
-            view_proj: cam.view_proj(aspect).to_cols_array_2d(),
+            view_proj: cam.view_proj(aspect, clearance_m).to_cols_array_2d(),
             sun_dir: [s.x as f32, s.y as f32, s.z as f32, 0.0],
             eye: [eye.x as f32, eye.y as f32, eye.z as f32, 1.0],
-            params: [
-                style.relief_shading,
-                if style.ocean_specular { 1.0 } else { 0.0 },
-                style.radius_m as f32,
-                style.map_exaggeration,
-            ],
+            params: [style.relief_shading, if style.ocean_specular { 1.0 } else { 0.0 }, style.radius_m as f32, w],
             map: [map.center_lon as f32, map.center_lat as f32, map.width_rad as f32, aspect as f32],
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&g));
 
+        // Background: space from orbit, blending to a daytime sky as the camera descends
+        // into the atmosphere (globe view only).
+        let space = [0.006, 0.008, 0.014];
+        let sky = [0.30, 0.48, 0.80];
+        let t = match mode {
+            ViewMode::Globe => {
+                let alt = eye.length() - style.radius_m;
+                let x = ((alt - 0.004 * style.radius_m) / (0.03 * style.radius_m - 0.004 * style.radius_m)).clamp(0.0, 1.0);
+                1.0 - x * x * (3.0 - 2.0 * x)
+            }
+            ViewMode::Map => 0.0,
+        };
+        let mix = |a: f64, b: f64| a + (b - a) * t;
+        let clear = wgpu::Color { r: mix(space[0], sky[0]), g: mix(space[1], sky[1]), b: mix(space[2], sky[2]), a: 1.0 };
         let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("planet") });
         {
+            let t = self.targets.as_ref().unwrap();
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("planet"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -411,7 +423,7 @@ impl PlanetRenderer {
                     depth_slice: None,
                     resolve_target: Some(&t.resolve_view),
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.006, g: 0.008, b: 0.014, a: 1.0 }),
+                        load: wgpu::LoadOp::Clear(clear),
                         store: wgpu::StoreOp::Discard,
                     },
                 })],
@@ -427,12 +439,8 @@ impl PlanetRenderer {
             pass.set_bind_group(0, &self.bind_group, &[]);
             match mode {
                 ViewMode::Globe => {
-                    if let (Some(vb), Some(ib)) = (&self.vertex_buf, &self.index_buf) {
-                        pass.set_pipeline(&self.globe_pipeline);
-                        pass.set_vertex_buffer(0, vb.slice(..));
-                        pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-                        pass.draw_indexed(0..self.index_count, 0, 0..1);
-                    }
+                    pass.set_pipeline(&self.tile_pipeline);
+                    self.tiles.draw(device, queue, &mut pass);
                 }
                 ViewMode::Map => {
                     pass.set_pipeline(&self.map_pipeline);
