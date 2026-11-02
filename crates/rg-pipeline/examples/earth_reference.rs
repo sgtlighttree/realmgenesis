@@ -92,7 +92,11 @@ fn main() {
         let (dp, dd) = metrics::depressions(&g250, n);
         let g60 = metrics::grid(&h, 167, 60.0);
         let (coh, asp) = metrics::orientation(&g60, 167, 60.0);
-        let beta = metrics::spectrum_beta(&g60, 167, 60.0);
+        let (beta, resid) = metrics::spectrum(&g60, 167, 60.0);
+        if std::env::var("RG_SPECTRUM").is_ok() {
+            let line: Vec<String> = resid.iter().map(|(wl, db)| format!("{wl:.0}m:{db:+.1}")).collect();
+            eprintln!("spectrum residual (dB) {name}: {}", line.join(" "));
+        }
         let (theta, tn) = metrics::slope_area_theta(&g60, 167, 60.0);
         let sl = metrics::slopes(&h, half);
         println!(

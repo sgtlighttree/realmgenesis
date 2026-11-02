@@ -214,7 +214,11 @@ fn score(w: &World, s: &rg_terrain::TerrainSampler, lat0: f64, lon0: f64, half: 
     let g: Vec<f64> = (0..m * m).map(|k| surf(at(-5000.0 + (k % m) as f64 * sp2, -5000.0 + (k / m) as f64 * sp2), sp2)).collect();
     // Shared with earth_reference (identical code on real DEMs).
     let (coherence, aspect) = metrics::orientation(&g, m, sp2);
-    let beta = metrics::spectrum_beta(&g, m, sp2);
+    let (beta, resid) = metrics::spectrum(&g, m, sp2);
+    if std::env::var("RG_SPECTRUM").is_ok() {
+        let line: Vec<String> = resid.iter().map(|(wl, db)| format!("{wl:.0}m:{db:+.1}")).collect();
+        eprintln!("spectrum residual (dB) at {:.1},{:.1}: {}", lat0.to_degrees(), lon0.to_degrees(), line.join(" "));
+    }
     let (theta, _) = metrics::slope_area_theta(&g, m, sp2);
     Score {
         coherence,

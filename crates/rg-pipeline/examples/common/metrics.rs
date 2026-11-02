@@ -129,6 +129,12 @@ pub fn orientation(g: &[f64], m: usize, sp: f64) -> (f64, f64) {
 /// 1D power-spectrum exponent β (P ∝ k^−β) from the rows and columns of an m×m grid at
 /// spacing sp: detrended, Hann-windowed, averaged, fitted over wavelengths 4 sp … m·sp/4.
 pub fn spectrum_beta(g: &[f64], m: usize, sp: f64) -> f64 {
+    spectrum(g, m, sp).0
+}
+
+/// β plus the log-residual (dB) of each octave-binned band around the power-law fit,
+/// as (wavelength m, residual dB): lattice spikes show as positive residuals.
+pub fn spectrum(g: &[f64], m: usize, sp: f64) -> (f64, Vec<(f64, f64)>) {
     let len = m.min(128);
     let mut power = vec![0.0f64; len / 2];
     let mut count = 0usize;
@@ -173,7 +179,27 @@ pub fn spectrum_beta(g: &[f64], m: usize, sp: f64) -> f64 {
         xs.push(kk.ln());
         ys.push(pw.ln());
     }
-    -fit_slope(&xs, &ys)
+    let slope = fit_slope(&xs, &ys);
+    let n = xs.len().max(1) as f64;
+    let (mx, my) = (xs.iter().sum::<f64>() / n, ys.iter().sum::<f64>() / n);
+    // Residuals in half-octave bins.
+    let mut bins: Vec<(f64, f64, usize)> = Vec::new();
+    for (x, y) in xs.iter().zip(&ys) {
+        let r = y - (my + slope * (x - mx));
+        let b = (x / std::f64::consts::LN_2 * 2.0).floor();
+        match bins.iter_mut().find(|e| e.0 == b) {
+            Some(e) => {
+                e.1 += r;
+                e.2 += 1;
+            }
+            None => bins.push((b, r, 1)),
+        }
+    }
+    let res = bins
+        .iter()
+        .map(|(b, r, c)| (1.0 / (2f64).powf((b + 0.5) / 2.0), 10.0 * (r / *c as f64) / std::f64::consts::LN_10))
+        .collect();
+    (-slope, res)
 }
 
 /// Slope–area concavity θ (S ∝ A^−θ) on an m×m grid at spacing sp: D8 on the filled
