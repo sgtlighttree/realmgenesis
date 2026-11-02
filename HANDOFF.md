@@ -53,18 +53,25 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 - **River overlay:** coverage in the layer alpha, faded when zoomed in. This fixes Matt's "terrain near rivers doesn't generate".
 - **Web preview v7** at the URL above, with all of the above.
 
-**Calibration is now one physical factor** (`ErosionParams::linear_mean_m` = 656, i.e. fitting K). Hypsometry is emergent and checked, not forced. High ground is ~2× Earth's share (no crustal thickening/isostasy yet). k_sn = factor·U/K (`Hydrology::height_scale`); θ 0.11–0.27 vs Earth 0.19–0.45.
+**State of the physics (end of s01):**
+- **Calibration:** one physical factor (`linear_mean_m` 656, i.e. fitting K); hypsometry emergent and checked. Uplift tapers to zero at 7 km (strength cap). Seed 3: median land 329 m (Earth ice-free ~330–400), > 2 km 10.7% (6–9), > 4 km 3.3% (~2), max 5.4 km (8.85).
+- **Climate → erosion:** Thornthwaite PET + Budyko–Fu runoff (land mean 333 mm/yr vs Earth ~300); runoff-weighted incision (wet land erodes far more than dry).
+- **Lakes / endorheic basins:** `rg-erosion/src/lakes.rs` (flux fill–spill–merge), run inside the solve as base level, no rock fill. Mass balance exact (~1e-14). Seed 3: endorheic **4.5%** of land (Earth ~20%), lakes 0.25%.
+- **Committed fields:** uplift is the *effective* rate; `height_scale`; `lake_depth_m` = water depth (height = bed).
+- **Earth reference** (`--example earth_reference`, AWS terrain tiles, same metric code as `probe_realism`):
+  - coherence: Earth 0.23–0.59, ours 0.21–0.31;
+  - β: Earth 2.3–4.7, ours 2.7–3.1;
+  - θ: Earth 0.19–0.45, ours −0.04–0.14 (low);
+  - mountain slopes: Earth 26° (steep ranges) / 16° (Appalachians), ours 8–13° in the rugged boxes (low).
+- **Bathymetry:** mean depth 3626–3709 m on hold-out seeds (Earth 3688).
 
-**Earth reference** (`--example earth_reference`): AWS terrain tiles scored by the same metric code (`examples/common/metrics.rs`). Earth coherence 0.23–0.59, β 2.3–4.7, θ 0.19–0.45, mountain slopes 26–27° (Taiwan, Himalaya, Alps), 16° Appalachians.
-
-**Climate → erosion (done):** precipitation-weighted drainage; climate runs before and after erosion; wettest third of land erodes 7.1× the driest (it was 0.98×).
-
-**Scientific review (s01 log, "Whole-pipeline scientific review"):** next steps in its order:
-1. Earth reference harness (SRTM/GEBCO crops) + final-surface metrics (slope–area, Hack, Horton/Tokunaga, spectrum, shelf width, continental slope, ridge axis).
-2. Endorheic basins/lakes from a water balance (climate is now in erosion).
-3. Crustal thickness + isostasy instead of the hypsometric remap (hypsometry as a check only).
-4. Sediment: transport-limited deposition (Yuan et al. 2019) and deltas/fans.
-5. Glacial (ELA buzzsaw, U-valleys); ridge–transform segmentation; abyssal-hill fabric.
+**Known gaps (ranked):**
+1. **Leaky lake rims:** neighbour-basin wedges cross the macro divide below a closed lake's level; water stands as a wall on part of the footprint edge. Fix idea: partition wedges by terminal sink inside closed catchments, with a continuous rim (needs design; min/max compositions can make pits).
+2. **Endorheic 4.5% vs ~20%:** Thornthwaite underestimates arid PET; no sediment infill; 1° climate.
+3. **Mountains too gentle and θ low:** relief-limited channel heads, effective uplift; no glacial/threshold landscapes as steep as Taiwan/Himalaya.
+4. **High ground ~1.5× Earth, peaks low:** no crustal thickening/isostasy; no deep incision above plateaus.
+5. **Bathymetry partly circular:** the age remap and the dynamic-topography std were tuned on the validation bands.
+6. Sediment transport/deposition, deltas; glacial; ridge–transform fabric (see the scientific review in the log).
 
 **Also next:**
 1. **Tile cost:** 85–240 ms per tile natively (gullies: 9–33). Ideas: per-level window reuse across tiles, cheaper attach for the finest level, and eventually the GPU port. The web is single-threaded, so it streams slowly.
