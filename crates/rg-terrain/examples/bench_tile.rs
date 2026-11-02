@@ -4,7 +4,7 @@ use rg_terrain::{TerrainSampler, TileGenerator};
 
 fn main() {
     let f = std::sync::Arc::new(CubeField::from_fn(320, |d| ((d.z * 3.0).sin() * 3000.0) as f32));
-    let g = TileGenerator { sampler: TerrainSampler::new(f, 6_371_000.0, 1), exaggeration: 1.0 };
+    let g = TileGenerator { sampler: TerrainSampler::new(f, 6_371_000.0, 1) };
     for level in [0u8, 4, 8, 12, 14] {
         let n = 1u32 << level;
         let t0 = std::time::Instant::now();

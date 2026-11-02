@@ -1,4 +1,8 @@
 //! Render tiles: 64 × 64 cells (65² vertices) plus a skirt, generated on the CPU.
+//!
+//! Vertices are **unrelieved**: positions lie on the sea-level sphere, and the shader
+//! raises them by `max(h, 0) × exaggeration` along the local up. That way changing the
+//! exaggeration (it fades as you zoom in) never invalidates the cache.
 
 use crate::TerrainSampler;
 use glam::DVec3;
@@ -8,35 +12,47 @@ use rg_geo::TileId;
 /// render tile at level L lines up with data tile level L − 2.
 pub const TILE_CELLS: u32 = 64;
 const N: usize = TILE_CELLS as usize + 1; // vertices per edge
+/// Vertices per tile including the skirt.
+pub const TILE_VERTS: usize = N * N + 4 * N;
 
-/// Everything the renderer needs for one tile. Positions are **relative to `center`** and
-/// in metres, so they fit f32 without jitter. `center` is f64 ECEF metres.
+/// Everything the renderer needs for one tile. Positions are **relative to `center`**
+/// (metres) so they fit f32 without jitter; `center` is f64 ECEF metres on the sphere.
 pub struct TileData {
     pub id: TileId,
     pub center: DVec3,
-    /// 65² grid vertices (row-major, v then u), then 4 × 65 skirt vertices.
+    /// Sea-level sphere positions: 65² grid vertices (row-major, v then u), then the skirt.
     pub positions: Vec<[f32; 3]>,
+    /// Surface normals at exaggeration 1 (the shader steepens them by the exaggeration).
     pub normals: Vec<[f32; 3]>,
-    /// True height above sea level (m), negative under the sea. Used for colouring.
+    /// Height above sea level (m, negative under the sea) at this tile's level.
     pub heights: Vec<f32>,
-    /// Radius of a sphere around `center` that contains the tile.
-    pub bound_radius_m: f64,
+    /// The same points at the parent's level, for the morph-in.
+    pub parent_heights: Vec<f32>,
+    /// 1.0 for skirt vertices, 0.0 for grid vertices.
+    pub skirt: Vec<f32>,
+    /// Radius around `center` containing the unrelieved patch.
+    pub patch_radius_m: f64,
+    /// Highest point (m above sea level, ≥ 0).
     pub max_height_m: f64,
+    /// Largest height gap between this tile and its children's surface (m, unexaggerated).
+    /// Drives the split decision: flat or ocean tiles stop splitting early.
+    pub child_error_m: f64,
+    /// Largest gap between this tile and its parent's surface (m), sizes the skirt.
+    pub parent_error_m: f64,
 }
 
 #[derive(Clone)]
 pub struct TileGenerator {
     pub sampler: TerrainSampler,
-    /// Vertical exaggeration for display.
-    pub exaggeration: f64,
 }
 
 impl TileGenerator {
     /// Ground cell size of a render tile at `level`, metres.
     pub fn cell_size_m(&self, level: u8) -> f64 {
-        (std::f64::consts::FRAC_PI_2 * self.sampler.radius_m) / (TILE_CELLS as f64 * (1u64 << level) as f64)
+        cell_size_m(level, self.sampler.radius_m)
     }
 
+    /// Pure function of (sampler, id): safe to run on any thread.
     pub fn generate(&self, id: TileId) -> TileData {
         let r = self.sampler.radius_m;
         let cell = self.cell_size_m(id.level);
@@ -46,65 +62,79 @@ impl TileGenerator {
         let du = (u1 - u0) / TILE_CELLS as f64;
         let dv = (v1 - v0) / TILE_CELLS as f64;
 
-        // Sample a (N+2)² grid: the extra ring (apron) lets normals use central differences
-        // that match the neighbouring tile's, so lighting has no seams. Apron samples may
-        // lie past the face edge; uv_to_dir extrapolates smoothly there, which is fine for
-        // a normal estimate.
+        // Sample an (N+2)² grid. The extra ring (apron) gives normals central differences
+        // that match the neighbouring tile's, so lighting has no seams. Apron samples past
+        // a face edge use uv_to_dir's smooth extrapolation, fine for a normal estimate.
         let m = N + 2;
-        let mut world = vec![DVec3::ZERO; m * m];
-        let mut true_h = vec![0f32; m * m];
-        let mut max_h = f64::MIN;
+        let mut surf = vec![DVec3::ZERO; m * m]; // true (exaggeration 1) surface
+        let mut dirs = vec![DVec3::ZERO; m * m];
+        let mut lv = vec![crate::HeightLevels { macro_h: 0.0, h: 0.0, h_parent: 0.0, h_child: 0.0 }; m * m];
         for j in 0..m {
             for i in 0..m {
                 let u = u0 + (i as f64 - 1.0) * du;
                 let v = v0 + (j as f64 - 1.0) * dv;
                 let dir = id.face.uv_to_dir(u, v);
-                let (h, _) = self.sampler.height(dir, min_wl);
-                // Oceans render at sea level; depth only shows through colour.
-                let shown = h.max(0.0) * self.exaggeration;
-                world[j * m + i] = dir * (r + shown);
-                true_h[j * m + i] = h as f32;
-                max_h = max_h.max(shown);
+                let l = self.sampler.levels(dir, min_wl);
+                let k = j * m + i;
+                surf[k] = dir * (r + l.h.max(0.0));
+                dirs[k] = dir;
+                lv[k] = l;
             }
         }
 
         let center_dir = id.face.uv_to_dir((u0 + u1) * 0.5, (v0 + v1) * 0.5);
         let center = center_dir * r;
-        let mut positions = Vec::with_capacity(N * N + 4 * N);
-        let mut normals = Vec::with_capacity(N * N + 4 * N);
-        let mut heights = Vec::with_capacity(N * N + 4 * N);
-        let mut bound = 0f64;
+        let mut out = TileData {
+            id,
+            center,
+            positions: Vec::with_capacity(TILE_VERTS),
+            normals: Vec::with_capacity(TILE_VERTS),
+            heights: Vec::with_capacity(TILE_VERTS),
+            parent_heights: Vec::with_capacity(TILE_VERTS),
+            skirt: Vec::with_capacity(TILE_VERTS),
+            patch_radius_m: 0.0,
+            max_height_m: 0.0,
+            child_error_m: 0.0,
+            parent_error_m: 0.0,
+        };
         for j in 0..N {
             for i in 0..N {
                 let k = (j + 1) * m + (i + 1);
-                let p = world[k];
-                let tu = world[k + 1] - world[k - 1];
-                let tv = world[k + m] - world[k - m];
-                let n = tu.cross(tv).normalize_or(p.normalize());
-                positions.push((p - center).as_vec3().to_array());
-                normals.push(n.as_vec3().to_array());
-                heights.push(true_h[k]);
-                bound = bound.max((p - center).length());
+                let tu = surf[k + 1] - surf[k - 1];
+                let tv = surf[k + m] - surf[k - m];
+                let n = if lv[k].h <= 0.0 { dirs[k] } else { tu.cross(tv).normalize_or(dirs[k]) };
+                let p = dirs[k] * r;
+                out.positions.push((p - center).as_vec3().to_array());
+                out.normals.push(n.as_vec3().to_array());
+                out.heights.push(lv[k].h as f32);
+                out.parent_heights.push(lv[k].h_parent as f32);
+                out.skirt.push(0.0);
+                out.patch_radius_m = out.patch_radius_m.max((p - center).length());
+                out.max_height_m = out.max_height_m.max(lv[k].h);
+                out.child_error_m = out.child_error_m.max((lv[k].h_child.max(0.0) - lv[k].h.max(0.0)).abs());
+                out.parent_error_m = out.parent_error_m.max((lv[k].h.max(0.0) - lv[k].h_parent.max(0.0)).abs());
             }
         }
-
-        // Skirt: a copy of the border pushed down, hiding cracks against coarser
-        // neighbours. Order: bottom (j=0), right (i=N-1), top (j=N-1), left (i=0).
-        let drop = cell * 3.0 + 50.0;
+        // Skirt: copies of the border. The shader drops them below the surface by a
+        // per-tile depth, hiding cracks against coarser neighbours.
         for (i, j) in skirt_border() {
             let k = j * N + i;
-            let p = DVec3::from(positions[k].map(f64::from)) + center;
-            let p = p - p.normalize() * drop;
-            positions.push((p - center).as_vec3().to_array());
-            normals.push(normals[k]);
-            heights.push(heights[k]);
+            out.positions.push(out.positions[k]);
+            out.normals.push(out.normals[k]);
+            out.heights.push(out.heights[k]);
+            out.parent_heights.push(out.parent_heights[k]);
+            out.skirt.push(1.0);
         }
-
-        TileData { id, center, positions, normals, heights, bound_radius_m: bound + drop, max_height_m: max_h }
+        out
     }
 }
 
-/// (i, j) of the border vertices in skirt order.
+/// Ground cell size of a render tile at `level` on a sphere of `radius_m`.
+pub fn cell_size_m(level: u8, radius_m: f64) -> f64 {
+    (std::f64::consts::FRAC_PI_2 * radius_m) / (TILE_CELLS as f64 * (1u64 << level) as f64)
+}
+
+/// (i, j) of the border vertices in skirt order: bottom (j=0), right, top, left.
 fn skirt_border() -> impl Iterator<Item = (usize, usize)> {
     let e = N - 1;
     (0..N)
@@ -117,7 +147,7 @@ fn skirt_border() -> impl Iterator<Item = (usize, usize)> {
 /// The shared index buffer for every tile: the 64² grid plus the skirt strip.
 pub fn tile_indices() -> Vec<u32> {
     let n = N as u32;
-    let mut idx = Vec::with_capacity((TILE_CELLS * TILE_CELLS * 6) as usize + 4 * N * 6);
+    let mut idx = Vec::with_capacity((TILE_CELLS * TILE_CELLS * 6) as usize + 4 * N * 12);
     for j in 0..n - 1 {
         for i in 0..n - 1 {
             let a = j * n + i;
@@ -125,14 +155,12 @@ pub fn tile_indices() -> Vec<u32> {
             idx.extend_from_slice(&[a, b, d, a, d, c]);
         }
     }
-    // Skirt quads between each border vertex and its dropped copy. The border is walked
-    // counter-clockwise seen from outside, so (top edge, dropped) forms outward faces.
     let border: Vec<u32> = skirt_border().map(|(i, j)| (j * N + i) as u32).collect();
     let base = n * n;
     for s in 0..border.len() - 1 {
         let (a, b) = (border[s], border[s + 1]);
         let (a2, b2) = (base + s as u32, base + s as u32 + 1);
-        // Both windings: skirts are seen from either side depending on the neighbour.
+        // Both windings: a skirt is seen from either side depending on the neighbour.
         idx.extend_from_slice(&[a, a2, b, b, a2, b2, a, b, a2, b, b2, a2]);
     }
     idx
@@ -141,30 +169,45 @@ pub fn tile_indices() -> Vec<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rg_geo::{CubeField, CubeFace};
+    use rg_geo::{CubeFace, CubeField};
+    use std::sync::Arc;
+
+    fn generator() -> TileGenerator {
+        let f = Arc::new(CubeField::from_fn(32, |d| (d.z * 3000.0) as f32));
+        TileGenerator { sampler: TerrainSampler::new(f, 6_371_000.0, 1) }
+    }
 
     #[test]
     fn tile_has_expected_shape_and_bounds() {
-        let f = std::sync::Arc::new(CubeField::from_fn(32, |d| (d.z * 3000.0) as f32));
-        let g = TileGenerator { sampler: TerrainSampler::new(f.clone(), 6_371_000.0, 1), exaggeration: 1.0 };
-        let t = g.generate(TileId { face: CubeFace::PosZ, level: 3, x: 2, y: 5 });
-        assert_eq!(t.positions.len(), N * N + 4 * N);
-        assert!(t.bound_radius_m > 0.0 && t.bound_radius_m < 2.0e6);
+        let t = generator().generate(TileId { face: CubeFace::PosZ, level: 3, x: 2, y: 5 });
+        assert_eq!(t.positions.len(), TILE_VERTS);
+        assert_eq!(t.heights.len(), TILE_VERTS);
+        assert!(t.patch_radius_m > 0.0 && t.patch_radius_m < 2.0e6);
+        assert!(t.child_error_m >= 0.0 && t.max_height_m > 0.0);
         let max_idx = *tile_indices().iter().max().unwrap() as usize;
-        assert!(max_idx < t.positions.len());
+        assert!(max_idx < TILE_VERTS);
     }
 
     #[test]
     fn shared_edges_match_between_neighbours() {
-        // Same-level neighbours must produce identical edge positions (no cracks).
-        let f = std::sync::Arc::new(CubeField::from_fn(32, |d| (d.z * 3000.0) as f32));
-        let g = TileGenerator { sampler: TerrainSampler::new(f.clone(), 6_371_000.0, 1), exaggeration: 10.0 };
+        // Same-level neighbours must produce identical edge vertices (no cracks).
+        let g = generator();
         let a = g.generate(TileId { face: CubeFace::PosX, level: 4, x: 3, y: 7 });
         let b = g.generate(TileId { face: CubeFace::PosX, level: 4, x: 4, y: 7 });
         for j in 0..N {
-            let pa = DVec3::from(a.positions[j * N + (N - 1)].map(f64::from)) + a.center;
-            let pb = DVec3::from(b.positions[j * N].map(f64::from)) + b.center;
+            let ka = j * N + (N - 1);
+            let kb = j * N;
+            let pa = DVec3::from(a.positions[ka].map(f64::from)) + a.center;
+            let pb = DVec3::from(b.positions[kb].map(f64::from)) + b.center;
             assert!((pa - pb).length() < 0.05, "edge gap {} m", (pa - pb).length());
+            assert!((a.heights[ka] - b.heights[kb]).abs() < 1e-3);
         }
+    }
+
+    #[test]
+    fn ocean_tiles_are_flat_and_need_no_split() {
+        let t = generator().generate(TileId { face: CubeFace::NegZ, level: 5, x: 10, y: 10 });
+        assert_eq!(t.max_height_m, 0.0);
+        assert_eq!(t.child_error_m, 0.0);
     }
 }

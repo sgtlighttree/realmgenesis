@@ -17,7 +17,7 @@
 
 pub mod tile;
 
-pub use tile::{TileData, TileGenerator, TILE_CELLS};
+pub use tile::{tile_indices, TileData, TileGenerator, TILE_CELLS};
 
 use glam::DVec3;
 use rg_geo::CubeField;
@@ -66,21 +66,34 @@ impl TerrainSampler {
     /// Full height (metres above sea level) at `dir`, keeping only detail octaves with a
     /// wavelength of at least `min_wavelength_m`. Returns (height, macro height).
     pub fn height(&self, dir: DVec3, min_wavelength_m: f64) -> (f64, f64) {
+        let s = self.levels(dir, min_wavelength_m);
+        (s.h, s.macro_h)
+    }
+
+    /// Heights at three neighbouring LOD levels at once (one pass over the octaves):
+    /// - `h`: this level (octaves with wavelength ≥ `min_wavelength_m`),
+    /// - `h_parent`: the parent level (≥ 2 × that), used to morph tiles in without popping,
+    /// - `h_child`: the child level (≥ ½ × that), used to measure this tile's error.
+    pub fn levels(&self, dir: DVec3, min_wavelength_m: f64) -> HeightLevels {
         let m = self.macro_height(dir);
-        let min_wl = min_wavelength_m.max(self.floor_wavelength_m);
+        // Oceans render flat at sea level, so skip detail there entirely (~70% of the
+        // planet). The coast fade below makes this continuous at m = 0.
+        if m <= 0.0 {
+            return HeightLevels { macro_h: m, h: m, h_parent: m, h_child: m };
+        }
+        let lim = min_wavelength_m.max(self.floor_wavelength_m);
+        let lim_parent = (2.0 * min_wavelength_m).max(self.floor_wavelength_m);
+        let lim_child = (0.5 * min_wavelength_m).max(self.floor_wavelength_m);
 
-        // Context: rugged in mountains, gentle on lowlands and the deep sea floor.
-        let (amp0, ridged_w) = if m >= 0.0 {
-            (90.0 + 0.16 * m, smoothstep(400.0, 2800.0, m))
-        } else {
-            (45.0 + 0.02 * -m, 0.0)
-        };
+        // Context: rugged in mountains, gentle on lowlands.
+        let amp0 = 90.0 + 0.16 * m;
+        let ridged_w = smoothstep(400.0, 2800.0, m);
 
-        let mut d = 0.0;
+        let (mut d, mut d_parent, mut d_child) = (0.0, 0.0, 0.0);
         let mut wl = self.base_wavelength_m;
         let mut amp = amp0;
         let mut octave = 0u32;
-        while wl >= min_wl && octave < 24 {
+        while wl >= lim_child && octave < 24 {
             let p = dir * (self.radius_m / wl);
             let off = DVec3::new(octave as f64 * 31.7, octave as f64 * -17.3, octave as f64 * 9.1);
             let n = rg_noise::gradient3(p + off, self.salt.wrapping_add(octave));
@@ -92,17 +105,36 @@ impl TerrainSampler {
             } else {
                 n
             };
-            d += v * amp;
+            let c = v * amp;
+            d_child += c;
+            if wl >= lim {
+                d += c;
+            }
+            if wl >= lim_parent {
+                d_parent += c;
+            }
             amp *= GAIN;
             wl *= 0.5;
             octave += 1;
         }
-
-        // Coast rule: fade detail out within 150 m of sea level and never flip the sign.
-        let d = d * smoothstep(0.0, 150.0, m.abs());
-        let h = if m >= 0.0 { (m + d).max(0.5 * m) } else { (m + d).min(0.5 * m) };
-        (h, m)
+        HeightLevels { macro_h: m, h: coast_rule(m, d), h_parent: coast_rule(m, d_parent), h_child: coast_rule(m, d_child) }
     }
+}
+
+/// Heights of one point at three LOD levels; see [`TerrainSampler::levels`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HeightLevels {
+    pub macro_h: f64,
+    pub h: f64,
+    pub h_parent: f64,
+    pub h_child: f64,
+}
+
+/// Coast rule: fade detail out within 150 m of sea level and never flip the sign, so the
+/// coastline is exactly the committed macro contour at every zoom.
+fn coast_rule(m: f64, d: f64) -> f64 {
+    let d = d * smoothstep(0.0, 150.0, m.abs());
+    if m >= 0.0 { (m + d).max(0.5 * m) } else { (m + d).min(0.5 * m) }
 }
 
 fn smoothstep(a: f64, b: f64, x: f64) -> f64 {
