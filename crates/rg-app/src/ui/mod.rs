@@ -11,12 +11,15 @@ use theme::section;
 
 pub fn draw(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) {
     shortcuts(app, ui);
-    egui::Panel::left("controls")
-        .resizable(true)
-        .default_size(290.0)
-        .show(ui, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| controls(app, ui));
-        });
+    let show = *app.show_panel.get_or_insert_with(|| ui.ctx().content_rect().width() >= 700.0);
+    if show {
+        egui::Panel::left("controls")
+            .resizable(true)
+            .default_size(290.0)
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| controls(app, ui));
+            });
+    }
     egui::Panel::bottom("status").show(ui, |ui| status_bar(app, ui));
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE.fill(theme::BG))
@@ -35,6 +38,9 @@ fn shortcuts(app: &mut RealmApp, ui: &mut egui::Ui) {
         }
         if i.key_pressed(egui::Key::R) {
             v.push(Command::RandomizeSeed);
+        }
+        if i.key_pressed(egui::Key::H) {
+            v.push(Command::TogglePanel);
         }
         if i.key_pressed(egui::Key::M) {
             v.push(Command::SetView(if view == ViewMode::Globe { ViewMode::Map } else { ViewMode::Globe }));
@@ -178,7 +184,7 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
     ui.label(egui::RichText::new(&app.adapter_info).small().color(theme::MUTED));
     ui.add_space(4.0);
     ui.label(
-        egui::RichText::new("G generate · R random · M map/globe · 1–8 layers · drag to move · scroll to zoom")
+        egui::RichText::new("G generate · R random · H panel · M map/globe · 1–8 layers · drag to move · scroll to zoom")
             .small()
             .color(theme::MUTED),
     );
@@ -245,6 +251,20 @@ fn viewport(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) 
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
             egui::Color32::WHITE,
         );
+    }
+    // Sidebar toggle, top-left of the viewport. Added after the viewport's drag area so
+    // it wins the click.
+    let open = app.show_panel.unwrap_or(true);
+    let toggle = egui::Button::new(egui::RichText::new(if open { "«" } else { "»" }).size(18.0))
+        .fill(theme::PANEL.gamma_multiply(0.85))
+        .min_size(egui::vec2(36.0, 36.0));
+    let toggle_rect = egui::Rect::from_min_size(rect.min + egui::vec2(8.0, 8.0), egui::vec2(36.0, 36.0));
+    if ui
+        .put(toggle_rect, toggle)
+        .on_hover_text(if open { "Hide controls (H)" } else { "Show controls (H)" })
+        .clicked()
+    {
+        app.push(Command::TogglePanel);
     }
     if let Some(msg) = app.busy {
         let r = egui::Rect::from_center_size(rect.center(), egui::vec2(260.0, 48.0));

@@ -67,6 +67,9 @@ pub struct RealmApp {
     pub status: String,
     /// Info under the cursor, for the readout.
     pub hover: Option<String>,
+    /// Whether the controls sidebar is shown. `None` until the first frame, when it
+    /// defaults to hidden on narrow (phone-sized) screens.
+    pub show_panel: Option<bool>,
     renderer: Option<PlanetRenderer>,
     equirect: Option<Equirect>,
     texture_id: Option<egui::TextureId>,
@@ -91,6 +94,7 @@ impl RealmApp {
             busy: None,
             status: String::new(),
             hover: None,
+            show_panel: None,
             renderer: None,
             equirect: None,
             texture_id: None,
@@ -149,6 +153,7 @@ impl RealmApp {
             }
             Command::RebuildMesh => self.rebuild_mesh(rs),
             Command::SetView(v) => self.view = v,
+            Command::TogglePanel => self.show_panel = Some(!self.show_panel.unwrap_or(true)),
             Command::ResetCamera => {
                 self.camera = OrbitCamera::default();
                 self.map = MapView::default();

@@ -18,6 +18,8 @@ pub enum Command {
     SetLayer(Layer),
     SetView(ViewMode),
     ResetCamera,
+    /// Show or hide the controls sidebar.
+    TogglePanel,
     /// Save the world file (native only for now).
     SaveWorld,
     /// Load the most recent world file.
