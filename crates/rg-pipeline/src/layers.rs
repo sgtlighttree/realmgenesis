@@ -121,9 +121,20 @@ impl Equirect {
                         }
                     }
                 };
+                // Lakes: standing water in closed basins (from the erosion stage).
+                let rgb = match (&world.hydrology, layer) {
+                    (Some(hy), Layer::Satellite | Layer::Elevation | Layer::PrecipAnnual) if hf > 0.0 => {
+                        let depth = hy.lake_depth_m.sample(dir(lat, lon));
+                        if depth > 2.0 { lake_color(layer) } else { rgb }
+                    }
+                    _ => rgb,
+                };
                 px.copy_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
             }
         });
+        if let (Some(hy), Layer::Satellite | Layer::Elevation | Layer::PrecipAnnual) = (&world.hydrology, layer) {
+            draw_rivers(&mut out, w, h, &hy.rivers, river_color(layer));
+        }
         out
     }
 }
@@ -338,4 +349,64 @@ pub fn dir(lat: f64, lon: f64) -> DVec3 {
     let (sl, cl) = lat.sin_cos();
     let (so, co) = lon.sin_cos();
     DVec3::new(cl * co, cl * so, sl)
+}
+
+fn lake_color(layer: Layer) -> Rgb {
+    match layer {
+        Layer::Satellite => [44, 92, 124],
+        _ => [120, 170, 214],
+    }
+}
+
+fn river_color(layer: Layer) -> Rgb {
+    match layer {
+        Layer::Satellite => [46, 96, 132],
+        _ => [60, 110, 200],
+    }
+}
+
+/// Rasterise river reaches into an equirect RGBA image with anti-aliased lines. Width
+/// grows with the square root of drainage area (discharge-width scaling), in pixels
+/// relative to a 2048-wide image.
+pub fn draw_rivers(img: &mut [u8], w: u32, h: u32, rivers: &[rg_erosion::RiverSegment], color: Rgb) {
+    let scale = w as f64 / 2048.0;
+    let to_px = |d: DVec3| -> (f64, f64) {
+        let lat = d.z.clamp(-1.0, 1.0).asin();
+        let lon = d.y.atan2(d.x);
+        ((lon + PI) / (2.0 * PI) * w as f64, (PI / 2.0 - lat) / PI * h as f64)
+    };
+    for r in rivers {
+        let width = ((r.area_km2 as f64 / 2.0e4).sqrt() * 0.45 * scale).clamp(0.5 * scale, 2.6 * scale);
+        let (x0, y0) = to_px(r.from);
+        let (mut x1, y1) = to_px(r.to);
+        if (x1 - x0).abs() > w as f64 / 2.0 {
+            x1 += if x1 < x0 { w as f64 } else { -(w as f64) };
+        }
+        let half = width * 0.5;
+        let (minx, maxx) = (x0.min(x1) - half - 1.0, x0.max(x1) + half + 1.0);
+        let (miny, maxy) = (y0.min(y1) - half - 1.0, y0.max(y1) + half + 1.0);
+        let (dx, dy) = (x1 - x0, y1 - y0);
+        let len2 = (dx * dx + dy * dy).max(1e-9);
+        for py in (miny.floor() as i64)..=(maxy.ceil() as i64) {
+            if py < 0 || py >= h as i64 {
+                continue;
+            }
+            for px in (minx.floor() as i64)..=(maxx.ceil() as i64) {
+                let (cx, cy) = (px as f64 + 0.5, py as f64 + 0.5);
+                let t = (((cx - x0) * dx + (cy - y0) * dy) / len2).clamp(0.0, 1.0);
+                let (qx, qy) = (x0 + dx * t - cx, y0 + dy * t - cy);
+                let d = (qx * qx + qy * qy).sqrt();
+                let cover = (half + 0.5 - d).clamp(0.0, 1.0);
+                if cover <= 0.0 {
+                    continue;
+                }
+                let xi = px.rem_euclid(w as i64) as u32;
+                let k = ((py as u32 * w + xi) * 4) as usize;
+                for ch in 0..3 {
+                    let a = img[k + ch] as f64;
+                    img[k + ch] = (a + (color[ch] as f64 - a) * cover).round() as u8;
+                }
+            }
+        }
+    }
 }

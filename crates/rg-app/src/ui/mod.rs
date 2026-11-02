@@ -98,6 +98,18 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
     ui.add(egui::Slider::new(&mut t.mountain_scale, 0.3..=2.0).text("mountains"));
     ui.add(egui::Slider::new(&mut t.roughness, 0.3..=2.0).text("roughness"));
     detail_picker(ui, &mut t.res, t.radius_m);
+    // ---------------------------------------------------------------- erosion
+    let e = &mut app.params.erosion;
+    ui.checkbox(&mut e.enabled, "River erosion")
+        .on_hover_text("Stream-power erosion (Braun & Willett 2013): rivers carve valleys and drainage networks into the tectonic relief.");
+    ui.add_enabled_ui(e.enabled, |ui| {
+        ui.add(egui::Slider::new(&mut e.duration_myr, 1.0..=60.0).logarithmic(true).text("maturity Myr"))
+            .on_hover_text("Simulated time. Short: young, sharp ranges with shallow valleys. Long: mature, deeply dissected relief.");
+        ui.add(egui::Slider::new(&mut e.uplift_exponent, 0.3..=2.0).text("uplift focus"))
+            .on_hover_text("How tightly uplift is concentrated in the main mountain belts. Low: broad uplands. High: narrow, isolated ranges.");
+        ui.add(egui::Slider::new(&mut e.river_min_area_km2, 2_000.0..=200_000.0).logarithmic(true).text("river km²"))
+            .on_hover_text("Smallest drainage area drawn as a river.");
+    });
     let generate = egui::Button::new(egui::RichText::new("Generate world").strong())
         .fill(theme::ACCENT.linear_multiply(0.45));
     if ui.add_sized([ui.available_width(), 30.0], generate).on_hover_text("G").clicked() {
@@ -175,6 +187,11 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
         .on_hover_text("Time our code spends per frame (UI + render submission), averaged over 2 s. GPU time isn't included.");
     if let Some(w) = app.world.as_ref() {
         ui.monospace(format!("tecton.  {:6.0} ms", w.timings.tectonics_ms));
+        ui.monospace(format!("erosion  {:6.0} ms", w.timings.erosion_ms));
+        if let Some(hy) = w.hydrology.as_ref().filter(|h| h.stats.grid_res > 0) {
+            ui.monospace(format!("Hack h   {:6.2}   θ {:.2}", hy.stats.hack_h, hy.stats.concavity))
+                .on_hover_text("Geomorphic checks. Hack's law exponent (real rivers 0.45–0.7) and channel concavity θ (real 0.3–0.7).");
+        }
         ui.monospace(format!("climate  {:6.0} ms", w.timings.climate_ms));
     }
     ui.monospace(format!("bake     {:6.0} ms", s.bake_ms));

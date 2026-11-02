@@ -10,6 +10,7 @@ rg-geo.workspace = true
 rg-noise.workspace = true
 rg-tectonics = { path = "../rg-tectonics" }
 rg-climate = { path = "../rg-climate" }
+rg-erosion = { path = "../rg-erosion" }
 rg-world = { path = "../rg-world" }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 glam.workspace = true

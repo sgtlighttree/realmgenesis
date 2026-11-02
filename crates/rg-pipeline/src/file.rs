@@ -10,7 +10,8 @@ use rg_world::{Chunk, WorldFile};
 use serde_json::json;
 
 /// Version of the chunk set below. Bump on any change to names or meanings.
-pub const WORLD_SCHEMA: u32 = 1;
+/// 2 (s01): erosion params + hydrology chunks. Schema-1 files still load (no hydrology).
+pub const WORLD_SCHEMA: u32 = 2;
 
 pub fn to_file(w: &World) -> WorldFile {
     let t = &w.params.tectonics;
@@ -41,8 +42,31 @@ pub fn to_file(w: &World) -> WorldFile {
             "plates": plates,
         },
         "climate": {"width": w.climate.width, "height": w.climate.height, "model": "tier_a"},
+        "erosion": {
+            "enabled": w.params.erosion.enabled, "max_res": w.params.erosion.max_res,
+            "duration_myr": w.params.erosion.duration_myr, "steps": w.params.erosion.steps,
+            "k": w.params.erosion.k, "m": w.params.erosion.m,
+            "uplift_max_mm_yr": w.params.erosion.uplift_max_mm_yr,
+            "uplift_base_mm_yr": w.params.erosion.uplift_base_mm_yr,
+            "uplift_exponent": w.params.erosion.uplift_exponent,
+            "river_min_area_km2": w.params.erosion.river_min_area_km2,
+            "hydrology_res": w.hydrology.as_ref().map(|h| h.drainage_km2.res),
+        },
     });
     let c = &w.climate;
+    let mut hydro_chunks = Vec::new();
+    if let Some(h) = &w.hydrology {
+        hydro_chunks.push(Chunk::f32s("hydrology.drainage_km2", &h.drainage_km2.data));
+        let fd: Vec<f32> = h.flow_dir.data.iter().flat_map(|v| v.iter().copied()).collect();
+        hydro_chunks.push(Chunk::f32s("hydrology.flow_dir", &fd));
+        hydro_chunks.push(Chunk::f32s("hydrology.lake_depth_m", &h.lake_depth_m.data));
+        let rv: Vec<f32> = h
+            .rivers
+            .iter()
+            .flat_map(|r| [r.from.x as f32, r.from.y as f32, r.from.z as f32, r.to.x as f32, r.to.y as f32, r.to.z as f32, r.area_km2])
+            .collect();
+        hydro_chunks.push(Chunk::f32s("hydrology.rivers", &rv));
+    }
     let flat = |v: &Vec<[f32; 12]>| v.iter().flat_map(|m| m.iter().copied()).collect::<Vec<f32>>();
     WorldFile {
         header,
@@ -57,14 +81,18 @@ pub fn to_file(w: &World) -> WorldFile {
             Chunk::f32s("climate.wind_u", &flat(&c.wind_u)),
             Chunk::f32s("climate.wind_v", &flat(&c.wind_v)),
             Chunk::u8s("climate.koppen", &c.koppen.data),
-        ],
+        ]
+        .into_iter()
+        .chain(hydro_chunks)
+        .collect(),
     }
 }
 
 pub fn from_file(f: &WorldFile) -> Result<World, String> {
     let h = &f.header;
-    if h["schema"].as_u64() != Some(WORLD_SCHEMA as u64) {
-        return Err(format!("world schema {} isn't supported (expected {WORLD_SCHEMA})", h["schema"]));
+    let schema = h["schema"].as_u64().unwrap_or(0);
+    if !(1..=WORLD_SCHEMA as u64).contains(&schema) {
+        return Err(format!("world schema {schema} isn't supported (this build reads 1..={WORLD_SCHEMA})"));
     }
     let num = |v: &serde_json::Value, k: &str| v[k].as_f64().ok_or(format!("missing {k}"));
     let th = &h["tectonics"];
@@ -146,8 +174,54 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
         wind_u: monthly("climate.wind_u")?,
         wind_v: monthly("climate.wind_v")?,
     };
+    let eh = &h["erosion"];
+    let erosion = if schema >= 2 {
+        rg_erosion::ErosionParams {
+            enabled: eh["enabled"].as_bool().unwrap_or(true),
+            max_res: num(eh, "max_res")? as u32,
+            duration_myr: num(eh, "duration_myr")?,
+            steps: num(eh, "steps")? as u32,
+            k: num(eh, "k")?,
+            m: num(eh, "m")?,
+            uplift_max_mm_yr: num(eh, "uplift_max_mm_yr")?,
+            uplift_base_mm_yr: num(eh, "uplift_base_mm_yr")?,
+            uplift_exponent: num(eh, "uplift_exponent")?,
+            river_min_area_km2: num(eh, "river_min_area_km2")?,
+        }
+    } else {
+        rg_erosion::ErosionParams { enabled: false, ..Default::default() }
+    };
+    let hydrology = match eh["hydrology_res"].as_u64() {
+        Some(hres) if schema >= 2 => {
+            let hres = hres as u32;
+            let samples = 6 * (hres as usize + 1).pow(2);
+            let f32_field = |name: &str| -> Result<CubeField<f32>, String> {
+                let data = get(name)?.as_f32s().ok_or(format!("{name}: wrong type"))?;
+                check_len(name, data.len(), samples)?;
+                Ok(CubeField { res: hres, data })
+            };
+            let fd = get("hydrology.flow_dir")?.as_f32s().ok_or("flow_dir: wrong type")?;
+            check_len("hydrology.flow_dir", fd.len(), samples * 3)?;
+            let rv = get("hydrology.rivers")?.as_f32s().ok_or("rivers: wrong type")?;
+            let v3 = |a: &[f32]| glam::DVec3::new(a[0] as f64, a[1] as f64, a[2] as f64);
+            Some(crate::Hydrology {
+                drainage_km2: f32_field("hydrology.drainage_km2")?,
+                flow_dir: CubeField { res: hres, data: fd.as_chunks::<3>().0.to_vec() },
+                lake_depth_m: f32_field("hydrology.lake_depth_m")?,
+                rivers: rv
+                    .as_chunks::<7>()
+                    .0
+                    .iter()
+                    .map(|r| rg_erosion::RiverSegment { from: v3(&r[0..3]), to: v3(&r[3..6]), area_km2: r[6] })
+                    .collect(),
+                stats: Default::default(),
+            })
+        }
+        _ => None,
+    };
     Ok(World {
-        params: WorldParams { tectonics, planet },
+        hydrology,
+        params: WorldParams { tectonics, erosion, planet },
         tectonics: snapshot,
         climate_heights: LatLonGrid::from_vec(cw, chh, heights),
         climate,

@@ -2723,6 +2723,7 @@ dependencies = [
  "glam",
  "png",
  "rg-climate",
+ "rg-erosion",
  "rg-geo",
  "rg-noise",
  "rg-tectonics",

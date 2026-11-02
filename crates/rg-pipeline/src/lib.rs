@@ -10,6 +10,8 @@ pub mod layers;
 mod palette;
 
 use rg_climate::{ClimateFields, ClimateInput, LatLonGrid, PlanetParams};
+use rg_erosion::{ErosionParams, ErosionStats, RiverSegment};
+use rg_geo::CubeField;
 use rg_tectonics::{TectonicSnapshot, TectonicsParams};
 
 pub use layers::{Equirect, Layer};
@@ -18,6 +20,7 @@ pub use layers::{Equirect, Layer};
 #[derive(Clone, Debug, Default)]
 pub struct WorldParams {
     pub tectonics: TectonicsParams,
+    pub erosion: ErosionParams,
     pub planet: PlanetParams,
 }
 
@@ -25,13 +28,29 @@ pub struct WorldParams {
 #[derive(Clone, Debug, Default)]
 pub struct Timings {
     pub tectonics_ms: f64,
+    pub erosion_ms: f64,
     pub climate_ms: f64,
 }
 
 /// A generated world: the committed fields plus derived data.
+/// Hydrology from the erosion stage (committed with the world).
+pub struct Hydrology {
+    /// Upstream drainage area, km² (erosion grid resolution).
+    pub drainage_km2: CubeField<f32>,
+    /// Downstream unit flow direction (tangent vectors; zero at sea).
+    pub flow_dir: CubeField<[f32; 3]>,
+    /// Standing water depth in closed basins, m.
+    pub lake_depth_m: CubeField<f32>,
+    pub rivers: Vec<RiverSegment>,
+    pub stats: ErosionStats,
+}
+
 pub struct World {
     pub params: WorldParams,
+    /// `tectonics.height_m` holds the **eroded** macro heights (the committed surface).
     pub tectonics: TectonicSnapshot,
+    /// None for worlds generated with erosion off or loaded from schema-1 files.
+    pub hydrology: Option<Hydrology>,
     /// Heights resampled to the climate grid. Kept so display-time downscaling can
     /// compare fine heights with what the climate model saw.
     pub climate_heights: LatLonGrid<f32>,
@@ -43,18 +62,39 @@ pub struct World {
 pub const CLIMATE_W: u32 = 360;
 pub const CLIMATE_H: u32 = 180;
 
-/// Generate a world: tectonics → macro heights → tier A climate.
+/// Generate a world: tectonics → fluvial erosion → tier A climate.
 pub fn generate(params: &WorldParams) -> World {
     let mut params = params.clone();
     // One radius for everything.
     params.planet.radius_m = params.tectonics.radius_m;
 
     let t0 = web_time::Instant::now();
-    let tectonics = rg_tectonics::generate(&params.tectonics);
+    let mut tectonics = rg_tectonics::generate(&params.tectonics);
     let tectonics_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
+    let t1 = web_time::Instant::now();
+    let hydrology = params.erosion.enabled.then(|| {
+        let r = rg_erosion::erode(&tectonics.height_m, params.tectonics.radius_m, &params.erosion);
+        tectonics.height_m = r.height_m;
+        Hydrology {
+            drainage_km2: r.drainage_km2,
+            flow_dir: r.flow_dir,
+            lake_depth_m: r.lake_depth_m,
+            rivers: r.rivers,
+            stats: r.stats,
+        }
+    });
+    let erosion_ms = t1.elapsed().as_secs_f64() * 1000.0;
+
     let (climate_heights, climate, climate_ms) = run_climate(&params.planet, &tectonics);
-    World { params, tectonics, climate_heights, climate, timings: Timings { tectonics_ms, climate_ms } }
+    World {
+        params,
+        tectonics,
+        hydrology,
+        climate_heights,
+        climate,
+        timings: Timings { tectonics_ms, erosion_ms, climate_ms },
+    }
 }
 
 /// Re-run only the climate (after changing planet parameters).
