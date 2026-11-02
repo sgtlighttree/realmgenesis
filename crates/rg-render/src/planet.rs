@@ -1,0 +1,454 @@
+//! The planet renderer: a 3D globe or a 2D equirectangular map, drawn offscreen.
+//!
+//! Both views sample the same **layer texture** (an equirectangular sRGB albedo image the
+//! app bakes for the active layer: satellite, Köppen, plates…) and **height texture**
+//! (metres, used for 2D hillshade). The globe additionally uses a displaced mesh.
+
+use crate::{OrbitCamera, PlanetMesh, Vertex};
+use bytemuck::{Pod, Zeroable};
+use glam::DVec3;
+use wgpu::util::DeviceExt;
+
+pub const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+const SAMPLES: u32 = 4;
+
+/// An equirectangular RGBA8 (sRGB) image: row 0 = north pole, column 0 = lon -180°.
+#[derive(Clone, Debug)]
+pub struct LayerImage {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+/// An equirectangular height image in metres above sea level.
+#[derive(Clone, Debug)]
+pub struct HeightImage {
+    pub width: u32,
+    pub height: u32,
+    pub metres: Vec<f32>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ViewMode {
+    Globe,
+    Map,
+}
+
+/// The 2D map's viewport.
+#[derive(Clone, Copy, Debug)]
+pub struct MapView {
+    pub center_lon: f64,
+    pub center_lat: f64,
+    /// Visible longitude span in radians (2π = whole world).
+    pub width_rad: f64,
+}
+
+impl Default for MapView {
+    fn default() -> Self {
+        Self { center_lon: 0.0, center_lat: 0.0, width_rad: std::f64::consts::TAU * 1.05 }
+    }
+}
+
+impl MapView {
+    /// Pan by a screen delta in pixels.
+    pub fn drag(&mut self, dx: f64, dy: f64, viewport_w: f64) {
+        let rad_per_px = self.width_rad / viewport_w.max(1.0);
+        self.center_lon = (self.center_lon - dx * rad_per_px + std::f64::consts::PI)
+            .rem_euclid(std::f64::consts::TAU)
+            - std::f64::consts::PI;
+        self.center_lat = (self.center_lat + dy * rad_per_px).clamp(-1.5, 1.5);
+    }
+
+    pub fn zoom(&mut self, factor: f64) {
+        self.width_rad = (self.width_rad * factor).clamp(0.002, std::f64::consts::TAU * 1.2);
+    }
+
+    /// (lon, lat) radians under a point given in viewport fractions (0..1, y down).
+    pub fn lonlat_at(&self, fx: f64, fy: f64, aspect: f64) -> (f64, f64) {
+        let lon = self.center_lon + (fx - 0.5) * self.width_rad;
+        let lat = self.center_lat - (fy - 0.5) * self.width_rad / aspect;
+        (lon, lat)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct RenderStyle {
+    pub sun_dir: DVec3,
+    /// 0 = flat colour, 1 = full relief shading.
+    pub relief_shading: f32,
+    pub ocean_specular: bool,
+    pub radius_m: f64,
+    /// Vertical exaggeration for 2D hillshade.
+    pub map_exaggeration: f32,
+}
+
+impl Default for RenderStyle {
+    fn default() -> Self {
+        Self {
+            sun_dir: DVec3::new(1.0, 0.6, 0.35),
+            relief_shading: 1.0,
+            ocean_specular: true,
+            radius_m: 6_371_000.0,
+            map_exaggeration: 12.0,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct Globals {
+    view_proj: [[f32; 4]; 4],
+    sun_dir: [f32; 4],
+    eye: [f32; 4],
+    params: [f32; 4],
+    map: [f32; 4],
+}
+
+struct Targets {
+    size: [u32; 2],
+    msaa: wgpu::TextureView,
+    resolve_view: wgpu::TextureView,
+    depth: wgpu::TextureView,
+}
+
+pub struct PlanetRenderer {
+    globe_pipeline: wgpu::RenderPipeline,
+    map_pipeline: wgpu::RenderPipeline,
+    bgl: wgpu::BindGroupLayout,
+    globals: wgpu::Buffer,
+    sampler: wgpu::Sampler,
+    albedo: wgpu::Texture,
+    heights: wgpu::Texture,
+    bind_group: wgpu::BindGroup,
+    vertex_buf: Option<wgpu::Buffer>,
+    index_buf: Option<wgpu::Buffer>,
+    index_count: u32,
+    targets: Option<Targets>,
+}
+
+impl PlanetRenderer {
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("planet"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("planet.wgsl").into()),
+        });
+        let tex_entry = |binding, sample_type| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type,
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
+        let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("planet"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                tex_entry(1, wgpu::TextureSampleType::Float { filterable: true }),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                tex_entry(3, wgpu::TextureSampleType::Float { filterable: false }),
+            ],
+        });
+        let globals = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("planet globals"),
+            size: std::mem::size_of::<Globals>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("layer"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("planet"),
+            bind_group_layouts: &[Some(&bgl)],
+            immediate_size: 0,
+        });
+        let attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32, 2 => Float32x3];
+        let globe_buffers = [Some(wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Vertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &attrs,
+        })];
+        let make_pipeline = |label, vs, fs, buffers: &[Option<wgpu::VertexBufferLayout>], depth: bool, cull| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some(vs),
+                    compilation_options: Default::default(),
+                    buffers,
+                },
+                primitive: wgpu::PrimitiveState { cull_mode: cull, ..Default::default() },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(depth),
+                    // Reversed Z: nearer = larger depth.
+                    depth_compare: Some(if depth { wgpu::CompareFunction::Greater } else { wgpu::CompareFunction::Always }),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some(fs),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: COLOR_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let globe_pipeline = make_pipeline("globe", "vs_globe", "fs_globe", &globe_buffers, true, Some(wgpu::Face::Back));
+        let map_pipeline = make_pipeline("map", "vs_map", "fs_map", &[], false, None);
+
+        let (albedo, heights) = Self::make_textures(device, 1, 1, 1, 1);
+        let bind_group = Self::make_bind_group(device, &bgl, &globals, &albedo, &sampler, &heights);
+        let mut r = Self {
+            globe_pipeline,
+            map_pipeline,
+            bgl,
+            globals,
+            sampler,
+            albedo,
+            heights,
+            bind_group,
+            vertex_buf: None,
+            index_buf: None,
+            index_count: 0,
+            targets: None,
+        };
+        r.set_layer(device, queue, &LayerImage { width: 1, height: 1, rgba: vec![40, 80, 120, 255] });
+        r.set_heights(device, queue, &HeightImage { width: 1, height: 1, metres: vec![0.0] });
+        r
+    }
+
+    fn make_textures(device: &wgpu::Device, aw: u32, ah: u32, hw: u32, hh: u32) -> (wgpu::Texture, wgpu::Texture) {
+        let make = |label, w, h, format| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            })
+        };
+        (
+            make("layer albedo", aw, ah, wgpu::TextureFormat::Rgba8UnormSrgb),
+            make("layer heights", hw, hh, wgpu::TextureFormat::R32Float),
+        )
+    }
+
+    fn make_bind_group(
+        device: &wgpu::Device,
+        bgl: &wgpu::BindGroupLayout,
+        globals: &wgpu::Buffer,
+        albedo: &wgpu::Texture,
+        sampler: &wgpu::Sampler,
+        heights: &wgpu::Texture,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("planet"),
+            layout: bgl,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&albedo.create_view(&Default::default())),
+                },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&heights.create_view(&Default::default())),
+                },
+            ],
+        })
+    }
+
+    fn rebind(&mut self, device: &wgpu::Device) {
+        self.bind_group =
+            Self::make_bind_group(device, &self.bgl, &self.globals, &self.albedo, &self.sampler, &self.heights);
+    }
+
+    /// Replace the layer (albedo) texture.
+    pub fn set_layer(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, img: &LayerImage) {
+        assert_eq!(img.rgba.len(), (img.width * img.height * 4) as usize);
+        if self.albedo.width() != img.width || self.albedo.height() != img.height {
+            self.albedo = Self::make_textures(device, img.width, img.height, 1, 1).0;
+            self.rebind(device);
+        }
+        write_texture(queue, &self.albedo, img.width, img.height, 4, &img.rgba);
+    }
+
+    /// Replace the height texture used for 2D hillshade.
+    pub fn set_heights(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, img: &HeightImage) {
+        assert_eq!(img.metres.len(), (img.width * img.height) as usize);
+        if self.heights.width() != img.width || self.heights.height() != img.height {
+            self.heights = Self::make_textures(device, 1, 1, img.width, img.height).1;
+            self.rebind(device);
+        }
+        write_texture(queue, &self.heights, img.width, img.height, 4, bytemuck::cast_slice(&img.metres));
+    }
+
+    pub fn upload_mesh(&mut self, device: &wgpu::Device, mesh: &PlanetMesh) {
+        self.vertex_buf = Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("planet vertices"),
+            contents: bytemuck::cast_slice(&mesh.vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        }));
+        self.index_buf = Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("planet indices"),
+            contents: bytemuck::cast_slice(&mesh.indices),
+            usage: wgpu::BufferUsages::INDEX,
+        }));
+        self.index_count = mesh.indices.len() as u32;
+    }
+
+    /// Ensure the offscreen targets match `size`. Returns true if they were recreated, in
+    /// which case the caller must re-register `output_view()` with its UI.
+    pub fn resize(&mut self, device: &wgpu::Device, size: [u32; 2]) -> bool {
+        let size = [size[0].max(1), size[1].max(1)];
+        if self.targets.as_ref().is_some_and(|t| t.size == size) {
+            return false;
+        }
+        let extent = wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 };
+        let make = |label, format, samples, usage| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: extent,
+                mip_level_count: 1,
+                sample_count: samples,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage,
+                view_formats: &[],
+            })
+        };
+        let msaa = make("planet msaa", COLOR_FORMAT, SAMPLES, wgpu::TextureUsages::RENDER_ATTACHMENT);
+        let resolve = make(
+            "planet output",
+            COLOR_FORMAT,
+            1,
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
+        );
+        let depth = make("planet depth", DEPTH_FORMAT, SAMPLES, wgpu::TextureUsages::RENDER_ATTACHMENT);
+        self.targets = Some(Targets {
+            size,
+            msaa: msaa.create_view(&Default::default()),
+            resolve_view: resolve.create_view(&Default::default()),
+            depth: depth.create_view(&Default::default()),
+        });
+        true
+    }
+
+    pub fn output_view(&self) -> Option<&wgpu::TextureView> {
+        self.targets.as_ref().map(|t| &t.resolve_view)
+    }
+
+    /// Draw one frame into the offscreen target. Call `resize` first.
+    pub fn render(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        mode: ViewMode,
+        cam: &OrbitCamera,
+        map: &MapView,
+        style: &RenderStyle,
+    ) {
+        let Some(t) = &self.targets else { return };
+        let aspect = t.size[0] as f64 / t.size[1] as f64;
+        let eye = cam.eye();
+        let s = style.sun_dir.normalize();
+        let g = Globals {
+            view_proj: cam.view_proj(aspect).to_cols_array_2d(),
+            sun_dir: [s.x as f32, s.y as f32, s.z as f32, 0.0],
+            eye: [eye.x as f32, eye.y as f32, eye.z as f32, 1.0],
+            params: [
+                style.relief_shading,
+                if style.ocean_specular { 1.0 } else { 0.0 },
+                style.radius_m as f32,
+                style.map_exaggeration,
+            ],
+            map: [map.center_lon as f32, map.center_lat as f32, map.width_rad as f32, aspect as f32],
+        };
+        queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&g));
+
+        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("planet") });
+        {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("planet"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &t.msaa,
+                    depth_slice: None,
+                    resolve_target: Some(&t.resolve_view),
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.006, g: 0.008, b: 0.014, a: 1.0 }),
+                        store: wgpu::StoreOp::Discard,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &t.depth,
+                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(0.0), store: wgpu::StoreOp::Discard }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_bind_group(0, &self.bind_group, &[]);
+            match mode {
+                ViewMode::Globe => {
+                    if let (Some(vb), Some(ib)) = (&self.vertex_buf, &self.index_buf) {
+                        pass.set_pipeline(&self.globe_pipeline);
+                        pass.set_vertex_buffer(0, vb.slice(..));
+                        pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+                        pass.draw_indexed(0..self.index_count, 0, 0..1);
+                    }
+                }
+                ViewMode::Map => {
+                    pass.set_pipeline(&self.map_pipeline);
+                    pass.draw(0..3, 0..1);
+                }
+            }
+        }
+        queue.submit([enc.finish()]);
+    }
+}
+
+fn write_texture(queue: &wgpu::Queue, tex: &wgpu::Texture, w: u32, h: u32, bpp: u32, data: &[u8]) {
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo { texture: tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+        data,
+        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(w * bpp), rows_per_image: Some(h) },
+        wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+    );
+}
