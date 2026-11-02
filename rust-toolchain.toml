@@ -1,0 +1,6 @@
+# Pinned so local and CI clippy agree (new stable lints broke `-D warnings` in CI).
+# Bump deliberately: update, fix new lints, commit.
+[toolchain]
+channel = "1.97.0"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-unknown-unknown"]

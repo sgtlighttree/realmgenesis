@@ -69,7 +69,7 @@ impl PlanetMesh {
 
     fn compute_normals(&mut self) {
         let mut acc = vec![Vec3::ZERO; self.vertices.len()];
-        for t in self.indices.chunks_exact(3) {
+        for t in self.indices.as_chunks::<3>().0 {
             let [a, b, c] = [t[0] as usize, t[1] as usize, t[2] as usize];
             let pa = Vec3::from(self.vertices[a].pos);
             let pb = Vec3::from(self.vertices[b].pos);

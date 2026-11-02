@@ -63,7 +63,7 @@ mod tests {
         assert_eq!(info.bit_depth, png::BitDepth::Sixteen);
         let mut buf = vec![0; r.output_buffer_size().unwrap()];
         r.next_frame(&mut buf).unwrap();
-        let vals: Vec<u16> = buf.chunks_exact(2).map(|b| u16::from_be_bytes([b[0], b[1]])).collect();
+        let vals: Vec<u16> = buf.as_chunks::<2>().0.iter().map(|b| u16::from_be_bytes(*b)).collect();
         let (lo, hi) = (*vals.iter().min().unwrap(), *vals.iter().max().unwrap());
         assert!(lo < 2000 && hi > 60000, "{lo}..{hi}");
         assert!(ex.sidecar.contains("sea_level_grey"));

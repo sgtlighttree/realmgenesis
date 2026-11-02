@@ -53,11 +53,11 @@ impl Chunk {
     }
     pub fn as_f32s(&self) -> Option<Vec<f32>> {
         (self.kind == ChunkKind::F32 && self.bytes.len().is_multiple_of(4))
-            .then(|| self.bytes.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect())
+            .then(|| self.bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect())
     }
     pub fn as_u16s(&self) -> Option<Vec<u16>> {
         (self.kind == ChunkKind::U16 && self.bytes.len().is_multiple_of(2))
-            .then(|| self.bytes.chunks_exact(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect())
+            .then(|| self.bytes.as_chunks::<2>().0.iter().map(|b| u16::from_le_bytes(*b)).collect())
     }
 }
 

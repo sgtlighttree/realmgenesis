@@ -131,7 +131,7 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
     let monthly = |name: &str| -> Result<Vec<[f32; 12]>, String> {
         let flat = get(name)?.as_f32s().ok_or(format!("{name}: wrong type"))?;
         check_len(name, flat.len(), n * 12)?;
-        Ok(flat.chunks_exact(12).map(|m| m.try_into().unwrap()).collect())
+        Ok(flat.as_chunks::<12>().0.to_vec())
     };
     let heights = get("climate.heights")?.as_f32s().ok_or("climate.heights: wrong type")?;
     check_len("climate.heights", heights.len(), n)?;
