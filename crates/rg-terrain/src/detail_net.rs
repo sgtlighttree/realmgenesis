@@ -83,6 +83,8 @@ static CAND_STATS: [std::sync::atomic::AtomicUsize; 2] = [std::sync::atomic::Ato
 /// briefly drew dark crescent scarps, s01). Wedge reach in total: 2 + WALL_LEN spacings.
 const WALL_LEN: f64 = 1.5;
 const REACH_TOTAL: f64 = 2.0 + WALL_LEN;
+/// Hack's exponent (L ∝ A^h, h ≈ 0.57; Hack 1957), for the along-channel area decline.
+const HACK_H: f64 = 0.57;
 /// Pieces per child channel (meander).
 const CHILD_PIECES: usize = 3;
 /// Pieces per curved level-0 edge.
@@ -669,11 +671,32 @@ impl DetailNet {
             .collect();
         let lens: Vec<f64> = pts.windows(2).map(|w| (w[1] - w[0]).length() * self.radius_m).collect();
         let total: f64 = lens.iter().sum::<f64>().max(1e-9);
+        // Concave profile: along the channel the drainage area shrinks towards the head, and
+        // the stream-power steady state gives S ∝ A^−θ, so the bed steepens upstream. With
+        // Hack's law the area at distance u from the head is A ∝ u^(1/h); with a channel-head
+        // area (hollow) of ~5% of the junction's: A(s) = A_j·(0.05 + 0.95·((L − s)/L)^(1/h)).
+        // z(s) = z_a + Δz·∫₀ˢ A^−θ / ∫₀ᴸ A^−θ, piece by piece (midpoint rule, 8 sub-steps):
+        // strictly rising, the same total rise.
+        let a_rel = |s: f64| 0.05 + 0.95 * ((total - s).max(0.0) / total).powf(1.0 / HACK_H);
+        let steps = 8;
+        let piece_int: Vec<f64> = {
+            let mut acc = 0.0;
+            lens.iter()
+                .map(|&l| {
+                    let s_start = acc;
+                    acc += l;
+                    (0..steps).map(|k| a_rel(s_start + (k as f64 + 0.5) / steps as f64 * l).powf(-THETA) * l / steps as f64).sum::<f64>()
+                })
+                .collect()
+        };
+        let int_total: f64 = piece_int.iter().sum::<f64>().max(1e-12);
         let mut out = Vec::with_capacity(CHILD_PIECES);
         let mut s_acc = 0.0;
+        let mut i_acc = 0.0;
         for (i, w) in pts.windows(2).enumerate() {
-            let z0 = ch.z_down + (ch.z_up - ch.z_down) * (s_acc / total);
-            let z1 = ch.z_down + (ch.z_up - ch.z_down) * ((s_acc + lens[i]) / total);
+            let z0 = ch.z_down + (ch.z_up - ch.z_down) * (i_acc / int_total);
+            i_acc += piece_int[i];
+            let z1 = ch.z_down + (ch.z_up - ch.z_down) * (i_acc / int_total);
             out.push(Channel { up: w[1], down: w[0], z_up: z1, z_down: z0, len_m: lens[i], s0: s_acc, chan_len: total, ..ch });
             s_acc += lens[i];
         }

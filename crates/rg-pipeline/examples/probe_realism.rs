@@ -15,6 +15,8 @@
 //! - **slope:** 90 m central differences (SRTM-like), degrees.
 #[path = "common/mod.rs"]
 mod common;
+#[path = "common/metrics.rs"]
+mod metrics;
 use common::world;
 use rg_pipeline::World;
 use std::cmp::Ordering;
@@ -72,6 +74,9 @@ struct Score {
     coherence: f64,
     /// Gradient-weighted aspect concentration |Σ|g|e^{2iθ}| / Σ|g| over the 10 km sub-box.
     aspect: f64,
+    /// 1D power-spectrum exponent and slope–area concavity (see `common/metrics.rs`).
+    beta: f64,
+    theta: f64,
 }
 
 fn score(w: &World, s: &rg_terrain::TerrainSampler, lat0: f64, lon0: f64, half: f64) -> Score {
@@ -207,38 +212,15 @@ fn score(w: &World, s: &rg_terrain::TerrainSampler, lat0: f64, lon0: f64, half: 
     // Orientation: a 10 km sub-box at 60 m, structure tensor in 25×25-sample windows.
     let (m, sp2) = (167usize, 60.0);
     let g: Vec<f64> = (0..m * m).map(|k| surf(at(-5000.0 + (k % m) as f64 * sp2, -5000.0 + (k / m) as f64 * sp2), sp2)).collect();
-    let (mut coh_sum, mut coh_n) = (0.0, 0usize);
-    let (mut ax, mut ay, mut aw) = (0.0, 0.0, 0.0);
-    let win = 25;
-    for wy in (1..m - win - 1).step_by(win) {
-        for wx in (1..m - win - 1).step_by(win) {
-            let (mut jxx, mut jyy, mut jxy) = (0.0, 0.0, 0.0);
-            for j in wy..wy + win {
-                for i in wx..wx + win {
-                    let gx = (g[j * m + i + 1] - g[j * m + i - 1]) / (2.0 * sp2);
-                    let gy = (g[(j + 1) * m + i] - g[(j - 1) * m + i]) / (2.0 * sp2);
-                    jxx += gx * gx;
-                    jyy += gy * gy;
-                    jxy += gx * gy;
-                    let mag = (gx * gx + gy * gy).sqrt();
-                    if mag > 1e-6 {
-                        let th = gy.atan2(gx);
-                        ax += mag * (2.0 * th).cos();
-                        ay += mag * (2.0 * th).sin();
-                        aw += mag;
-                    }
-                }
-            }
-            let tr = jxx + jyy;
-            if tr > 1e-12 {
-                coh_sum += ((jxx - jyy).powi(2) + 4.0 * jxy * jxy).sqrt() / tr;
-                coh_n += 1;
-            }
-        }
-    }
+    // Shared with earth_reference (identical code on real DEMs).
+    let (coherence, aspect) = metrics::orientation(&g, m, sp2);
+    let beta = metrics::spectrum_beta(&g, m, sp2);
+    let (theta, _) = metrics::slope_area_theta(&g, m, sp2);
     Score {
-        coherence: coh_sum / coh_n.max(1) as f64,
-        aspect: (ax * ax + ay * ay).sqrt() / aw.max(1e-12),
+        coherence,
+        aspect,
+        beta,
+        theta,
         depress_pct: depths.len() as f64 / land as f64 * 100.0,
         depth_m,
         slope: [mean(&deg), q(0.5), q(0.9), q(0.99)],
@@ -320,16 +302,18 @@ fn main() {
         let hs: Vec<_> = boxes.iter().map(|&(_, la, lo)| sc.spawn(move || score(w, s, la, lo, half_km * 1000.0))).collect();
         hs.into_iter().map(|h| h.join().unwrap()).collect()
     });
-    println!("box          lat     lon    depress  depth   coh   asp   slope° mean/p50/p90/p99   macro°");
+    println!("box          lat     lon    depress  depth   coh   asp    β     θ    slope° mean/p50/p90/p99   macro°");
     for ((name, la, lo), sc) in boxes.iter().zip(&scores) {
         println!(
-            "{name:<11} {:6.1} {:7.1}   {:5.2}%  {:4.0} m  {:.2}  {:.2}   {:4.1} {:4.1} {:4.1} {:4.1}      {:4.1}",
+            "{name:<11} {:6.1} {:7.1}   {:5.2}%  {:4.0} m  {:.2}  {:.2}  {:4.2}  {:4.2}   {:4.1} {:4.1} {:4.1} {:4.1}      {:4.1}",
             la.to_degrees(),
             lo.to_degrees(),
             sc.depress_pct,
             sc.depth_m,
             sc.coherence,
             sc.aspect,
+            sc.beta,
+            sc.theta,
             sc.slope[0],
             sc.slope[1],
             sc.slope[2],
