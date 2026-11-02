@@ -68,6 +68,12 @@ const ATTACH_SEARCH: f64 = 1.2;
 /// sibling-attached channel, in level spacings. Bounds the rank steps in the margins.
 const SIBLING_SEARCH: f64 = 1.5;
 const SIBLING_MAX_LEN: f64 = 2.5;
+/// Steepest the surface can be within reach of its active wedge (m/m): bounds the minimum
+/// over a block or cell from its centre value (exact pruning).
+const MAX_GRADIENT: f64 = 1.5;
+/// Profiling counters (native, RG_NET_PROF): candidate lists built, total length.
+#[cfg(not(target_arch = "wasm32"))]
+static CAND_STATS: [std::sync::atomic::AtomicUsize; 2] = [std::sync::atomic::AtomicUsize::new(0), std::sync::atomic::AtomicUsize::new(0)];
 /// Pieces per curved level-0 edge.
 const CURVE_PIECES: usize = 4;
 /// Fade-out terms (see `wedge`): large enough that a faded channel never wins.
@@ -80,6 +86,7 @@ const MAX_ANCESTORS: usize = 7;
 
 /// One shard of the channel memo: (level, cell) → channel (None = no channel there).
 type MemoShard = std::sync::Mutex<HashMap<(u8, Cell), (u8, Option<Channel>)>>;
+type CandShard = std::sync::Mutex<HashMap<(u8, Cell), Arc<Vec<Channel>>>>;
 
 /// A parent candidate: its wedge at the head, the distance and parameter there.
 #[derive(Clone, Copy)]
@@ -265,6 +272,8 @@ pub struct DetailNet {
     /// alone (given complete coarser sets, which the gather margins guarantee), so patches
     /// built in any order agree. Sharded to keep worker threads from queueing.
     memo: Arc<[MemoShard; 16]>,
+    /// Memo of coarser-candidate lists per (level, parent-lattice cell) (see `candidates`).
+    cand_memo: Arc<[CandShard; 16]>,
     ridge_alpha: f64,
     /// Erodibility K of the macro solve, m^(1−2m)/yr (k_sn = U/K).
     k_erodibility: f64,
@@ -280,14 +289,80 @@ impl DetailNet {
             cells.push(cells.last().unwrap() * 3);
         }
         let memo = Arc::new(std::array::from_fn(|_| std::sync::Mutex::new(HashMap::new())));
+        let cand_memo = Arc::new(std::array::from_fn(|_| std::sync::Mutex::new(HashMap::new())));
         let ridge_alpha = tune("RG_RIDGE", RIDGE_ALPHA);
-        Self { macro_net, radius_m, salt: seed ^ 0xD371_0A11_C4A7_0001, spacing, cells, memo, ridge_alpha, k_erodibility: 1.0e-5 }
+        Self { macro_net, radius_m, salt: seed ^ 0xD371_0A11_C4A7_0001, spacing, cells, memo, cand_memo, ridge_alpha, k_erodibility: 1.0e-5 }
     }
 
     /// Set the macro solve's erodibility K (default 1e-5), used for k_sn = U/K.
     pub fn with_erodibility(mut self, k: f64) -> Self {
         self.k_erodibility = k;
         self
+    }
+
+    /// Coarser channels (levels < k) that can be the lowest coarser wedge somewhere in the
+    /// level-(k−1) lattice cell containing `q`. Exact pruning, as for patch blocks: anywhere
+    /// in the cell a wedge is ≥ z_down + H(max(0, d_c − r_cell)), and the minimum is ≤ the best
+    /// value at the centre + MAX_GRADIENT·r_cell. The list depends only on the cell (given
+    /// complete coarser sets), so it is memoised across patches.
+    fn candidates(&self, k: usize, q: DVec3, coarser: &[Binned]) -> Arc<Vec<Channel>> {
+        self.cell_candidates(k, lattice::cell_of(q, self.cells[k - 1]), coarser)
+    }
+
+    /// The list for level-(k−1) cell `cell`, built hierarchically: a channel of levels < k−1
+    /// that can be the minimum somewhere in this cell is also a minimum (over levels < k−1)
+    /// somewhere in the enclosing level-(k−2) cell, so it is in that cell's list. Add the
+    /// level-(k−1) channels near the cell and prune. Exact, and no rescan of every level.
+    fn cell_candidates(&self, k: usize, cell: Cell, coarser: &[Binned]) -> Arc<Vec<Channel>> {
+        let key = (k as u8, cell);
+        let shard = &self.cand_memo[(lattice::hash(k as u64 ^ 0xCA, cell) % 16) as usize];
+        if let Some(v) = shard.lock().ok().and_then(|m| m.get(&key).cloned()) {
+            return v;
+        }
+        let n = self.cells[k - 1];
+        let pc = lattice::centre(cell, n);
+        // Cell half-diagonal (cells are up to ~1.4 spacings across near face corners).
+        let r_cell = self.spacing[k - 1];
+        let mut all: Vec<Channel> = if k >= 2 {
+            let parent_cell = lattice::cell_of(pc, self.cells[k - 2]);
+            self.cell_candidates(k - 1, parent_cell, coarser).as_ref().clone()
+        } else {
+            Vec::new()
+        };
+        let base = all.len();
+        let b = &coarser[k - 1];
+        b.for_each_near(pc, 3.0 * b.spacing_m + b.max_len + r_cell, |ch| all.push(*ch));
+        // Only the new level's entries can repeat (seam windows); dedupe those.
+        let mut fresh = all.split_off(base);
+        fresh.sort_by(|a, b| a.up.x.total_cmp(&b.up.x).then(a.up.y.total_cmp(&b.up.y)).then(a.up.z.total_cmp(&b.up.z)).then(a.down.x.total_cmp(&b.down.x)));
+        fresh.dedup_by(|a, b| a.up == b.up && a.down == b.down);
+        all.extend(fresh);
+        let t = self.macro_tri(pc);
+        let mut ub = t + self.ridge(t);
+        for ch in &all {
+            let (d, tt) = ch.nearest(pc, self.radius_m);
+            ub = ub.min(ch.wedge(d, tt, 1.0, 0.0, 0.0));
+        }
+        let ub = ub + MAX_GRADIENT * r_cell;
+        all.retain(|ch| {
+            let (d, _) = ch.nearest(pc, self.radius_m);
+            ch.wedge((d - r_cell).max(0.0), 0.0, 1.0, 0.0, 0.0) <= ub
+        });
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            CAND_STATS[0].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            CAND_STATS[1].fetch_add(all.len(), std::sync::atomic::Ordering::Relaxed);
+        }
+        let v = Arc::new(all);
+        if let Ok(mut m) = shard.lock() {
+            // Budget by channels held (~200 B each): ≤ ~60k per shard, ~200 MB in all.
+            let held: usize = m.values().map(|l| l.len()).sum();
+            if held + v.len() > 60_000 {
+                m.clear();
+            }
+            m.insert(key, v.clone());
+        }
+        v
     }
 
     fn memo_put(&self, k: usize, c: Cell, v: (u8, Option<Channel>)) {
@@ -376,10 +451,11 @@ impl DetailNet {
         // = 8 ℓ_k beyond the margin, and their prelim reads the coarser surface: coarser heads
         // within (3 + 4.5σ)·3 ℓ_k of them. So 3c ≥ c + 8 + (3 + 4.5σ)·3, i.e. c ≥ 16.6 (σ 1.2).
         let rank_extra = 2.0 * (SIBLING_SEARCH + SIBLING_MAX_LEN);
-        let c = ((rank_extra + (3.0 + 4.5 * ATTACH_SEARCH) * 3.0) / 2.0).max(8.25 * ATTACH_SEARCH) + 0.5;
+        // + one parent spacing (3 ℓ_k): candidate lists are read from the parent cell's centre.
+        let c = ((rank_extra + (3.0 + 4.5 * ATTACH_SEARCH) * 3.0 + 3.0) / 2.0).max(8.25 * ATTACH_SEARCH) + 0.5;
         // Level 0: level-1 rank-0 heads sit at (c + rank_extra)/3 ℓ_0 and read level-0 wedges
         // whose heads are within 3 ℓ_0 + an edge (≤ 1.5 ℓ_0) of them.
-        if k == 0 { ((c + rank_extra) / 3.0 + 3.0 + 1.5 + 0.5) * self.spacing[0] } else { c * self.spacing[k] }
+        if k == 0 { ((c + rank_extra) / 3.0 + 3.0 + 1.5 + 1.0 + 0.5) * self.spacing[0] } else { c * self.spacing[k] }
     }
 
     /// The cell-local facts that decide a level-k cell's channel: its point, the coarser
@@ -398,21 +474,20 @@ impl DetailNet {
             return None;
         }
         // The coarser parent: the lowest coarser wedge at q within the search radius (q
-        // drains to the hillslope it sits on; the *nearest* channel can be buried).
+        // drains to the hillslope it sits on; the *nearest* channel can be buried). Both it
+        // and the coarser surface come from the exact candidate list of q's parent cell.
         let search = ATTACH_SEARCH * self.spacing[k - 1];
         let mut best: Option<Cand> = None;
         let u_q = t_q + self.ridge(t_q);
         let mut coarse = u_q;
-        for b in coarser {
-            b.for_each_near(q, 3.0 * b.spacing_m + b.max_len, |ch| {
-                let (d, t) = ch.nearest(q, self.radius_m);
-                let wq = ch.wedge(d, t, 1.0, 0.0, 0.0);
-                coarse = coarse.min(wq);
-                if d > search || d < 1.0 || best.as_ref().is_some_and(|b| b.wq <= wq) {
-                    return;
-                }
-                best = Some(Cand { wq, d, t, ch: *ch });
-            });
+        for ch in self.candidates(k, q, coarser).iter() {
+            let (d, t) = ch.nearest(q, self.radius_m);
+            let wq = ch.wedge(d, t, 1.0, 0.0, 0.0);
+            coarse = coarse.min(wq);
+            if d > search || d < 1.0 || best.as_ref().is_some_and(|b| b.wq <= wq) {
+                continue;
+            }
+            best = Some(Cand { wq, d, t, ch: *ch });
         }
         let parent = best?;
         // Rank from hillslope position: cells low on the coarser hillside (near its bed)
@@ -533,7 +608,12 @@ impl DetailNet {
             l0.push(self.level0_channel(s));
         }
         binned.push(Binned::new(l0, self.cells[0], self.radius_m));
+        #[cfg(not(target_arch = "wasm32"))]
+        let prof = std::env::var("RG_NET_PROF").is_ok();
         for k in 1..levels {
+            #[cfg(not(target_arch = "wasm32"))]
+            let t_level = std::time::Instant::now();
+            let (mut n_cells, mut n_hits, mut n_pre) = (0usize, 0usize, 0usize);
             let lk = self.spacing[k];
             let g = radius_m + self.margin(k);
             let n = self.cells[k];
@@ -548,13 +628,16 @@ impl DetailNet {
                 if dist > g_max + lk {
                     continue;
                 }
+                n_cells += 1;
                 let shard = &self.memo[(lattice::hash(k as u64, c) % 16) as usize];
                 if let Some(entry) = shard.lock().ok().and_then(|m| m.get(&(k as u8, c)).copied()) {
                     if let (r, Some(ch)) = entry {
                         by_rank[r as usize].push(ch);
                     }
+                    n_hits += 1;
                     continue;
                 }
+                n_pre += 1;
                 match self.prelim(k, c, &binned) {
                     None => self.memo_put(k, c, (0, None)),
                     Some(pre) if pre.rank == 0 => {
@@ -583,9 +666,22 @@ impl DetailNet {
                 }
             }
             let all: Vec<Channel> = by_rank.into_iter().flatten().collect();
+            #[cfg(not(target_arch = "wasm32"))]
+            if prof {
+                let (lists, total) = (CAND_STATS[0].swap(0, std::sync::atomic::Ordering::Relaxed), CAND_STATS[1].swap(0, std::sync::atomic::Ordering::Relaxed));
+                eprintln!("  L{k}: {n_cells} cells, {n_hits} memo hits, {n_pre} prelims, {} channels, {:.1} ms; {lists} lists, mean len {:.0}", all.len(), t_level.elapsed().as_secs_f64() * 1e3, total as f64 / lists.max(1) as f64);
+            }
+            let _ = (n_cells, n_hits, n_pre);
             binned.push(Binned::new(all, n, self.radius_m));
         }
-        Patch::new(self, center, radius_m, cutoff_m, binned)
+        #[cfg(not(target_arch = "wasm32"))]
+        let t_blocks = std::time::Instant::now();
+        let p = Patch::new(self, center, radius_m, cutoff_m, binned);
+        #[cfg(not(target_arch = "wasm32"))]
+        if prof {
+            eprintln!("  blocks+prune {:.1} ms", t_blocks.elapsed().as_secs_f64() * 1e3);
+        }
+        p
     }
 }
 
@@ -688,7 +784,6 @@ impl Patch {
         // z_down + H(max(0, d_c − hd)) (z ≥ z_down, H monotone), and the block's minimum is
         // ≤ the best value at the centre + MAX_GRADIENT·hd (no surface is steeper within
         // reach). A channel whose bound exceeds that can never be the minimum there.
-        const MAX_GRADIENT: f64 = 1.5;
         for by in 0..blocks_per_side {
             for bx in 0..blocks_per_side {
                 let list = &mut blocks[by * blocks_per_side + bx];
