@@ -9,8 +9,9 @@
 //! Per box (three of the most rugged macro spots, one ordinary lowland):
 //! - **depressions:** Priority-Flood fill on a 250 m grid, box edges = outlets. Share of land
 //!   in closed depressions and their mean depth. Earth's fluvial landscapes: ~1% at this scale.
-//! - **flow agreement:** on macro river cells (> 3000 km²), share where the final surface's
-//!   D8 steepest descent is within 60° of the macro flow. Random = 33%.
+//! - **coherence / aspect:** structure-tensor coherence of the gradient in 1.5 km windows,
+//!   and gradient-weighted aspect concentration, on a 10 km sub-box at 60 m. Fishbone,
+//!   herringbone and grid-aligned patterns score high; isotropic terrain low.
 //! - **slope:** 90 m central differences (SRTM-like), degrees.
 #[path = "common/mod.rs"]
 mod common;
@@ -64,15 +65,17 @@ fn pick_boxes(w: &World) -> Vec<(&'static str, f64, f64)> {
 struct Score {
     depress_pct: f64,
     depth_m: f64,
-    agree_pct: f64,
-    river_cells: usize,
     slope: [f64; 4], // mean, p50, p90, p99
     macro_slope_mean: f64,
+    /// Mean structure-tensor coherence of the gradient in 1.5 km windows (0 = isotropic,
+    /// 1 = one orientation): fishbone/herringbone and grid-aligned patterns score high.
+    coherence: f64,
+    /// Gradient-weighted aspect concentration |Σ|g|e^{2iθ}| / Σ|g| over the 10 km sub-box.
+    aspect: f64,
 }
 
 fn score(w: &World, s: &rg_terrain::TerrainSampler, lat0: f64, lon0: f64, half: f64) -> Score {
     let r = w.params.tectonics.radius_m;
-    let hy = w.hydrology.as_ref().expect("erosion on");
     let at = |x: f64, y: f64| unit(lat0 + y / r, lon0 + x / (r * lat0.cos()));
     let sp: f64 = std::env::var("RG_PROBE_SP").ok().and_then(|v| v.parse().ok()).unwrap_or(250.0);
     let cut: f64 = std::env::var("RG_PROBE_CUT").ok().and_then(|v| v.parse().ok()).unwrap_or(sp);
@@ -81,6 +84,13 @@ fn score(w: &World, s: &rg_terrain::TerrainSampler, lat0: f64, lon0: f64, half: 
     // RG_PROBE_SURFACE=macro scores the bare macro surface (bilinear committed heights).
     let mode = std::env::var("RG_PROBE_SURFACE").unwrap_or_default();
     let macro_only = mode == "macro";
+    // RG_PROBE_SURFACE=gully: the old stateless detail (hills + gully filter), for comparison.
+    let gully = {
+        let mut g = s.clone();
+        g.net = None;
+        g
+    };
+    let s = if mode == "gully" { &gully } else { s };
     // RG_PROBE_SURFACE=net: the drained detail network, through cached 5 km sub-patches
     // (keyed by band-limit and block).
     let dnet = (mode == "net").then(|| {
@@ -110,6 +120,10 @@ fn score(w: &World, s: &rg_terrain::TerrainSampler, lat0: f64, lon0: f64, half: 
         let bs = 5000.0;
         let key = ((x / bs).floor() as i64, (y / bs).floor() as i64, wl.to_bits());
         let mut ps = patches.borrow_mut();
+        // Bounded: fine patches are several MB each, and random slope samples touch hundreds.
+        if ps.len() >= 24 && !ps.contains_key(&key) {
+            ps.clear();
+        }
         let patch = ps.entry(key).or_insert_with(|| {
             let (cx, cy) = ((key.0 as f64 + 0.5) * bs, (key.1 as f64 + 0.5) * bs);
             let (cla, clo) = (lat0 + cy / rr, lon0 + cx / (rr * lat0.cos()));
@@ -165,37 +179,6 @@ fn score(w: &World, s: &rg_terrain::TerrainSampler, lat0: f64, lon0: f64, half: 
     let depths: Vec<f64> = (0..n * n).map(|k| filled[k] - h[k]).filter(|&d| d > 0.5).collect();
     let depth_m = depths.iter().sum::<f64>() / depths.len().max(1) as f64;
 
-    let (mut agree, mut total) = (0usize, 0usize);
-    for j in 1..n - 1 {
-        for i in 1..n - 1 {
-            let k = j * n + i;
-            let d = dir_at(i, j);
-            if h[k] <= 0.0 || hy.drainage_km2.sample(d) < 3000.0 {
-                continue;
-            }
-            let f = hy.flow_dir.nearest(d);
-            let macro_dir = glam::DVec3::new(f[0] as f64, f[1] as f64, f[2] as f64);
-            if macro_dir.length() < 0.5 {
-                continue;
-            }
-            let mut best = (0.0, glam::DVec3::ZERO);
-            for (di, dj) in NB {
-                let (ni, nj) = ((i as i64 + di) as usize, (j as i64 + dj) as usize);
-                let dist = sp * ((di * di + dj * dj) as f64).sqrt();
-                let sl = (filled[k] - filled[nj * n + ni]) / dist;
-                if sl > best.0 {
-                    best = (sl, (dir_at(ni, nj) - d).normalize());
-                }
-            }
-            if best.0 > 0.0 {
-                total += 1;
-                if best.1.dot(macro_dir) > 0.5 {
-                    agree += 1;
-                }
-            }
-        }
-    }
-
     // 90 m slopes at 2000 pseudo-random points (only on land).
     let mut rng = 12345u64;
     let mut next = || {
@@ -221,11 +204,43 @@ fn score(w: &World, s: &rg_terrain::TerrainSampler, lat0: f64, lon0: f64, half: 
     deg.sort_by(f64::total_cmp);
     let q = |f: f64| deg.get(((deg.len().max(1) - 1) as f64 * f) as usize).copied().unwrap_or(0.0);
     let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len().max(1) as f64;
+    // Orientation: a 10 km sub-box at 60 m, structure tensor in 25×25-sample windows.
+    let (m, sp2) = (167usize, 60.0);
+    let g: Vec<f64> = (0..m * m).map(|k| surf(at(-5000.0 + (k % m) as f64 * sp2, -5000.0 + (k / m) as f64 * sp2), sp2)).collect();
+    let (mut coh_sum, mut coh_n) = (0.0, 0usize);
+    let (mut ax, mut ay, mut aw) = (0.0, 0.0, 0.0);
+    let win = 25;
+    for wy in (1..m - win - 1).step_by(win) {
+        for wx in (1..m - win - 1).step_by(win) {
+            let (mut jxx, mut jyy, mut jxy) = (0.0, 0.0, 0.0);
+            for j in wy..wy + win {
+                for i in wx..wx + win {
+                    let gx = (g[j * m + i + 1] - g[j * m + i - 1]) / (2.0 * sp2);
+                    let gy = (g[(j + 1) * m + i] - g[(j - 1) * m + i]) / (2.0 * sp2);
+                    jxx += gx * gx;
+                    jyy += gy * gy;
+                    jxy += gx * gy;
+                    let mag = (gx * gx + gy * gy).sqrt();
+                    if mag > 1e-6 {
+                        let th = gy.atan2(gx);
+                        ax += mag * (2.0 * th).cos();
+                        ay += mag * (2.0 * th).sin();
+                        aw += mag;
+                    }
+                }
+            }
+            let tr = jxx + jyy;
+            if tr > 1e-12 {
+                coh_sum += ((jxx - jyy).powi(2) + 4.0 * jxy * jxy).sqrt() / tr;
+                coh_n += 1;
+            }
+        }
+    }
     Score {
+        coherence: coh_sum / coh_n.max(1) as f64,
+        aspect: (ax * ax + ay * ay).sqrt() / aw.max(1e-12),
         depress_pct: depths.len() as f64 / land as f64 * 100.0,
         depth_m,
-        agree_pct: agree as f64 / total.max(1) as f64 * 100.0,
-        river_cells: total,
         slope: [mean(&deg), q(0.5), q(0.9), q(0.99)],
         macro_slope_mean: mean(&mdeg),
     }
@@ -305,16 +320,16 @@ fn main() {
         let hs: Vec<_> = boxes.iter().map(|&(_, la, lo)| sc.spawn(move || score(w, s, la, lo, half_km * 1000.0))).collect();
         hs.into_iter().map(|h| h.join().unwrap()).collect()
     });
-    println!("box          lat     lon    depress  depth  agree(cells)  slope° mean/p50/p90/p99   macro°");
+    println!("box          lat     lon    depress  depth   coh   asp   slope° mean/p50/p90/p99   macro°");
     for ((name, la, lo), sc) in boxes.iter().zip(&scores) {
         println!(
-            "{name:<11} {:6.1} {:7.1}   {:5.2}%  {:4.0} m  {:3.0}% ({:4})   {:4.1} {:4.1} {:4.1} {:4.1}      {:4.1}",
+            "{name:<11} {:6.1} {:7.1}   {:5.2}%  {:4.0} m  {:.2}  {:.2}   {:4.1} {:4.1} {:4.1} {:4.1}      {:4.1}",
             la.to_degrees(),
             lo.to_degrees(),
             sc.depress_pct,
             sc.depth_m,
-            sc.agree_pct,
-            sc.river_cells,
+            sc.coherence,
+            sc.aspect,
             sc.slope[0],
             sc.slope[1],
             sc.slope[2],

@@ -8,7 +8,7 @@ A one-shot climate run on a procedural planet: seconds to about a minute, at 1°
 
 ## Closest prior art
 
-- **raguilar011095/planet_heightmap_generation** (JS, licence unverified). A fixed 1° grid with 12 months in a few seconds. Includes seasonal energy balance, sea ice, pressure belts (ITCZ, Hadley/Ferrel, monsoon lows), wind-driven gyres with western boundary currents, rain budget with orographic/rain-shadow terms, and Köppen. It claims about 50% Köppen match on Earth. Design doc: `plans/CLIMATE_REBUILD_REPORT.md`. **The strongest tier B template.** https://github.com/raguilar011095/planet_heightmap_generation
+- **raguilar011095/planet_heightmap_generation** (JS, **GPL-3.0**, verified from its LICENSE in s01: ideas only, no code). A fixed 1° grid with 12 months in a few seconds. Includes seasonal energy balance, sea ice, pressure belts (ITCZ, Hadley/Ferrel, monsoon lows), wind-driven gyres with western boundary currents, rain budget with orographic/rain-shadow terms, and Köppen. It claims about 50% Köppen match on Earth. Design doc: `plans/CLIMATE_REBUILD_REPORT.md`. **The strongest tier B template.** https://github.com/raguilar011095/planet_heightmap_generation
 - **HexWorld** `climate.js` (MIT per the subagent). Wind-lane moisture advection with orographic uplift and subsidence drain. Documented pitfalls: descending air must drain the column, and small bumps must not trigger uplift. https://github.com/Artekka/hexworld
 - **Tectonics.js** (Carl Davidson). Analytic temperature, orbital insolation. Issue #9 records precipitation approaches that failed. https://github.com/davidson16807/tectonics.js/issues/9
 - **Island-Proc-Gen** (Rust, wgpu, pre-alpha). Same architecture class. https://github.com/AmanThuL/Island-Proc-Gen

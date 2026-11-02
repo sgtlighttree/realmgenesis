@@ -9,7 +9,7 @@ Deep web survey by a subagent (Haiku). Items marked verified were read at the so
   - **Pitfall (Schott 2023, Fig. 7):** blending two eroded fields destroys dendrites. Blend *uplift*, not heights.
   - **Pitfall:** flats after filling need ε gradients (fastscapelib and Landlab document this).
 - **Stage B (detail, per point): Johansen's Advanced Terrain Erosion Filter / Phacelle noise** (2026 blog). Stateless, GPU-friendly, takes a per-point direction (the hook for macro flow). Simple Phacelle has discontinuities; the "sampled" version is continuous at 16× cost.
-  - Rust port: `bevy_erosion_filter` 0.3 (MIT), with a pure-Rust `cpu` module when default features are off. **Reimplement from the blog maths; Johansen's shader licence is unverified.**
+  - Rust port: `bevy_erosion_filter` 0.3 (**MPL-2.0**, not MIT: corrected s01; our port lives in its own MPL-headed file), with a pure-Rust `cpu` module when default features are off. **Reimplement from the blog maths; Johansen's shader licence is unverified.**
   - Alternatives: Grenier et al. 2024 (gradient-aligned ravines; amplitude from distance to rivers); Dendry 2019 (branching distance field, too slow for per-tile use); IQ derivative-damped "eroded fBm" (IQ code MIT; a cheap fallback).
   - **Conditioning:** commit per macro cell the receiver direction, log drainage area, height, slope. Per point: d(p) = the interpolated downslope vector (interpolate vectors, not angles); gate on log A; amplitude from distance to macro rivers; a **channel clamp** so gullies end at the channel bed. Noise alone can't form exact confluences with macro rivers (the bevy_erosion_filter README says so).
 
