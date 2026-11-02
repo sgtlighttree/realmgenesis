@@ -6,8 +6,10 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 
 - **Branch:** `claude/peaceful-brahmagupta-rkl4y0`, an **orphan** history (v2 has no V1 ancestry). V1 lives on `main`. Matt may rename the branch to `v2`.
 - **Docs:** `docs/ARCHITECTURE.md` (draft), `docs/research/2026-11-02-climate-tier-b.md`, `docs/lineage/` (lessons carried from V1 and tcotg).
-- **Code:** none yet. M0 scaffold in progress.
-- **Preview artifact:** not published yet. GPU probe: https://claude.ai/artifact/64fD9SPXY3zpiZh8HjAURZ (WebGPU compute works in the frame; no threads).
+- **Code:** M0 runs natively: eframe shell, offscreen reversed-Z globe, placeholder fBm planet, orbit/zoom, perf HUD. `rg-geo` (ellipsoid, cube-sphere, `CubeField`), `rg-noise`, `rg-render`, `rg-app`. CI workflow `.github/workflows/build.yml`.
+- **In flight (s01, parallel Sonnet agents, uncommitted):** `crates/rg-tectonics` (plate snapshot → macro heights) and `crates/rg-climate` (tier A + Köppen). If a session dies mid-way, check `git status` for these dirs: they may be partial.
+- **Web preview artifact:** https://claude.ai/artifact/1Tq1v7fz6zdbLTtUoLMPME. Rebuild with `scripts/build-web-artifact.sh <out>` and republish to the same URL (from a new session, pass `url`). GPU probe: https://claude.ai/artifact/64fD9SPXY3zpiZh8HjAURZ.
+- **Verifying visuals in the container:** web screenshots don't work. Headless and headed Chromium both give white or blank WebGPU canvases, whatever the flags. **Use the native app under Xvfb + lavapipe:** `apt-get install -y mesa-vulkan-drivers libxkbcommon-x11-0`, `Xvfb :99 &`, `DISPLAY=:99 ./target/debug/realmgenesis &`, then `PIL.ImageGrab.grab(xdisplay=':99')`.
 
 ## Settled decisions (don't re-litigate)
 
@@ -21,11 +23,21 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 - Borders: procedural by default, editable.
 - Desktop/laptop only. Minimum spec: M1 Air.
 
+## MVP definition (Matt's /goal: "until we have MVP", s01)
+
+1. Native + web app; web preview artifact; CI binaries.
+2. Generate: seed + params → tectonic snapshot → macro heights, fast reroll.
+3. Tier A climate → monthly T/P → Köppen.
+4. Layers: satellite-ish (biome colour + relief shading), height, plates, temperature, precipitation, Köppen.
+5. 3D globe + 2D equirectangular map.
+6. Save/load a versioned world file (native), and a 16-bit heightmap PNG export.
+
+Post-MVP: LOD tile streaming, tier B climate, sculpting, the vector layer, erosion/rivers.
+
 ## Next
 
-1. M0: workspace + `rg-geo` + `rg-render` globe + `rg-app` (eframe, egui panel, orbit camera), building native and web.
-2. A headless screenshot, then publish the trunk build as the preview artifact.
-3. A CI workflow building macOS arm64 / Windows / Linux binaries and the web bundle.
+1. Integrate rg-tectonics + rg-climate into the app (the `rg-pipeline` layer), with layer switching.
+2. 2D equirect view. World file + export.
 
 ## Open questions for Matt
 
