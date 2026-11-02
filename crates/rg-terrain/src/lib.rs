@@ -31,6 +31,9 @@ use std::sync::Arc;
 /// deltas (M6) record the version they were made against.
 pub const DETAIL_GENERATOR_VERSION: u32 = 0; // 0 = not persistent yet (no sculpt deltas exist)
 
+/// Network patches by (block cell, cells per face, band-limit bits).
+type PatchCache = std::sync::Mutex<HashMap<(rg_geo::lattice::Cell, u32, u64), Arc<detail_net::Patch>>>;
+
 /// Samples the full-resolution terrain surface. Cheap to clone (the field is shared), and
 /// `Send`, so native builds can generate tiles on worker threads.
 #[derive(Clone)]
@@ -59,7 +62,7 @@ pub struct TerrainSampler {
     pub net: Option<detail_net::DetailNet>,
     /// Patches of the network, shared by clones (tiles on worker threads, probes). Keyed by
     /// (block cell, cells per face, band-limit bits). Only a cache.
-    patches: Arc<std::sync::Mutex<HashMap<(rg_geo::lattice::Cell, u32, u64), Arc<detail_net::Patch>>>>,
+    patches: Arc<PatchCache>,
 }
 
 
@@ -92,6 +95,19 @@ impl TerrainSampler {
     pub fn with_network(mut self, net: detail_net::DetailNet) -> Self {
         self.net = Some(net);
         self
+    }
+
+    /// A network patch covering the disc `radius_m` around `centre` at `min_wavelength_m`
+    /// (`None` without a network). Tiles build one for their own footprint.
+    pub fn network_patch(&self, centre: DVec3, radius_m: f64, min_wavelength_m: f64) -> Option<detail_net::Patch> {
+        let cutoff = min_wavelength_m.max(self.floor_wavelength_m);
+        self.net.as_ref().map(|n| n.patch(centre, radius_m, cutoff))
+    }
+
+    /// Heights from a patch made by [`Self::network_patch`] (`dir` must lie inside it).
+    pub fn levels_in_patch(&self, patch: &detail_net::Patch, dir: DVec3) -> HeightLevels {
+        let [h, hp, hc] = patch.heights(dir);
+        HeightLevels { macro_h: self.macro_height(dir), h, h_parent: hp, h_child: hc }
     }
 
     /// Network heights at (this, parent, child) band-limits via a cached patch. A patch

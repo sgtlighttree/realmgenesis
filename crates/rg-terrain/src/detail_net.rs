@@ -55,6 +55,10 @@ const FLOOR_M_PER_SQRT_KM2: f64 = 30.0;
 const RIDGE_FULL_M: f64 = 3000.0;
 /// Ridge allowance per metre of macro height (see `DetailNet::ridge`).
 const RIDGE_ALPHA: f64 = 0.3;
+/// Junction search radius, in parent spacings. Tributaries meet the nearest coarser channel
+/// well within one parent spacing; a head with nothing in range simply has no channel.
+/// Sets the gather margins (see `DetailNet::margin`).
+const ATTACH_SEARCH: f64 = 1.2;
 /// Fade-out terms (see `wedge`): large enough that a faded channel never wins.
 const FADE_RAMP_M: f64 = 1.0e4;
 const FADE_SLOPE: f64 = 50.0;
@@ -274,12 +278,14 @@ impl DetailNet {
     /// How far (m) around a region's edge level-`k` channels must be gathered so that every
     /// channel within reach is present, and so that finer levels find all their junctions.
     ///
-    /// A level-k channel is at most 1.5 × its search radius long (2.5 ℓ_{k−1}, plus the
-    /// junction shift): ≤ 11.25 ℓ_k. Reach is 3 ℓ_k, so heads within 14.25 ℓ_k matter.
-    /// Junction search from a head gathered at margin c·ℓ_k needs the coarser level out to
-    /// (c + 7.5 + 33.75) ℓ_k ≤ 3c·ℓ_k, i.e. c ≥ 20.6. Level 0 needs ≥ 11.3 ℓ_0.
+    /// With search σ = ATTACH_SEARCH parent spacings (3σ ℓ_k), a channel is at most 1.5× its
+    /// search long (junction shift included): 4.5σ ℓ_k. Reach is 3 ℓ_k, so heads within
+    /// (3 + 4.5σ) ℓ_k matter. Junction search from a head gathered at margin c ℓ_k needs the
+    /// coarser level out to (c + 3σ + 13.5σ) ℓ_k ≤ 3c ℓ_k, i.e. c ≥ 8.25σ (and ≥ 3 + 4.5σ).
+    /// Level 0 (macro, edges ≤ √2 ℓ_0) needs ≥ c/3 + σ + 1.5 spacings.
     fn margin(&self, k: usize) -> f64 {
-        if k == 0 { 12.0 * self.spacing[0] } else { 22.0 * self.spacing[k] }
+        let c = (8.25 * ATTACH_SEARCH).max(3.0 + 4.5 * ATTACH_SEARCH) + 0.5;
+        if k == 0 { (c / 3.0 + ATTACH_SEARCH + 1.5 + 0.5) * self.spacing[0] } else { c * self.spacing[k] }
     }
 
     /// Build the channel of lattice cell `c` at level `k ≥ 1`, given all coarser channels
@@ -297,7 +303,7 @@ impl DetailNet {
         let head_target = t_q + 0.5 * self.ridge(t_q);
         // Nearest point on any coarser channel within the search radius, skipping targets
         // the channel would have to climb a divide to reach.
-        let search = 2.5 * self.spacing[k - 1];
+        let search = ATTACH_SEARCH * self.spacing[k - 1];
         let mut best: Option<(f64, f64, Channel)> = None;
         for b in coarser {
             b.for_each_near(q, search + b.max_len, |ch| {
@@ -418,13 +424,17 @@ impl Binned {
         Self { chans, bins, n, spacing_m, max_len }
     }
 
-    /// Visit every channel whose head is within `dist_m` (+ one cell) of `p`.
+    /// Visit every channel whose head is within `dist_m` (+ one cell) of `p`. Near a seam a
+    /// channel can be visited twice; callers are idempotent (nearest-point searches).
     fn for_each_near(&self, p: DVec3, dist_m: f64, mut f: impl FnMut(&Channel)) {
         let r = (dist_m / self.spacing_m).ceil() as i32 + 1;
-        for c in lattice::window(p, self.n, r) {
-            if let Some(ix) = self.bins.get(&c) {
-                for &i in ix {
-                    f(&self.chans[i as usize]);
+        let c0 = lattice::cell_of(p, self.n);
+        for dj in -r..=r {
+            for di in -r..=r {
+                if let Some(ix) = self.bins.get(&lattice::offset(c0, di, dj, self.n)) {
+                    for &i in ix {
+                        f(&self.chans[i as usize]);
+                    }
                 }
             }
         }
@@ -454,7 +464,8 @@ impl Patch {
     fn new(dn: &DetailNet, center: DVec3, radius_m: f64, cutoff_m: f64, binned: Vec<Binned>) -> Self {
         let east = DVec3::Z.cross(center).normalize_or(DVec3::X);
         let north = center.cross(east);
-        let blocks_per_side = ((2.0 * radius_m / 600.0).ceil() as usize).clamp(1, 64);
+        // Blocks about two cut-offs across (≥ 150 m), at most 48 per side.
+        let blocks_per_side = ((2.0 * radius_m / (2.0 * cutoff_m).max(150.0)).ceil() as usize).clamp(1, 48);
         let block_m = 2.0 * radius_m / blocks_per_side as f64;
         let mut blocks = vec![Vec::new(); blocks_per_side * blocks_per_side];
         let half_diag = block_m * std::f64::consts::FRAC_1_SQRT_2;
@@ -487,13 +498,47 @@ impl Patch {
                 }
             }
         }
-        for b in &mut blocks {
-            b.sort_by(|a, c| a.z_min().total_cmp(&c.z_min()));
-        }
-        let presence = (0..binned.len())
+        let presence: Vec<[f64; 3]> = (0..binned.len())
             .map(|k| [dn.presence(k, cutoff_m), dn.presence(k, 2.0 * cutoff_m), dn.presence(k, 0.5 * cutoff_m)])
             .collect();
-        Self { center, east, north, radius_m, planet_r: pr, block_m, blocks_per_side, blocks, presence, cutoffs: [cutoff_m, 2.0 * cutoff_m, 0.5 * cutoff_m], net: dn.macro_net.height.clone(), ridge_alpha: dn.ridge_alpha }
+        let cutoffs = [cutoff_m, 2.0 * cutoff_m, 0.5 * cutoff_m];
+        // Exact pruning per block. Anywhere in the block a wedge is ≥ its lower bound
+        // z_down + H(max(0, d_c − hd)) (z ≥ z_down, H monotone), and the block's minimum is
+        // ≤ the best value at the centre + MAX_GRADIENT·hd (no surface is steeper within
+        // reach). A channel whose bound exceeds that can never be the minimum there.
+        const MAX_GRADIENT: f64 = 1.5;
+        for by in 0..blocks_per_side {
+            for bx in 0..blocks_per_side {
+                let list = &mut blocks[by * blocks_per_side + bx];
+                if list.is_empty() {
+                    continue;
+                }
+                let x = -radius_m + (bx as f64 + 0.5) * block_m;
+                let y = -radius_m + (by as f64 + 0.5) * block_m;
+                let pc = (center + east * (x / pr) + north * (y / pr)).normalize();
+                let t = dn.macro_tri(pc);
+                let mut ub = [t + dn.ridge(t); 3];
+                for ch in list.iter() {
+                    let (d, tt) = ch.nearest(pc, pr);
+                    for i in 0..3 {
+                        let ph = presence[ch.level as usize][i];
+                        if ph > 0.0 {
+                            ub[i] = ub[i].min(ch.wedge(d, tt, ph, cutoffs[i]));
+                        }
+                    }
+                }
+                let ub_max = ub.iter().fold(f64::MIN, |a, &b| a.max(b)) + MAX_GRADIENT * half_diag;
+                list.retain(|ch| {
+                    let (d, _) = ch.nearest(pc, pr);
+                    let dl = (d - half_diag).max(0.0);
+                    // The lower bound: full presence (fading only raises a wedge), the junction
+                    // elevation, and the widest floor of the three LODs (wider floor → lower H).
+                    ch.wedge(dl, 0.0, 1.0, cutoffs[1]) <= ub_max
+                });
+                list.sort_by(|a, c| a.z_min().total_cmp(&c.z_min()));
+            }
+        }
+        Self { center, east, north, radius_m, planet_r: pr, block_m, blocks_per_side, blocks, presence, cutoffs, net: dn.macro_net.height.clone(), ridge_alpha: dn.ridge_alpha }
     }
 
     /// Heights at this patch's band-limit, its parent LOD (2× coarser) and child LOD

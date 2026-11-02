@@ -74,12 +74,23 @@ impl TileGenerator {
         let mut surf = vec![DVec3::ZERO; m * m]; // true (exaggeration 1) surface
         let mut dirs = vec![DVec3::ZERO; m * m];
         let mut lv = vec![crate::HeightLevels { macro_h: 0.0, h: 0.0, h_parent: 0.0, h_child: 0.0 }; m * m];
+        // With the drained detail network, one patch covers the whole tile (+ apron).
+        let patch = {
+            let c = id.face.uv_to_dir((u0 + u1) * 0.5, (v0 + v1) * 0.5);
+            let corner = id.face.uv_to_dir(u0 - du, v0 - dv);
+            let corner2 = id.face.uv_to_dir(u1 + du, v1 + dv);
+            let rad = (c - corner).length().max((c - corner2).length()) * r * 1.05;
+            self.sampler.network_patch(c, rad, min_wl)
+        };
         for j in 0..m {
             for i in 0..m {
                 let u = u0 + (i as f64 - 1.0) * du;
                 let v = v0 + (j as f64 - 1.0) * dv;
                 let dir = id.face.uv_to_dir(u, v);
-                let l = self.sampler.levels(dir, min_wl);
+                let l = match &patch {
+                    Some(p) => self.sampler.levels_in_patch(p, dir),
+                    None => self.sampler.levels(dir, min_wl),
+                };
                 let k = j * m + i;
                 surf[k] = dir * (r + l.h.max(0.0));
                 dirs[k] = dir;
