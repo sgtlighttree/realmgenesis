@@ -65,8 +65,9 @@ pub const CLIMATE_H: u32 = 180;
 /// Generate a world: tectonics → fluvial erosion → tier A climate.
 pub fn generate(params: &WorldParams) -> World {
     let mut params = params.clone();
-    // One radius for everything.
+    // One radius for everything; erosion's random streams follow the world seed.
     params.planet.radius_m = params.tectonics.radius_m;
+    params.erosion.seed = params.tectonics.seed;
 
     let t0 = web_time::Instant::now();
     let mut tectonics = rg_tectonics::generate(&params.tectonics);
@@ -77,7 +78,6 @@ pub fn generate(params: &WorldParams) -> World {
         // The "mountains" setting scales the target hypsometry (Earth = 1.0).
         let mut ep = params.erosion.clone();
         ep.hypsometry_scale = params.tectonics.mountain_scale as f64 * params.erosion.hypsometry_scale;
-        ep.seed = params.tectonics.seed;
         let r = rg_erosion::erode(&tectonics, params.tectonics.radius_m, &ep);
         tectonics.height_m = r.height_m;
         Hydrology {

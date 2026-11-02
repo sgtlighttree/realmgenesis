@@ -90,10 +90,10 @@ impl Default for ErosionParams {
     fn default() -> Self {
         Self {
             enabled: true,
-            max_res: 512,
+            max_res: 2048,
             res: 0,
             duration_myr: 30.0,
-            steps: 50,
+            steps: 20,
             k: 1.0e-5,
             m: 0.45,
             uplift_max_mm_yr: 2.5,
@@ -177,6 +177,37 @@ fn lithology(grid: &Grid, radius_m: f64, p: &ErosionParams) -> Vec<f64> {
     let mean = z.iter().sum::<f64>() / z.len() as f64;
     let sd = (z.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / z.len() as f64).sqrt().max(1e-9);
     z.iter().map(|v| p.k * (p.k_variability * (v - mean) / sd).exp()).collect()
+}
+
+/// Which neighbours are diagonal, by topology rather than distance (the tangent warp makes
+/// cells up to 1:√2 rectangles, so a length test misclassifies near face edges). In an
+/// 8-connected quad grid, axis neighbours share 4 common neighbours and diagonal ones share
+/// 2. Bit k of entry `a` is set when slot k of `grid.neighbors(a)` is diagonal.
+pub fn diagonal_mask(grid: &Grid) -> Vec<u16> {
+    par_map(grid.n, |a| {
+        let na = grid.neighbors(a);
+        let mut mask = 0u16;
+        for (slot, &b) in na.iter().enumerate() {
+            let nb = grid.neighbors(b as usize);
+            // Both lists are sorted: count common entries with a merge.
+            let (mut x, mut y, mut common) = (0, 0, 0);
+            while x < na.len() && y < nb.len() {
+                match na[x].cmp(&nb[y]) {
+                    Ordering::Less => x += 1,
+                    Ordering::Greater => y += 1,
+                    Ordering::Equal => {
+                        common += 1;
+                        x += 1;
+                        y += 1;
+                    }
+                }
+            }
+            if common <= 2 {
+                mask |= 1 << slot;
+            }
+        }
+        mask
+    })
 }
 
 /// Deterministic hash of (seed, i) to [0, 1) (splitmix64 finaliser).
@@ -341,9 +372,14 @@ pub fn erode(tectonic: &TectonicSnapshot, radius_m: f64, p: &ErosionParams) -> E
     let mut h0: Vec<f64> = par_map(n, |i| tectonic_h.sample(grid.dir[i]) as f64);
     let ocean: Vec<bool> = h0.iter().map(|&h| h <= 0.0).collect();
     // Initial roughness (land only; the coast stays where tectonics put it).
+    let tectonic_relief = h0.clone();
     if p.initial_roughness_m > 0.0 {
         for i in (0..n).filter(|&i| !ocean[i]) {
-            let r = (unit_hash(p.seed ^ 0x0005_EED0_FA11, i as u64) - 0.5) * 2.0 * p.initial_roughness_m;
+            // Scaled by local relief: on a plain flatter than the noise, the step-0 fill would
+            // turn it into ε-flats whose Priority-Flood routing is straight (s01 review).
+            let relief = grid.neighbors(i).iter().map(|&j| (tectonic_relief[i] - tectonic_relief[j as usize]).abs()).fold(0.0, f64::max);
+            let amp = p.initial_roughness_m.min(0.25 * relief);
+            let r = (unit_hash(p.seed ^ 0x0005_EED0_FA11, i as u64) - 0.5) * 2.0 * amp;
             h0[i] = (h0[i] + r).max(h0[i].min(1.0));
         }
     }
@@ -426,6 +462,15 @@ pub fn erode(tectonic: &TectonicSnapshot, radius_m: f64, p: &ErosionParams) -> E
                 out.data[k] = (t + delta_f.sample(d)).max(0.5 * t.min(1.0)).max(0.1);
             }
         }
+        // The upsampled change is not drained on the finer grid: fill it there, so the
+        // committed field is pit-free at every resolution (s01 review).
+        let fine = Grid::new(out.res);
+        let mut hf: Vec<f64> = (0..fine.n).map(|i| out.data[fine.node_sample[i] as usize] as f64).collect();
+        let fine_ocean: Vec<bool> = hf.iter().map(|&v| v <= 0.0).collect();
+        priority_flood_fill(&fine, &mut hf, &fine_ocean);
+        for (k, v) in out.data.iter_mut().enumerate() {
+            *v = hf[fine.sample_node[k] as usize] as f32;
+        }
         out
     };
     let drainage_km2 = to_field(&net.area.iter().map(|a| a * 1.0e-6).collect::<Vec<_>>());
@@ -464,6 +509,9 @@ pub struct Network {
     pub area: Vec<f64>,
     /// `Some(seed)` routes with Rho8 (see [`ErosionParams::rho8`]); `None` is plain D8.
     pub rho8_seed: Option<u64>,
+    /// Per node, bit k set if adjacency slot k is a diagonal neighbour (see
+    /// [`diagonal_mask`]). Filled on the first Rho8 route.
+    diag: Vec<u16>,
     donors_start: Vec<u32>,
     donors: Vec<u32>,
 }
@@ -475,6 +523,7 @@ impl Network {
             stack: Vec::with_capacity(n),
             area: vec![0.0; n],
             rho8_seed: None,
+            diag: Vec::new(),
             donors_start: vec![0; n + 1],
             donors: vec![0; n],
         }
@@ -484,24 +533,26 @@ impl Network {
     /// Ties go to the lower node index, so routing is deterministic.
     pub fn route(&mut self, grid: &Grid, h: &[f64], ocean: &[bool]) -> usize {
         let rho8 = self.rho8_seed;
+        if rho8.is_some() && self.diag.len() != grid.n {
+            self.diag = diagonal_mask(grid);
+        }
+        let diag = &self.diag;
         let rec: Vec<u32> = par_map(grid.n, |i| {
             if ocean[i] {
                 return i as u32;
             }
             // Rho8: one random number per node, fixed for the whole run.
             let diag_len = rho8.map(|seed| 2.0 - unit_hash(seed, i as u64));
-            let axis = grid.neighbors(i).iter().map(|&j| (grid.dir[i] - grid.dir[j as usize]).length()).fold(f64::MAX, f64::min);
             let mut best = i as u32;
             let mut best_s = 0.0;
-            for &j in grid.neighbors(i) {
+            for (slot, &j) in grid.neighbors(i).iter().enumerate() {
                 let j = j as usize;
                 let hj = if ocean[j] { 0.0f64.min(h[j]) } else { h[j] };
                 let mut d = (grid.dir[i] - grid.dir[j]).length();
-                // Diagonal neighbours are ~√2 axis spacings away. Rho8 replaces √2 with a
-                // random value in [1, 2] (never below 1, so a diagonal receiver is still the
-                // lowest corner of its cell; `CubeField::sample_drained` relies on that).
+                // Diagonal neighbours are ~√2 axis spacings away; Rho8 replaces √2 with a
+                // random value in [1, 2].
                 if let Some(f) = diag_len
-                    && d > 1.2 * axis
+                    && diag[i] >> slot & 1 == 1
                 {
                     d *= f / std::f64::consts::SQRT_2;
                 }

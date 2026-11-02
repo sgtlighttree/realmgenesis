@@ -74,7 +74,7 @@ impl Equirect {
         par_rows(&mut heights, width as usize, |y, row| {
             let lat = lat_of_row(y as u32, height);
             for (x, v) in row.iter_mut().enumerate() {
-                *v = world.tectonics.height_m.sample(dir(lat, lon_of_col(x as u32, width)));
+                *v = world.tectonics.height_m.sample_drained(dir(lat, lon_of_col(x as u32, width))) as f32;
             }
         });
         let mut polar = vec![[0f32; 2]; n];

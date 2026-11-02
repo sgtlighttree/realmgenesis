@@ -76,11 +76,19 @@ pub(crate) fn remap(h: &mut [f64], ocean: &[bool], weight: &[f64], scale: f64) {
     land.sort_by(|&a, &b| h[a].total_cmp(&h[b]).then(a.cmp(&b)));
     let total: f64 = land.iter().map(|&i| weight[i]).sum();
     let mut below = 0.0;
+    let mut prev = 0.5f32;
     for &i in &land {
         // Fraction of land *area* strictly above this node (midpoint rule within the node).
         let above = 1.0 - (below + 0.5 * weight[i]) / total;
         below += weight[i];
-        h[i] = (height_at(above) * scale).max(1.0);
+        // Strictly increasing *as stored* (f32): ties would turn a node and its receiver into
+        // a flat, i.e. a pit in the committed field. Step to the next f32 when needed.
+        let mut v = (height_at(above) * scale).max(1.0) as f32;
+        if v <= prev {
+            v = prev.next_up();
+        }
+        prev = v;
+        h[i] = v as f64;
     }
 }
 

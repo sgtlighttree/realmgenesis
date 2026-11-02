@@ -107,18 +107,17 @@ impl CubeField<f32> {
         top + (bot - top) * fy
     }
 
-    /// Piecewise-linear sample on triangles, in f64: each cell is split along the diagonal
-    /// through its **lowest corner**. Use this for drained heights (macro terrain).
+    /// Drained sample, in f64: bilinear, with any diagonal valley carved straight.
+    /// Use this for drained heights (macro terrain).
     ///
     /// Why: on a surface routed with D8 (8 neighbours), a node can drain diagonally across a
     /// cell. Bilinear interpolation averages in the two other corners there, so a diagonal
     /// valley rises mid-cell and dams itself (measured: up to ~10% of mountain land in
     /// closed depressions, 150 m deep). If node d drains diagonally to a, then a is lower
     /// than both other corners (otherwise the shorter, steeper axis neighbour would have
-    /// been d's receiver), so a is the cell's lowest corner and the split keeps a–d as an
-    /// edge. Every drainage edge is then a triangle edge, and a piecewise-linear surface has
-    /// minima only at vertices, so a drained (filled) field interpolates without depressions.
-    /// Continuous everywhere (linear along every cell edge, like bilinear).
+    /// been d's receiver), so the drainage diagonal is the one through the lowest corner.
+    /// See [`drained_interp`] for the carve. (A plain triangle split is also drained, but
+    /// its flat facets and creases showed in the hillshade, s01.)
     pub fn sample_drained(&self, dir: DVec3) -> f64 {
         let (face, u, v) = CubeFace::from_dir(dir);
         let r = self.res as f64;
@@ -130,7 +129,7 @@ impl CubeField<f32> {
         let b = self.data[self.index(face, i0 + 1, j0)] as f64;
         let c = self.data[self.index(face, i0, j0 + 1)] as f64;
         let d = self.data[self.index(face, i0 + 1, j0 + 1)] as f64;
-        tri_interp(a, b, c, d, fx, fy)
+        drained_interp(a, b, c, d, fx, fy)
     }
 
     pub fn min_max(&self) -> (f32, f32) {
@@ -138,18 +137,40 @@ impl CubeField<f32> {
     }
 }
 
-/// Interpolate a cell with corners a = (0,0), b = (1,0), c = (0,1), d = (1,1), split into
-/// two triangles along the diagonal through the lowest corner (see
-/// [`CubeField::sample_drained`]). Ties go to the a–d diagonal.
+/// Identifies [`drained_interp`] in world files. Bump if the interpolant changes: the
+/// committed macro heights only mean the same surface under the same interpolant.
+pub const MACRO_INTERP_ID: &str = "drained-bilinear-v1";
+
+/// Interpolate a cell with corners a = (0,0), b = (1,0), c = (0,1), d = (1,1).
+///
+/// Bilinear is `plane(fx, fy) − e·fx·fy` with `e = b + c − a − d`. Along the a–d diagonal
+/// (fx = fy = t) it exceeds the straight line from a to d by `e·t(1 − t)`: when `e > 0` (b and
+/// c are ridges) that bump is the dam. We subtract
+///
+/// `e · fx·fy·(1 − fx)(1 − fy) / (t(1 − t))`, with `t = (fx + fy)/2`,
+///
+/// which equals the bump on the diagonal (so the valley is exactly linear there), is zero on
+/// all four cell edges (so neighbouring cells still agree), and is smooth in between (a
+/// rounded valley, not a crease). The diagonal through the lowest corner is the one carved
+/// (mirrored for b–c). With `e ≤ 0` the diagonal is a ridge and bilinear is left alone.
 #[inline]
-pub fn tri_interp(a: f64, b: f64, c: f64, d: f64, fx: f64, fy: f64) -> f64 {
-    if a.min(d) <= b.min(c) {
-        // Diagonal a–d: triangles (a, b, d) below it, (a, c, d) above it.
-        if fx >= fy { a + (b - a) * fx + (d - b) * fy } else { a + (c - a) * fy + (d - c) * fx }
-    } else {
-        // Diagonal b–c: triangles (a, b, c) and (b, c, d).
-        if fx + fy <= 1.0 { a + (b - a) * fx + (c - a) * fy } else { d + (c - d) * (1.0 - fx) + (b - d) * (1.0 - fy) }
+pub fn drained_interp(a: f64, b: f64, c: f64, d: f64, fx: f64, fy: f64) -> f64 {
+    let bilinear = {
+        let top = a + (b - a) * fx;
+        let bot = c + (d - c) * fx;
+        top + (bot - top) * fy
+    };
+    // Mirror so the carved diagonal always runs from (0,0) to (1,1) in (x, fy).
+    let (e, x) = if a.min(d) <= b.min(c) { (b + c - a - d, fx) } else { (a + d - b - c, 1.0 - fx) };
+    if e <= 0.0 {
+        return bilinear;
     }
+    let t = 0.5 * (x + fy);
+    let tt = t * (1.0 - t);
+    if tt <= 1e-12 {
+        return bilinear; // at the diagonal's end corners the carve is 0
+    }
+    bilinear - e * x * fy * (1.0 - x) * (1.0 - fy) / tt
 }
 
 impl<T: Copy> CubeField<T> {
@@ -177,42 +198,49 @@ mod tests {
     }
 
     #[test]
-    fn tri_interp_hits_corners_and_is_continuous() {
-        for &(a, b, c, d) in &[(0.0, 5.0, 7.0, 1.0), (4.0, 0.0, 1.0, 9.0), (3.0, 3.0, 3.0, 3.0)] {
-            assert_eq!(tri_interp(a, b, c, d, 0.0, 0.0), a);
-            assert_eq!(tri_interp(a, b, c, d, 1.0, 0.0), b);
-            assert_eq!(tri_interp(a, b, c, d, 0.0, 1.0), c);
-            assert_eq!(tri_interp(a, b, c, d, 1.0, 1.0), d);
+    fn drained_interp_hits_corners_and_is_continuous() {
+        for &(a, b, c, d) in &[(0.0, 5.0, 7.0, 1.0), (4.0, 0.0, 1.0, 9.0), (3.0, 3.0, 3.0, 3.0), (2.0, 9.0, 0.0, 8.0)] {
+            assert_eq!(drained_interp(a, b, c, d, 0.0, 0.0), a);
+            assert_eq!(drained_interp(a, b, c, d, 1.0, 0.0), b);
+            assert_eq!(drained_interp(a, b, c, d, 0.0, 1.0), c);
+            assert_eq!(drained_interp(a, b, c, d, 1.0, 1.0), d);
             // Linear along each edge (so neighbouring cells agree).
-            let mid = |p: f64, q: f64| (p + q) * 0.5;
-            assert!((tri_interp(a, b, c, d, 0.5, 0.0) - mid(a, b)).abs() < 1e-12);
-            assert!((tri_interp(a, b, c, d, 1.0, 0.5) - mid(b, d)).abs() < 1e-12);
-            assert!((tri_interp(a, b, c, d, 0.5, 1.0) - mid(c, d)).abs() < 1e-12);
-            assert!((tri_interp(a, b, c, d, 0.0, 0.5) - mid(a, c)).abs() < 1e-12);
-            // No jumps across the diagonals inside the cell.
-            for k in 0..=100 {
-                let t = k as f64 / 100.0;
-                let e = 1e-9;
-                assert!((tri_interp(a, b, c, d, t + e, t) - tri_interp(a, b, c, d, t, t + e)).abs() < 1e-6);
-                assert!((tri_interp(a, b, c, d, t + e, 1.0 - t) - tri_interp(a, b, c, d, t - e, 1.0 - t)).abs() < 1e-6);
+            for k in 0..=20 {
+                let t = k as f64 / 20.0;
+                let lin = |p: f64, q: f64| p + (q - p) * t;
+                assert!((drained_interp(a, b, c, d, t, 0.0) - lin(a, b)).abs() < 1e-9);
+                assert!((drained_interp(a, b, c, d, 1.0, t) - lin(b, d)).abs() < 1e-9);
+                assert!((drained_interp(a, b, c, d, t, 1.0) - lin(c, d)).abs() < 1e-9);
+                assert!((drained_interp(a, b, c, d, 0.0, t) - lin(a, c)).abs() < 1e-9);
+            }
+            // No jumps inside the cell.
+            for i in 0..50 {
+                for j in 0..50 {
+                    let (x, y) = (i as f64 / 50.0 + 0.01, j as f64 / 50.0 + 0.01);
+                    let h = drained_interp(a, b, c, d, x, y);
+                    let hx = drained_interp(a, b, c, d, x + 1e-7, y);
+                    let hy = drained_interp(a, b, c, d, x, y + 1e-7);
+                    assert!((h - hx).abs() < 1e-4 && (h - hy).abs() < 1e-4, "jump at {x},{y}");
+                }
             }
         }
     }
 
-    /// A valley draining diagonally (d → a, with b and c as ridges) stays monotone along the
-    /// diagonal; bilinear interpolation dams it mid-cell.
+    /// A valley draining diagonally (d → a, with b and c as ridges) is exactly linear along
+    /// the diagonal; bilinear interpolation dams it mid-cell. Same for the mirrored b–c case.
     #[test]
     fn diagonal_valley_is_not_dammed() {
-        let (a, b, c, d) = (0.0, 100.0, 100.0, 10.0);
-        let mut prev = f64::MAX;
-        for k in (0..=100).rev() {
+        let (a, b, c, d) = (0.0, 100.0, 120.0, 10.0);
+        for k in 0..=100 {
             let t = k as f64 / 100.0;
-            let h = tri_interp(a, b, c, d, t, t);
-            assert!(h <= prev, "rises at t = {t}");
-            prev = h;
+            assert!((drained_interp(a, b, c, d, t, t) - 10.0 * t).abs() < 1e-9);
         }
-        let bilinear_mid = (a + b + c + d) / 4.0;
-        assert!(bilinear_mid > d, "bilinear would dam this valley");
+        assert!((a + b + c + d) / 4.0 > d, "bilinear would dam this valley");
+        let (a, b, c, d) = (100.0, 0.0, 10.0, 120.0);
+        for k in 0..=100 {
+            let t = k as f64 / 100.0;
+            assert!((drained_interp(a, b, c, d, 1.0 - t, t) - 10.0 * t).abs() < 1e-9);
+        }
     }
 
     #[test]

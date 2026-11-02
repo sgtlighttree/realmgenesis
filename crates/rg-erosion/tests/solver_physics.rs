@@ -352,3 +352,38 @@ fn halving_dt_converges() {
     assert!(dr[3] < 0.06 * means[4], "final halving moves nodes by {} m RMS (mean {})", dr[3], means[4]);
     assert!(dr[3] < 0.8 * dr[0], "nodal RMS not falling overall: {dr:?}");
 }
+
+/// Diagonals are found by topology: every interior node of a face has exactly 4 diagonal
+/// and 4 axis neighbours, however warped its cell is.
+#[test]
+#[allow(clippy::needless_range_loop)] // `a` is a node id used with several arrays
+fn diagonal_mask_counts_four_diagonals() {
+    let grid = rg_tectonics::grid::Grid::new(24);
+    let mask = rg_erosion::diagonal_mask(&grid);
+    let mut checked = 0;
+    let per = (grid.res + 1) as usize;
+    let mut seam_counts = std::collections::BTreeMap::new();
+    for a in 0..grid.n {
+        let s = grid.node_sample[a] as usize % (per * per);
+        let (i, j) = (s % per, s / per);
+        let on_edge = i == 0 || j == 0 || i == per - 1 || j == per - 1;
+        if on_edge {
+            *seam_counts.entry((grid.neighbors(a).len(), mask[a].count_ones())).or_insert(0) += 1;
+            continue;
+        }
+        if grid.neighbors(a).len() == 8 {
+            assert_eq!(mask[a].count_ones(), 4, "node {a}");
+            // Diagonals are the longer pair in every cell (sanity check on geometry).
+            let len = |b: u32| (grid.dir[a] - grid.dir[b as usize]).length();
+            let (mut dmin, mut amax) = (f64::MAX, 0f64);
+            for (k, &b) in grid.neighbors(a).iter().enumerate() {
+                if mask[a] >> k & 1 == 1 { dmin = dmin.min(len(b)) } else { amax = amax.max(len(b)) }
+            }
+            assert!(dmin > amax * 0.99, "node {a}: diagonal {dmin} vs axis {amax}");
+            checked += 1;
+        }
+    }
+    assert!(checked > grid.n / 2);
+    // Seam nodes: (neighbours, diagonals) → count. Printed for the record.
+    eprintln!("seam nodes: {seam_counts:?}");
+}

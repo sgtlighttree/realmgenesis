@@ -14,8 +14,8 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
   - Quality presets Draft 192 / Normal 320 (default) / High 448 / XHigh 640 / Ultra 1024, plus Custom in km per cell (capped at 1024). Ultra ≈ 19 s tectonics, 1.04 GB peak (4-core container).
   - **Realistic terrain** (`docs/design/terrain-model.md`), checked against Earth:
     - tectonics → stream-power erosion (Braun–Willett + Priority-Flood; Hack h 0.54, concavity verified analytically) → hypsometric calibration (mean land 841 m vs Earth 840) → climate;
-    - streamed detail = hills + Johansen erosion filter (3D, MPL-2.0 port), giving 15–20° mean slopes in mountains and 0.6° on plains;
-    - rivers + lakes in the layers; world file schema 2;
+    - streamed detail = Johansen erosion filter (3D, MPL-2.0 port) on a drained macro interpolant (hills off since s01, see the current goal below);
+    - rivers + lakes in the layers; world file schema 3;
     - CDLOD geomorph on the globe tiles.
   - Polar ice/snow edges are noise-perturbed (no longer latitude circles). The HUD shows fps vs cpu ms, tiles and altitude.
   - Controls sidebar toggles (`«`/`»` button at the top-left of the viewport, or **H**). It starts hidden when the window is under 700 px wide.
@@ -28,6 +28,26 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
   4. `PIL.ImageGrab.grab(xdisplay=':99')`
 
   xdotool keypresses don't reach the window (no window manager), so use the `RG_*` env vars.
+
+## Current goal (Matt, s01): "very realistic, mathematically and scientifically accurate terrain", **plus bathymetry**
+
+Scorecard: `cargo run -p rg-pipeline --release --example probe_realism -- 3` (scores the FINAL surface; `RG_RES`, `RG_EROSION_RES`, `RG_PROBE_SURFACE=macro`, detail `RG_*` knobs; worlds cached in `target/probe-cache/`). Eyes: `--example river_map -- <seed> <lat> <lon> <half_km> <out.png>` (`RG_MAP_FULL=1` for the detailed surface).
+
+- **Done (s01):**
+  - Erosion runs at the preset res (no 512 cap); 20 steps (same laws as 50).
+  - Drained macro interpolant `sample_drained` (bilinear + diagonal-valley carve): bare-macro depressions 9.5% → 0.05–3%. A pure triangle split is fully drained but showed facets; rejected.
+  - Rho8 (topological diagonals), initial roughness scaled by relief, lithology σ_lnK 0.3: straight channel steps 65% → 43–48%. This fixes Matt's "rivers too straight" combs.
+  - Hills off (they caused 13–16% depressions). Gully steering by a 3 km central difference (no crease lines at macro cell edges).
+  - Strict f32 remap; PF fill of upsampled macro; world schema 3 (height_res, macro_interp id, erosion seed).
+- **Scorecard now (seed 3, mountain boxes):**
+  - res 320: depressions 0.1–1.2%, slopes 6–9° mean (too gentle: coarse macro).
+  - res 768: depressions 1.7–5%, slopes 14–17° mean, p99 55° (tail too heavy).
+- **Next, in order:**
+  1. **Dendry-style network detail** (Gaillard et al. 2019): hierarchical, point-evaluated sub-grid channel network; elevations from the SPL steady state with k_sn taken from the macro; hillslopes at threshold. Drained by construction (the min of drained surfaces is drained), replacing the gully filter's steep-or-drained trade-off and its "swirly" look. Write `docs/design/` first, then get a reviewer pass.
+  2. **C1 macro:** square tonal blocks at the macro cell edges, since the shading of a C0 surface jumps there. A monotone bicubic plus the diagonal carve is one candidate; the network detail may cover it.
+  3. **Bathymetry:** age–depth (Parsons & Sclater), shelf/slope/rise, trenches, abyssal hills, and Earth's ocean hypsometry as a check.
+  4. Smooth river curves (map layer + corridor) instead of node-to-node straight segments.
+  5. Reviewer leftovers: lithology tied to crust/terranes instead of isotropic noise; χ-analysis instead of the circular U/K concavity; validate the shipped (remapped) surface.
 
 ## Settled decisions (don't re-litigate)
 

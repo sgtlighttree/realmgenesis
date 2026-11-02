@@ -26,16 +26,21 @@ fn main() {
         let y = (la - lat0) * r;
         ((x + half) / m_per_px, (half - y) / m_per_px)
     };
-    // Hillshade of the macro surface (drained interpolant).
+    // Hillshade of the macro surface (drained interpolant), or with RG_MAP_FULL=1 the final
+    // surface (macro + detail) and no river overlay.
+    let full = std::env::var("RG_MAP_FULL").is_ok();
+    let sampler = rg_pipeline::terrain_sampler(&w);
+    let hgt = |d: DVec3| if full { sampler.height(d, m_per_px.min(200.0)).0 } else { hm.sample_drained(d) };
     let mut img = vec![0u8; px * px * 3];
     for j in 0..px {
         for i in 0..px {
             let (x, y) = (-half + (i as f64 + 0.5) * m_per_px, half - (j as f64 + 0.5) * m_per_px);
-            let h = hm.sample_drained(at(x, y));
-            let e = 2.0 * m_per_px;
-            let gx = (hm.sample_drained(at(x + e, y)) - hm.sample_drained(at(x - e, y))) / (2.0 * e);
-            let gy = (hm.sample_drained(at(x, y + e)) - hm.sample_drained(at(x, y - e))) / (2.0 * e);
-            let n = DVec3::new(-gx * 8.0, -gy * 8.0, 1.0).normalize();
+            let h = hgt(at(x, y));
+            let e = if full { m_per_px } else { 2.0 * m_per_px };
+            let gx = (hgt(at(x + e, y)) - hgt(at(x - e, y))) / (2.0 * e);
+            let gy = (hgt(at(x, y + e)) - hgt(at(x, y - e))) / (2.0 * e);
+            let ex = if full { 1.5 } else { 8.0 };
+            let n = DVec3::new(-gx * ex, -gy * ex, 1.0).normalize();
             let shade = n.dot(DVec3::new(-0.5, 0.5, 0.7).normalize()).max(0.0);
             let k = (j * px + i) * 3;
             let c = if h <= 0.0 { [20.0, 40.0, 80.0] } else { let t = (h / 4000.0).min(1.0); [90.0 + 120.0 * t, 110.0 + 80.0 * t, 70.0 + 110.0 * t] };
@@ -47,7 +52,7 @@ fn main() {
     // Rivers: every node above the threshold, drawn to its downstream neighbour.
     let ang = hy.drainage_km2.spacing_rad();
     let v = |f: [f32; 3]| DVec3::new(f[0] as f64, f[1] as f64, f[2] as f64);
-    let a_min = 300.0;
+    let a_min = if full { f64::MAX } else { 300.0 };
     for (k, _, _, _, d) in hy.drainage_km2.iter_samples() {
         let area = hy.drainage_km2.data[k] as f64;
         if area < a_min || d.angle_between(at(0.0, 0.0)) * r > half * 1.5 {

@@ -123,12 +123,10 @@ impl TerrainSampler {
         // slope from their own grid instead (see `tile.rs`), which is much cheaper.
         let east = DVec3::Z.cross(dir).normalize_or(DVec3::X);
         let north = dir.cross(east);
-        let step = 250.0;
+        let step = tune("RG_STEER_STEP", STEER_STEP_M);
         let ang = step / self.radius_m;
-        let b0 = self.base_surface(dir);
-        let be = self.base_surface((dir + east * ang).normalize());
-        let bn = self.base_surface((dir + north * ang).normalize());
-        let grad3 = east * ((be - b0) / step) + north * ((bn - b0) / step);
+        let b = |v: DVec3| self.base_surface((dir + v * ang).normalize());
+        let grad3 = east * ((b(east) - b(-east)) / (2.0 * step)) + north * ((b(north) - b(-north)) / (2.0 * step));
         self.levels_with_slope(dir, min_wavelength_m, grad3)
     }
 
@@ -263,6 +261,9 @@ impl TerrainSampler {
         if m <= 0.0 {
             return m;
         }
+        if self.hill_slope == 0.0 {
+            return m;
+        }
         m + self.hills(dir, m, [0.0, 0.0, 0.0]).full
     }
 }
@@ -288,7 +289,10 @@ struct Hills {
 
 /// Hill relief: slope contributed by each octave in mountains (×relief), and the share of
 /// that kept on lowland plains.
-const HILL_SLOPE: f64 = 1.5;
+/// 0 since s01: hills were unrouted fBm in the 4–13 km band the drainage network owns, and
+/// put 13–16% of mountain land in closed depressions 150–210 m deep (probe_realism). Kept as
+/// a knob (`RG_HILL_SLOPE`) for comparison; the gullies carry the sub-macro relief.
+const HILL_SLOPE: f64 = 0.0;
 const HILL_LOWLAND: f64 = 0.12;
 /// Macro slope range mapping to relief 0 → 1 (tan of slope, measured over 20 km).
 const RELIEF_SLOPE_LO: f64 = 0.004;
@@ -306,6 +310,10 @@ const HILL_ROLLOFF_M: f64 = 4000.0;
 const SLOPE_GAIN: f64 = 1.0;
 /// First (largest) gully wavelength, metres.
 const GULLY_WAVELENGTH_M: f64 = 4000.0;
+/// Central-difference step for the slope that steers the gullies, m. The macro surface is
+/// only C0 across its cell edges (~13 km), so a short step flips the gully direction within
+/// a few hundred metres there and draws a line along every cell edge; 3 km blends it.
+const STEER_STEP_M: f64 = 3000.0;
 
 /// Hillslope-diffusion length: gully octaves shorter than this are progressively smoothed
 /// (soil creep), as on real hillslopes.

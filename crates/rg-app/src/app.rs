@@ -435,7 +435,7 @@ impl RealmApp {
     pub fn describe(&self, lat: f64, lon: f64) -> Option<String> {
         let w = self.world.as_ref()?;
         let d = rg_pipeline::layers::dir(lat, lon);
-        let h = w.tectonics.height_m.sample(d);
+        let h = w.tectonics.height_m.sample_drained(d) as f32;
         let s = rg_pipeline::layers::ClimateSample::at(w, lat, lon, h);
         let ns = if lat >= 0.0 { 'N' } else { 'S' };
         let ew = if lon >= 0.0 { 'E' } else { 'W' };

@@ -11,7 +11,11 @@ use serde_json::json;
 
 /// Version of the chunk set below. Bump on any change to names or meanings.
 /// 2 (s01): erosion params + hydrology chunks. Schema-1 files still load (no hydrology).
-pub const WORLD_SCHEMA: u32 = 2;
+/// 3 (s01): macro height may be finer than tectonics (`snapshot.height_res`) and is read
+/// with the drained interpolant (`macro_interp`); erosion seed, Rho8, lithology, roughness.
+/// Older files load; their macro is now read with the drained interpolant too (streamed
+/// detail is not under the contract yet: `DETAIL_GENERATOR_VERSION` = 0).
+pub const WORLD_SCHEMA: u32 = 3;
 
 pub fn to_file(w: &World) -> WorldFile {
     let t = &w.params.tectonics;
@@ -40,6 +44,7 @@ pub fn to_file(w: &World) -> WorldFile {
             "sea_level_offset_m": w.tectonics.sea_level_offset_m,
             // The committed macro height can be finer than the other tectonic fields.
             "height_res": w.tectonics.height_m.res,
+            "macro_interp": rg_geo::field::MACRO_INTERP_ID,
             "land_fraction": w.tectonics.land_fraction,
             "plates": plates,
         },
@@ -62,6 +67,7 @@ pub fn to_file(w: &World) -> WorldFile {
             "oceanic_crust_uplift": w.params.erosion.oceanic_crust_uplift,
             "scale_by_convergence_rate": w.params.erosion.scale_by_convergence_rate,
             "rho8": w.params.erosion.rho8,
+            "seed": w.params.erosion.seed,
             "k_variability": w.params.erosion.k_variability,
             "lithology_scale_km": w.params.erosion.lithology_scale_km,
             "initial_roughness_m": w.params.erosion.initial_roughness_m,
@@ -201,21 +207,21 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
             uplift_exponent: num(eh, "uplift_exponent")?,
             river_min_area_km2: num(eh, "river_min_area_km2")?,
             hypsometry_scale: eh["hypsometry_scale"].as_f64().unwrap_or(0.0),
-            // Older schema-2 files predate these; they were generated with the elevation
-            // uplift source, but what matters on load is the stored heights, not re-running.
+            // Older schema-2 files may lack these. Tectonic uplift was the default from
+            // d23fd9a on; what matters on load is the stored heights anyway, not re-running.
             res: eh["res"].as_u64().unwrap_or(0) as u32,
             uplift_source: match eh["uplift_source"].as_str() {
-                Some("elevation") | None => rg_erosion::UpliftSource::Elevation,
+                Some("elevation") => rg_erosion::UpliftSource::Elevation,
                 _ => rg_erosion::UpliftSource::Tectonic,
             },
             belt_width_km: eh["belt_width_km"].as_f64().unwrap_or(400.0),
             oceanic_crust_uplift: eh["oceanic_crust_uplift"].as_f64().unwrap_or(0.5),
             scale_by_convergence_rate: eh["scale_by_convergence_rate"].as_bool().unwrap_or(true),
             rho8: eh["rho8"].as_bool().unwrap_or(false),
+            seed: eh["seed"].as_u64().unwrap_or(0),
             k_variability: eh["k_variability"].as_f64().unwrap_or(0.0),
             lithology_scale_km: eh["lithology_scale_km"].as_f64().unwrap_or(250.0),
             initial_roughness_m: eh["initial_roughness_m"].as_f64().unwrap_or(0.0),
-            ..Default::default()
         }
     } else {
         rg_erosion::ErosionParams { enabled: false, ..Default::default() }
