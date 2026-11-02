@@ -2742,6 +2742,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rg-terrain"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "rg-geo",
+ "rg-noise",
+]
+
+[[package]]
 name = "rg-world"
 version = "0.1.0"
 dependencies = [
