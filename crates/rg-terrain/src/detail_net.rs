@@ -74,6 +74,8 @@ const MAX_GRADIENT: f64 = 1.5;
 /// Profiling counters (native, RG_NET_PROF): candidate lists built, total length.
 #[cfg(not(target_arch = "wasm32"))]
 static CAND_STATS: [std::sync::atomic::AtomicUsize; 2] = [std::sync::atomic::AtomicUsize::new(0), std::sync::atomic::AtomicUsize::new(0)];
+/// Pieces per child channel (meander).
+const CHILD_PIECES: usize = 3;
 /// Pieces per curved level-0 edge.
 const CURVE_PIECES: usize = 4;
 /// Fade-out terms (see `wedge`): large enough that a faded channel never wins.
@@ -85,7 +87,7 @@ const FADE_SLOPE: f64 = 50.0;
 const MAX_ANCESTORS: usize = 7;
 
 /// One shard of the channel memo: (level, cell) → channel (None = no channel there).
-type MemoShard = std::sync::Mutex<HashMap<(u8, Cell), (u8, Option<Channel>)>>;
+type MemoShard = std::sync::Mutex<HashMap<(u8, Cell), (u8, Vec<Channel>)>>;
 type CandShard = std::sync::Mutex<HashMap<(u8, Cell), Arc<Vec<Channel>>>>;
 
 /// A parent candidate: its wedge at the head, the distance and parameter there.
@@ -130,8 +132,13 @@ pub struct Channel {
     /// [0.75, 1.33], so siblings fade in at different zooms. A parent's (≥ 3/1.33 × the
     /// child's level spacing) always exceeds its child's, so a parent is never less present.
     pub lod_spacing: f64,
-    /// Channel length, m.
+    /// Length of this piece, m.
     pub len_m: f64,
+    /// Arc length from the channel's junction to this piece's down end, m (the fade ramp
+    /// runs along the whole channel, so it doesn't restart at each piece).
+    pub s0: f64,
+    /// Arc length of the whole channel (all its pieces), m.
+    pub chan_len: f64,
     /// Fading ancestors (levels ≥ 1), each (LOD spacing, distance from its junction to where
     /// this lineage attaches, m). A faded ancestor's bed is raised by (1 − φ)·ramp·distance
     /// there, and descendants carry that offset, so every junction sits on its parent's
@@ -194,7 +201,7 @@ impl Channel {
             h += self.wall_k * over * over;
         }
         if phi < 1.0 {
-            h += (1.0 - phi) * (FADE_RAMP_SLOPE * self.len_m * t + FADE_SLOPE * g);
+            h += (1.0 - phi) * (FADE_RAMP_SLOPE * (self.s0 + self.len_m * t) + FADE_SLOPE * g);
         }
         h
     }
@@ -365,7 +372,7 @@ impl DetailNet {
         v
     }
 
-    fn memo_put(&self, k: usize, c: Cell, v: (u8, Option<Channel>)) {
+    fn memo_put(&self, k: usize, c: Cell, v: (u8, Vec<Channel>)) {
         let shard = &self.memo[(lattice::hash(k as u64, c) % 16) as usize];
         if let Ok(mut m) = shard.lock() {
             // Bound memory: drop the shard when it grows large (it's only a cache).
@@ -433,6 +440,8 @@ impl DetailNet {
             wall_k: 1.0e4 / (l0 * l0),
             lod_spacing: l0,
             len_m: len,
+            s0: 0.0,
+            chan_len: len,
             anc: [[0.0; 2]; MAX_ANCESTORS],
             n_anc: 0,
         }
@@ -452,7 +461,8 @@ impl DetailNet {
         // within (3 + 4.5σ)·3 ℓ_k of them. So 3c ≥ c + 8 + (3 + 4.5σ)·3, i.e. c ≥ 16.6 (σ 1.2).
         let rank_extra = 2.0 * (SIBLING_SEARCH + SIBLING_MAX_LEN);
         // + one parent spacing (3 ℓ_k): candidate lists are read from the parent cell's centre.
-        let c = ((rank_extra + (3.0 + 4.5 * ATTACH_SEARCH) * 3.0 + 3.0) / 2.0).max(8.25 * ATTACH_SEARCH) + 0.5;
+        // + one spacing for the meander bulge (≤ 0.15 × a channel ≤ 5.4 ℓ_k).
+        let c = ((rank_extra + (3.0 + 4.5 * ATTACH_SEARCH) * 3.0 + 3.0) / 2.0).max(8.25 * ATTACH_SEARCH) + 1.5;
         // Level 0: level-1 rank-0 heads sit at (c + rank_extra)/3 ℓ_0 and read level-0 wedges
         // whose heads are within 3 ℓ_0 + an edge (≤ 1.5 ℓ_0) of them.
         if k == 0 { ((c + rank_extra) / 3.0 + 3.0 + 1.5 + 1.0 + 0.5) * self.spacing[0] } else { c * self.spacing[k] }
@@ -512,7 +522,7 @@ impl DetailNet {
         // SIBLING_SEARCH ℓ; the lowest wedge at q wins, coarser or sibling.
         if let Some(sb) = siblings {
             sb.for_each_near(q, SIBLING_SEARCH * lk + SIBLING_MAX_LEN * lk, |ch| {
-                if ch.len_m > SIBLING_MAX_LEN * lk {
+                if ch.chan_len > SIBLING_MAX_LEN * lk {
                     return;
                 }
                 let (d, t) = ch.nearest(q, self.radius_m);
@@ -554,7 +564,7 @@ impl DetailNet {
         // equal presence), which keeps sibling chains within MAX_ANCESTORS.
         let (mut anc, mut n_anc) = (parent.anc, parent.n_anc);
         if parent.level > 0 {
-            let entry = [parent.lod_spacing as f32, (tj * parent.len_m) as f32];
+            let entry = [parent.lod_spacing as f32, (parent.s0 + tj * parent.len_m) as f32];
             if let Some(e) = anc[..n_anc as usize].iter_mut().find(|e| e[0] == entry[0]) {
                 e[1] += entry[1];
             } else if (n_anc as usize) < MAX_ANCESTORS {
@@ -589,9 +599,45 @@ impl DetailNet {
             wall_k: 1.0e4 / (lk * lk),
             lod_spacing,
             len_m: len,
+            s0: 0.0,
+            chan_len: len,
             anc,
             n_anc,
         })
+    }
+
+    /// Split a straight channel into `CHILD_PIECES` pieces along a gently meandering path:
+    /// hashed lateral offsets at the inner vertices (≤ 0.08 L next to the junction, so the
+    /// junction angle moves < ~15°; ≤ 0.15 L further up). z is linear by arc length (strictly
+    /// rising); every piece shares the channel's LOD and ancestors, and piece i+1's junction
+    /// is piece i's head, so the drainage argument holds piece by piece.
+    fn curve_pieces(&self, k: usize, c: Cell, ch: Channel) -> Vec<Channel> {
+        let (a, q) = (ch.down, ch.up);
+        let chord = (q - a).length();
+        if chord <= 0.0 {
+            return vec![ch];
+        }
+        let lat = (q - a).cross(a + q).normalize_or_zero();
+        let h = lattice::hash(self.salt ^ 0xC0_7E00_0000_0000 ^ k as u64, c);
+        let u = |i: u32| ((h >> (i * 21)) & 0x1F_FFFF) as f64 / 0x1F_FFFF as f64 * 2.0 - 1.0;
+        let offs = [0.0, 0.08 * u(0), 0.15 * u(1), 0.0];
+        let pts: Vec<DVec3> = (0..=CHILD_PIECES)
+            .map(|i| {
+                let f = i as f64 / CHILD_PIECES as f64;
+                (a + (q - a) * f + lat * (offs[i] * chord)).normalize()
+            })
+            .collect();
+        let lens: Vec<f64> = pts.windows(2).map(|w| (w[1] - w[0]).length() * self.radius_m).collect();
+        let total: f64 = lens.iter().sum::<f64>().max(1e-9);
+        let mut out = Vec::with_capacity(CHILD_PIECES);
+        let mut s_acc = 0.0;
+        for (i, w) in pts.windows(2).enumerate() {
+            let z0 = ch.z_down + (ch.z_up - ch.z_down) * (s_acc / total);
+            let z1 = ch.z_down + (ch.z_up - ch.z_down) * ((s_acc + lens[i]) / total);
+            out.push(Channel { up: w[1], down: w[0], z_up: z1, z_down: z0, len_m: lens[i], s0: s_acc, chan_len: total, ..ch });
+            s_acc += lens[i];
+        }
+        out
     }
 
     /// Gather every channel that can matter inside the disc of `radius_m` around `center`,
@@ -630,22 +676,18 @@ impl DetailNet {
                 }
                 n_cells += 1;
                 let shard = &self.memo[(lattice::hash(k as u64, c) % 16) as usize];
-                if let Some(entry) = shard.lock().ok().and_then(|m| m.get(&(k as u8, c)).copied()) {
-                    if let (r, Some(ch)) = entry {
-                        by_rank[r as usize].push(ch);
-                    }
+                if let Some((r, pieces)) = shard.lock().ok().and_then(|m| m.get(&(k as u8, c)).cloned()) {
+                    by_rank[r as usize].extend(pieces);
                     n_hits += 1;
                     continue;
                 }
                 n_pre += 1;
                 match self.prelim(k, c, &binned) {
-                    None => self.memo_put(k, c, (0, None)),
+                    None => self.memo_put(k, c, (0, Vec::new())),
                     Some(pre) if pre.rank == 0 => {
-                        let ch = self.build_channel(k, &pre, None);
-                        self.memo_put(k, c, (0, ch));
-                        if let Some(ch) = ch {
-                            by_rank[0].push(ch);
-                        }
+                        let pieces = self.build_channel(k, &pre, None).map_or_else(Vec::new, |ch| self.curve_pieces(k, c, ch));
+                        self.memo_put(k, c, (0, pieces.clone()));
+                        by_rank[0].extend(pieces);
                     }
                     Some(pre) => pending.push((c, pre, dist)),
                 }
@@ -658,11 +700,9 @@ impl DetailNet {
                     if *dist > lim {
                         continue;
                     }
-                    let ch = self.build_channel(k, pre, Some(&sib));
-                    self.memo_put(k, *c, (r, ch));
-                    if let Some(ch) = ch {
-                        by_rank[r as usize].push(ch);
-                    }
+                    let pieces = self.build_channel(k, pre, Some(&sib)).map_or_else(Vec::new, |ch| self.curve_pieces(k, *c, ch));
+                    self.memo_put(k, *c, (r, pieces.clone()));
+                    by_rank[r as usize].extend(pieces);
                 }
             }
             let all: Vec<Channel> = by_rank.into_iter().flatten().collect();
