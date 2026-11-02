@@ -47,12 +47,18 @@ enum State {
     Exorheic(f64),         // full to `level`, drains to the ocean
 }
 
-#[derive(Clone, Copy, PartialEq, PartialOrd)]
+/// An f64 ordered by `total_cmp`, for the pass heap.
+#[derive(Clone, Copy, PartialEq)]
 struct OrdF(f64);
 impl Eq for OrdF {}
 impl Ord for OrdF {
     fn cmp(&self, o: &Self) -> std::cmp::Ordering {
         self.0.total_cmp(&o.0)
+    }
+}
+impl PartialOrd for OrdF {
+    fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(o))
     }
 }
 
@@ -176,7 +182,7 @@ pub fn compute(grid: &Grid, h: &[f64], ocean: &[bool], runoff: &[f64], net_evap:
         }
     }
     let mut keys: Vec<_> = best_pass.into_iter().collect();
-    keys.sort_by(|x, y| x.0.cmp(&y.0));
+    keys.sort_by_key(|x| x.0);
     for ((a, b), z) in keys {
         if a != OCEAN {
             roots[a as usize].passes.push(Reverse((OrdF(z), b)));
