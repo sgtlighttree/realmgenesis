@@ -141,26 +141,57 @@ pub fn terrain_sampler(world: &World) -> rg_terrain::TerrainSampler {
     }
 }
 
-/// Annual precipitation on the tectonic surface relative to its land mean (1 = average),
-/// on a cube field (res 128) for the erosion solve.
-fn relative_runoff(planet: &PlanetParams, t: &TectonicSnapshot) -> CubeField<f32> {
-    let (_, climate, _) = run_climate(planet, t);
-    let p = climate.annual_precip_grid();
-    let f = CubeField::<f32>::from_fn(128, |d| {
-        let (lat, lon) = (d.z.clamp(-1.0, 1.0).asin(), d.y.atan2(d.x));
-        p.sample(lat, lon)
-    });
-    // Land mean, weighted by solid angle (sample density on the cube is uneven; the
-    // tangent warp keeps it within ~30%, fine for a normaliser).
+/// Land water balance on a climate run: annual precipitation, potential evapotranspiration
+/// (Thornthwaite) and runoff (Budyko–Fu), each on a cube field (res 128), mm/yr.
+pub struct WaterBalance {
+    pub precip_mm: CubeField<f32>,
+    pub pet_mm: CubeField<f32>,
+    pub runoff_mm: CubeField<f32>,
+    /// Mean land runoff, mm/yr (Earth ≈ 300: ~40,000 km³/yr over ~135 M km²).
+    pub mean_land_runoff_mm: f64,
+}
+
+pub fn water_balance(planet: &PlanetParams, climate: &ClimateFields, height: &CubeField<f32>) -> WaterBalance {
+    let (w, h) = (climate.width, climate.height);
+    let mut pr = Vec::with_capacity((w * h) as usize);
+    let mut pe = Vec::with_capacity((w * h) as usize);
+    let mut ro = Vec::with_capacity((w * h) as usize);
+    for y in 0..h {
+        let lat = layers::lat_of_row(y, h);
+        for x in 0..w {
+            let k = climate.index(x, y);
+            let p: f64 = climate.precip_mm[k].iter().map(|&v| v as f64).sum();
+            let pet = rg_climate::water::thornthwaite_pet_mm(&climate.temp_c[k], lat, planet.axial_tilt_deg);
+            pr.push(p as f32);
+            pe.push(pet as f32);
+            ro.push(rg_climate::water::budyko_fu_runoff_mm(p, pet, rg_climate::water::FU_OMEGA) as f32);
+        }
+    }
+    let to_cube = |v: Vec<f32>| {
+        let g = LatLonGrid::from_vec(w, h, v);
+        CubeField::<f32>::from_fn(128, |d| g.sample(d.z.clamp(-1.0, 1.0).asin(), d.y.atan2(d.x)))
+    };
+    let (precip_mm, pet_mm, runoff_mm) = (to_cube(pr), to_cube(pe), to_cube(ro));
+    // Land mean (sample density on the cube is uneven; the tangent warp keeps it within
+    // ~30%, fine for a normaliser and a sanity check).
     let (mut sum, mut cnt) = (0.0f64, 0usize);
-    for (k, _, _, _, d) in f.iter_samples() {
-        if t.height_m.sample(d) > 0.0 {
-            sum += f.data[k] as f64;
+    for (k, _, _, _, d) in runoff_mm.iter_samples() {
+        if height.sample(d) > 0.0 {
+            sum += runoff_mm.data[k] as f64;
             cnt += 1;
         }
     }
-    let mean = (sum / cnt.max(1) as f64).max(1.0) as f32;
-    CubeField { res: f.res, data: f.data.iter().map(|v| v / mean).collect() }
+    WaterBalance { precip_mm, pet_mm, runoff_mm, mean_land_runoff_mm: sum / cnt.max(1) as f64 }
+}
+
+/// Runoff on the tectonic surface relative to its land mean (1 = average): the erosion
+/// solve's discharge proxy. Runoff (Budyko), not precipitation: deserts shed far less water
+/// than their rainfall suggests.
+fn relative_runoff(planet: &PlanetParams, t: &TectonicSnapshot) -> CubeField<f32> {
+    let (_, climate, _) = run_climate(planet, t);
+    let wb = water_balance(planet, &climate, &t.height_m);
+    let mean = wb.mean_land_runoff_mm.max(1.0) as f32;
+    CubeField { res: wb.runoff_mm.res, data: wb.runoff_mm.data.iter().map(|v| v / mean).collect() }
 }
 
 /// [`relative_runoff`] for probes.

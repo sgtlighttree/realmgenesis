@@ -6,6 +6,7 @@
 //!
 //! Everything is deterministic, single-threaded and allocation-light so it runs in wasm32.
 
+pub mod water;
 pub mod circulation;
 pub mod ebm;
 pub mod geography;

@@ -43,6 +43,9 @@ pub struct ErosionStats {
     pub fill_steps: u32,
     /// The final amplitude rescale applied to land.
     pub amplitude_scale: f64,
+    /// Volume added by Priority-Flood filling ÷ volume eroded over the run: the "sediment
+    /// from nowhere" mass leak of filling the rock surface each step (s01 advisor).
+    pub fill_to_erosion: f64,
     pub grid_res: u32,
     /// True if uplift came from plate boundaries/motions, false if from the elevation fallback.
     pub uplift_from_tectonics: bool,
@@ -176,6 +179,7 @@ pub(crate) fn measure(
         largest_basin_km2: largest,
         fill_steps,
         amplitude_scale: scale,
+        fill_to_erosion: 0.0,
         grid_res: grid.res,
         uplift_from_tectonics: false,
         mass_balance_error: 0.0,

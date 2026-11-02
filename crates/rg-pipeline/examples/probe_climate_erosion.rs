@@ -9,9 +9,13 @@ fn main() {
     p.tectonics.seed = seed;
     let tect = rg_tectonics::generate(&p.tectonics);
     let mut ep = p.erosion.clone();
-    ep.hypsometry_scale = 0.0; // compare raw physics (linear rescale only)
+    ep.hypsometry_scale = 0.0; // compare raw physics (p99 rescale only)
+    ep.linear_mean_m = 0.0;
     ep.seed = seed;
     let runoff = rg_pipeline::relative_runoff_for_probe(&p.planet, &tect);
+    let w = rg_pipeline::generate(&p);
+    let wb = rg_pipeline::water_balance(&w.params.planet, &w.climate, &w.tectonics.height_m);
+    println!("mean land runoff {:.0} mm/yr (Earth ≈ 300)", wb.mean_land_runoff_mm);
     let dry_wet = |with: bool| {
         let r = rg_erosion::erode_with_runoff(&tect, p.tectonics.radius_m, &ep, with.then_some(&runoff));
         let mut v: Vec<(f32, f64)> = Vec::new();

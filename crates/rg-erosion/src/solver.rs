@@ -90,6 +90,10 @@ pub struct ErosionParams {
     /// this is fitting K; the hypsometric curve's *shape* then comes from the physics and is
     /// only checked against Earth (s01 review: "heights fitted, not modelled").
     pub linear_mean_m: f64,
+    /// Elevation (m, solve units) at which rock uplift has tapered to zero:
+    /// U_eff = U·(1 − h/limit). Lithospheric strength caps plateau elevation (Earth's highest
+    /// plateaus ~5 km); 0 disables.
+    pub elevation_limit_m: f64,
 }
 
 impl Default for ErosionParams {
@@ -117,6 +121,7 @@ impl Default for ErosionParams {
             river_min_area_km2: 20_000.0,
             hypsometry_scale: 1.0,
             linear_mean_m: 656.0,
+            elevation_limit_m: 7000.0,
         }
     }
 }
@@ -330,7 +335,7 @@ pub fn solve_with_k(
     k: &[f64],
     p: &ErosionParams,
 ) -> Solved {
-    solve_full(grid, radius_m, h, ocean, uplift_m_yr, k, None, p)
+    solve_full(grid, radius_m, h, ocean, uplift_m_yr, k, None, None, p)
 }
 
 /// As [`solve_with_k`], with per-node relative runoff (1 = the land mean): the stream-power
@@ -345,6 +350,7 @@ pub fn solve_full(
     uplift_m_yr: &[f64],
     k: &[f64],
     runoff: Option<&[f64]>,
+    elevation_limit_m: Option<f64>,
     p: &ErosionParams,
 ) -> Solved {
     let n = grid.n;
@@ -377,12 +383,23 @@ pub fn solve_full(
         for (i, l) in length.iter_mut().enumerate() {
             *l = (grid.dir[i] - grid.dir[net.receiver[i] as usize]).length() * radius_m;
         }
+        // Elevation limit: crust can't hold relief above what its strength supports; uplift
+        // tapers to zero there and further shortening would widen the plateau instead
+        // (thin viscous sheet; s01: without it arid, barely eroding highs grew to 25 km).
+        let u_eff: Vec<f64>;
+        let uplift_now: &[f64] = match elevation_limit_m {
+            Some(lim) if lim > 0.0 => {
+                u_eff = (0..n).map(|i| uplift_m_yr[i] * (1.0 - h[i].max(0.0) / lim).max(0.0)).collect();
+                &u_eff
+            }
+            _ => uplift_m_yr,
+        };
         let col = Column {
             receiver: &net.receiver,
             stack: &net.stack,
             drainage_m2: &net.area,
             length_m: &length,
-            uplift_m_yr,
+            uplift_m_yr: uplift_now,
             base: ocean,
             cell_area_m2: &cell_area,
         };
@@ -440,7 +457,8 @@ pub fn erode_with_runoff(tectonic: &TectonicSnapshot, radius_m: f64, p: &Erosion
     let mut filled_steps = 0u32;
     let mut budget = MassBudget::default();
     if p.enabled && !land_h.is_empty() {
-        let solved = solve_full(&grid, radius_m, &mut h, &ocean, &uplift, &k_field, runoff_w.as_deref(), p);
+        let lim = (p.elevation_limit_m > 0.0).then_some(p.elevation_limit_m);
+        let solved = solve_full(&grid, radius_m, &mut h, &ocean, &uplift, &k_field, runoff_w.as_deref(), lim, p);
         net = solved.net;
         budget = solved.budget;
         filled_steps = solved.filled_steps;
@@ -475,6 +493,7 @@ pub fn erode_with_runoff(tectonic: &TectonicSnapshot, radius_m: f64, p: &Erosion
     let mut stats = stats::measure(&grid, &h, &ocean, &net, &area_m2, &uplift, &k_field, radius_m, p, filled_steps, scale);
     stats.uplift_from_tectonics = uplift_used == UpliftSource::Tectonic;
     stats.mass_balance_error = mass_balance_error;
+    stats.fill_to_erosion = budget.filled_m3 / budget.eroded_m3.max(1.0);
 
     let mut height_scale = None;
     if p.linear_mean_m > 0.0 {
