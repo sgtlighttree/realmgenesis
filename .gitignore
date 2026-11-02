@@ -1,0 +1,14 @@
+/target
+/dist
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+.vscode/*
+!.vscode/extensions.json
+.idea
+tmp/
+.playwright-mcp/
+# Agent git worktrees (full repo checkouts nested in the repo)
+.claude/
