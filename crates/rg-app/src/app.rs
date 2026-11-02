@@ -145,6 +145,10 @@ impl eframe::App for RealmApp {
         for c in std::mem::take(&mut self.pending) {
             self.apply(c, &rs);
         }
+        // Presentation light: the sun sits up and to the left of the camera, so the view
+        // always shows relief and a terminator. Real seasonal sun comes with climate.
+        let (y, p) = (self.camera.yaw + 0.9, (self.camera.pitch + 0.45).min(1.4));
+        self.style.sun_dir = glam::DVec3::new(p.cos() * y.cos(), p.cos() * y.sin(), p.sin());
         ui::draw(self, ui, &rs);
     }
 }

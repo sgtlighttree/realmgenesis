@@ -29,7 +29,7 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.label("Seed");
         changed |= ui.add(egui::DragValue::new(&mut app.params.seed).range(0..=999_999)).changed();
-        if ui.button("🎲").on_hover_text("Random seed (R)").clicked() {
+        if ui.button("Random").on_hover_text("New random seed (R)").clicked() {
             app.push(Command::RandomizeSeed);
         }
     });
