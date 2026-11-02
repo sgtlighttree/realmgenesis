@@ -42,6 +42,30 @@ fn main() {
     println!("erosion   {:.2} s  {:?}", t1.elapsed().as_secs_f64(), p);
     println!("{:#?}", r.stats);
     println!("rivers: {} segments", r.rivers.len());
+    // Area-weighted land hypsometry of the output.
+    {
+        let g = rg_tectonics::grid::Grid::new(r.height_m.res);
+        let mut land: Vec<(f32, f64)> = (0..g.n)
+            .map(|i| (r.height_m.data[g.node_sample[i] as usize], g.weight[i] as f64))
+            .filter(|(h, _)| *h > 0.0)
+            .collect();
+        land.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let tot: f64 = land.iter().map(|x| x.1).sum();
+        let mean = land.iter().map(|x| x.0 as f64 * x.1).sum::<f64>() / tot;
+        let above = |t: f32| land.iter().filter(|x| x.0 > t).map(|x| x.1).sum::<f64>() / tot * 100.0;
+        let (mut c, mut median) = (0.0, 0.0);
+        for x in &land {
+            c += x.1;
+            if c >= 0.5 * tot {
+                median = x.0;
+                break;
+            }
+        }
+        println!(
+            "hypsometry: mean {mean:.0} m, median {median:.0} m, >1km {:.1}%, >2km {:.1}%, >4km {:.1}%, max {:.0} m",
+            above(1000.0), above(2000.0), above(4000.0), land.last().map(|x| x.0).unwrap_or(0.0)
+        );
+    }
 
     let w = 1600u32;
     save(&format!("{out}/before.png"), w, &snap.height_m, tp.radius_m, None);

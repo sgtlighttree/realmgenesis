@@ -36,10 +36,10 @@ pub(crate) fn compute(
     ocean: &[bool],
     p: &ErosionParams,
 ) -> (Vec<f64>, UpliftSource) {
-    if p.uplift_source == UpliftSource::Tectonic {
-        if let Some(u) = from_boundaries(grid, snap, radius_m, ocean, p) {
-            return (u, UpliftSource::Tectonic);
-        }
+    if p.uplift_source == UpliftSource::Tectonic
+        && let Some(u) = from_boundaries(grid, snap, radius_m, ocean, p)
+    {
+        return (u, UpliftSource::Tectonic);
     }
     (from_elevation(h0, ocean, p), UpliftSource::Elevation)
 }

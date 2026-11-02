@@ -47,7 +47,8 @@ fn hypsometry_is_earth_like() {
     land.sort_by(f32::total_cmp);
     let mean = land.iter().map(|&h| h as f64).sum::<f64>() / land.len() as f64;
     let median = land[land.len() / 2] as f64;
-    // Earth: mean ≈ 840 m, median ≈ 440 m (ETOPO-class statistics).
-    assert!((700.0..1000.0).contains(&mean), "mean land {mean}");
+    // Target (s02): ice-free land smoothed to ~20-50 km cells, mean ≈ 660 m, median ≈ 380 m
+    // (see src/hypsometry.rs). The lower bound was 700 for the superseded ETOPO1-with-ice curve.
+    assert!((600.0..1000.0).contains(&mean), "mean land {mean}");
     assert!((330.0..560.0).contains(&median), "median land {median}");
 }

@@ -212,8 +212,8 @@ pub fn solve(grid: &Grid, radius_m: f64, h: &mut [f64], ocean: &[bool], uplift_m
         net.build_stack();
         net.accumulate(&cell_area, ocean);
         // 4. Implicit stream-power incision with uplift.
-        for i in 0..n {
-            length[i] = (grid.dir[i] - grid.dir[net.receiver[i] as usize]).length() * radius_m;
+        for (i, l) in length.iter_mut().enumerate() {
+            *l = (grid.dir[i] - grid.dir[net.receiver[i] as usize]).length() * radius_m;
         }
         let col = Column {
             receiver: &net.receiver,
