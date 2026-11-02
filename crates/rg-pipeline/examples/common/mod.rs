@@ -34,7 +34,7 @@ pub fn world(seed: u64) -> World {
     }
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/probe-cache");
     let path = dir.join(format!(
-        "s{seed}-t{}-e{}-n{}-k{}-r{}-l{}-rho{}-g{}.rgw",
+        "s{seed}-t{}-e{}-n{}-k{}-r{}-l{}-rho{}-g{}-b{}.rgw",
         p.tectonics.res,
         p.erosion.res,
         p.erosion.steps,
@@ -42,7 +42,8 @@ pub fn world(seed: u64) -> World {
         p.erosion.initial_roughness_m,
         p.erosion.lithology_scale_km,
         p.erosion.rho8 as u8,
-        rg_pipeline::file::WORLD_SCHEMA
+        rg_pipeline::file::WORLD_SCHEMA,
+        build_stamp()
     ));
     if env::<u8>("RG_NO_CACHE").is_none()
         && let Ok(bytes) = std::fs::read(&path)
@@ -68,3 +69,13 @@ pub fn world(seed: u64) -> World {
     w
 }
 
+
+/// Build time of this probe binary, so a rebuilt generator never reads a stale cached world.
+fn build_stamp() -> u64 {
+    std::env::current_exe()
+        .and_then(std::fs::metadata)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_secs())
+}

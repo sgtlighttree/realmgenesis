@@ -17,9 +17,11 @@ tectonics (plates, crust, boundary relief)                  rg-tectonics
 
 `∂h/∂t = U − K·A^m·S`, solved implicitly in O(n) (Braun & Willett 2013).
 - **Routing:** D8 on the seam-free 8-neighbour sphere graph, with Priority-Flood+ε fills for closed basins (Barnes 2014).
-- **Uplift U:** proportional to tectonic relief (`uplift_max` × (h/h95)^0.8 + base 0.15 mm/yr).
-- **Grid:** runs at min(res, 512). Finer fields get the *change* upsampled (Schott 2023: blend changes, not surfaces).
-- **Defaults:** 30 Myr, 50 steps, K = 1e-5, m = 0.45.
+- **Uplift U:** from tectonic process (distance to convergent boundaries, crust type, closing speed; `uplift.rs`), not from elevation.
+- **Routing:** Rho8 (Fairfield & Leymarie 1991), diagonals found topologically; initial roughness ≤ 20 m (scaled by local relief); lithology log-normal K, σ_lnK 0.3, 250 km correlation.
+- **Grid:** runs at the preset resolution (`ErosionParams::res`, 0 = tectonics res). If capped lower, the *change* is upsampled and PF-filled on the fine grid.
+- **Interpolation:** `CubeField::sample_drained`: bilinear with any diagonal valley carved straight (bilinear dammed 9.5% of mountain land).
+- **Defaults:** 30 Myr, 20 steps (same laws as 50), K = 1e-5, m = 0.45.
 - **Verified (tests, `tests/geomorphology.rs`):**
   - all land drains to the sea;
   - uplift-normalised concavity = m to ±0.03 (0.4500 measured), the analytic steady state;
@@ -31,7 +33,7 @@ tectonics (plates, crust, boundary relief)                  rg-tectonics
 
 ## 2. Hypsometric calibration
 
-At 10–50 km cells, K and U are underdetermined, so absolute heights aren't meaningful. After erosion, land heights are **quantile-mapped onto Earth's land hypsometric curve** (× the "mountains" setting).
+At 10–50 km cells, K and U are underdetermined, so absolute heights aren't meaningful. After erosion, land heights are **area-weighted quantile-mapped onto a measured, smoothed, ice-free land hypsometric curve** (× the "mountains" setting; mean 656 m, median 382 m), strictly increasing as stored f32.
 - The map is monotonic, so every drainage direction, divide and valley is unchanged. Solver stats are measured before the remap.
 - **Measured (seed 3):** mean 841 m (Earth 840), median 429 m (~440), > 2 km 10.3% (~9%), > 4 km 2.8% (~2%).
 - **Curve:** approximate ETOPO1-class numbers (table in `solver.rs`).
@@ -64,6 +66,29 @@ At 10–50 km cells, K and U are underdetermined, so absolute heights aren't mea
 | Peaks too high, plateaus too rugged | Relief scaled by elevation | Relief from macro slope |
 | ~2× Earth heights | p99 rescale to tectonic heights | Hypsometric calibration |
 | Dark walls at LOD borders | Child tiles carry extra octaves | CDLOD geomorph to the parent mesh surface |
+
+## 4. Bathymetry (`rg-tectonics/src/relief.rs`, s01)
+
+Water depth on oceanic crust = GDH1 age–depth (Stein & Stein 1992) − dynamic topography − plateau lift − isostatic sediment lift, then trenches, arcs and seamounts from the plate boundaries.
+- **Age:** distance from the nearest ridge over the half spreading rate, then area-weighted quantile-mapped onto Earth's triangular area–age distribution, F(t) = 1 − (1 − t/180 Myr)² (Parsons 1982; mean 60 Myr).
+- **Sediment** (GlobSed, Straume et al. 2019, Table 3): pelagic 680·(1 − e^(−t/50 Myr)) m (404 m area mean, as GlobSed's deep ocean), plus a terrigenous wedge 4700·e^(−x/100 km) m offshore of the continent–ocean boundary (2,050 m mean within 200 km). Lift = (ρm − ρs)/(ρm − ρw) ≈ 0.49 per metre.
+- **Dynamic topography:** residual depth with 350 m std (Hoggard et al. 2016: ±1 km at ~1000 km wavelengths).
+- **Oceanic plateaus:** top 5.1% of an independent noise field (Harris et al. 2014: 5.11% of the oceans), raised 2.2 km, flat-topped.
+- **Trenches:** Gaussian e-folding 40 km (a 75 km one gave 6–8× Earth's > 7 km area).
+- **Measured** (`examples/probe_bathymetry.rs`, seeds 3 / 11, res 320) against Earth (Costello et al. 2010; ETOPO1 mean 3688 m):
+
+  | | seed 3 | seed 11 | Earth |
+  |---|---|---|---|
+  | mean depth | 3652 m | 3687 m | 3688 m |
+  | 0–200 m | 8.9% | 8.0% | 7.3% |
+  | 200–1000 m | 4.7% | 4.5% | 4.4% |
+  | 1–4 km | 31.2% | 34.1% | 35.2% |
+  | 4–6 km | 54.3% | 52.3% | 52.1% |
+  | 6–7 km | 0.5% | 0.6% | 0.9% |
+  | > 7 km | 0.4% | 0.5% | 0.13% |
+
+  > 7 km is resolution-limited (a trench is about one cell wide at 31 km cells).
+- **Not yet:** abyssal-hill fabric aligned with the spreading direction, fracture zones, submarine canyons continuing rivers across the shelf, and streamed seafloor detail (oceans render flat at the surface).
 
 ## Known limits
 

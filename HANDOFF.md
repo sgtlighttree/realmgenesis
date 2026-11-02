@@ -42,10 +42,12 @@ Scorecard: `cargo run -p rg-pipeline --release --example probe_realism -- 3` (sc
 - **Scorecard now (seed 3, mountain boxes):**
   - res 320: depressions 0.1–1.2%, slopes 6–9° mean (too gentle: coarse macro).
   - res 768: depressions 1.7–5%, slopes 14–17° mean, p99 55° (tail too heavy).
+- **Bathymetry done:** mean depth 3652–3687 m vs Earth 3688; depth bands within ~1–4 points (table in `docs/design/terrain-model.md` §4; `--example probe_bathymetry`).
+- **⚠ Known red test:** `rg-pipeline/tests/terrain_realism.rs` (mountain mean slope 8.4° < 10° at Draft res). Real cause: hills off left the band from the macro cell down to 4 km empty. Not loosened; fixed by item 1. Asked Matt whether its rugged-point picker may skip coast-adjacent nodes.
 - **Next, in order:**
   1. **Dendry-style network detail** (Gaillard et al. 2019): hierarchical, point-evaluated sub-grid channel network; elevations from the SPL steady state with k_sn taken from the macro; hillslopes at threshold. Drained by construction (the min of drained surfaces is drained), replacing the gully filter's steep-or-drained trade-off and its "swirly" look. Write `docs/design/` first, then get a reviewer pass.
   2. **C1 macro:** square tonal blocks at the macro cell edges, since the shading of a C0 surface jumps there. A monotone bicubic plus the diagonal carve is one candidate; the network detail may cover it.
-  3. **Bathymetry:** age–depth (Parsons & Sclater), shelf/slope/rise, trenches, abyssal hills, and Earth's ocean hypsometry as a check.
+  3. **Bathymetry follow-ups:** abyssal-hill fabric along spreading direction, fracture zones, submarine canyons, streamed seafloor detail.
   4. Smooth river curves (map layer + corridor) instead of node-to-node straight segments.
   5. Reviewer leftovers: lithology tied to crust/terranes instead of isotropic noise; χ-analysis instead of the circular U/K concavity; validate the shipped (remapped) surface.
 

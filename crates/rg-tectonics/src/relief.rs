@@ -34,6 +34,70 @@ pub fn gdh1_depth(t: f64) -> f64 {
     if t < 20.0 { 2500.0 + 350.0 * t.sqrt() } else { 5651.0 - 2473.0 * (-0.0278 * t).exp() }
 }
 
+/// Standard deviation of residual ocean depth (depth minus the age–depth law), m: mantle
+/// dynamic topography and swells reach ±1 km over ~1000 km wavelengths (Hoggard et al.
+/// 2016, Nature Geoscience). Calibrated with `probe_bathymetry` against Earth's depth bands.
+pub const DYNAMIC_TOPO_STD_M: f64 = 350.0;
+/// Share of the ocean floor that is oceanic plateau (Harris et al. 2014: 184 plateaus,
+/// 18.5 M km², 5.11% of the oceans), and how far plateaus stand above the floor (Ontong
+/// Java, Kerguelen, Shatsky: tops at 1.5–3 km in 5 km deep basins).
+pub const PLATEAU_AREA: f64 = 0.051;
+pub const PLATEAU_LIFT_M: f64 = 2200.0;
+
+fn mean_sd(v: &[f64]) -> (f64, f64) {
+    let n = v.len().max(1) as f64;
+    let m = v.iter().sum::<f64>() / n;
+    (m, (v.iter().map(|x| (x - m) * (x - m)).sum::<f64>() / n).sqrt())
+}
+
+/// Oldest seafloor, Myr (older crust has been subducted).
+pub const SEAFLOOR_MAX_AGE_MYR: f64 = 180.0;
+
+/// Area–age calibration of the seafloor. Distance-from-ridge ages depend on where the
+/// procedural ridges happen to sit, so their distribution is arbitrary; Earth's is close to
+/// triangular, area falling linearly with age to ~180 Myr (Parsons 1982; mean ~60 Myr, near
+/// the ~62 Myr of modern age grids). Oceanic nodes are ranked by raw age (area-weighted)
+/// and given the age at that rank: `F(t) = 1 − (1 − t/T)²`, so `t = T·(1 − √(1 − F))`.
+/// Monotonic, so ridges, flanks and the oldest basins stay where tectonics put them.
+/// Continental nodes keep their raw age (capped), only used near margins.
+pub fn earth_seafloor_age(grid: &Grid, cont: &[bool], raw: &[f64]) -> Vec<f64> {
+    let t_max = SEAFLOOR_MAX_AGE_MYR;
+    let mut out: Vec<f64> = raw.iter().map(|&t| t.min(t_max)).collect();
+    let mut ocean: Vec<usize> = (0..grid.n).filter(|&a| !cont[a]).collect();
+    ocean.sort_by(|&x, &y| raw[x].total_cmp(&raw[y]).then(x.cmp(&y)));
+    let total: f64 = ocean.iter().map(|&a| grid.weight[a] as f64).sum();
+    let mut below = 0.0;
+    for &a in &ocean {
+        let w = grid.weight[a] as f64;
+        let f = ((below + 0.5 * w) / total.max(1e-300)).clamp(0.0, 1.0);
+        below += w;
+        out[a] = t_max * (1.0 - (1.0 - f).sqrt());
+    }
+    out
+}
+
+/// Isostatic lift of the seafloor per metre of sediment: a sediment load displaces water but
+/// also depresses the crust, so the water gets shallower by `(ρm − ρs)/(ρm − ρw)` ≈ 0.49 of
+/// the sediment thickness (ρm 3300, ρs 2200 compacted mean, ρw 1030 kg/m³).
+pub const SEDIMENT_LIFT: f64 = (3300.0 - 2200.0) / (3300.0 - 1030.0);
+
+/// Total sediment thickness on oceanic crust, m, from crustal age (Myr) and distance from
+/// the continent–ocean boundary (m, positive offshore). Fitted to GlobSed (Straume et al.
+/// 2019, Table 3): **404 m** mean on oceanic crust > 200 km offshore (pelagic rain; zero at
+/// the ridge), and **~2,050 m** mean within 200 km (the terrigenous wedge of the continental
+/// rise: 7.6×10⁷ km³ over ~3.7×10⁷ km²).
+/// - Pelagic: `S·(1 − exp(−t/50 Myr))`, saturating because old crust drifts under
+///   unproductive gyres and below the carbonate compensation depth (old Pacific crust carries
+///   only a few hundred metres). S = 680 m gives the 404 m mean over the triangular age
+///   distribution. (Linear in age over-lifted the oldest floor: a cliff at 5.5 km, s01.)
+/// - Wedge: `A·exp(−x/L)` with L = 100 km; its 0–200 km mean is `0.432·A`, so A = 4,700 m
+///   at the boundary.
+pub fn sediment_m(age_myr: f64, offshore_m: f64) -> f64 {
+    let pelagic = 680.0 * (1.0 - (-age_myr / 50.0).exp());
+    let wedge = 4700.0 * (-offshore_m.max(0.0) / 100_000.0).exp();
+    pelagic + wedge
+}
+
 /// One volcanic seamount of a hotspot chain (Hawaii-style).
 struct Seamount {
     dir: DVec3,
@@ -163,15 +227,38 @@ pub fn compose(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Compo
 
     // Oceanic basin depth from seafloor age, everywhere. Where two ridges' influence zones
     // meet, the nearest-ridge distance has a crease; a few smoothing passes soften it.
-    let mut basin_out: Vec<f32> = par_map(n, |a| {
-        let age = if near_ridge.src[a] != u32::MAX {
+    // 1. Raw age: distance from the nearest ridge over its half spreading rate.
+    let raw_age: Vec<f64> = par_map(n, |a| {
+        if near_ridge.src[a] != u32::MAX {
             let src = near_ridge.src[a] as usize;
             let half_rate_km_myr = (speed[src] as f64 * 0.5).clamp(14.0, 55.0);
             near_ridge.dist_rad[a] as f64 * r / 1000.0 / half_rate_km_myr
         } else {
-            180.0
-        };
-        -(gdh1_depth(age.min(180.0)) as f32 + 450.0 * grid.lookup(&swell, a))
+            f64::MAX
+        }
+    });
+    // 2. Calibrate to Earth's area–age distribution (see `earth_seafloor_age`).
+    let age = earth_seafloor_age(grid, &crust.cont, &raw_age);
+    // 3. Depth: GDH1 subsidence, minus the isostatic lift of the sediment pile.
+    // 4. Residual depth (mantle dynamic topography): the swell noise standardised to
+    //    DYNAMIC_TOPO_STD_M over the ocean. 5. Oceanic plateaus (LIPs) on the top
+    //    PLATEAU_AREA of an independent noise field.
+    let ocean_nodes: Vec<usize> = (0..n).filter(|&a| !crust.cont[a]).collect();
+    let swell_v: Vec<f64> = ocean_nodes.iter().map(|&a| grid.lookup(&swell, a) as f64).collect();
+    let (sw_mean, sw_sd) = mean_sd(&swell_v);
+    let lip = grid.coarse(64, |d| fbm(d, s_reg.wrapping_add(11), 4.0, 3, 0.5) as f32);
+    let mut lip_v: Vec<f32> = ocean_nodes.iter().map(|&a| grid.lookup(&lip, a)).collect();
+    lip_v.sort_by(f32::total_cmp);
+    let lip_lo = lip_v.get(((lip_v.len() as f64) * (1.0 - PLATEAU_AREA)) as usize).copied().unwrap_or(f32::MAX) as f64;
+    let lip_hi = lip_v.last().copied().unwrap_or(f32::MAX) as f64;
+    let mut basin_out: Vec<f32> = par_map(n, |a| {
+        let t = age[a];
+        let residual = DYNAMIC_TOPO_STD_M * (grid.lookup(&swell, a) as f64 - sw_mean) / sw_sd.max(1e-9);
+        // Flat top, abrupt sides: full lift within the top ~85% of the band above threshold.
+        let lift = PLATEAU_LIFT_M * smoothstep(lip_lo, lip_lo + 0.15 * (lip_hi - lip_lo), grid.lookup(&lip, a) as f64);
+        let water = gdh1_depth(t) - residual - lift;
+        let sed = sediment_m(t, -(crust.edge_m[a] as f64));
+        -((water - SEDIMENT_LIFT * sed) as f32)
     });
     drop((speed, swell));
     for _ in 0..4 {
@@ -226,7 +313,10 @@ pub fn compose(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Compo
             let diving = pm.plate_of[a] == sub_plate[src];
             if diving {
                 let ocean_w = 1.0 - smoothstep(-50_000.0, 50_000.0, e);
-                tect -= (2800.0 + 1300.0 * s) * bell(dist - 40_000.0, 75_000.0) * ocean_w;
+                // Trench: a narrow flexural V (Earth: ~50–100 km wide, > 7 km only along the
+                // deepest tens of km; > 7 km is 0.13% of the ocean floor). A 75 km Gaussian
+                // gave 6–8× too much > 7 km floor (s01 probe_bathymetry).
+                tect -= (2800.0 + 1300.0 * s) * bell(dist - 30_000.0, 40_000.0) * ocean_w;
                 tect += 250.0 * bell(dist - 170_000.0, 70_000.0) * ocean_w;
             } else if over_cont[src] {
                 let w = 0.4 + 0.6 * smoothstep(-80_000.0, 80_000.0, e);
