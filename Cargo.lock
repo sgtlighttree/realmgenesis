@@ -2714,6 +2714,7 @@ dependencies = [
  "png",
  "rg-climate",
  "rg-geo",
+ "rg-noise",
  "rg-tectonics",
  "rg-world",
  "serde_json",
