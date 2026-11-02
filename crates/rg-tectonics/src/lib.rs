@@ -19,11 +19,11 @@
 //! where they change the speed but never the result, so it runs the same on wasm.
 
 mod crust;
-mod grid;
+pub mod grid;
 mod plates;
 mod relief;
 mod rng;
-mod util;
+pub mod util;
 
 use glam::DVec3;
 use rg_geo::CubeField;
