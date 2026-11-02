@@ -32,6 +32,10 @@ pub struct ErosionParams {
     pub uplift_exponent: f64,
     /// Smallest drainage area drawn as a river, km².
     pub river_min_area_km2: f64,
+    /// Hypsometric calibration: land heights are quantile-mapped onto Earth's hypsometric
+    /// curve scaled by this factor (1.0 = Earth-like; 2.0 = everything twice as high).
+    /// 0 disables it (land is then linearly rescaled to the tectonic 99th percentile).
+    pub hypsometry_scale: f64,
 }
 
 impl Default for ErosionParams {
@@ -49,6 +53,7 @@ impl Default for ErosionParams {
             uplift_base_mm_yr: 0.15,
             uplift_exponent: 0.8,
             river_min_area_km2: 20_000.0,
+            hypsometry_scale: 1.0,
         }
     }
 }
@@ -152,7 +157,15 @@ pub fn erode(tectonic: &CubeField<f32>, radius_m: f64, p: &ErosionParams) -> Ero
         }
     }
 
-    let stats = stats::measure(&grid, &h, &ocean, &net, &area_m2, &uplift, radius_m, p, filled_steps, scale);
+    // Geomorphic stats on the physics output (the remap below is monotonic, so drainage
+    // is untouched, but slope magnitudes change).
+    let mut stats = stats::measure(&grid, &h, &ocean, &net, &area_m2, &uplift, radius_m, p, filled_steps, scale);
+
+    if p.hypsometry_scale > 0.0 {
+        hypsometric_remap(&mut h, &ocean, p.hypsometry_scale);
+        let land: Vec<f64> = (0..n).filter(|&i| !ocean[i]).map(|i| h[i]).collect();
+        stats.mean_land_m = land.iter().sum::<f64>() / land.len().max(1) as f64;
+    }
 
     // Back to CubeFields. If the solve ran coarser than the input, upsample the *change*.
     let to_field = |vals: &[f64]| -> CubeField<f32> {
@@ -350,4 +363,52 @@ fn percentile(sorted: &[f64], q: f64) -> f64 {
         return 0.0;
     }
     sorted[((sorted.len() - 1) as f64 * q).round() as usize]
+}
+
+/// Earth's land hypsometric curve: (fraction of land area above, height in m).
+/// Approximate, from global DEM statistics (ETOPO1-class): mean land elevation ≈ 840 m,
+/// median ≈ 440 m, ~25% above 1 km, ~9% above 2 km, ~2% above 4 km, max 8848 m.
+const EARTH_HYPSOMETRY: [(f64, f64); 12] = [
+    (1.000, 0.0),
+    (0.850, 100.0),
+    (0.700, 200.0),
+    (0.560, 330.0),
+    (0.460, 500.0),
+    (0.270, 1000.0),
+    (0.160, 1500.0),
+    (0.095, 2000.0),
+    (0.048, 3000.0),
+    (0.022, 4000.0),
+    (0.006, 5200.0),
+    (0.000, 8848.0),
+];
+
+/// Quantile-map land heights onto Earth's hypsometric curve (× `scale`). Monotonic, so the
+/// order of heights — and with it every drainage direction, divide and valley — is kept;
+/// only how high things are is redistributed. Ties break by node index (deterministic).
+fn hypsometric_remap(h: &mut [f64], ocean: &[bool], scale: f64) {
+    let mut land: Vec<usize> = (0..h.len()).filter(|&i| !ocean[i]).collect();
+    if land.len() < 2 {
+        return;
+    }
+    land.sort_by(|&a, &b| h[a].total_cmp(&h[b]).then(a.cmp(&b)));
+    let n = land.len() as f64;
+    for (rank, &i) in land.iter().enumerate() {
+        // Fraction of land strictly above this node (midpoint rank).
+        let above = 1.0 - (rank as f64 + 0.5) / n;
+        h[i] = (earth_height_at(above) * scale).max(1.0);
+    }
+}
+
+fn earth_height_at(frac_above: f64) -> f64 {
+    let t = &EARTH_HYPSOMETRY;
+    for w in t.windows(2) {
+        let (f0, h0) = w[0];
+        let (f1, h1) = w[1];
+        if frac_above <= f0 && frac_above >= f1 {
+            let u = (f0 - frac_above) / (f0 - f1).max(1e-12);
+            return h0 + (h1 - h0) * u;
+        }
+    }
+    if frac_above > 1.0 { 0.0 } else { t[t.len() - 1].1 }
 }

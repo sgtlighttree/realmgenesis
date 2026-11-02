@@ -50,6 +50,7 @@ pub fn to_file(w: &World) -> WorldFile {
             "uplift_base_mm_yr": w.params.erosion.uplift_base_mm_yr,
             "uplift_exponent": w.params.erosion.uplift_exponent,
             "river_min_area_km2": w.params.erosion.river_min_area_km2,
+            "hypsometry_scale": w.params.erosion.hypsometry_scale,
             "hydrology_res": w.hydrology.as_ref().map(|h| h.drainage_km2.res),
         },
     });
@@ -187,6 +188,7 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
             uplift_base_mm_yr: num(eh, "uplift_base_mm_yr")?,
             uplift_exponent: num(eh, "uplift_exponent")?,
             river_min_area_km2: num(eh, "river_min_area_km2")?,
+            hypsometry_scale: eh["hypsometry_scale"].as_f64().unwrap_or(0.0),
         }
     } else {
         rg_erosion::ErosionParams { enabled: false, ..Default::default() }

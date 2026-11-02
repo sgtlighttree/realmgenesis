@@ -37,3 +37,17 @@ fn deterministic_and_keeps_the_coast() {
         assert_eq!(t > 0.0, e > 0.0, "coast moved at sample {k}: {t} → {e}");
     }
 }
+
+#[test]
+fn hypsometry_is_earth_like() {
+    let tp = rg_tectonics::TectonicsParams { seed: 3, res: 128, ..Default::default() };
+    let snap = rg_tectonics::generate(&tp);
+    let r = erode(&snap.height_m, tp.radius_m, &ErosionParams::default());
+    let mut land: Vec<f32> = r.height_m.data.iter().copied().filter(|&h| h > 0.0).collect();
+    land.sort_by(f32::total_cmp);
+    let mean = land.iter().map(|&h| h as f64).sum::<f64>() / land.len() as f64;
+    let median = land[land.len() / 2] as f64;
+    // Earth: mean ≈ 840 m, median ≈ 440 m (ETOPO-class statistics).
+    assert!((700.0..1000.0).contains(&mean), "mean land {mean}");
+    assert!((330.0..560.0).contains(&median), "median land {median}");
+}

@@ -74,7 +74,10 @@ pub fn generate(params: &WorldParams) -> World {
 
     let t1 = web_time::Instant::now();
     let hydrology = params.erosion.enabled.then(|| {
-        let r = rg_erosion::erode(&tectonics.height_m, params.tectonics.radius_m, &params.erosion);
+        // The "mountains" setting scales the target hypsometry (Earth = 1.0).
+        let mut ep = params.erosion.clone();
+        ep.hypsometry_scale = params.tectonics.mountain_scale as f64 * params.erosion.hypsometry_scale;
+        let r = rg_erosion::erode(&tectonics.height_m, params.tectonics.radius_m, &ep);
         tectonics.height_m = r.height_m;
         Hydrology {
             drainage_km2: r.drainage_km2,
