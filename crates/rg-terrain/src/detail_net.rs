@@ -646,10 +646,10 @@ impl Patch {
                 break;
             }
             let (d, t) = ch.nearest(p, self.planet_r);
-            for i in 0..3 {
-                let pres = ch.presence(self.cutoffs[i]);
+            for (b, &cut) in best.iter_mut().zip(&self.cutoffs) {
+                let pres = ch.presence(cut);
                 if pres > 0.0 {
-                    best[i] = best[i].min(ch.wedge(d, t, pres, self.cutoffs[i], ch.inherited_offset(self.cutoffs[i])));
+                    *b = b.min(ch.wedge(d, t, pres, cut, ch.inherited_offset(cut)));
                 }
             }
         }
