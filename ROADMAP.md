@@ -39,6 +39,7 @@ Licence rules: FMG (MIT), mewo2 (MIT) and mapgen4 (Apache-2.0) may be ported wit
 
 ## Engineering
 
+- **Mobile/web performance (Matt, s01: "pretty bad" on his phone, web preview v7):** measure frame and tile time on the phone first. Then: a lighter detail path for web/mobile (fewer network levels, or the old detail as a quality option), smaller cache budgets on wasm, and the GPU tile port.
 - **Tile cost:** network tiles cost 85–240 ms on the CPU (old noise detail: 9–33 ms). Native copes on worker threads; the web build streams slowly. Plan: the GPU port (`rg-gpu`), since the per-patch channel buffers port directly; per-level window reuse across tiles in the meantime.
 - **Generation time:** ~6 s at Normal (two climate passes + lakes per step).
 - **Cleanup:** retire the old hills/gully detail once the app no longer needs the fallback (the MPL port stays in its own file until removed deliberately). Store macro receivers instead of snapping `flow_dir`.

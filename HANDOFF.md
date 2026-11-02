@@ -87,6 +87,7 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 - **Bathymetry:** mean depth 3626–3709 m on hold-out seeds (Earth 3688).
 
 **Known gaps (ranked):**
+0. **Mobile performance is bad** (Matt tested web preview v7 on his phone, end of s01). Network-detail tiles are 85–240 ms each on a desktop CPU, single-threaded on the web. See ROADMAP → Engineering.
 1. **Leaky lake rims:** neighbour-basin wedges cross the macro divide below a closed lake's level; water stands as a wall on part of the footprint edge. Fix idea: partition wedges by terminal sink inside closed catchments, with a continuous rim (needs design; min/max compositions can make pits).
 2. **Endorheic 4.5% vs ~20%:** Thornthwaite underestimates arid PET; no sediment infill; 1° climate.
 3. **Mountains too gentle and θ low:** relief-limited channel heads, effective uplift; no glacial/threshold landscapes as steep as Taiwan/Himalaya.
