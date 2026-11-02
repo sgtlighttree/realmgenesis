@@ -1,0 +1,16 @@
+[package]
+name = "rg-pipeline"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rg-geo.workspace = true
+rg-tectonics = { path = "../rg-tectonics" }
+rg-climate = { path = "../rg-climate" }
+rg-world = { path = "../rg-world" }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+glam.workspace = true
+png.workspace = true
+web-time = "1.1"

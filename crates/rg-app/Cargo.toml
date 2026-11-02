@@ -13,6 +13,8 @@ path = "src/main.rs"
 rg-geo.workspace = true
 rg-noise.workspace = true
 rg-render.workspace = true
+rg-pipeline = { path = "../rg-pipeline" }
+rg-world = { path = "../rg-world" }
 eframe.workspace = true
 egui.workspace = true
 egui-wgpu = "0.37"

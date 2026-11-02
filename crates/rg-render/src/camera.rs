@@ -46,6 +46,26 @@ impl OrbitCamera {
         self.distance = (1.0 + alt).clamp(Self::MIN_DISTANCE, Self::MAX_DISTANCE);
     }
 
+    /// Ray-pick the unit sphere under a viewport point (fractions 0..1, y down).
+    /// Returns (lat, lon) in radians, or None if the ray misses the planet.
+    pub fn pick(&self, fx: f64, fy: f64, aspect: f64) -> Option<(f64, f64)> {
+        let eye = self.eye();
+        let f = (-eye).normalize();
+        let s = f.cross(DVec3::Z).normalize();
+        let u = s.cross(f);
+        let th = (0.5 * self.fov_y).tan();
+        let d = (f + s * ((fx * 2.0 - 1.0) * th * aspect) + u * ((1.0 - fy * 2.0) * th)).normalize();
+        // |eye + t d| = 1
+        let b = eye.dot(d);
+        let c = eye.length_squared() - 1.0;
+        let disc = b * b - c;
+        if disc < 0.0 {
+            return None;
+        }
+        let p = (eye + d * (-b - disc.sqrt())).normalize();
+        Some((p.z.clamp(-1.0, 1.0).asin(), p.y.atan2(p.x)))
+    }
+
     /// View-projection with an infinite far plane and **reversed Z** (near → 1, far → 0),
     /// which keeps depth precision across planetary distances. Depth test: `Greater`.
     pub fn view_proj(&self, aspect: f64) -> Mat4 {
@@ -93,6 +113,14 @@ mod tests {
         let far = p * glam::DVec4::new(0.0, 0.0, -1e9, 1.0);
         assert!((near.z / near.w - 1.0).abs() < 1e-9);
         assert!((far.z / far.w).abs() < 1e-9);
+    }
+
+    #[test]
+    fn pick_centre_hits_sub_camera_point() {
+        let c = OrbitCamera { yaw: 0.4, pitch: 0.3, ..Default::default() };
+        let (lat, lon) = c.pick(0.5, 0.5, 1.6).unwrap();
+        assert!((lat - 0.3).abs() < 1e-9 && (lon - 0.4).abs() < 1e-9);
+        assert!(c.pick(0.0, 0.0, 1.6).is_none());
     }
 
     #[test]

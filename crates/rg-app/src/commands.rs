@@ -2,12 +2,26 @@
 //! pushes `Command`s, and `RealmApp::apply` executes them. This seam is what lets the UI be
 //! redesigned (or swapped for another toolkit) without touching the core.
 
+use rg_pipeline::Layer;
+use rg_render::ViewMode;
+
 #[derive(Clone, Debug)]
 pub enum Command {
-    /// Rebuild the planet from the current parameters.
+    /// Rebuild the planet from the current parameters (tectonics + climate).
     Regenerate,
     /// Pick a new random seed, then regenerate.
     RandomizeSeed,
-    /// Reset the camera to the default orbit.
+    /// Re-run only the climate with the current planet parameters.
+    RerunClimate,
+    /// Rebuild the globe mesh (display settings changed).
+    RebuildMesh,
+    SetLayer(Layer),
+    SetView(ViewMode),
     ResetCamera,
+    /// Save the world file (native only for now).
+    SaveWorld,
+    /// Load the most recent world file.
+    LoadWorld,
+    /// Write a 16-bit equirectangular heightmap PNG.
+    ExportHeightmap,
 }

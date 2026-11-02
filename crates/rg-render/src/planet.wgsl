@@ -83,12 +83,14 @@ fn fs_globe(i: GlobeOut) -> @location(0) vec4<f32> {
     if (!ocean) {
         n = normalize(mix(up, normalize(i.normal), g.params.x));
     }
-    let diffuse = max(dot(n, sun), 0.0);
-    let day = smoothstep(-0.15, 0.25, dot(up, sun));
-    var lit = base * (0.10 + 0.90 * diffuse * day);
+    // Wrapped diffuse keeps the day side readable; exposure lifts the sRGB-authored
+    // palettes (which are dark in linear space) back to how they look on a flat map.
+    let diffuse = clamp((dot(n, sun) + 0.25) / 1.25, 0.0, 1.0);
+    let day = smoothstep(-0.2, 0.2, dot(up, sun));
+    var lit = base * (0.16 + 1.45 * diffuse * day);
     if (ocean && g.params.y > 0.5) {
         let hlf = normalize(sun + view);
-        lit += vec3<f32>(0.9, 0.85, 0.7) * pow(max(dot(n, hlf), 0.0), 120.0) * 0.5 * day;
+        lit += vec3<f32>(1.0, 0.95, 0.85) * pow(max(dot(n, hlf), 0.0), 400.0) * 0.35 * day;
     }
     let rim = pow(1.0 - max(dot(up, view), 0.0), 3.0);
     lit += vec3<f32>(0.30, 0.50, 0.90) * rim * 0.30 * (0.2 + 0.8 * day);
