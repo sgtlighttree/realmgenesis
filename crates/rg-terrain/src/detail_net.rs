@@ -28,7 +28,7 @@ use std::sync::Arc;
 
 /// Stream-power concavity θ = m/n (n = 1), as in the macro solve.
 const THETA: f64 = 0.45;
-/// k_sn at which hillslopes are ~63% of the way to threshold, m^0.9 (Ouimet et al. 2009).
+/// k_sn at which hillslopes reach threshold (the knee), m^0.9 (Ouimet et al. 2009).
 const KSN_SATURATE: f64 = 100.0;
 /// Threshold hillslope gradient (tan 33°): soil-mantled slopes stop steepening here
 /// (Montgomery & Brandon 2002; Roering et al. 2007).
@@ -246,7 +246,12 @@ impl Channel {
 /// hillslope gradient rises with k_sn and saturates near 100–150 m^0.9 (Ouimet, Whipple &
 /// Granger 2009, "Beyond threshold hillslopes", Geology; θ_ref = 0.45).
 fn threshold_fraction(ksn: f64) -> f64 {
-    1.0 - (-ksn / tune("RG_KSN_SAT", KSN_SATURATE)).exp()
+    // Ouimet et al. 2009 (San Gabriel Mountains): mean hillslope gradient rises about
+    // linearly with k_sn up to ~100 m^0.9, then saturates at threshold. Linear-then-flat
+    // with a smooth knee: x / (1 + x⁴)^(1/4), x = k_sn / KSN_SATURATE (84% at the knee).
+    // (1 − e^(−x) reached only 63% there: mountains came out too gentle, s01.)
+    let x = (ksn / tune("RG_KSN_SAT", KSN_SATURATE)).max(0.0);
+    x / (1.0 + x.powi(4)).powf(0.25)
 }
 
 /// Distance up the valley side: 0 on a flat floor (|d| ≤ f/2), a smooth quadratic hinge up
