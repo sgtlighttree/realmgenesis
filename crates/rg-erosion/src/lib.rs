@@ -52,6 +52,7 @@
 //! shape against Earth's laws before the remap.
 
 pub mod hypsometry;
+pub mod lakes;
 mod solver;
 pub mod stats;
 mod uplift;
