@@ -15,6 +15,7 @@
 //! enough down to centimetres. The GPU port must switch to integer lattice coordinates
 //! from the tile address (ARCHITECTURE §4).
 
+pub mod detail_net;
 pub mod erosion_filter;
 pub mod network;
 pub mod tile;

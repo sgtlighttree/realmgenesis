@@ -74,13 +74,47 @@ fn score(w: &World, s: &rg_terrain::TerrainSampler, lat0: f64, lon0: f64, half: 
     let r = w.params.tectonics.radius_m;
     let hy = w.hydrology.as_ref().expect("erosion on");
     let at = |x: f64, y: f64| unit(lat0 + y / r, lon0 + x / (r * lat0.cos()));
-    let sp = 250.0;
+    let sp: f64 = std::env::var("RG_PROBE_SP").ok().and_then(|v| v.parse().ok()).unwrap_or(250.0);
+    let cut: f64 = std::env::var("RG_PROBE_CUT").ok().and_then(|v| v.parse().ok()).unwrap_or(sp);
     let n = (2.0 * half / sp) as usize;
     let dir_at = |i: usize, j: usize| at(-half + i as f64 * sp, -half + j as f64 * sp);
     // RG_PROBE_SURFACE=macro scores the bare macro surface (bilinear committed heights).
-    let macro_only = std::env::var("RG_PROBE_SURFACE").is_ok_and(|v| v == "macro");
-    let surf = |d: glam::DVec3, wl: f64| if macro_only { s.macro_height(d) } else { s.height(d, wl).0 };
-    let h: Vec<f64> = (0..n * n).map(|k| surf(dir_at(k % n, k / n), sp)).collect();
+    let mode = std::env::var("RG_PROBE_SURFACE").unwrap_or_default();
+    let macro_only = mode == "macro";
+    // RG_PROBE_SURFACE=net: the drained detail network, through cached 5 km sub-patches
+    // (keyed by band-limit and block).
+    let dnet = (mode == "net").then(|| {
+        let hy = w.hydrology.as_ref().expect("erosion on");
+        let mn = rg_terrain::network::MacroNet::new(
+            std::sync::Arc::new(w.tectonics.height_m.clone()),
+            std::sync::Arc::new(hy.flow_dir.clone()),
+            std::sync::Arc::new(hy.drainage_km2.clone()),
+        )
+        .expect("hydrology at macro res");
+        rg_terrain::detail_net::DetailNet::new(mn, w.params.tectonics.radius_m, w.params.tectonics.seed)
+    });
+    let patches: std::cell::RefCell<std::collections::HashMap<(i64, i64, u64), rg_terrain::detail_net::Patch>> = Default::default();
+    let rr = w.params.tectonics.radius_m;
+    let surf = |d: glam::DVec3, wl: f64| {
+        if macro_only {
+            return s.macro_height(d);
+        }
+        let Some(dn) = &dnet else { return s.height(d, wl).0 };
+        // Block of the local box frame (lat/lon offsets in m).
+        let (la, lo) = (d.z.asin(), d.y.atan2(d.x));
+        let (x, y) = ((lo - lon0) * rr * lat0.cos(), (la - lat0) * rr);
+        let bs = 5000.0;
+        let key = ((x / bs).floor() as i64, (y / bs).floor() as i64, wl.to_bits());
+        let mut ps = patches.borrow_mut();
+        let patch = ps.entry(key).or_insert_with(|| {
+            let (cx, cy) = ((key.0 as f64 + 0.5) * bs, (key.1 as f64 + 0.5) * bs);
+            let (cla, clo) = (lat0 + cy / rr, lon0 + cx / (rr * lat0.cos()));
+            let c = glam::DVec3::new(cla.cos() * clo.cos(), cla.cos() * clo.sin(), cla.sin());
+            dn.patch(c, bs * 0.75, wl)
+        });
+        patch.heights(d)[0]
+    };
+    let h: Vec<f64> = (0..n * n).map(|k| surf(dir_at(k % n, k / n), cut)).collect();
 
     // Priority-Flood fill with the box edge (and the sea) as outlet.
     #[derive(PartialEq)]

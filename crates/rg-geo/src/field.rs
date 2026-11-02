@@ -132,8 +132,38 @@ impl CubeField<f32> {
         drained_interp(a, b, c, d, fx, fy)
     }
 
+    /// Piecewise-linear sample on two triangles per cell, split along the diagonal through
+    /// the cell's lowest corner: provably drained for a pit-free field (every axis edge is
+    /// a triangle edge, and a lower diagonal neighbour is the cell's unique minimum, so its
+    /// edge is kept). Faceted, so it's used as the network detail's cap, not for display.
+    pub fn sample_tri(&self, dir: DVec3) -> f64 {
+        let (face, u, v) = CubeFace::from_dir(dir);
+        let r = self.res as f64;
+        let x = ((u + 1.0) * 0.5 * r).clamp(0.0, r);
+        let y = ((v + 1.0) * 0.5 * r).clamp(0.0, r);
+        let (i0, j0) = ((x.floor() as u32).min(self.res - 1), (y.floor() as u32).min(self.res - 1));
+        let (fx, fy) = (x - i0 as f64, y - j0 as f64);
+        let a = self.data[self.index(face, i0, j0)] as f64;
+        let b = self.data[self.index(face, i0 + 1, j0)] as f64;
+        let c = self.data[self.index(face, i0, j0 + 1)] as f64;
+        let d = self.data[self.index(face, i0 + 1, j0 + 1)] as f64;
+        tri_interp(a, b, c, d, fx, fy)
+    }
+
     pub fn min_max(&self) -> (f32, f32) {
         self.data.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)))
+    }
+}
+
+/// Two triangles per cell, split along the diagonal through the lowest corner (ties: a–d).
+#[inline]
+pub fn tri_interp(a: f64, b: f64, c: f64, d: f64, fx: f64, fy: f64) -> f64 {
+    if a.min(d) <= b.min(c) {
+        if fx >= fy { a + (b - a) * fx + (d - b) * fy } else { a + (c - a) * fy + (d - c) * fx }
+    } else if fx + fy <= 1.0 {
+        a + (b - a) * fx + (c - a) * fy
+    } else {
+        d + (c - d) * (1.0 - fx) + (b - d) * (1.0 - fy)
     }
 }
 
