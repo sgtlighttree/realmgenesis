@@ -19,8 +19,12 @@ pub struct ErosionStats {
     pub hack_c: f64,
     /// Concavity θ (negative slope of log S vs. log A on channel nodes).
     pub concavity: f64,
-    /// Uplift-normalised concavity: slope of log(S·K/U) vs. log A. At steady state with
-    /// n = 1 this must equal m exactly, so it checks the solver, not the scenery.
+    /// Uplift-normalised concavity: slope of log(S·K/U) vs. log A. This is a **bookkeeping
+    /// consistency** check, not independent validation: at the discrete steady state the
+    /// implicit update gives `S = U/(K·A^m)` node by node, so the fit returns m almost by
+    /// algebra and it only fails if the stats code or the uplift array is mishandled. The
+    /// real solver tests (area conservation, mass balance, the 1-D analytic profile and
+    /// knickpoint celerity, dt convergence) are in `tests/solver_physics.rs`.
     pub concavity_normalised: f64,
     /// Hypsometric integral of all land together (Earth's land ≈ 0.095).
     pub hypsometric_integral: f64,
@@ -40,6 +44,11 @@ pub struct ErosionStats {
     /// The final amplitude rescale applied to land.
     pub amplitude_scale: f64,
     pub grid_res: u32,
+    /// True if uplift came from plate boundaries/motions, false if from the elevation fallback.
+    pub uplift_from_tectonics: bool,
+    /// |Δ(land volume) − (uplift − eroded + filled)| / land volume, over the run. Should be
+    /// at rounding level (~1e-12).
+    pub mass_balance_error: f64,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -166,6 +175,8 @@ pub(crate) fn measure(
         fill_steps,
         amplitude_scale: scale,
         grid_res: grid.res,
+        uplift_from_tectonics: false,
+        mass_balance_error: 0.0,
     }
 }
 

@@ -4,7 +4,6 @@ use rg_pipeline::{Equirect, Layer, World, WorldParams};
 use crate::tiles::TileFeeder;
 use rg_render::{EarthCamera, HeightImage, LayerImage, MapView, PlanetRenderer, RenderStyle, SelectView, ViewMode};
 use rg_terrain::{TerrainSampler, TileGenerator};
-use std::sync::Arc;
 
 /// Display resolution of baked layers: about 4 pixels per base-grid cell across the
 /// equator, rounded up to a multiple of 256 and kept within a range. The web range is lower
@@ -326,7 +325,7 @@ impl RealmApp {
     fn start_tiles(&mut self, rs: &egui_wgpu::RenderState) {
         let Some(world) = self.world.as_ref() else { return };
         let radius = world.params.tectonics.radius_m;
-        let sampler = TerrainSampler::new(Arc::new(world.tectonics.height_m.clone()), radius, world.params.tectonics.seed);
+        let sampler = rg_pipeline::terrain_sampler(world);
         if (self.camera.radius_m - radius).abs() > 1.0 {
             let scale = radius / self.camera.radius_m;
             self.camera.radius_m = radius;

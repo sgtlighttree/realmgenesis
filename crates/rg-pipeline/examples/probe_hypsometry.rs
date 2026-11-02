@@ -1,14 +1,13 @@
 //! Global land hypsometry of the final terrain vs. Earth:
 //! `cargo run -p rg-pipeline --release --example probe_hypsometry -- <seed>`
 use rg_pipeline::{generate, WorldParams};
-use std::sync::Arc;
 
 fn main() {
     let seed: u64 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(3);
     let mut p = WorldParams::default();
     p.tectonics.seed = seed;
     let w = generate(&p);
-    let s = rg_terrain::TerrainSampler::new(Arc::new(w.tectonics.height_m.clone()), p.tectonics.radius_m, seed);
+    let s = rg_pipeline::terrain_sampler(&w);
     let mut rng = 99u64;
     let mut next = || { rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); (rng >> 11) as f64 / (1u64 << 53) as f64 };
     let (mut macro_h, mut full) = (Vec::new(), Vec::new());

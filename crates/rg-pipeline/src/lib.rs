@@ -77,7 +77,7 @@ pub fn generate(params: &WorldParams) -> World {
         // The "mountains" setting scales the target hypsometry (Earth = 1.0).
         let mut ep = params.erosion.clone();
         ep.hypsometry_scale = params.tectonics.mountain_scale as f64 * params.erosion.hypsometry_scale;
-        let r = rg_erosion::erode(&tectonics.height_m, params.tectonics.radius_m, &ep);
+        let r = rg_erosion::erode(&tectonics, params.tectonics.radius_m, &ep);
         tectonics.height_m = r.height_m;
         Hydrology {
             drainage_km2: r.drainage_km2,
@@ -97,6 +97,20 @@ pub fn generate(params: &WorldParams) -> World {
         climate_heights,
         climate,
         timings: Timings { tectonics_ms, erosion_ms, climate_ms },
+    }
+}
+
+/// The streamed-detail sampler for a world (macro heights + river corridors). Use this
+/// everywhere (app, tests, probes) so they all see the same surface.
+pub fn terrain_sampler(world: &World) -> rg_terrain::TerrainSampler {
+    let s = rg_terrain::TerrainSampler::new(
+        std::sync::Arc::new(world.tectonics.height_m.clone()),
+        world.params.tectonics.radius_m,
+        world.params.tectonics.seed,
+    );
+    match &world.hydrology {
+        Some(h) => s.with_drainage(std::sync::Arc::new(h.drainage_km2.clone())),
+        None => s,
     }
 }
 

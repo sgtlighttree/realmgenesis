@@ -189,6 +189,7 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
             uplift_exponent: num(eh, "uplift_exponent")?,
             river_min_area_km2: num(eh, "river_min_area_km2")?,
             hypsometry_scale: eh["hypsometry_scale"].as_f64().unwrap_or(0.0),
+            ..Default::default()
         }
     } else {
         rg_erosion::ErosionParams { enabled: false, ..Default::default() }

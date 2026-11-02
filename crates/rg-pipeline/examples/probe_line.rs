@@ -1,6 +1,5 @@
 //! Probe terrain continuity: `cargo run -p rg-pipeline --release --example probe_line -- <seed> <lat> <lon>`
 use rg_pipeline::{generate, WorldParams};
-use std::sync::Arc;
 
 fn main() {
     let a: Vec<f64> = std::env::args().skip(1).map(|s| s.parse().unwrap()).collect();
@@ -8,7 +7,7 @@ fn main() {
     let mut p = WorldParams::default();
     p.tectonics.seed = seed;
     let w = generate(&p);
-    let s = rg_terrain::TerrainSampler::new(Arc::new(w.tectonics.height_m.clone()), p.tectonics.radius_m, seed);
+    let s = rg_pipeline::terrain_sampler(&w);
     let r = p.tectonics.radius_m;
     let dir = |la: f64, lo: f64| glam::DVec3::new(la.cos() * lo.cos(), la.cos() * lo.sin(), la.sin());
     for min_wl in [20.0, 200.0, 2000.0] {

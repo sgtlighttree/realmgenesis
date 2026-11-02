@@ -26,6 +26,9 @@ fn main() {
             "maxres" => p.max_res = v as u32,
             "uexp" => p.uplift_exponent = v,
             "ubase" => p.uplift_base_mm_yr = v,
+            "belt" => p.belt_width_km = v,
+            "elev" => p.uplift_source = if v > 0.0 { rg_erosion::UpliftSource::Elevation } else { rg_erosion::UpliftSource::Tectonic },
+            "hyps" => p.hypsometry_scale = v,
             _ => panic!("unknown key {k}"),
         }
     }
@@ -35,7 +38,7 @@ fn main() {
     let snap = rg_tectonics::generate(&tp);
     println!("tectonics {:.2} s (res {res})", t0.elapsed().as_secs_f64());
     let t1 = std::time::Instant::now();
-    let r = erode(&snap.height_m, tp.radius_m, &p);
+    let r = erode(&snap, tp.radius_m, &p);
     println!("erosion   {:.2} s  {:?}", t1.elapsed().as_secs_f64(), p);
     println!("{:#?}", r.stats);
     println!("rivers: {} segments", r.rivers.len());

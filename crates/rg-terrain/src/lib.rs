@@ -33,6 +33,8 @@ pub const DETAIL_GENERATOR_VERSION: u32 = 0; // 0 = not persistent yet (no sculp
 #[derive(Clone)]
 pub struct TerrainSampler {
     pub macro_h: Arc<CubeField<f32>>,
+    /// Macro drainage area (km²) from the erosion stage, if any: rivers get corridors.
+    pub drainage_km2: Option<Arc<CubeField<f32>>>,
     pub radius_m: f64,
     salt: u32,
     ridge_salt: u32,
@@ -46,6 +48,7 @@ pub struct TerrainSampler {
     /// Amplitude tuning (see the constants of the same name).
     hill_slope: f64,
     gully_strength: f64,
+    slope_gain: f64,
     /// Finest wavelength ever generated (m).
     floor_wavelength_m: f64,
 }
@@ -57,17 +60,42 @@ impl TerrainSampler {
         let macro_cell_m = macro_h.spacing_rad() * radius_m;
         Self {
             macro_h,
+            drainage_km2: None,
             radius_m,
             salt: rg_noise::salt(seed, 0x7E44),
             ridge_salt: rg_noise::salt(seed, 0x7E45),
             gully_salt: rg_noise::salt(seed, 0x7E46),
-            base_wavelength_m: 2.0 * macro_cell_m,
-            gully_wavelength_m: GULLY_WAVELENGTH_M,
-            gully_unit_m: GULLY_WAVELENGTH_M / (0.15 * 0.7),
+            // Hills start at one macro cell: longer wavelengths are the macro surface's job
+            // (and there they are river-eroded; noise there would ignore the drainage).
+            base_wavelength_m: macro_cell_m,
+            gully_wavelength_m: tune("RG_GULLY_WL", GULLY_WAVELENGTH_M),
+            gully_unit_m: tune("RG_GULLY_WL", GULLY_WAVELENGTH_M) / (0.15 * 0.7),
+            slope_gain: tune("RG_SLOPE_GAIN", SLOPE_GAIN),
             hill_slope: tune("RG_HILL_SLOPE", HILL_SLOPE),
             gully_strength: tune("RG_GULLY_STRENGTH", GULLY_STRENGTH),
             floor_wavelength_m: 12.0,
         }
+    }
+
+    /// Attach the macro drainage-area field so rivers carve corridors through the detail.
+    pub fn with_drainage(mut self, drainage_km2: Arc<CubeField<f32>>) -> Self {
+        self.drainage_km2 = Some(drainage_km2);
+        self
+    }
+
+    /// River corridor at `dir`: (corridor strength 0–1, channel depth m). Along macro
+    /// rivers the detail is suppressed into a valley floor and a channel is cut, deeper
+    /// for bigger rivers (depth ∝ √area, cf. hydraulic geometry), so detail relief can never
+    /// dam a macro river.
+    pub fn river_corridor(&self, dir: DVec3) -> (f64, f64) {
+        let Some(d) = self.drainage_km2.as_ref() else { return (0.0, 0.0) };
+        let a = d.sample_f64(dir).max(0.0);
+        if a < RIVER_CORRIDOR_MIN_KM2 {
+            return (0.0, 0.0);
+        }
+        let c = smoothstep(RIVER_CORRIDOR_MIN_KM2.ln(), RIVER_CORRIDOR_FULL_KM2.ln(), a.ln());
+        let depth = (RIVER_DEPTH_M_PER_SQRT_KKM2 * (a / 1000.0).sqrt()).min(RIVER_DEPTH_MAX_M);
+        (c, depth * c)
     }
 
     /// Macro (committed) height at a unit direction, metres above sea level.
@@ -135,7 +163,7 @@ impl TerrainSampler {
             erosion_filter::erosion_filter_sphere(
                 pos,
                 dir,
-                grad3,
+                grad3 * self.slope_gain,
                 (m + hl.full) / unit,
                 fade,
                 &erosion_filter::FilterParams::default(),
@@ -149,11 +177,14 @@ impl TerrainSampler {
         // Valley depth follows local relief: full in mountains, gentle on lowland plains.
         let relief = self.relief(dir, m);
         let u = self.gully_unit_m * self.gully_strength * relief;
+        // River corridors: flatten the detail along macro rivers and cut the channel.
+        let (corridor, cut) = self.river_corridor(dir);
+        let keep = 1.0 - RIVER_FLATTEN * corridor;
         HeightLevels {
             macro_h: m,
-            h: coast_rule(m, hl.level + g.at_level * u),
-            h_parent: coast_rule(m, hl.parent + g.at_parent * u),
-            h_child: coast_rule(m, hl.child + g.at_child * u),
+            h: coast_rule(m, (hl.level + g.at_level * u) * keep - cut),
+            h_parent: coast_rule(m, (hl.parent + g.at_parent * u) * keep - cut),
+            h_child: coast_rule(m, (hl.child + g.at_child * u) * keep - cut),
         }
     }
 
@@ -176,7 +207,10 @@ impl TerrainSampler {
             // Constant slope below HILL_ROLLOFF_M; amplitude saturates above it (relief is
             // limited by rock strength, and the macro surface already carries the long
             // wavelengths).
-            let amp = self.hill_slope * wl / std::f64::consts::TAU / (1.0 + wl / HILL_ROLLOFF_M) * relief;
+            // Band-pass spectrum: constant slope below HILL_ROLLOFF_M, amplitude falling as
+            // 1/λ above it, so the hills hand the large scales over to the river-eroded
+            // macro surface instead of adding drainage-blind relief there.
+            let amp = self.hill_slope * wl / std::f64::consts::TAU / (1.0 + (wl / HILL_ROLLOFF_M).powi(2)) * relief;
             let p = dir * (self.radius_m / wl);
             let off = DVec3::new(octave as f64 * 31.7, octave as f64 * -17.3, octave as f64 * 9.1);
             let n = rg_noise::gradient3(p + off, self.salt.wrapping_add(octave));
@@ -259,8 +293,17 @@ const HILL_LOWLAND: f64 = 0.12;
 /// Macro slope range mapping to relief 0 → 1 (tan of slope, measured over 20 km).
 const RELIEF_SLOPE_LO: f64 = 0.004;
 const RELIEF_SLOPE_HI: f64 = 0.04;
+/// River corridors (see `river_corridor`): start, full strength, depth scaling and cap,
+/// and how much of the detail is flattened inside a full corridor.
+const RIVER_CORRIDOR_MIN_KM2: f64 = 3_000.0;
+const RIVER_CORRIDOR_FULL_KM2: f64 = 30_000.0;
+const RIVER_DEPTH_M_PER_SQRT_KKM2: f64 = 20.0;
+const RIVER_DEPTH_MAX_M: f64 = 300.0;
+const RIVER_FLATTEN: f64 = 0.85;
 /// Wavelength above which hill amplitude stops growing, metres.
 const HILL_ROLLOFF_M: f64 = 4000.0;
+/// Gain on the slope the filter's masks see (gullies switch on at gentler macro slopes).
+const SLOPE_GAIN: f64 = 1.0;
 /// First (largest) gully wavelength, metres.
 const GULLY_WAVELENGTH_M: f64 = 4000.0;
 

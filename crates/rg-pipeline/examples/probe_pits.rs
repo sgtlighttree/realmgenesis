@@ -3,7 +3,6 @@
 //! A pit = a land cell lower than all 8 neighbours. Natural fluvial terrain has very few
 //! at 0.5–1 km spacing; raw noise terrain has many.
 use rg_pipeline::{generate, WorldParams};
-use std::sync::Arc;
 
 fn main() {
     let a: Vec<f64> = std::env::args().skip(1).map(|s| s.parse().unwrap()).collect();
@@ -11,7 +10,7 @@ fn main() {
     let mut p = WorldParams::default();
     p.tectonics.seed = seed;
     let w = generate(&p);
-    let s = rg_terrain::TerrainSampler::new(Arc::new(w.tectonics.height_m.clone()), p.tectonics.radius_m, seed);
+    let s = rg_pipeline::terrain_sampler(&w);
     let r = p.tectonics.radius_m;
     let n = (2.0 * half / sp) as usize;
     let mut h = vec![0.0; n * n];

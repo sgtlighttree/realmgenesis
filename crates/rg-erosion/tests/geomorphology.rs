@@ -6,7 +6,7 @@ use rg_erosion::{erode, ErosionParams};
 fn run(seed: u64) -> rg_erosion::ErosionResult {
     let tp = rg_tectonics::TectonicsParams { seed, res: 128, ..Default::default() };
     let snap = rg_tectonics::generate(&tp);
-    erode(&snap.height_m, tp.radius_m, &ErosionParams::default())
+    erode(&snap, tp.radius_m, &ErosionParams::default())
 }
 
 #[test]
@@ -30,8 +30,8 @@ fn obeys_geomorphic_laws() {
 fn deterministic_and_keeps_the_coast() {
     let tp = rg_tectonics::TectonicsParams { seed: 5, res: 96, ..Default::default() };
     let snap = rg_tectonics::generate(&tp);
-    let a = erode(&snap.height_m, tp.radius_m, &ErosionParams::default());
-    let b = erode(&snap.height_m, tp.radius_m, &ErosionParams::default());
+    let a = erode(&snap, tp.radius_m, &ErosionParams::default());
+    let b = erode(&snap, tp.radius_m, &ErosionParams::default());
     assert!(a.height_m.data == b.height_m.data, "not deterministic");
     for (k, (&t, &e)) in snap.height_m.data.iter().zip(&a.height_m.data).enumerate() {
         assert_eq!(t > 0.0, e > 0.0, "coast moved at sample {k}: {t} → {e}");
@@ -42,7 +42,7 @@ fn deterministic_and_keeps_the_coast() {
 fn hypsometry_is_earth_like() {
     let tp = rg_tectonics::TectonicsParams { seed: 3, res: 128, ..Default::default() };
     let snap = rg_tectonics::generate(&tp);
-    let r = erode(&snap.height_m, tp.radius_m, &ErosionParams::default());
+    let r = erode(&snap, tp.radius_m, &ErosionParams::default());
     let mut land: Vec<f32> = r.height_m.data.iter().copied().filter(|&h| h > 0.0).collect();
     land.sort_by(f32::total_cmp);
     let mean = land.iter().map(|&h| h as f64).sum::<f64>() / land.len() as f64;

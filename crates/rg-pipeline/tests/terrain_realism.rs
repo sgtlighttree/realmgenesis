@@ -3,7 +3,6 @@
 //! docs/design/terrain-model.md for the reference numbers and sources.
 
 use rg_pipeline::{generate, WorldParams};
-use std::sync::Arc;
 
 struct Box2 {
     s: rg_terrain::TerrainSampler,
@@ -41,7 +40,7 @@ fn mountains_steep_plains_gentle_few_pits() {
     p.tectonics.res = 192;
     let w = generate(&p);
     let f = &w.tectonics.height_m;
-    let b = Box2 { s: rg_terrain::TerrainSampler::new(Arc::new(f.clone()), p.tectonics.radius_m, 3), r: p.tectonics.radius_m };
+    let b = Box2 { s: rg_pipeline::terrain_sampler(&w), r: p.tectonics.radius_m };
 
     // The most rugged land point (largest macro step to a neighbour) and a flat lowland one.
     let res = f.res;

@@ -1,7 +1,6 @@
 //! Find sharp features near a point: `cargo run -p rg-pipeline --release --example probe_grid -- <seed> <lat> <lon> <half_km>`
 //! Scans a grid at 200 m spacing and reports the steepest spots per component.
 use rg_pipeline::{generate, WorldParams};
-use std::sync::Arc;
 
 fn main() {
     let a: Vec<f64> = std::env::args().skip(1).map(|s| s.parse().unwrap()).collect();
@@ -9,7 +8,7 @@ fn main() {
     let mut p = WorldParams::default();
     p.tectonics.seed = seed;
     let w = generate(&p);
-    let s = rg_terrain::TerrainSampler::new(Arc::new(w.tectonics.height_m.clone()), p.tectonics.radius_m, seed);
+    let s = rg_pipeline::terrain_sampler(&w);
     let r = p.tectonics.radius_m;
     let dir = |x: f64, y: f64| {
         let (la, lo) = (lat0 + y / r, lon0 + x / (r * lat0.cos()));

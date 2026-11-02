@@ -1,15 +1,22 @@
 //! Slope distribution in a box, compared with Earth: `cargo run -p rg-pipeline --release --example probe_slope -- <seed> <lat> <lon> <half_km>`
 //! Samples 2000 random points, central differences at 90 m (SRTM-like), reports degrees.
 use rg_pipeline::{generate, WorldParams};
-use std::sync::Arc;
 
 fn main() {
     let a: Vec<f64> = std::env::args().skip(1).map(|s| s.parse().unwrap()).collect();
     let (seed, lat0, lon0, half) = (a[0] as u64, a[1].to_radians(), a[2].to_radians(), a[3] * 1000.0);
     let mut p = WorldParams::default();
     p.tectonics.seed = seed;
+    if let Some(r) = std::env::var("RG_RES").ok().and_then(|v| v.parse().ok()) {
+        p.tectonics.res = r;
+    }
+    if let Some(r) = std::env::var("RG_EROSION_RES").ok().and_then(|v| v.parse().ok()) {
+        p.erosion.max_res = r;
+    }
+    let t0 = std::time::Instant::now();
     let w = generate(&p);
-    let s = rg_terrain::TerrainSampler::new(Arc::new(w.tectonics.height_m.clone()), p.tectonics.radius_m, seed);
+    eprintln!("generate {:.1} s (tectonics {:.0} ms, erosion {:.0} ms)", t0.elapsed().as_secs_f64(), w.timings.tectonics_ms, w.timings.erosion_ms);
+    let s = rg_pipeline::terrain_sampler(&w);
     let r = p.tectonics.radius_m;
     let at = |x: f64, y: f64| {
         let (la, lo) = (lat0 + y / r, lon0 + x / (r * lat0.cos()));

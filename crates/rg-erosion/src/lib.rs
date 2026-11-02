@@ -36,17 +36,28 @@
 //! Ocean nodes are fixed base level (0 m at the coast; bathymetry is left as tectonics made
 //! it). Land never drops below its receiver, so the coastline cannot move.
 //!
+//! # Uplift
+//!
+//! `U` comes from tectonic *process*, not from elevation: it decays exponentially with
+//! distance from convergent plate boundaries, is stronger on continental crust and scales
+//! with the plates' closing speed (see `uplift.rs`). A high plateau far from a boundary gets
+//! only the background rate.
+//!
 //! # Calibration
 //!
-//! At 10–50 km cells the absolute constants (K, U) are underdetermined, and the tectonic
-//! snapshot gives heights, not rates. So uplift is taken to be proportional to tectonic
-//! relief, the solve runs towards a steady state, and land heights are finally rescaled so
-//! the 99th-percentile land height matches the tectonic one. Dimensionless shape (drainage
-//! pattern, concavity, Hack's law, hypsometry) comes from the physics; overall amplitude
-//! comes from tectonics. The [`ErosionStats`] check the shape against Earth's laws.
+//! At 10–50 km cells the absolute constants (K, U) are underdetermined, so land heights are
+//! finally quantile-mapped onto a land hypsometric curve measured from smoothed global
+//! topography ([`hypsometry`]). Dimensionless shape (drainage pattern, concavity, Hack's law)
+//! comes from the physics; overall amplitude from the curve. The [`ErosionStats`] check the
+//! shape against Earth's laws before the remap.
 
+pub mod hypsometry;
 mod solver;
 pub mod stats;
+mod uplift;
 
-pub use solver::{erode, ErosionParams, ErosionResult, RiverSegment};
+pub use solver::{
+    erode, implicit_step, priority_flood_fill, solve, Column, ErosionParams, ErosionResult, MassBudget, Network,
+    RiverSegment, Solved, UpliftSource,
+};
 pub use stats::ErosionStats;

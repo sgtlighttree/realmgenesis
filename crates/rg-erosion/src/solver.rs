@@ -1,10 +1,25 @@
 use crate::stats::{self, ErosionStats};
+use crate::{hypsometry, uplift};
 use glam::DVec3;
 use rg_geo::CubeField;
 use rg_tectonics::grid::Grid;
 use rg_tectonics::util::par_map;
+use rg_tectonics::TectonicSnapshot;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, VecDeque};
+
+/// Where the rock uplift rate comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum UpliftSource {
+    /// Uplift decays with distance from convergent plate boundaries, scaled by crust type and
+    /// the plates' closing speed (see `uplift.rs`). Falls back to `Elevation` if the
+    /// snapshot has no convergent boundary.
+    #[default]
+    Tectonic,
+    /// Legacy: uplift ∝ (tectonic height / h95)^`uplift_exponent`. Circular (plateaus get the
+    /// maximum uplift), kept only as a fallback for data with no boundary information.
+    Elevation,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ErosionParams {
@@ -23,18 +38,27 @@ pub struct ErosionParams {
     pub k: f64,
     /// Area exponent m (with n = 1 the concavity θ = m).
     pub m: f64,
-    /// Peak uplift rate in the most active belts, mm/yr (Himalaya ~5–10, Andes ~1–3).
+    /// Peak uplift rate **above the base rate** at a convergent boundary (`Tectonic`), or the
+    /// total peak rate (`Elevation`), mm/yr. Himalaya ~5–10, Andes ~1–3.
     pub uplift_max_mm_yr: f64,
     /// Background uplift on stable continent, mm/yr.
     pub uplift_base_mm_yr: f64,
-    /// Shape of uplift vs. tectonic relief: U ∝ (h / h95)^exponent. Higher = uplift more
-    /// concentrated in the main belts.
+    /// `Elevation` source only: U ∝ (h / h95)^exponent.
     pub uplift_exponent: f64,
+    /// Where uplift comes from (see [`UpliftSource`]).
+    pub uplift_source: UpliftSource,
+    /// `Tectonic` source: e-folding distance of uplift away from a convergent boundary, km.
+    pub belt_width_km: f64,
+    /// `Tectonic` source: uplift weight on oceanic crust (continental = 1).
+    pub oceanic_crust_uplift: f64,
+    /// `Tectonic` source: scale belt uplift by the plates' closing speed (mean = 1).
+    pub scale_by_convergence_rate: bool,
     /// Smallest drainage area drawn as a river, km².
     pub river_min_area_km2: f64,
-    /// Hypsometric calibration: land heights are quantile-mapped onto Earth's hypsometric
-    /// curve scaled by this factor (1.0 = Earth-like; 2.0 = everything twice as high).
-    /// 0 disables it (land is then linearly rescaled to the tectonic 99th percentile).
+    /// Hypsometric calibration: land heights are quantile-mapped onto the land hypsometric
+    /// curve (`hypsometry.rs`) scaled by this factor (1.0 = Earth-like; 2.0 = everything
+    /// twice as high). 0 disables it (land is then linearly rescaled to the tectonic 99th
+    /// percentile).
     pub hypsometry_scale: f64,
 }
 
@@ -47,11 +71,13 @@ impl Default for ErosionParams {
             steps: 50,
             k: 1.0e-5,
             m: 0.45,
-            uplift_max_mm_yr: 3.0,
-            // Tuned (s01, seed 3, res 320) so per-basin hypsometry lands in the natural
-            // 0.3–0.6 band and apparent concavity in 0.45–0.7 (see stats.rs).
+            uplift_max_mm_yr: 2.5,
             uplift_base_mm_yr: 0.15,
             uplift_exponent: 0.8,
+            uplift_source: UpliftSource::Tectonic,
+            belt_width_km: 400.0,
+            oceanic_crust_uplift: 0.5,
+            scale_by_convergence_rate: true,
             river_min_area_km2: 20_000.0,
             hypsometry_scale: 1.0,
         }
@@ -81,69 +107,170 @@ pub struct ErosionResult {
     pub stats: ErosionStats,
 }
 
-/// Erode the tectonic heights. Deterministic: same input, same output, on any thread count.
-pub fn erode(tectonic: &CubeField<f32>, radius_m: f64, p: &ErosionParams) -> ErosionResult {
-    let res = tectonic.res.min(p.max_res.max(16));
+// ---------------------------------------------------------------------------------------
+// The numerical core: arrays in, arrays out. `erode()` and the tests both call these.
+// ---------------------------------------------------------------------------------------
+
+/// A routed drainage network and the per-node data one implicit step needs.
+pub struct Column<'a> {
+    /// Receiver of each node (itself for base-level nodes).
+    pub receiver: &'a [u32],
+    /// Topological order: every node comes after its receiver.
+    pub stack: &'a [u32],
+    /// Upstream drainage area including the node's own cell, m².
+    pub drainage_m2: &'a [f64],
+    /// Distance to the receiver, m.
+    pub length_m: &'a [f64],
+    /// Rock uplift rate, m/yr.
+    pub uplift_m_yr: &'a [f64],
+    /// Base-level nodes (ocean): held fixed at height 0 for their donors.
+    pub base: &'a [bool],
+    /// Cell area, m² (only used for the volume bookkeeping).
+    pub cell_area_m2: &'a [f64],
+}
+
+/// Volumes moved in one step (or summed over a run), m³, over non-base nodes.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct MassBudget {
+    /// Rock raised by uplift: Σ U·Δt·area.
+    pub uplift_m3: f64,
+    /// Rock removed by rivers: Σ K·A^m·S·Δt·area, with S the *new* slope.
+    pub eroded_m3: f64,
+    /// Material added by Priority-Flood filling of closed basins (sediment fill).
+    pub filled_m3: f64,
+}
+
+impl MassBudget {
+    /// The net change in land volume the books say happened.
+    pub fn net_m3(&self) -> f64 {
+        self.uplift_m3 - self.eroded_m3 + self.filled_m3
+    }
+    fn add(&mut self, o: MassBudget) {
+        self.uplift_m3 += o.uplift_m3;
+        self.eroded_m3 += o.eroded_m3;
+        self.filled_m3 += o.filled_m3;
+    }
+}
+
+/// One implicit stream-power step, `n = 1` (Braun & Willett 2013):
+///
+/// `h_i ← (h_i + U_i·Δt + F_i·h_r) / (1 + F_i)`, `F_i = K·Δt·A_i^m / L_i`,
+///
+/// visiting nodes in stack order so the receiver `h_r` is already updated. Rearranged,
+/// `Δh_i = U_i·Δt − F_i·(h_i' − h_r')`, and the last term is exactly the river's
+/// incision `K·A^m·S'·Δt` with the *new* slope `S'`. That is what we sum as eroded volume.
+pub fn implicit_step(c: &Column, h: &mut [f64], k: f64, m: f64, dt: f64) -> MassBudget {
+    let mut b = MassBudget::default();
+    for &i in c.stack {
+        let i = i as usize;
+        if c.base[i] {
+            continue;
+        }
+        let r = c.receiver[i] as usize;
+        let hr = if c.base[r] { 0.0 } else { h[r] };
+        let f = k * dt * c.drainage_m2[i].powf(m) / c.length_m[i].max(1.0);
+        let new = (h[i] + c.uplift_m_yr[i] * dt + f * hr) / (1.0 + f);
+        b.uplift_m3 += c.uplift_m_yr[i] * dt * c.cell_area_m2[i];
+        b.eroded_m3 += f * (new - hr) * c.cell_area_m2[i];
+        h[i] = new;
+    }
+    b
+}
+
+/// What [`solve`] leaves behind.
+pub struct Solved {
+    /// The drainage network of the last step (receivers, stack, areas).
+    pub net: Network,
+    /// Volumes over the whole run, so `Σ_land area·(h_end − h_start) = budget.net_m3()`.
+    pub budget: MassBudget,
+    /// How many steps needed a Priority-Flood fill.
+    pub filled_steps: u32,
+}
+
+/// Run `p.steps` implicit steps of duration `p.duration_myr / p.steps` on `h` (metres, with
+/// `ocean` nodes as base level), re-routing the network each step.
+pub fn solve(grid: &Grid, radius_m: f64, h: &mut [f64], ocean: &[bool], uplift_m_yr: &[f64], p: &ErosionParams) -> Solved {
+    let n = grid.n;
+    let cell_area: Vec<f64> = grid.weight.iter().map(|w| *w as f64 * 4.0 * std::f64::consts::PI * radius_m * radius_m).collect();
+    let mut net = Network::new(n);
+    let mut budget = MassBudget::default();
+    let mut filled_steps = 0u32;
+    let steps = p.steps.max(1);
+    let dt = p.duration_myr * 1.0e6 / steps as f64;
+    let mut length = vec![0.0f64; n];
+    for step in 0..steps {
+        // 1. Receivers (fill pits first if there are any, and always on step 0).
+        if step == 0 || net.route(grid, h, ocean) > 0 {
+            let before = h.to_vec();
+            priority_flood_fill(grid, h, ocean);
+            budget.filled_m3 += (0..n).filter(|&i| !ocean[i]).map(|i| (h[i] - before[i]) * cell_area[i]).sum::<f64>();
+            filled_steps += 1;
+            let pits = net.route(grid, h, ocean);
+            debug_assert_eq!(pits, 0, "filled surface must drain everywhere");
+        }
+        // 2–3. Stack and drainage area.
+        net.build_stack();
+        net.accumulate(&cell_area, ocean);
+        // 4. Implicit stream-power incision with uplift.
+        for i in 0..n {
+            length[i] = (grid.dir[i] - grid.dir[net.receiver[i] as usize]).length() * radius_m;
+        }
+        let col = Column {
+            receiver: &net.receiver,
+            stack: &net.stack,
+            drainage_m2: &net.area,
+            length_m: &length,
+            uplift_m_yr,
+            base: ocean,
+            cell_area_m2: &cell_area,
+        };
+        budget.add(implicit_step(&col, h, p.k, p.m, dt));
+    }
+    Solved { net, budget, filled_steps }
+}
+
+/// Erode the tectonic snapshot. Deterministic: same input, same output, on any thread count.
+///
+/// Heights come from `tectonic.height_m`; uplift comes from the snapshot's boundaries, crust
+/// and plate motions (see [`UpliftSource`]).
+pub fn erode(tectonic: &TectonicSnapshot, radius_m: f64, p: &ErosionParams) -> ErosionResult {
+    let tectonic_h = &tectonic.height_m;
+    let res = tectonic_h.res.min(p.max_res.max(16));
     let grid = Grid::new(res);
     let n = grid.n;
     let area_m2: Vec<f64> = grid.weight.iter().map(|w| *w as f64 * 4.0 * std::f64::consts::PI * radius_m * radius_m).collect();
+    let weight: Vec<f64> = grid.weight.iter().map(|&w| w as f64).collect();
 
     // Input heights on the solve grid.
-    let h0: Vec<f64> = par_map(n, |i| tectonic.sample(grid.dir[i]) as f64);
+    let h0: Vec<f64> = par_map(n, |i| tectonic_h.sample(grid.dir[i]) as f64);
     let ocean: Vec<bool> = h0.iter().map(|&h| h <= 0.0).collect();
 
-    // Uplift ∝ tectonic relief: active belts (high relief) rise fastest.
     let mut land_h: Vec<f64> = (0..n).filter(|&i| !ocean[i]).map(|i| h0[i]).collect();
     land_h.sort_by(f64::total_cmp);
     let p99 = percentile(&land_h, 0.99).max(1.0);
-    let p95 = percentile(&land_h, 0.95).max(1.0);
-    let mm = 1.0e-3;
-    let uplift: Vec<f64> = (0..n)
-        .map(|i| {
-            if ocean[i] {
-                return 0.0;
-            }
-            let w = (h0[i] / p95).clamp(0.0, 1.0);
-            (p.uplift_base_mm_yr + (p.uplift_max_mm_yr - p.uplift_base_mm_yr) * w.powf(p.uplift_exponent)) * mm
-        })
-        .collect();
+
+    // Uplift from tectonic process (or the elevation fallback).
+    let (uplift, uplift_used) = uplift::compute(&grid, tectonic, radius_m, &h0, &ocean, p);
 
     let mut h = h0.clone();
     let mut net = Network::new(n);
     let mut filled_steps = 0u32;
+    let mut budget = MassBudget::default();
     if p.enabled && !land_h.is_empty() {
-        let dt = p.duration_myr * 1.0e6 / p.steps.max(1) as f64;
-        for step in 0..p.steps.max(1) {
-            // 1. Receivers (fill pits first if there are any, and always on step 0).
-            if step == 0 || net.route(&grid, &h, &ocean) > 0 {
-                priority_flood_fill(&grid, &mut h, &ocean);
-                filled_steps += 1;
-                let pits = net.route(&grid, &h, &ocean);
-                debug_assert_eq!(pits, 0, "filled surface must drain everywhere");
-            }
-            // 2–3. Stack and drainage area.
-            net.build_stack(&ocean);
-            net.accumulate(&area_m2, &ocean);
-            // 4. Implicit stream-power incision with uplift.
-            for &i in &net.stack {
-                let i = i as usize;
-                if ocean[i] {
-                    continue;
-                }
-                let r = net.receiver[i] as usize;
-                let hr = if ocean[r] { 0.0 } else { h[r] };
-                let l = (grid.dir[i] - grid.dir[r]).length() * radius_m;
-                let f = p.k * dt * net.area[i].powf(p.m) / l.max(1.0);
-                h[i] = (h[i] + uplift[i] * dt + f * hr) / (1.0 + f);
-            }
-        }
+        let solved = solve(&grid, radius_m, &mut h, &ocean, &uplift, p);
+        net = solved.net;
+        budget = solved.budget;
+        filled_steps = solved.filled_steps;
     }
+    let start_land_m3: f64 = (0..n).filter(|&i| !ocean[i]).map(|i| h0[i] * area_m2[i]).sum();
+    let end_land_m3: f64 = (0..n).filter(|&i| !ocean[i]).map(|i| h[i] * area_m2[i]).sum();
+    let mass_balance_error = (end_land_m3 - start_land_m3 - budget.net_m3()).abs() / start_land_m3.abs().max(1.0);
 
     // Final routing on the result, measuring lakes before filling them for drainage.
     let pre_fill = h.clone();
     priority_flood_fill(&grid, &mut h, &ocean);
     net.route(&grid, &h, &ocean);
-    net.build_stack(&ocean);
+    net.build_stack();
     net.accumulate(&area_m2, &ocean);
     let lake: Vec<f64> = (0..n).map(|i| if ocean[i] { 0.0 } else { (h[i] - pre_fill[i]).max(0.0) }).collect();
 
@@ -160,11 +287,17 @@ pub fn erode(tectonic: &CubeField<f32>, radius_m: f64, p: &ErosionParams) -> Ero
     // Geomorphic stats on the physics output (the remap below is monotonic, so drainage
     // is untouched, but slope magnitudes change).
     let mut stats = stats::measure(&grid, &h, &ocean, &net, &area_m2, &uplift, radius_m, p, filled_steps, scale);
+    stats.uplift_from_tectonics = uplift_used == UpliftSource::Tectonic;
+    stats.mass_balance_error = mass_balance_error;
 
     if p.hypsometry_scale > 0.0 {
-        hypsometric_remap(&mut h, &ocean, p.hypsometry_scale);
-        let land: Vec<f64> = (0..n).filter(|&i| !ocean[i]).map(|i| h[i]).collect();
-        stats.mean_land_m = land.iter().sum::<f64>() / land.len().max(1) as f64;
+        hypsometry::remap(&mut h, &ocean, &weight, p.hypsometry_scale);
+        let (mut sum, mut wsum) = (0.0, 0.0);
+        for i in (0..n).filter(|&i| !ocean[i]) {
+            sum += h[i] * weight[i];
+            wsum += weight[i];
+        }
+        stats.mean_land_m = sum / wsum.max(1e-12);
     }
 
     // Back to CubeFields. If the solve ran coarser than the input, upsample the *change*.
@@ -177,12 +310,12 @@ pub fn erode(tectonic: &CubeField<f32>, radius_m: f64, p: &ErosionParams) -> Ero
     };
     let delta: Vec<f64> = (0..n).map(|i| h[i] - h0[i]).collect();
     let delta_f = to_field(&delta);
-    let height_m = if res == tectonic.res {
+    let height_m = if res == tectonic_h.res {
         to_field(&h)
     } else {
-        let mut out = tectonic.clone();
+        let mut out = tectonic_h.clone();
         for (k, d) in out.iter_samples().map(|(k, _, _, _, d)| (k, d)).collect::<Vec<_>>() {
-            let t = tectonic.data[k];
+            let t = tectonic_h.data[k];
             if t > 0.0 {
                 // Keep land land: the coast is the committed tectonic contour.
                 out.data[k] = (t + delta_f.sample(d)).max(0.5 * t.min(1.0)).max(0.1);
@@ -217,16 +350,19 @@ pub fn erode(tectonic: &CubeField<f32>, radius_m: f64, p: &ErosionParams) -> Ero
 }
 
 /// The drainage network: receivers, the topological stack and drainage areas.
-pub(crate) struct Network {
+pub struct Network {
+    /// Receiver of each node (itself for ocean nodes).
     pub receiver: Vec<u32>,
+    /// Topological order, coast first.
     pub stack: Vec<u32>,
+    /// Drainage area including the node's own cell, m² (0 at sea).
     pub area: Vec<f64>,
     donors_start: Vec<u32>,
     donors: Vec<u32>,
 }
 
 impl Network {
-    fn new(n: usize) -> Self {
+    pub fn new(n: usize) -> Self {
         Self {
             receiver: (0..n as u32).collect(),
             stack: Vec::with_capacity(n),
@@ -262,7 +398,7 @@ impl Network {
     }
 
     /// Topological order: base-level (ocean) nodes first, then every node after its receiver.
-    pub fn build_stack(&mut self, ocean: &[bool]) {
+    pub fn build_stack(&mut self) {
         let n = self.receiver.len();
         self.donors_start.iter_mut().for_each(|c| *c = 0);
         for i in 0..n {
@@ -284,7 +420,6 @@ impl Network {
         }
         self.stack.clear();
         let mut queue: VecDeque<u32> = (0..n as u32).filter(|&i| self.receiver[i as usize] == i).collect();
-        let _ = ocean;
         while let Some(i) = queue.pop_front() {
             self.stack.push(i);
             let (a, b) = (self.donors_start[i as usize] as usize, self.donors_start[i as usize + 1] as usize);
@@ -309,7 +444,7 @@ impl Network {
 
 /// Priority-Flood+ε (Barnes et al. 2014): raise every closed depression on land to its
 /// spill height plus a tiny gradient, so each land node has a strictly lower path to the sea.
-pub(crate) fn priority_flood_fill(grid: &Grid, h: &mut [f64], ocean: &[bool]) {
+pub fn priority_flood_fill(grid: &Grid, h: &mut [f64], ocean: &[bool]) {
     #[derive(PartialEq)]
     struct Item(f64, u32);
     impl Eq for Item {}
@@ -358,57 +493,10 @@ pub(crate) fn priority_flood_fill(grid: &Grid, h: &mut [f64], ocean: &[bool]) {
     }
 }
 
+
 fn percentile(sorted: &[f64], q: f64) -> f64 {
     if sorted.is_empty() {
         return 0.0;
     }
     sorted[((sorted.len() - 1) as f64 * q).round() as usize]
-}
-
-/// Earth's land hypsometric curve: (fraction of land area above, height in m).
-/// Approximate, from global DEM statistics (ETOPO1-class): mean land elevation ≈ 840 m,
-/// median ≈ 440 m, ~25% above 1 km, ~9% above 2 km, ~2% above 4 km, max 8848 m.
-const EARTH_HYPSOMETRY: [(f64, f64); 12] = [
-    (1.000, 0.0),
-    (0.850, 100.0),
-    (0.700, 200.0),
-    (0.560, 330.0),
-    (0.460, 500.0),
-    (0.270, 1000.0),
-    (0.160, 1500.0),
-    (0.095, 2000.0),
-    (0.048, 3000.0),
-    (0.022, 4000.0),
-    (0.006, 5200.0),
-    (0.000, 8848.0),
-];
-
-/// Quantile-map land heights onto Earth's hypsometric curve (× `scale`). Monotonic, so the
-/// order of heights — and with it every drainage direction, divide and valley — is kept;
-/// only how high things are is redistributed. Ties break by node index (deterministic).
-fn hypsometric_remap(h: &mut [f64], ocean: &[bool], scale: f64) {
-    let mut land: Vec<usize> = (0..h.len()).filter(|&i| !ocean[i]).collect();
-    if land.len() < 2 {
-        return;
-    }
-    land.sort_by(|&a, &b| h[a].total_cmp(&h[b]).then(a.cmp(&b)));
-    let n = land.len() as f64;
-    for (rank, &i) in land.iter().enumerate() {
-        // Fraction of land strictly above this node (midpoint rank).
-        let above = 1.0 - (rank as f64 + 0.5) / n;
-        h[i] = (earth_height_at(above) * scale).max(1.0);
-    }
-}
-
-fn earth_height_at(frac_above: f64) -> f64 {
-    let t = &EARTH_HYPSOMETRY;
-    for w in t.windows(2) {
-        let (f0, h0) = w[0];
-        let (f1, h1) = w[1];
-        if frac_above <= f0 && frac_above >= f1 {
-            let u = (f0 - frac_above) / (f0 - f1).max(1e-12);
-            return h0 + (h1 - h0) * u;
-        }
-    }
-    if frac_above > 1.0 { 0.0 } else { t[t.len() - 1].1 }
 }
