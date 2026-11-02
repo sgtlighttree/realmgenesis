@@ -11,7 +11,10 @@ fn main() {
         p.tectonics.res = r;
     }
     if let Some(r) = std::env::var("RG_EROSION_RES").ok().and_then(|v| v.parse().ok()) {
-        p.erosion.max_res = r;
+        p.erosion.res = r;
+    }
+    if let Some(s) = std::env::var("RG_EROSION_STEPS").ok().and_then(|v| v.parse().ok()) {
+        p.erosion.steps = s;
     }
     let t0 = std::time::Instant::now();
     let w = generate(&p);

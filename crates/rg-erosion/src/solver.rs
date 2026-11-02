@@ -29,6 +29,11 @@ pub struct ErosionParams {
     /// fields get the erosion *change* upsampled onto them (Schott 2023: blend changes,
     /// never two eroded surfaces).
     pub max_res: u32,
+    /// Erosion grid resolution (cells per face edge). 0 = the tectonics resolution capped at
+    /// `max_res`. A value above the tectonics resolution makes the committed macro surface
+    /// finer than tectonics: heights are bilinearly sampled onto the finer grid, eroded
+    /// there, and returned at that resolution (the coast is the tectonic 0 m contour).
+    pub res: u32,
     /// Simulated time, million years. Longer = deeper, more mature valleys.
     pub duration_myr: f64,
     /// Implicit time steps (the scheme is stable at any step; more steps let the drainage
@@ -67,6 +72,7 @@ impl Default for ErosionParams {
         Self {
             enabled: true,
             max_res: 512,
+            res: 0,
             duration_myr: 30.0,
             steps: 50,
             k: 1.0e-5,
@@ -94,7 +100,8 @@ pub struct RiverSegment {
 }
 
 pub struct ErosionResult {
-    /// Eroded heights at the input field's resolution (m above sea level).
+    /// Eroded heights (m above sea level), at the erosion grid's resolution when that is at
+    /// least the input's, otherwise at the input's resolution.
     pub height_m: CubeField<f32>,
     /// Upstream drainage area, km², at the erosion grid's resolution (0 at sea).
     pub drainage_km2: CubeField<f32>,
@@ -235,7 +242,7 @@ pub fn solve(grid: &Grid, radius_m: f64, h: &mut [f64], ocean: &[bool], uplift_m
 /// and plate motions (see [`UpliftSource`]).
 pub fn erode(tectonic: &TectonicSnapshot, radius_m: f64, p: &ErosionParams) -> ErosionResult {
     let tectonic_h = &tectonic.height_m;
-    let res = tectonic_h.res.min(p.max_res.max(16));
+    let res = if p.res > 0 { p.res.max(16) } else { tectonic_h.res.min(p.max_res.max(16)) };
     let grid = Grid::new(res);
     let n = grid.n;
     let area_m2: Vec<f64> = grid.weight.iter().map(|w| *w as f64 * 4.0 * std::f64::consts::PI * radius_m * radius_m).collect();
@@ -310,7 +317,7 @@ pub fn erode(tectonic: &TectonicSnapshot, radius_m: f64, p: &ErosionParams) -> E
     };
     let delta: Vec<f64> = (0..n).map(|i| h[i] - h0[i]).collect();
     let delta_f = to_field(&delta);
-    let height_m = if res == tectonic_h.res {
+    let height_m = if res >= tectonic_h.res {
         to_field(&h)
     } else {
         let mut out = tectonic_h.clone();

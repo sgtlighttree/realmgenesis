@@ -38,6 +38,8 @@ pub fn to_file(w: &World) -> WorldFile {
         },
         "snapshot": {
             "sea_level_offset_m": w.tectonics.sea_level_offset_m,
+            // The committed macro height can be finer than the other tectonic fields.
+            "height_res": w.tectonics.height_m.res,
             "land_fraction": w.tectonics.land_fraction,
             "plates": plates,
         },
@@ -51,6 +53,14 @@ pub fn to_file(w: &World) -> WorldFile {
             "uplift_exponent": w.params.erosion.uplift_exponent,
             "river_min_area_km2": w.params.erosion.river_min_area_km2,
             "hypsometry_scale": w.params.erosion.hypsometry_scale,
+            "res": w.params.erosion.res,
+            "uplift_source": match w.params.erosion.uplift_source {
+                rg_erosion::UpliftSource::Tectonic => "tectonic",
+                rg_erosion::UpliftSource::Elevation => "elevation",
+            },
+            "belt_width_km": w.params.erosion.belt_width_km,
+            "oceanic_crust_uplift": w.params.erosion.oceanic_crust_uplift,
+            "scale_by_convergence_rate": w.params.erosion.scale_by_convergence_rate,
             "hydrology_res": w.hydrology.as_ref().map(|h| h.drainage_km2.res),
         },
     });
@@ -118,11 +128,6 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
     };
     let get = |name: &str| f.chunk(name).ok_or(format!("missing chunk {name}"));
     let res = tectonics.res;
-    let cube_f32 = |name: &str| -> Result<CubeField<f32>, String> {
-        let data = get(name)?.as_f32s().ok_or(format!("{name}: wrong type"))?;
-        check_len(name, data.len(), 6 * (res as usize + 1).pow(2))?;
-        Ok(CubeField { res, data })
-    };
     let cube_u8 = |name: &str| -> Result<CubeField<u8>, String> {
         let data = get(name)?.bytes.clone();
         check_len(name, data.len(), 6 * (res as usize + 1).pow(2))?;
@@ -145,8 +150,11 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
             })
         })
         .collect::<Result<Vec<_>, &str>>()?;
+    let height_res = sh["height_res"].as_u64().map_or(res, |r| r as u32);
+    let height_data = get("tectonics.height_m")?.as_f32s().ok_or("tectonics.height_m: wrong type")?;
+    check_len("tectonics.height_m", height_data.len(), 6 * (height_res as usize + 1).pow(2))?;
     let snapshot = TectonicSnapshot {
-        height_m: cube_f32("tectonics.height_m")?,
+        height_m: CubeField { res: height_res, data: height_data },
         plate_id: CubeField { res, data: plate_data },
         crust: cube_u8("tectonics.crust")?,
         boundary: cube_u8("tectonics.boundary")?,
@@ -189,6 +197,16 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
             uplift_exponent: num(eh, "uplift_exponent")?,
             river_min_area_km2: num(eh, "river_min_area_km2")?,
             hypsometry_scale: eh["hypsometry_scale"].as_f64().unwrap_or(0.0),
+            // Older schema-2 files predate these; they were generated with the elevation
+            // uplift source, but what matters on load is the stored heights, not re-running.
+            res: eh["res"].as_u64().unwrap_or(0) as u32,
+            uplift_source: match eh["uplift_source"].as_str() {
+                Some("elevation") | None => rg_erosion::UpliftSource::Elevation,
+                _ => rg_erosion::UpliftSource::Tectonic,
+            },
+            belt_width_km: eh["belt_width_km"].as_f64().unwrap_or(400.0),
+            oceanic_crust_uplift: eh["oceanic_crust_uplift"].as_f64().unwrap_or(0.5),
+            scale_by_convergence_rate: eh["scale_by_convergence_rate"].as_bool().unwrap_or(true),
             ..Default::default()
         }
     } else {
@@ -261,6 +279,26 @@ mod tests {
         }
         assert!(a.len() == b.len(), "length {} vs {}", a.len(), b.len());
         assert!(loaded.tectonics.height_m.data == w.tectonics.height_m.data);
+    }
+
+    /// The macro surface can be committed finer than tectonics; the file must keep it, and
+    /// all erosion params, exactly.
+    #[test]
+    fn finer_erosion_grid_round_trips() {
+        let mut params = WorldParams::default();
+        params.tectonics.res = 24;
+        params.erosion.res = 40;
+        params.erosion.steps = 5;
+        params.erosion.belt_width_km = 300.0;
+        let w = crate::generate(&params);
+        assert_eq!(w.tectonics.height_m.res, 40);
+        assert_eq!(w.tectonics.plate_id.res, 24);
+        let mut a = Vec::new();
+        to_file(&w).write_to(&mut a).unwrap();
+        let loaded = from_file(&WorldFile::read_from(&a[..]).unwrap()).unwrap();
+        assert_eq!(loaded.tectonics.height_m.res, 40);
+        assert!(loaded.tectonics.height_m.data == w.tectonics.height_m.data);
+        assert_eq!(loaded.params.erosion, w.params.erosion);
     }
 
     /// Golden determinism: generating twice gives byte-identical files.
