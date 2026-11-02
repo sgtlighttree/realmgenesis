@@ -64,6 +64,10 @@ const RIDGE_ALPHA: f64 = 0.3;
 /// well within one parent spacing; a head with nothing in range simply has no channel.
 /// Sets the gather margins (see `DetailNet::margin`).
 const ATTACH_SEARCH: f64 = 1.2;
+/// Sibling attach: search radius and the longest channel that may serve as (or be) a
+/// sibling-attached channel, in level spacings. Bounds the rank steps in the margins.
+const SIBLING_SEARCH: f64 = 1.5;
+const SIBLING_MAX_LEN: f64 = 2.5;
 /// Pieces per curved level-0 edge.
 const CURVE_PIECES: usize = 4;
 /// Fade-out terms (see `wedge`): large enough that a faded channel never wins.
@@ -75,7 +79,26 @@ const FADE_SLOPE: f64 = 50.0;
 const MAX_ANCESTORS: usize = 7;
 
 /// One shard of the channel memo: (level, cell) → channel (None = no channel there).
-type MemoShard = std::sync::Mutex<HashMap<(u8, Cell), Option<Channel>>>;
+type MemoShard = std::sync::Mutex<HashMap<(u8, Cell), (u8, Option<Channel>)>>;
+
+/// A parent candidate: its wedge at the head, the distance and parameter there.
+#[derive(Clone, Copy)]
+struct Cand {
+    wq: f64,
+    d: f64,
+    t: f64,
+    ch: Channel,
+}
+
+/// Cell-local facts for building a channel (see `DetailNet::prelim`).
+struct Prelim {
+    q: DVec3,
+    u: [f64; 2],
+    t_q: f64,
+    coarse: f64,
+    parent: Cand,
+    rank: u8,
+}
 
 /// One channel segment with everything its wedge needs. `down` is the junction (or the
 /// macro receiver), `up` the head.
@@ -267,6 +290,17 @@ impl DetailNet {
         self
     }
 
+    fn memo_put(&self, k: usize, c: Cell, v: (u8, Option<Channel>)) {
+        let shard = &self.memo[(lattice::hash(k as u64, c) % 16) as usize];
+        if let Ok(mut m) = shard.lock() {
+            // Bound memory: drop the shard when it grows large (it's only a cache).
+            if m.len() > 50_000 {
+                m.clear();
+            }
+            m.insert((k as u8, c), v);
+        }
+    }
+
     /// The macro surface T: drained triangle split.
     pub fn macro_tri(&self, p: DVec3) -> f64 {
         self.macro_net.height.sample_tri(p)
@@ -338,15 +372,19 @@ impl DetailNet {
     /// coarser level out to (c + 3σ + 13.5σ) ℓ_k ≤ 3c ℓ_k, i.e. c ≥ 8.25σ (and ≥ 3 + 4.5σ).
     /// Level 0 (macro, edges ≤ √2 ℓ_0) needs ≥ c/3 + σ + 1.5 spacings.
     fn margin(&self, k: usize) -> f64 {
-        // Also: a head reads the coarser surface (every coarser wedge within reach of it):
-        // heads of level k−1 within (3 + 4.5σ) ℓ_{k−1} of it, so c ≥ (3 + 4.5σ)·3/2 ≈ 12.6.
-        let c = (8.25 * ATTACH_SEARCH).max((3.0 + 4.5 * ATTACH_SEARCH) * 1.5) + 0.5;
-        if k == 0 { (c / 3.0 + ATTACH_SEARCH + 1.5 + 0.5) * self.spacing[0] } else { c * self.spacing[k] }
+        // With sibling chaining, rank-0 cells are gathered 2·(SIBLING_SEARCH + SIBLING_MAX_LEN)
+        // = 8 ℓ_k beyond the margin, and their prelim reads the coarser surface: coarser heads
+        // within (3 + 4.5σ)·3 ℓ_k of them. So 3c ≥ c + 8 + (3 + 4.5σ)·3, i.e. c ≥ 16.6 (σ 1.2).
+        let rank_extra = 2.0 * (SIBLING_SEARCH + SIBLING_MAX_LEN);
+        let c = ((rank_extra + (3.0 + 4.5 * ATTACH_SEARCH) * 3.0) / 2.0).max(8.25 * ATTACH_SEARCH) + 0.5;
+        // Level 0: level-1 rank-0 heads sit at (c + rank_extra)/3 ℓ_0 and read level-0 wedges
+        // whose heads are within 3 ℓ_0 + an edge (≤ 1.5 ℓ_0) of them.
+        if k == 0 { ((c + rank_extra) / 3.0 + 3.0 + 1.5 + 0.5) * self.spacing[0] } else { c * self.spacing[k] }
     }
 
-    /// Build the channel of lattice cell `c` at level `k ≥ 1`, given all coarser channels
-    /// near it (binned per level). `None` at sea or if no coarser channel is in range.
-    fn channel_of(&self, k: usize, c: Cell, coarser: &[Binned]) -> Option<Channel> {
+    /// The cell-local facts that decide a level-k cell's channel: its point, the coarser
+    /// parent candidate, the coarser surface there and its rank. `None`: no channel.
+    fn prelim(&self, k: usize, c: Cell, coarser: &[Binned]) -> Option<Prelim> {
         let lk = self.spacing[k];
         let q = lattice::jittered(c, self.cells[k], self.salt.wrapping_add(k as u64), JITTER);
         // Per-cell randomness (three uniforms) breaks the lattice's regularity.
@@ -359,52 +397,97 @@ impl DetailNet {
         if t_q <= 0.0 {
             return None;
         }
-        let u_q = t_q + self.ridge(t_q);
-        // Channel heads aim at the macro level plus half the ridge allowance, so valleys cut
-        // below the macro surface about as much as ridges rise above it.
-        let head_target = t_q + 0.5 * self.ridge(t_q);
-        // The parent is the coarser channel whose hillslope q sits on: the lowest coarser
-        // wedge at q among channels within the search radius. (The *nearest* channel can be
-        // buried under a lower neighbour's wedge, and a child hung from it stays buried.)
+        // The coarser parent: the lowest coarser wedge at q within the search radius (q
+        // drains to the hillslope it sits on; the *nearest* channel can be buried).
         let search = ATTACH_SEARCH * self.spacing[k - 1];
-        let mut best: Option<(f64, f64, f64, Channel)> = None; // (wedge at q, d, t, channel)
+        let mut best: Option<Cand> = None;
+        let u_q = t_q + self.ridge(t_q);
+        let mut coarse = u_q;
         for b in coarser {
-            b.for_each_near(q, search + b.max_len, |ch| {
+            b.for_each_near(q, 3.0 * b.spacing_m + b.max_len, |ch| {
                 let (d, t) = ch.nearest(q, self.radius_m);
-                if d > search || d < 1.0 {
-                    return;
-                }
                 let wq = ch.wedge(d, t, 1.0, 0.0, 0.0);
-                if best.as_ref().is_some_and(|(bw, ..)| *bw <= wq) {
+                coarse = coarse.min(wq);
+                if d > search || d < 1.0 || best.as_ref().is_some_and(|b| b.wq <= wq) {
                     return;
                 }
-                best = Some((wq, d, t, *ch));
+                best = Some(Cand { wq, d, t, ch: *ch });
             });
         }
-        let (_, d, t, parent) = best?;
+        let parent = best?;
+        // Rank from hillslope position: cells low on the coarser hillside (near its bed)
+        // are collectors (rank 0, drain to the coarser channel); higher cells may also drain
+        // to lower-rank siblings. That gives side-branching trees instead of combs.
+        let s_wall = wall_slope(parent.ch.ksn).max(0.002);
+        let rel = (coarse - parent.ch.z_at(parent.t)).max(0.0) / (s_wall * lk);
+        let jitter = (lattice::hash(self.salt ^ 0x0A4C_0000_0000_0000 ^ k as u64, c) >> 11) as f64 / (1u64 << 53) as f64;
+        let rank = ((2.0 * rel + jitter - 0.5).floor().clamp(0.0, 2.0)) as u8;
+        Some(Prelim { q, u: [u(1), u(2)], t_q, coarse, parent, rank })
+    }
+
+    /// Build the channel of a cell from its prelim and the lower-rank siblings already
+    /// built at this level (empty for rank 0).
+    fn build_channel(&self, k: usize, pre: &Prelim, siblings: Option<&Binned>) -> Option<Channel> {
+        let lk = self.spacing[k];
+        let q = pre.q;
+        let mut cand = pre.parent;
+        let mut coarse = pre.coarse;
+        let mut sibling = false;
+        // Siblings: lower-rank, short (≤ SIBLING_MAX_LEN ℓ) channels of this level within
+        // SIBLING_SEARCH ℓ; the lowest wedge at q wins, coarser or sibling.
+        if let Some(sb) = siblings {
+            sb.for_each_near(q, SIBLING_SEARCH * lk + SIBLING_MAX_LEN * lk, |ch| {
+                if ch.len_m > SIBLING_MAX_LEN * lk {
+                    return;
+                }
+                let (d, t) = ch.nearest(q, self.radius_m);
+                let wq = ch.wedge(d, t, 1.0, 0.0, 0.0);
+                coarse = coarse.min(wq);
+                if d > SIBLING_SEARCH * lk || d < 1.0 || cand.wq <= wq {
+                    return;
+                }
+                cand = Cand { wq, d, t, ch: *ch };
+                sibling = true;
+            });
+        }
+        let Cand { d, t, ch: parent, .. } = cand;
         if d < MIN_ATTACH * lk {
             return None; // a stub: too close to its parent to make a valley of its own
         }
-        // Junction: shifted downstream along the parent (towards t = 0) so the tributary
-        // meets it at angle α, drawn per cell (Seybold et al. 2017: humid basins ~60–70°
-        // on average, with wide scatter).
-        let alpha = (JUNCTION_ANGLE_MIN_DEG + (JUNCTION_ANGLE_MAX_DEG - JUNCTION_ANGLE_MIN_DEG) * u(1)).to_radians();
+        // Junction: shifted downstream along the parent so the tributary meets it at α,
+        // drawn per cell (Seybold et al. 2017: humid basins ~60–70°, wide scatter).
+        let alpha = (JUNCTION_ANGLE_MIN_DEG + (JUNCTION_ANGLE_MAX_DEG - JUNCTION_ANGLE_MIN_DEG) * pre.u[0]).to_radians();
         let parent_len = (parent.up - parent.down).length() * self.radius_m;
         let mut tj = (t - d / alpha.tan() / parent_len.max(1.0)).max(0.0);
         let mut junction = (parent.down + (parent.up - parent.down) * tj).normalize();
-        // The gather margins assume a channel is at most 1.5 × the search radius long.
-        if (q - junction).length() * self.radius_m > 1.5 * search {
+        // Length bounds the gather margins assume (see `margin`).
+        let max_len = if sibling { SIBLING_MAX_LEN * lk } else { 1.5 * ATTACH_SEARCH * self.spacing[k - 1] };
+        if (q - junction).length() * self.radius_m > max_len {
             tj = t;
             junction = (parent.down + (parent.up - parent.down) * tj).normalize();
+            if (q - junction).length() * self.radius_m > max_len {
+                return None;
+            }
         }
         let z_a = parent.z_at(tj);
         let len = (q - junction).length() * self.radius_m;
-        // This lineage's fading ancestors: the parent's own, plus the parent itself (unless it
-        // is level 0, which never fades) at the junction's distance along it.
+        // LOD: a sibling's child shares the sibling's spacing (never shows while its parent
+        // is faded); a coarser parent's child draws its own.
+        let lod_spacing = if sibling { parent.lod_spacing } else { lk * (0.75 + 0.58 * pre.u[1]) };
+        // Fading ancestors: the parent's, plus the parent (unless level 0, which never fades)
+        // at the junction's distance along it. Same-spacing entries merge by summing (exact:
+        // equal presence), which keeps sibling chains within MAX_ANCESTORS.
         let (mut anc, mut n_anc) = (parent.anc, parent.n_anc);
-        if parent.level > 0 && (n_anc as usize) < MAX_ANCESTORS {
-            anc[n_anc as usize] = [parent.lod_spacing as f32, (tj * parent.len_m) as f32];
-            n_anc += 1;
+        if parent.level > 0 {
+            let entry = [parent.lod_spacing as f32, (tj * parent.len_m) as f32];
+            if let Some(e) = anc[..n_anc as usize].iter_mut().find(|e| e[0] == entry[0]) {
+                e[1] += entry[1];
+            } else if (n_anc as usize) < MAX_ANCESTORS {
+                anc[n_anc as usize] = entry;
+                n_anc += 1;
+            } else {
+                return None; // can't represent the fade exactly: skip (always safe)
+            }
         }
         // Stream-power profile from the junction: S = k_sn·A^−θ with A ≈ one level-k cell.
         let ksn = parent.ksn;
@@ -412,17 +495,9 @@ impl DetailNet {
         let w = 0.25 * lk;
         let s_channel = (ksn * (lk * lk).powf(-THETA)).min(S_CHANNEL_MAX);
         let hollow = 0.5 * s_wall * w;
-        // A tributary is incised into the hillslope it drains: its head sits a hollow depth
-        // below the coarser surface there (all coarser wedges at full presence, intrinsic
-        // floors, so the value depends on this cell alone). Without this, steep stream-power
-        // profiles climbed above the parent's hillside and never cut it (smooth mesas).
-        let mut coarse = u_q;
-        for b in coarser {
-            b.for_each_near(q, 3.0 * b.spacing_m + b.max_len, |ch| {
-                let (d, t) = ch.nearest(q, self.radius_m);
-                coarse = coarse.min(ch.wedge(d, t, 1.0, 0.0, 0.0));
-            });
-        }
+        let head_target = pre.t_q + 0.5 * self.ridge(pre.t_q);
+        // Incised into the hillslope it drains: the head sits a hollow below the coarser
+        // surface (and below the sibling hillsides seen in the search).
         let z_head = (z_a + s_channel * len).min(head_target - hollow).min(coarse - hollow).max(z_a + EPS_SLOPE * len);
         Some(Channel {
             level: k as u8,
@@ -437,7 +512,7 @@ impl DetailNet {
             floor: floor_width(lk * lk * 1.0e-6) * (1.0 - 0.8 * threshold_fraction(ksn)),
             reach: 2.0 * lk,
             wall_k: 1.0e4 / (lk * lk),
-            lod_spacing: lk * (0.75 + 0.58 * u(2)),
+            lod_spacing,
             len_m: len,
             anc,
             n_anc,
@@ -459,37 +534,56 @@ impl DetailNet {
         }
         binned.push(Binned::new(l0, self.cells[0], self.radius_m));
         for k in 1..levels {
+            let lk = self.spacing[k];
             let g = radius_m + self.margin(k);
             let n = self.cells[k];
-            let rcells = (g / self.spacing[k]).ceil() as i32 + 1;
-            let mut out = Vec::new();
+            // Rank r cells are needed out to g + (2 − r)·RANK_STEP (their children's searches).
+            let step = (SIBLING_SEARCH + SIBLING_MAX_LEN) * lk;
+            let g_max = g + 2.0 * step;
+            let rcells = (g_max / lk).ceil() as i32 + 1;
+            let mut by_rank: [Vec<Channel>; 3] = Default::default();
+            let mut pending: Vec<(Cell, Prelim, f64)> = Vec::new();
             for c in lattice::window(center, n, rcells) {
-                // Cheap pre-check on the cell centre (the jittered point is within a cell).
-                if (lattice::centre(c, n) - center).length() * self.radius_m > g + self.spacing[k] {
+                let dist = (lattice::centre(c, n) - center).length() * self.radius_m;
+                if dist > g_max + lk {
                     continue;
                 }
                 let shard = &self.memo[(lattice::hash(k as u64, c) % 16) as usize];
-                let cached = shard.lock().ok().and_then(|m| m.get(&(k as u8, c)).copied());
-                let ch = match cached {
-                    Some(ch) => ch,
-                    None => {
-                        let ch = self.channel_of(k, c, &binned);
-                        if let Ok(mut m) = shard.lock() {
-                            // Bound memory: drop the shard when it grows large (it's only a cache).
-                            // ~50k × 16 shards × ~170 B ≈ 140 MB at most.
-                            if m.len() > 50_000 {
-                                m.clear();
-                            }
-                            m.insert((k as u8, c), ch);
-                        }
-                        ch
+                if let Some(entry) = shard.lock().ok().and_then(|m| m.get(&(k as u8, c)).copied()) {
+                    if let (r, Some(ch)) = entry {
+                        by_rank[r as usize].push(ch);
                     }
-                };
-                if let Some(ch) = ch {
-                    out.push(ch);
+                    continue;
+                }
+                match self.prelim(k, c, &binned) {
+                    None => self.memo_put(k, c, (0, None)),
+                    Some(pre) if pre.rank == 0 => {
+                        let ch = self.build_channel(k, &pre, None);
+                        self.memo_put(k, c, (0, ch));
+                        if let Some(ch) = ch {
+                            by_rank[0].push(ch);
+                        }
+                    }
+                    Some(pre) => pending.push((c, pre, dist)),
                 }
             }
-            binned.push(Binned::new(out, n, self.radius_m));
+            for r in 1..3u8 {
+                let lower: Vec<Channel> = by_rank[..r as usize].iter().flatten().copied().collect();
+                let sib = Binned::new(lower, n, self.radius_m);
+                let lim = g + (2 - r) as f64 * step + lk;
+                for (c, pre, dist) in pending.iter().filter(|p| p.1.rank == r) {
+                    if *dist > lim {
+                        continue;
+                    }
+                    let ch = self.build_channel(k, pre, Some(&sib));
+                    self.memo_put(k, *c, (r, ch));
+                    if let Some(ch) = ch {
+                        by_rank[r as usize].push(ch);
+                    }
+                }
+            }
+            let all: Vec<Channel> = by_rank.into_iter().flatten().collect();
+            binned.push(Binned::new(all, n, self.radius_m));
         }
         Patch::new(self, center, radius_m, cutoff_m, binned)
     }
