@@ -203,8 +203,19 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
 const DETAIL_PRESETS: [(&str, u32); 5] =
     [("Draft", 192), ("Normal", 320), ("High", 448), ("XHigh", 640), ("Ultra", 1024)];
 const DETAIL_MIN_RES: u32 = 32;
-// Capped at Ultra: res 1536 would need ~2.4 GB peak (measured 1.04 GB at 1024), over the M1 + wasm budget.
+// Native: up to res 2048 (~5 km cells on an Earth-size planet, ~4 GB peak estimated).
+// Matt confirmed Ultra (1024) runs well on the M1 (2026-11-02). Web: capped at 1024,
+// since wasm32 can't address more than 4 GB and 1024 measured 1.04 GB peak.
+#[cfg(not(target_arch = "wasm32"))]
+const DETAIL_MAX_RES: u32 = 2048;
+#[cfg(target_arch = "wasm32")]
 const DETAIL_MAX_RES: u32 = 1024;
+
+/// Estimated peak memory for generation, GB: measured 1.04 GB at res 1024 (s01),
+/// scaling with the point count (res²).
+fn estimate_peak_gb(res: u32) -> f64 {
+    1.04 * (res as f64 / 1024.0).powi(2)
+}
 
 /// Size of one grid cell in km for a given resolution and planet radius.
 fn cell_km(res: u32, radius_m: f64) -> f64 {
@@ -232,7 +243,8 @@ fn detail_picker(ui: &mut egui::Ui, res: &mut u32, radius_m: f64) {
     });
     if custom || !DETAIL_PRESETS.iter().any(|&(_, r)| r == *res) {
         let mut km = cell_km(*res, radius_m);
-        let slider = egui::Slider::new(&mut km, 5.0..=100.0).logarithmic(true).text("km / cell").max_decimals(0);
+        let min_km = cell_km(DETAIL_MAX_RES, radius_m).ceil();
+        let slider = egui::Slider::new(&mut km, min_km..=100.0).logarithmic(true).text("km / cell").max_decimals(1);
         if ui.add(slider).changed() {
             let cells = (std::f64::consts::FRAC_PI_2 * radius_m / 1000.0 / km).round();
             *res = (cells as u32).clamp(DETAIL_MIN_RES, DETAIL_MAX_RES);
@@ -241,16 +253,20 @@ fn detail_picker(ui: &mut egui::Ui, res: &mut u32, radius_m: f64) {
     ui.data_mut(|d| d.insert_temp(mode_id, custom));
 
     let points = 6.0 * (*res as f64 + 1.0).powi(2);
+    let gb = estimate_peak_gb(*res);
+    let heavy = gb > 2.0;
     ui.label(
         egui::RichText::new(format!(
-            "≈ {:.0} km cells · {:.1} M points · est. {}",
+            "≈ {:.1} km cells · {:.1} M points · est. {} · ~{:.1} GB",
             cell_km(*res, radius_m),
             points / 1.0e6,
             fmt_seconds(estimate_generate_s(*res)),
+            gb,
         ))
         .small()
-        .color(theme::MUTED),
-    );
+        .color(if heavy { egui::Color32::from_rgb(222, 170, 80) } else { theme::MUTED }),
+    )
+    .on_hover_text("Estimated peak memory while generating. Above ~2 GB, close other heavy apps first.");
 }
 
 /// Rough generation time (tectonics + climate), fitted to release-build timings on a
