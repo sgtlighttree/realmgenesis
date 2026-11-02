@@ -1,6 +1,27 @@
 # HANDOFF
 
-The current state, for the next session. History lives in `docs/session-logs/`. The newest log is the detail behind this file.
+The current state, for the next session. History lives in `docs/session-logs/`. The newest log is the detail behind this file. **What to do next: `ROADMAP.md`.**
+
+## Local session quickstart (s01 wrap-up)
+
+- Branch `claude/peaceful-brahmagupta-rkl4y0` is the whole of v2. It's an **orphan history**, so it shares no commits with `main` (V1, TypeScript). Don't PR it into `main`; check it out directly:
+  - `git fetch origin claude/peaceful-brahmagupta-rkl4y0`
+  - `git switch claude/peaceful-brahmagupta-rkl4y0`
+  - To give it a friendlier name locally: `git switch -c v2 origin/claude/peaceful-brahmagupta-rkl4y0`
+- Rust toolchain pinned to 1.97.0 (`rust-toolchain.toml`; rustup picks it up). Web builds need `trunk` and the `wasm32-unknown-unknown` target.
+- Run: `cargo run -p rg-app --release` (native). Tests: `cargo test --workspace --release` (~2 min; `terrain_realism` takes ~45 s). CI (`.github/workflows/build.yml`) was green on the last s01 commit.
+- Science probes (all in `crates/rg-pipeline/examples/`):
+  - `probe_realism`: the scorecard (`RG_PROBE_SURFACE=net`);
+  - `probe_hypsometry`;
+  - `probe_bathymetry`;
+  - `probe_lakes`;
+  - `probe_climate_erosion`;
+  - `earth_reference` (real-Earth reference; fetches AWS terrain tiles with curl);
+  - `endorheic_compare`;
+  - `river_map` (PNG hillshade; `RG_MAP_FULL=1`);
+  - `bench_tiles`.
+  - Probe worlds are cached in `target/probe-cache/`.
+- Web preview artifact (claude.ai): https://claude.ai/artifact/1Tq1v7fz6zdbLTtUoLMPME (v7, from before lakes/climate erosion; rebuild with `scripts/build-web-artifact.sh`).
 
 ## State (2026-11-02, s01: MVP reached)
 
