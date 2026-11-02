@@ -319,8 +319,29 @@ pub fn solve_with_k(
     k: &[f64],
     p: &ErosionParams,
 ) -> Solved {
+    solve_full(grid, radius_m, h, ocean, uplift_m_yr, k, None, p)
+}
+
+/// As [`solve_with_k`], with per-node relative runoff (1 = the land mean): the stream-power
+/// "area" becomes runoff-weighted drainage area, a discharge proxy (Q ∝ Σ runoff·area), so
+/// wet slopes incise faster than rain shadows and deserts.
+#[allow(clippy::too_many_arguments)]
+pub fn solve_full(
+    grid: &Grid,
+    radius_m: f64,
+    h: &mut [f64],
+    ocean: &[bool],
+    uplift_m_yr: &[f64],
+    k: &[f64],
+    runoff: Option<&[f64]>,
+    p: &ErosionParams,
+) -> Solved {
     let n = grid.n;
     let cell_area: Vec<f64> = grid.weight.iter().map(|w| *w as f64 * 4.0 * std::f64::consts::PI * radius_m * radius_m).collect();
+    let wet_area: Vec<f64> = match runoff {
+        Some(r) => cell_area.iter().zip(r).map(|(a, r)| a * r).collect(),
+        None => cell_area.clone(),
+    };
     let mut net = Network::new(n);
     net.rho8_seed = p.rho8.then_some(p.seed);
     let mut budget = MassBudget::default();
@@ -338,9 +359,9 @@ pub fn solve_with_k(
             let pits = net.route(grid, h, ocean);
             debug_assert_eq!(pits, 0, "filled surface must drain everywhere");
         }
-        // 2–3. Stack and drainage area.
+        // 2–3. Stack and drainage area (runoff-weighted when climate is given).
         net.build_stack();
-        net.accumulate(&cell_area, ocean);
+        net.accumulate(&wet_area, ocean);
         // 4. Implicit stream-power incision with uplift.
         for (i, l) in length.iter_mut().enumerate() {
             *l = (grid.dir[i] - grid.dir[net.receiver[i] as usize]).length() * radius_m;
@@ -364,6 +385,12 @@ pub fn solve_with_k(
 /// Heights come from `tectonic.height_m`; uplift comes from the snapshot's boundaries, crust
 /// and plate motions (see [`UpliftSource`]).
 pub fn erode(tectonic: &TectonicSnapshot, radius_m: f64, p: &ErosionParams) -> ErosionResult {
+    erode_with_runoff(tectonic, radius_m, p, None)
+}
+
+/// As [`erode`], with relative runoff (1 = land mean; any resolution, sampled per node).
+/// Drainage areas (and the stored `drainage_km2`) are then runoff-weighted.
+pub fn erode_with_runoff(tectonic: &TectonicSnapshot, radius_m: f64, p: &ErosionParams, runoff: Option<&CubeField<f32>>) -> ErosionResult {
     let tectonic_h = &tectonic.height_m;
     let res = if p.res > 0 { p.res.max(16) } else { tectonic_h.res.min(p.max_res.max(16)) };
     let grid = Grid::new(res);
@@ -387,6 +414,7 @@ pub fn erode(tectonic: &TectonicSnapshot, radius_m: f64, p: &ErosionParams) -> E
         }
     }
     let k_field = lithology(&grid, radius_m, p);
+    let runoff_w: Option<Vec<f64>> = runoff.map(|f| par_map(n, |i| f.sample(grid.dir[i]).clamp(0.02, 6.0) as f64));
 
     let mut land_h: Vec<f64> = (0..n).filter(|&i| !ocean[i]).map(|i| h0[i]).collect();
     land_h.sort_by(f64::total_cmp);
@@ -401,7 +429,7 @@ pub fn erode(tectonic: &TectonicSnapshot, radius_m: f64, p: &ErosionParams) -> E
     let mut filled_steps = 0u32;
     let mut budget = MassBudget::default();
     if p.enabled && !land_h.is_empty() {
-        let solved = solve_with_k(&grid, radius_m, &mut h, &ocean, &uplift, &k_field, p);
+        let solved = solve_full(&grid, radius_m, &mut h, &ocean, &uplift, &k_field, runoff_w.as_deref(), p);
         net = solved.net;
         budget = solved.budget;
         filled_steps = solved.filled_steps;
@@ -415,7 +443,10 @@ pub fn erode(tectonic: &TectonicSnapshot, radius_m: f64, p: &ErosionParams) -> E
     priority_flood_fill(&grid, &mut h, &ocean);
     net.route(&grid, &h, &ocean);
     net.build_stack();
-    net.accumulate(&area_m2, &ocean);
+    match &runoff_w {
+        Some(r) => net.accumulate(&area_m2.iter().zip(r).map(|(a, r)| a * r).collect::<Vec<_>>(), &ocean),
+        None => net.accumulate(&area_m2, &ocean),
+    }
     let lake: Vec<f64> = (0..n).map(|i| if ocean[i] { 0.0 } else { (h[i] - pre_fill[i]).max(0.0) }).collect();
 
     // Rescale land so the 99th percentile matches tectonics (see crate docs: calibration).

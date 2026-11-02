@@ -81,7 +81,11 @@ pub fn generate(params: &WorldParams) -> World {
         // The "mountains" setting scales the target hypsometry (Earth = 1.0).
         let mut ep = params.erosion.clone();
         ep.hypsometry_scale = params.tectonics.mountain_scale as f64 * params.erosion.hypsometry_scale;
-        let r = rg_erosion::erode(&tectonics, params.tectonics.radius_m, &ep);
+        // Climate feeds erosion: a first tier-A pass on the tectonic surface gives annual
+        // precipitation; rivers carve with precipitation-weighted drainage (a discharge
+        // proxy), so rain shadows and deserts erode less. Climate is rerun on the result.
+        let runoff = relative_runoff(&params.planet, &tectonics);
+        let r = rg_erosion::erode_with_runoff(&tectonics, params.tectonics.radius_m, &ep, Some(&runoff));
         tectonics.height_m = r.height_m;
         Hydrology {
             drainage_km2: r.drainage_km2,
@@ -130,6 +134,33 @@ pub fn terrain_sampler(world: &World) -> rg_terrain::TerrainSampler {
         }
         None => s,
     }
+}
+
+/// Annual precipitation on the tectonic surface relative to its land mean (1 = average),
+/// on a cube field (res 128) for the erosion solve.
+fn relative_runoff(planet: &PlanetParams, t: &TectonicSnapshot) -> CubeField<f32> {
+    let (_, climate, _) = run_climate(planet, t);
+    let p = climate.annual_precip_grid();
+    let f = CubeField::<f32>::from_fn(128, |d| {
+        let (lat, lon) = (d.z.clamp(-1.0, 1.0).asin(), d.y.atan2(d.x));
+        p.sample(lat, lon)
+    });
+    // Land mean, weighted by solid angle (sample density on the cube is uneven; the
+    // tangent warp keeps it within ~30%, fine for a normaliser).
+    let (mut sum, mut cnt) = (0.0f64, 0usize);
+    for (k, _, _, _, d) in f.iter_samples() {
+        if t.height_m.sample(d) > 0.0 {
+            sum += f.data[k] as f64;
+            cnt += 1;
+        }
+    }
+    let mean = (sum / cnt.max(1) as f64).max(1.0) as f32;
+    CubeField { res: f.res, data: f.data.iter().map(|v| v / mean).collect() }
+}
+
+/// [`relative_runoff`] for probes.
+pub fn relative_runoff_for_probe(planet: &PlanetParams, t: &TectonicSnapshot) -> CubeField<f32> {
+    relative_runoff(planet, t)
 }
 
 /// Re-run only the climate (after changing planet parameters).
