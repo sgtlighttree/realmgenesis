@@ -258,7 +258,8 @@ impl DetailNet {
             }
         };
         let s_wall = wall_slope(ksn).max(0.002);
-        let floor = floor_width(s.area_km2.max(l0 * l0 * 1.0e-6)).min(0.25 * l0);
+        // Floodplains in rising mountains narrow to gorges.
+        let floor = floor_width(s.area_km2.max(l0 * l0 * 1.0e-6)).min(0.25 * l0) * (1.0 - 0.8 * threshold_fraction(ksn));
         Channel {
             level: 0,
             up: s.up,
@@ -284,7 +285,9 @@ impl DetailNet {
     /// coarser level out to (c + 3σ + 13.5σ) ℓ_k ≤ 3c ℓ_k, i.e. c ≥ 8.25σ (and ≥ 3 + 4.5σ).
     /// Level 0 (macro, edges ≤ √2 ℓ_0) needs ≥ c/3 + σ + 1.5 spacings.
     fn margin(&self, k: usize) -> f64 {
-        let c = (8.25 * ATTACH_SEARCH).max(3.0 + 4.5 * ATTACH_SEARCH) + 0.5;
+        // Also: a head reads the coarser surface (every coarser wedge within reach of it):
+        // heads of level k−1 within (3 + 4.5σ) ℓ_{k−1} of it, so c ≥ (3 + 4.5σ)·3/2 ≈ 12.6.
+        let c = (8.25 * ATTACH_SEARCH).max((3.0 + 4.5 * ATTACH_SEARCH) * 1.5) + 0.5;
         if k == 0 { (c / 3.0 + ATTACH_SEARCH + 1.5 + 0.5) * self.spacing[0] } else { c * self.spacing[k] }
     }
 
@@ -301,28 +304,25 @@ impl DetailNet {
         // Channel heads aim at the macro level plus half the ridge allowance, so valleys cut
         // below the macro surface about as much as ridges rise above it.
         let head_target = t_q + 0.5 * self.ridge(t_q);
-        // Nearest point on any coarser channel within the search radius, skipping targets
-        // the channel would have to climb a divide to reach.
+        // The parent is the coarser channel whose hillslope q sits on: the lowest coarser
+        // wedge at q among channels within the search radius. (The *nearest* channel can be
+        // buried under a lower neighbour's wedge, and a child hung from it stays buried.)
         let search = ATTACH_SEARCH * self.spacing[k - 1];
-        let mut best: Option<(f64, f64, Channel)> = None;
+        let mut best: Option<(f64, f64, f64, Channel)> = None; // (wedge at q, d, t, channel)
         for b in coarser {
             b.for_each_near(q, search + b.max_len, |ch| {
                 let (d, t) = ch.nearest(q, self.radius_m);
                 if d > search || d < 1.0 {
                     return;
                 }
-                if best.as_ref().is_some_and(|(bd, _, _)| *bd <= d) {
+                let wq = ch.wedge(d, t, 1.0, 0.0);
+                if best.as_ref().is_some_and(|(bw, ..)| *bw <= wq) {
                     return;
                 }
-                let a = ch.down + (ch.up - ch.down) * t;
-                let mid = ((q + a) * 0.5).normalize();
-                if self.cap(mid) > u_q + 0.05 * d * ch.s_wall.max(0.01) {
-                    return; // the straight path climbs over higher ground
-                }
-                best = Some((d, t, *ch));
+                best = Some((wq, d, t, *ch));
             });
         }
-        let (d, t, parent) = best?;
+        let (_, d, t, parent) = best?;
         // Junction: shifted downstream along the parent (towards t = 0).
         let parent_len = (parent.up - parent.down).length() * self.radius_m;
         let tj = (t - JUNCTION_SHIFT * d / parent_len.max(1.0)).max(0.0);
@@ -335,7 +335,18 @@ impl DetailNet {
         let w = 0.25 * lk;
         let s_channel = (ksn * (lk * lk).powf(-THETA)).min(S_CHANNEL_MAX);
         let hollow = 0.5 * s_wall * w;
-        let z_head = (z_a + s_channel * len).min(head_target - hollow).max(z_a + EPS_SLOPE * len);
+        // A tributary is incised into the hillslope it drains: its head sits a hollow depth
+        // below the coarser surface there (all coarser wedges at full presence, intrinsic
+        // floors, so the value depends on this cell alone). Without this, steep stream-power
+        // profiles climbed above the parent's hillside and never cut it (smooth mesas).
+        let mut coarse = u_q;
+        for b in coarser {
+            b.for_each_near(q, 3.0 * b.spacing_m + b.max_len, |ch| {
+                let (d, t) = ch.nearest(q, self.radius_m);
+                coarse = coarse.min(ch.wedge(d, t, 1.0, 0.0));
+            });
+        }
+        let z_head = (z_a + s_channel * len).min(head_target - hollow).min(coarse - hollow).max(z_a + EPS_SLOPE * len);
         Some(Channel {
             level: k as u8,
             up: q,
@@ -346,7 +357,7 @@ impl DetailNet {
             s_wall,
             s_top: top_share(ksn) * s_wall,
             w,
-            floor: floor_width(lk * lk * 1.0e-6),
+            floor: floor_width(lk * lk * 1.0e-6) * (1.0 - 0.8 * threshold_fraction(ksn)),
             reach: 2.0 * lk,
             wall_k: 1.0e4 / (lk * lk),
         })
@@ -592,6 +603,11 @@ impl Patch {
             }
         }
         best.1
+    }
+
+    /// Every channel held by the patch's blocks (a channel can appear in several blocks).
+    pub fn channels(&self) -> impl Iterator<Item = &Channel> {
+        self.blocks.iter().flatten()
     }
 
     /// Approximate heap size, bytes (for cache budgets).

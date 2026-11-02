@@ -351,6 +351,7 @@ impl RealmApp {
             _ => 0.35,
         };
         self.style.ocean_specular = self.layer == Layer::Satellite;
+        self.style.river_rgb = rg_pipeline::layers::river_color(self.layer);
     }
 
     /// Render the planet into its offscreen texture at `size_px` and return the egui id.

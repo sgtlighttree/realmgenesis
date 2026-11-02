@@ -133,7 +133,7 @@ impl Equirect {
             }
         });
         if let (Some(hy), Layer::Satellite | Layer::Elevation | Layer::PrecipAnnual) = (&world.hydrology, layer) {
-            draw_rivers(&mut out, w, h, &hy.rivers, river_color(layer));
+            draw_rivers(&mut out, w, h, &hy.rivers);
         }
         out
     }
@@ -358,17 +358,20 @@ fn lake_color(layer: Layer) -> Rgb {
     }
 }
 
-fn river_color(layer: Layer) -> Rgb {
+/// The tint the renderer applies over river coverage (stored in the layer's alpha).
+pub fn river_color(layer: Layer) -> Rgb {
     match layer {
         Layer::Satellite => [46, 96, 132],
         _ => [60, 110, 200],
     }
 }
 
-/// Rasterise river reaches into an equirect RGBA image with anti-aliased lines. Width
-/// grows with the square root of drainage area (discharge-width scaling), in pixels
-/// relative to a 2048-wide image.
-pub fn draw_rivers(img: &mut [u8], w: u32, h: u32, rivers: &[rg_erosion::RiverSegment], color: Rgb) {
+/// Rasterise river reaches into the **alpha** of an equirect RGBA image (anti-aliased
+/// coverage: alpha = 255 − coverage), leaving the colour untouched. The renderer tints by
+/// coverage and fades rivers out when zoomed in, where a texel spans kilometres and the 3D
+/// valleys show the river (s01: baked blue bands hid the terrain close up). Width grows
+/// with the square root of drainage area, in pixels relative to a 2048-wide image.
+pub fn draw_rivers(img: &mut [u8], w: u32, h: u32, rivers: &[rg_erosion::RiverSegment]) {
     let scale = w as f64 / 2048.0;
     let to_px = |d: DVec3| -> (f64, f64) {
         let lat = d.z.clamp(-1.0, 1.0).asin();
@@ -402,10 +405,8 @@ pub fn draw_rivers(img: &mut [u8], w: u32, h: u32, rivers: &[rg_erosion::RiverSe
                 }
                 let xi = px.rem_euclid(w as i64) as u32;
                 let k = ((py as u32 * w + xi) * 4) as usize;
-                for ch in 0..3 {
-                    let a = img[k + ch] as f64;
-                    img[k + ch] = (a + (color[ch] as f64 - a) * cover).round() as u8;
-                }
+                let a = 255.0 - (cover * 255.0).round();
+                img[k + 3] = img[k + 3].min(a as u8);
             }
         }
     }

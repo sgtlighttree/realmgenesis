@@ -11,6 +11,7 @@ struct Globals {
     params: vec4<f32>,   // x: relief shading strength, y: ocean specular on/off, z: radius m, w: exaggeration (globe) / hillshade exaggeration (map)
     map: vec4<f32>,      // x: centre lon (rad), y: centre lat (rad), z: view width (rad of lon), w: aspect (w/h)
     lod: vec4<f32>,      // x: px per radian, y: cell px where tiles show their parent surface, z: morph range px
+    river: vec4<f32>,    // xyz: river tint (linear) over the coverage stored in the layer's alpha, w: viewport width px
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
@@ -24,8 +25,18 @@ fn lonlat_to_uv(lon: f32, lat: f32) -> vec2<f32> {
     return vec2<f32>(fract(lon / (2.0 * PI) + 0.5), clamp(0.5 - lat / PI, 0.0, 1.0));
 }
 
-fn albedo(lon: f32, lat: f32) -> vec3<f32> {
-    return textureSampleLevel(albedo_tex, albedo_smp, lonlat_to_uv(lon, lat), 0.0).rgb;
+// Layer colour with rivers tinted in. `texel_on_screen` = how many screen pixels one layer
+// texel spans: rivers are baked kilometres wide, so once a texel is magnified more than a
+// few times they fade out and the terrain (3D valleys, hillshade) shows the river instead.
+fn albedo(lon: f32, lat: f32, texel_on_screen: f32) -> vec3<f32> {
+    let t = textureSampleLevel(albedo_tex, albedo_smp, lonlat_to_uv(lon, lat), 0.0);
+    let river = (1.0 - t.a) * (1.0 - smoothstep(2.0, 6.0, texel_on_screen));
+    return mix(t.rgb, g.river.xyz, river);
+}
+
+// Size of one layer texel along the equator, metres.
+fn texel_m() -> f32 {
+    return g.params.z * 2.0 * PI / f32(textureDimensions(albedo_tex).x);
 }
 
 fn height_at(uv: vec2<f32>) -> f32 {
@@ -104,7 +115,9 @@ fn fs_tile(i: TileOut) -> @location(0) vec4<f32> {
     let up = normalize(i.up);
     let lon = atan2(up.y, up.x);
     let lat = asin(clamp(up.z, -1.0, 1.0));
-    var base = albedo(lon, lat);
+    // Screen footprint of a pixel at this distance (m) → how magnified a texel is.
+    let px_m = max(length(i.rel), 1.0) / g.lod.x;
+    var base = albedo(lon, lat, texel_m() * cos(lat) / px_m);
     // Steep slopes show bare rock whatever the biome (the biome layer is ~km-scale).
     if (i.height_m > 0.0) {
         let slope = 1.0 - dot(normalize(i.normal), normalize(i.up));
@@ -169,7 +182,10 @@ fn fs_map(i: MapOut) -> @location(0) vec4<f32> {
         return vec4<f32>(0.055, 0.067, 0.078, 1.0);
     }
     let uv = lonlat_to_uv(lon, lat);
-    var c = albedo(lon, lat);
+    // Map: radians of longitude per screen pixel = view width / viewport width (river.w).
+    let texel_rad = 2.0 * PI / f32(textureDimensions(albedo_tex).x);
+    let screen_px_rad = g.map.z / max(g.river.w, 1.0);
+    var c = albedo(lon, lat, texel_rad / screen_px_rad);
     // Hillshade from the height texture (land only), lit from the north-west as on
     // printed maps.
     let h = height_at(uv);

@@ -81,6 +81,8 @@ pub struct RenderStyle {
     pub radius_m: f64,
     /// Vertical exaggeration for 2D hillshade.
     pub map_exaggeration: f32,
+    /// River tint (sRGB 0–255) applied over the river coverage in the layer's alpha.
+    pub river_rgb: [u8; 3],
 }
 
 impl Default for RenderStyle {
@@ -91,6 +93,7 @@ impl Default for RenderStyle {
             ocean_specular: true,
             radius_m: 6_371_000.0,
             map_exaggeration: 12.0,
+            river_rgb: [46, 96, 132],
         }
     }
 }
@@ -106,6 +109,8 @@ struct Globals {
     /// Globe LOD: x = pixels per radian, y = cell size (px) at which a tile shows its
     /// parent's surface (morph 0), z = morph range (px). See `vs_tile`.
     lod: [f32; 4],
+    /// xyz: river tint (linear), w: viewport width (px).
+    river: [f32; 4],
 }
 
 struct Targets {
@@ -409,6 +414,10 @@ impl PlanetRenderer {
                 (self.max_cell_px * 0.35) as f32,
                 0.0,
             ],
+            river: {
+                let lin = |c: u8| (c as f32 / 255.0).powf(2.2);
+                [lin(style.river_rgb[0]), lin(style.river_rgb[1]), lin(style.river_rgb[2]), t.size[0] as f32]
+            },
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&g));
 
