@@ -38,19 +38,39 @@ At 10–50 km cells, K and U are underdetermined, so absolute heights aren't mea
 - **Measured (seed 3):** mean 841 m (Earth 840), median 429 m (~440), > 2 km 10.3% (~9%), > 4 km 2.8% (~2%).
 - **Curve:** approximate ETOPO1-class numbers (table in `solver.rs`).
 
-## 3. Detail (`rg-terrain`, per point, stateless, LOD-banded)
+## 3. Detail: the drained detail network (`rg-terrain/src/detail_net.rs`, s01)
 
-`h = macro + hills + gullies`, with the coast rule: no change within 150 m of sea level, sign preserved, so the coastline is exact at every zoom.
-- **Hills:** fBm from 2 macro cells down to 4 km. Constant slope per octave below 4 km, amplitude saturating above it: `A = S·λ/2π / (1 + λ/4 km)`, S = 1.5.
-  - Scaled by **relief**, a function of the **macro slope** measured over 20 km, not of elevation. Plateaus stay gentle; incising belts get rugged. Plains keep 12%.
-- **Gullies:** Johansen's erosion filter (MPL-2.0 port, `erosion_filter.rs`), generalised to 3D on the sphere. It carves branching valleys down the slope of macro + hills, from 4 km down to about 30 m.
-  - Hillslope diffusion damps short wavelengths: 1/(1 + (150 m/λ)²).
-  - Strength 2.0 × relief.
-- **Measured 90 m slopes** (`examples/probe_slope.rs`):
-  - mountain belts: mean 15–20°, p90 30–37°, p99 48–54°;
-  - plains: about 0.6°.
-  - Earth's mountain belts typically sit at 15–30° mean (threshold hillslopes about 30–35°: Montgomery & Brandon 2002, Larsen & Montgomery 2012); plains a few degrees.
-- **Continuity tests** (`erosion_filter.rs`, `continuity` module): Phacelle and the full filter, each to < 2e-3 per 1e-4 step.
+Design and proofs: `docs/design/drained-detail-network.md` (v1.1 plus later changes in the s01 log). The old stateless detail (hills + Johansen gully filter) is kept only as the fallback for worlds without hydrology. It was "steep or drained, not both": hills put 13–16% of mountain land in closed depressions, and the gully filter's stripes scored coherence 0.48–0.91.
+
+- **Surface.** Land height = min(cap, valley wedges).
+  - Cap U = T + R(T): T is the triangle-split macro (provably drained), R = 0.3·min(T, 3 km).
+  - Wedge = channel bed z(t) + strictly increasing hillslope H(d): a flat floor with a C1 hinge, tanh convexity, and an adaptive reach wall.
+  - A local minimum of a min is a minimum of the active wedge, whose only minimum is its junction on a parent, so the surface drains to the sea **by construction**.
+- **Hierarchy.**
+  - Level 0 = macro river edges, curved by centripetal Catmull-Rom through the node chain.
+  - Level k = one jittered point per cell of a lattice 3^k finer (15% thinned, no stubs).
+  - Each point drains to the **lowest coarser wedge** within 1.2 parent spacings ("the hillslope it sits on"), or, by hillslope-position rank, to a lower-rank sibling (dendritic side-branching).
+  - Junction angle 44–80° per channel (Seybold et al. 2017). Channels are 3-piece meanders.
+- **Physics per channel.**
+  - k_sn = U/K (exact at stream-power steady state, n = 1; U is the committed uplift).
+  - Channel gradient S = k_sn·A^−θ with A ≈ one cell, capped at 0.5.
+  - Head incised a hollow below the coarser surface, aiming at T − 0.33 R (mean-neutral against the macro).
+  - Valley walls S_c·(1 − e^(−k_sn/100)) with S_c = tan 33°, after Ouimet et al. 2009; hilltop share 0.3 → 0.9 with erosion rate (Roering et al. 2007).
+  - Floodplain width 30 m·√(A/km²) (hydraulic geometry), narrowed to gorges with uplift.
+- **LOD.**
+  - Per-channel presence (LOD spacing × [0.75, 1.33]); floors band-limited to the cut-off.
+  - Ancestor-consistent fade: each channel carries its fading ancestors' bed offsets, so junctions sit on the parent's effective bed at every zoom.
+  - Level 0 never fades.
+- **Evaluation.**
+  - Per patch (one per tile): gather with margins derived from reach, search and rank steps.
+  - Exact block pruning; hierarchical exact candidate lists per parent cell.
+  - Memos budgeted by contents. Tiles ~85–240 ms on CPU (web streams slowly; the GPU port is the fix).
+- **Measured** (`probe_realism`, seed 3, res 320, final surface):
+  - closed depressions **0.00%** in all boxes;
+  - mountain 90 m slopes 13.8–20° mean, p99 33–54°; lowland 2.1° mean;
+  - coherence 0.22–0.49;
+  - mean detail − macro ≈ 0 (`probe_hypsometry`).
+- **Refuted along the way:** smooth-min crease rounding (pits at every confluence); the triangle-split as display interpolant (facets); the nearest-parent attach (buried children, mesas); per-piece fade ramps (pits).
 
 ### Artifacts found and fixed (keep these in mind)
 
@@ -92,6 +112,6 @@ Water depth on oceanic crust = GDH1 age–depth (Stein & Stein 1992) − dynamic
 
 ## Known limits
 
-- **Hydrological consistency of detail:** hills and gullies follow local slopes, but between 5 and 30 km they aren't routed against the macro network, so closed depressions can exist in the detail. Rivers drawn on the layer come from the macro graph.
-- **Cost:** about 40 ms per 65² tile at deep levels on the CPU, so the web build streams slowly. The GPU port (M1b) is the fix: WGSL with a 3D integer lattice.
+- **Hydrological consistency of detail:** solved by the drained detail network (§3). The old fallback detail still dams.
+- **Cost:** network tiles cost ~85–240 ms per 65² tile on the CPU, so the web build streams slowly. The GPU port (M1b) is the fix; the per-patch segment buffers port directly.
 - **Peaks:** detail can add 1–1.5 km on top of the highest macro peaks (max about 9–10 km against Earth's 8.8).
