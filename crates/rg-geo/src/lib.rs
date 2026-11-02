@@ -7,6 +7,7 @@
 
 pub mod cube;
 pub mod field;
+pub mod lattice;
 pub mod ellipsoid;
 
 pub use cube::{CubeFace, TileId};
