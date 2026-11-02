@@ -24,6 +24,7 @@ pub use tile::{tile_indices, TileData, TileGenerator, TILE_CELLS};
 
 use glam::DVec3;
 use rg_geo::CubeField;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Version of the detail function. Bump on any change that alters heights; stored sculpt
@@ -53,6 +54,12 @@ pub struct TerrainSampler {
     slope_gain: f64,
     /// Finest wavelength ever generated (m).
     floor_wavelength_m: f64,
+    /// The drained detail network, when the world has hydrology at macro resolution. It
+    /// replaces hills, gullies and river corridors (`docs/design/drained-detail-network.md`).
+    pub net: Option<detail_net::DetailNet>,
+    /// Patches of the network, shared by clones (tiles on worker threads, probes). Keyed by
+    /// (block cell, cells per face, band-limit bits). Only a cache.
+    patches: Arc<std::sync::Mutex<HashMap<(rg_geo::lattice::Cell, u32, u64), Arc<detail_net::Patch>>>>,
 }
 
 
@@ -76,7 +83,43 @@ impl TerrainSampler {
             hill_slope: tune("RG_HILL_SLOPE", HILL_SLOPE),
             gully_strength: tune("RG_GULLY_STRENGTH", GULLY_STRENGTH),
             floor_wavelength_m: 12.0,
+            net: None,
+            patches: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Use the drained detail network for everything above sea level.
+    pub fn with_network(mut self, net: detail_net::DetailNet) -> Self {
+        self.net = Some(net);
+        self
+    }
+
+    /// Network heights at (this, parent, child) band-limits via a cached patch. A patch
+    /// covers a block of about 32 cut-offs (one tile's extent at that level of detail).
+    fn net_levels(&self, net: &detail_net::DetailNet, dir: DVec3, min_wavelength_m: f64) -> HeightLevels {
+        let cutoff = min_wavelength_m.max(self.floor_wavelength_m);
+        let block_m = (32.0 * cutoff).max(2000.0);
+        let n = ((std::f64::consts::FRAC_PI_2 * self.radius_m / block_m).round() as u32).max(1);
+        let cell = rg_geo::lattice::cell_of(dir, n);
+        let key = (cell, n, cutoff.to_bits());
+        let cached = self.patches.lock().ok().and_then(|m| m.get(&key).cloned());
+        let patch = match cached {
+            Some(p) => p,
+            None => {
+                let centre = rg_geo::lattice::centre(cell, n);
+                // Cells are up to ~1.4 blocks across near face corners; cover the whole cell.
+                let p = Arc::new(net.patch(centre, block_m, cutoff));
+                if let Ok(mut m) = self.patches.lock() {
+                    if m.len() > 512 {
+                        m.clear();
+                    }
+                    m.insert(key, p.clone());
+                }
+                p
+            }
+        };
+        let [h, hp, hc] = patch.heights(dir);
+        HeightLevels { macro_h: self.macro_height(dir), h, h_parent: hp, h_child: hc }
     }
 
     /// Attach the macro drainage-area field so rivers carve corridors through the detail.
@@ -117,6 +160,9 @@ impl TerrainSampler {
     /// - `h_parent`: the parent level (≥ 2 × that), used to morph tiles in without popping,
     /// - `h_child`: the child level (≥ ½ × that), used to measure this tile's error.
     pub fn levels(&self, dir: DVec3, min_wavelength_m: f64) -> HeightLevels {
+        if let Some(net) = &self.net {
+            return self.net_levels(net, dir, min_wavelength_m);
+        }
         let m = self.macro_height(dir);
         if m <= 0.0 {
             return HeightLevels { macro_h: m, h: m, h_parent: m, h_child: m };
@@ -135,6 +181,9 @@ impl TerrainSampler {
     /// As [`Self::levels`], with the slope (3D tangent gradient, m/m) of the base surface
     /// supplied by the caller.
     pub fn levels_with_slope(&self, dir: DVec3, min_wavelength_m: f64, grad3: DVec3) -> HeightLevels {
+        if let Some(net) = &self.net {
+            return self.net_levels(net, dir, min_wavelength_m);
+        }
         let m = self.macro_height(dir);
         // Oceans render flat at sea level, so skip detail there entirely (~70% of the
         // planet). The coast fade below makes this continuous at m = 0.

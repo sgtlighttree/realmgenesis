@@ -49,6 +49,8 @@ const FINEST_M: f64 = 80.0;
 /// A junction moves downstream along its parent by this share of the attach distance, so
 /// tributaries meet at ~60° instead of 90°.
 const JUNCTION_SHIFT: f64 = 0.5;
+/// Floodplain width per √(km²) of drainage (see `floor_width`), m.
+const FLOOR_M_PER_SQRT_KM2: f64 = 30.0;
 /// Macro height above which the ridge allowance stops growing, m.
 const RIDGE_FULL_M: f64 = 3000.0;
 /// Ridge allowance per metre of macro height (see `DetailNet::ridge`).
@@ -101,11 +103,15 @@ impl Channel {
         self.z_down
     }
 
-    /// The wedge at distance `d`, parameter `t`, faded in by `phi` (1 = fully present).
-    /// Every term is strictly increasing in `d` and in `t`, at any `phi`.
+    /// The wedge at distance `d`, parameter `t`, faded in by `phi` (1 = fully present), with
+    /// the valley floor at least `min_floor` wide (band-limiting: a level of detail can't
+    /// show a floor narrower than it resolves, and sampling a sharper V makes grid pits).
+    /// Every term is strictly increasing in `d` and in `t`, at any `phi`; `min_floor` is
+    /// fixed per evaluation, so each wedge's shape is fixed as the proof requires.
     #[inline]
-    fn wedge(&self, d: f64, t: f64, phi: f64) -> f64 {
-        let g = (d * d + self.floor * self.floor).sqrt() - self.floor;
+    fn wedge(&self, d: f64, t: f64, phi: f64, min_floor: f64) -> f64 {
+        let f = self.floor.max(min_floor);
+        let g = floor_hinge(d, f);
         let mut h = self.z_at(t) + (self.s_wall - self.s_top) * self.w * (g / self.w).tanh() + self.s_top * g;
         let over = d - self.reach;
         if over > 0.0 {
@@ -123,6 +129,32 @@ impl Channel {
 /// Granger 2009, "Beyond threshold hillslopes", Geology; θ_ref = 0.45).
 fn threshold_fraction(ksn: f64) -> f64 {
     1.0 - (-ksn / tune("RG_KSN_SAT", KSN_SATURATE)).exp()
+}
+
+/// Distance up the valley side: 0 on a flat floor (|d| ≤ f/2), a smooth quadratic hinge up
+/// to 1.5 f, then linear (C1 everywhere). Flat, not rounded: a rounded floor varies by metres
+/// across the thalweg, which made grid pits on gentle channels; on a flat floor the wedge is
+/// exactly the channel elevation, strictly decreasing downstream. Drainage holds because a
+/// parent's floor is never narrower than its child's (ℓ/8 grows with level; the band-limit
+/// minimum is shared), so a child's floor ends inside its parent's.
+#[inline]
+fn floor_hinge(d: f64, f: f64) -> f64 {
+    let (a, b) = (0.5 * f, 1.5 * f);
+    if d <= a {
+        0.0
+    } else if d < b {
+        (d - a) * (d - a) / (2.0 * (b - a))
+    } else {
+        d - f
+    }
+}
+
+/// Valley-floor width for a drainage area (km²), m: floodplain width grows like √A, because
+/// channel width grows like √Q (hydraulic geometry, Leopold & Maddock 1953) and Q ∝ A.
+/// 30 m·√(A/km²) is a calibration: ~300 m at 100 km², ~3 km at 10⁴ km², a few metres for
+/// first-order valleys (which are V-shaped). It grows with level, as drainage requires.
+fn floor_width(area_km2: f64) -> f64 {
+    FLOOR_M_PER_SQRT_KM2 * area_km2.max(0.0).sqrt()
 }
 
 /// Valley-wall gradient from k_sn.
@@ -222,8 +254,7 @@ impl DetailNet {
             }
         };
         let s_wall = wall_slope(ksn).max(0.002);
-        // Floodplain width grows like √A (hydraulic geometry); bounded to the cell.
-        let floor = (300.0 * (s.area_km2 / 1000.0).max(0.0).sqrt()).clamp(50.0, 0.25 * l0);
+        let floor = floor_width(s.area_km2.max(l0 * l0 * 1.0e-6)).min(0.25 * l0);
         Channel {
             level: 0,
             up: s.up,
@@ -309,7 +340,7 @@ impl DetailNet {
             s_wall,
             s_top: top_share(ksn) * s_wall,
             w,
-            floor: 0.125 * lk,
+            floor: floor_width(lk * lk * 1.0e-6),
             reach: 2.0 * lk,
             wall_k: 1.0e4 / (lk * lk),
         })
@@ -413,6 +444,8 @@ pub struct Patch {
     blocks: Vec<Vec<Channel>>,
     /// Presence of each level at the patch's band-limit and the two neighbouring LODs.
     presence: Vec<[f64; 3]>,
+    /// The three band-limits themselves, m (this, parent, child): minimum floor widths.
+    cutoffs: [f64; 3],
     net: Arc<CubeField<f32>>,
     ridge_alpha: f64,
 }
@@ -460,7 +493,7 @@ impl Patch {
         let presence = (0..binned.len())
             .map(|k| [dn.presence(k, cutoff_m), dn.presence(k, 2.0 * cutoff_m), dn.presence(k, 0.5 * cutoff_m)])
             .collect();
-        Self { center, east, north, radius_m, planet_r: pr, block_m, blocks_per_side, blocks, presence, net: dn.macro_net.height.clone(), ridge_alpha: dn.ridge_alpha }
+        Self { center, east, north, radius_m, planet_r: pr, block_m, blocks_per_side, blocks, presence, cutoffs: [cutoff_m, 2.0 * cutoff_m, 0.5 * cutoff_m], net: dn.macro_net.height.clone(), ridge_alpha: dn.ridge_alpha }
     }
 
     /// Heights at this patch's band-limit, its parent LOD (2× coarser) and child LOD
@@ -485,12 +518,34 @@ impl Patch {
             let pres = self.presence[ch.level as usize];
             for i in 0..3 {
                 if pres[i] > 0.0 {
-                    best[i] = best[i].min(ch.wedge(d, t, pres[i]));
+                    best[i] = best[i].min(ch.wedge(d, t, pres[i], self.cutoffs[i]));
                 }
             }
         }
         // Land stays land: every wedge is ≥ 0 (z ≥ 0 at sea) and the cap → 0 at the coast.
         best.map(|h| h.max(1.0e-3_f64.min(u)))
+    }
+
+    /// Diagnostics: the active term at `p` for the patch's own band-limit: `None` if the cap
+    /// is active, else (level, t along the channel from its junction, distance m).
+    pub fn active(&self, p: DVec3) -> Option<(u8, f64, f64)> {
+        let t0 = self.net.sample_tri(p);
+        let mut best = (t0 + self.ridge_alpha * t0.clamp(0.0, RIDGE_FULL_M), None);
+        let rel = p - self.center;
+        let (x, y) = (rel.dot(self.east) * self.planet_r, rel.dot(self.north) * self.planet_r);
+        let bx = (((x + self.radius_m) / self.block_m).floor().max(0.0) as usize).min(self.blocks_per_side - 1);
+        let by = (((y + self.radius_m) / self.block_m).floor().max(0.0) as usize).min(self.blocks_per_side - 1);
+        for ch in &self.blocks[by * self.blocks_per_side + bx] {
+            let (d, t) = ch.nearest(p, self.planet_r);
+            let pres = self.presence[ch.level as usize][0];
+            if pres > 0.0 {
+                let w = ch.wedge(d, t, pres, self.cutoffs[0]);
+                if w < best.0 {
+                    best = (w, Some((ch.level, t, d)));
+                }
+            }
+        }
+        best.1
     }
 
     pub fn channel_count(&self) -> usize {
@@ -541,4 +596,33 @@ fn tune(var: &str, default: f64) -> f64 {
     }
     let _ = var;
     default
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn floor_hinge_is_flat_then_c1() {
+        let f = 100.0;
+        assert_eq!(floor_hinge(0.0, f), 0.0);
+        assert_eq!(floor_hinge(50.0, f), 0.0);
+        let e = 1e-6;
+        for &x in &[50.0, 150.0] {
+            let left = (floor_hinge(x, f) - floor_hinge(x - e, f)) / e;
+            let right = (floor_hinge(x + e, f) - floor_hinge(x, f)) / e;
+            assert!((left - right).abs() < 1e-3, "kink at {x}: {left} vs {right}");
+        }
+        assert!((floor_hinge(400.0, f) - 300.0).abs() < 1e-9);
+        // Non-decreasing everywhere, strictly increasing past the floor.
+        let mut prev = -1.0;
+        for k in 0..1000 {
+            let v = floor_hinge(k as f64, f);
+            assert!(v >= prev);
+            if k > 50 {
+                assert!(v > prev);
+            }
+            prev = v;
+        }
+    }
 }

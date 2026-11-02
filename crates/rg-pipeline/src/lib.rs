@@ -108,13 +108,26 @@ pub fn generate(params: &WorldParams) -> World {
 /// The streamed-detail sampler for a world (macro heights + river corridors). Use this
 /// everywhere (app, tests, probes) so they all see the same surface.
 pub fn terrain_sampler(world: &World) -> rg_terrain::TerrainSampler {
-    let s = rg_terrain::TerrainSampler::new(
-        std::sync::Arc::new(world.tectonics.height_m.clone()),
-        world.params.tectonics.radius_m,
-        world.params.tectonics.seed,
+    let height = std::sync::Arc::new(world.tectonics.height_m.clone());
+    let s = rg_terrain::TerrainSampler::new(height.clone(), world.params.tectonics.radius_m, world.params.tectonics.seed);
+    let Some(h) = &world.hydrology else { return s };
+    let s = s.with_drainage(std::sync::Arc::new(h.drainage_km2.clone()));
+    // The drained detail network needs the hydrology at the macro resolution.
+    let mn = rg_terrain::network::MacroNet::new(
+        height,
+        std::sync::Arc::new(h.flow_dir.clone()),
+        std::sync::Arc::new(h.drainage_km2.clone()),
     );
-    match &world.hydrology {
-        Some(h) => s.with_drainage(std::sync::Arc::new(h.drainage_km2.clone())),
+    match mn {
+        Some(mn) => {
+            let mn = match &h.uplift_mm_yr {
+                Some(u) => mn.with_uplift(std::sync::Arc::new(u.clone())),
+                None => mn,
+            };
+            let net = rg_terrain::detail_net::DetailNet::new(mn, world.params.tectonics.radius_m, world.params.tectonics.seed)
+                .with_erodibility(world.params.erosion.k);
+            s.with_network(net)
+        }
         None => s,
     }
 }
