@@ -6,7 +6,9 @@
 //! - ECEF: +Z is the north pole, +X is (lat 0, lon 0), +Y is (lat 0, lon 90°E). Metres, f64.
 
 pub mod cube;
+pub mod field;
 pub mod ellipsoid;
 
 pub use cube::{CubeFace, TileId};
+pub use field::CubeField;
 pub use ellipsoid::Ellipsoid;
