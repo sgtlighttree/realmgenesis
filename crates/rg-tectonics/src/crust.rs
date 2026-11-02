@@ -135,12 +135,10 @@ pub fn build(grid: &Grid, p: &Params) -> Crust {
         (best + 0.42 * fbm(d, s_big, 1.4, 4, 0.55) + 0.33 * fbm(d, s_big.wrapping_add(50), 5.0, 3, 0.6)) as f32
     });
     // Fine part: coastline-scale detail, evaluated per node.
-    let value: Vec<f32> = (0..grid.n)
-        .map(|a| {
-            let d = grid.dir[a];
-            value_coarse[a] + (0.2 * fbm(d, s_fine, 14.0, 3, 0.6)) as f32
-        })
-        .collect();
+    let value: Vec<f32> = par_map(grid.n, |a| {
+        let d = grid.dir[a];
+        value_coarse[a] + (0.2 * fbm(d, s_fine, 14.0, 3, 0.6)) as f32
+    });
 
     let cont_target = (p.land_fraction as f64 * 1.4).clamp(0.05, 0.9);
     let thr = solve_threshold(&value, &grid.weight, cont_target);

@@ -14,8 +14,9 @@
 //!    rifts), a seafloor-age depth law, shelves, old eroded belts, and context-scaled noise.
 //! 4. Sea level: a vertical offset found by bisection so the land share matches the target.
 //!
-//! Everything is deterministic (same params, same bytes), single-threaded, and uses no
-//! platform clock, hash maps or threads, so it runs the same on wasm.
+//! Everything is deterministic (same params, same bytes) and uses no platform clock or hash
+//! maps. It uses threads only on native targets (see `util::par_map`),
+//! where they change the speed but never the result, so it runs the same on wasm.
 
 mod crust;
 mod grid;
@@ -53,7 +54,7 @@ impl Default for TectonicsParams {
     fn default() -> Self {
         Self {
             seed: 1,
-            res: 192,
+            res: 320,
             radius_m: 6_371_000.0,
             plate_count: 12,
             land_fraction: 0.29,
@@ -124,7 +125,7 @@ pub fn generate(p: &TectonicsParams) -> TectonicSnapshot {
 
     // Sea level: the offset at which `land_fraction` of the area is above water.
     let target = p.land_fraction.clamp(0.0, 1.0) as f64;
-    let offset = util::solve_threshold(&composed.raw, &grid.weight, target);
+    let offset = util::solve_threshold(&composed.raw(), &grid.weight, target);
     let height_node = relief::finish(&grid, p, &crust, &composed, offset);
     let achieved = grid.fraction(|a| height_node[a] > 0.0) as f32;
 

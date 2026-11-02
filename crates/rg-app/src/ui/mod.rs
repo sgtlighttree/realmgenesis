@@ -203,7 +203,8 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
 const DETAIL_PRESETS: [(&str, u32); 5] =
     [("Draft", 192), ("Normal", 320), ("High", 448), ("XHigh", 640), ("Ultra", 1024)];
 const DETAIL_MIN_RES: u32 = 32;
-const DETAIL_MAX_RES: u32 = 1536;
+// Capped at Ultra: res 1536 would need ~2.4 GB peak (measured 1.04 GB at 1024), over the M1 + wasm budget.
+const DETAIL_MAX_RES: u32 = 1024;
 
 /// Size of one grid cell in km for a given resolution and planet radius.
 fn cell_km(res: u32, radius_m: f64) -> f64 {
@@ -214,13 +215,13 @@ fn cell_km(res: u32, radius_m: f64) -> f64 {
 fn detail_picker(ui: &mut egui::Ui, res: &mut u32, radius_m: f64) {
     // Whether "Custom" is the chosen mode. It's kept in egui's temporary memory, because
     // a custom value can equal a preset's value and the buttons then look the same.
-    let mode_id = egui::Id::new("detail_custom_mode");
+    let mode_id = ui.make_persistent_id("detail_custom_mode");
     let mut custom = ui.data(|d| d.get_temp::<bool>(mode_id)).unwrap_or(false);
     ui.horizontal_wrapped(|ui| {
         ui.label("Detail");
-        for (label, res) in DETAIL_PRESETS {
-            if ui.selectable_label(!custom && *res == res, label).clicked() {
-                *res = res;
+        for (label, preset) in DETAIL_PRESETS {
+            if ui.selectable_label(!custom && *res == preset, label).clicked() {
+                *res = preset;
                 custom = false;
             }
         }
@@ -233,8 +234,8 @@ fn detail_picker(ui: &mut egui::Ui, res: &mut u32, radius_m: f64) {
         let mut km = cell_km(*res, radius_m);
         let slider = egui::Slider::new(&mut km, 5.0..=100.0).logarithmic(true).text("km / cell").max_decimals(0);
         if ui.add(slider).changed() {
-            let res = (std::f64::consts::FRAC_PI_2 * radius_m / 1000.0 / km).round();
-            *res = (res as u32).clamp(DETAIL_MIN_RES, DETAIL_MAX_RES);
+            let cells = (std::f64::consts::FRAC_PI_2 * radius_m / 1000.0 / km).round();
+            *res = (cells as u32).clamp(DETAIL_MIN_RES, DETAIL_MAX_RES);
         }
     }
     ui.data_mut(|d| d.insert_temp(mode_id, custom));

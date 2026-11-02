@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 rg-geo.workspace = true
+rg-noise.workspace = true
 rg-tectonics = { path = "../rg-tectonics" }
 rg-climate = { path = "../rg-climate" }
 rg-world = { path = "../rg-world" }

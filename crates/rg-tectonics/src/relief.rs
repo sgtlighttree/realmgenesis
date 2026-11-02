@@ -82,17 +82,22 @@ fn hotspot_chains(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Ve
 /// Everything `compose` computes, kept in layers so `finish` can rebuild the sea floor near
 /// the coast once the sea level (and therefore the coast) is known.
 pub struct Composed {
-    /// Height before the sea-level shift, metres. Good enough to decide land vs sea.
-    pub raw: Vec<f32>,
+    /// Per node: `[tect, det_land, det_sea, raw]`, all metres.
+    /// * `tect`: sum of the tectonic features (trench, arc, cordillera, ...).
+    /// * `det_land`, `det_sea`: detail noise in its "land" flavour and its "sea floor" flavour.
+    /// * `raw`: height before the sea-level shift. Good enough to decide land vs sea.
+    pub parts: Vec<[f32; 4]>,
     /// Oceanic basin height from the age-depth law (negative metres), for every node.
     pub basin: Vec<f32>,
-    /// Sum of the tectonic features (trench, arc, cordillera, ...), metres.
-    pub tect: Vec<f32>,
-    /// Detail noise in its "land" flavour and its "sea floor" flavour, metres.
-    pub det_land: Vec<f32>,
-    pub det_sea: Vec<f32>,
     /// Slowly varying 0..1 noise used to vary shelf widths.
     pub margin_w: Vec<f32>,
+}
+
+impl Composed {
+    /// The raw (pre sea level) heights as one array.
+    pub fn raw(&self) -> Vec<f32> {
+        self.parts.iter().map(|p| p[3]).collect()
+    }
 }
 
 pub fn compose(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Composed {
@@ -122,21 +127,27 @@ pub fn compose(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Compo
         }
     }
     let m_to_rad = |m: f64| (m / r) as f32;
-    let near_cc = grid.nearest_source(&cc, m_to_rad(1_900_000.0));
-    let near_sub = grid.nearest_source(&sub, m_to_rad(1_300_000.0));
-    let near_ridge = grid.nearest_source(&ridge, PI as f32);
-    let near_rift = grid.nearest_source(&rift, m_to_rad(600_000.0));
+    // Four independent searches; they run side by side on native targets.
+    let ((near_cc, near_sub), (near_ridge, near_rift)) = join(
+        || {
+            join(
+                || grid.nearest_source(&cc, m_to_rad(1_900_000.0)),
+                || grid.nearest_source(&sub, m_to_rad(1_300_000.0)),
+            )
+        },
+        || join(|| grid.nearest_source(&ridge, PI as f32), || grid.nearest_source(&rift, m_to_rad(600_000.0))),
+    );
 
     // --- smooth fields (coarse grid)
     let s_reg = salt(p.seed, STREAM_RELIEF);
-    let regional = grid.coarse_field(64, |d| fbm(d, s_reg, 2.0, 3, 0.5) as f32);
-    let old_belts = grid.coarse_field(64, |d| {
+    let regional = grid.coarse(64, |d| fbm(d, s_reg, 2.0, 3, 0.5) as f32);
+    let old_belts = grid.coarse(64, |d| {
         let q = d + warp3(d, s_reg.wrapping_add(9), 1.6, 2) * 0.25;
         ridged(q, s_reg.wrapping_add(1), 2.3, 3, 0.5) as f32
     });
-    let band_warp = grid.coarse_field(64, |d| fbm01(d, s_reg.wrapping_add(2), 5.0, 2) as f32);
-    let swell = grid.coarse_field(64, |d| fbm(d, s_reg.wrapping_add(3), 2.5, 3, 0.5) as f32);
-    let plateau_n = grid.coarse_field(64, |d| fbm(d, s_reg.wrapping_add(5), 3.2, 3, 0.5) as f32);
+    let band_warp = grid.coarse(64, |d| fbm01(d, s_reg.wrapping_add(2), 5.0, 2) as f32);
+    let swell = grid.coarse(64, |d| fbm(d, s_reg.wrapping_add(3), 2.5, 3, 0.5) as f32);
+    let plateau_n = grid.coarse(64, |d| fbm(d, s_reg.wrapping_add(5), 3.2, 3, 0.5) as f32);
     let margin_w = grid.coarse_field(64, |d| fbm01(d, s_reg.wrapping_add(4), 3.0, 2) as f32);
 
     // --- fine noise
@@ -149,15 +160,10 @@ pub fn compose(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Compo
     let half_pi = 0.0;
     let _ = half_pi;
     let seamounts = hotspot_chains(grid, p, crust, pm);
-    let mut raw = vec![0f32; n];
-    let mut basin_out = vec![0f32; n];
 
-    let mut tect_out = vec![0f32; n];
-    let mut det_land_out = vec![0f32; n];
-    let mut det_sea_out = vec![0f32; n];
     // Oceanic basin depth from seafloor age, everywhere. Where two ridges' influence zones
     // meet, the nearest-ridge distance has a crease; a few smoothing passes soften it.
-    for a in 0..n {
+    let mut basin_out: Vec<f32> = par_map(n, |a| {
         let age = if near_ridge.src[a] != u32::MAX {
             let src = near_ridge.src[a] as usize;
             let half_rate_km_myr = (speed[src] as f64 * 0.5).clamp(14.0, 55.0);
@@ -165,29 +171,29 @@ pub fn compose(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Compo
         } else {
             180.0
         };
-        basin_out[a] = -(gdh1_depth(age.min(180.0)) as f32 + 450.0 * swell[a]);
-    }
-    let mut scratch = basin_out.clone();
+        -(gdh1_depth(age.min(180.0)) as f32 + 450.0 * grid.lookup(&swell, a))
+    });
+    drop((speed, swell));
     for _ in 0..4 {
-        for a in 0..n {
+        basin_out = par_map(n, |a| {
             let nb = grid.neighbors(a);
             let sum: f32 = nb.iter().map(|&b| basin_out[b as usize]).sum();
-            scratch[a] = 0.5 * basin_out[a] + 0.5 * sum / nb.len() as f32;
-        }
-        std::mem::swap(&mut basin_out, &mut scratch);
+            0.5 * basin_out[a] + 0.5 * sum / nb.len() as f32
+        });
     }
 
-    for a in 0..n {
+    // The per-node work below depends only on read-only tables, so it runs in parallel.
+    let parts: Vec<[f32; 4]> = par_map(n, |a| {
         let d = grid.dir[a];
         let e = crust.edge_m[a] as f64;
         let cont = crust.cont[a];
-        let reg = regional[a] as f64;
-        let bw = 0.8 + 0.4 * band_warp[a] as f64;
+        let reg = grid.lookup(&regional, a) as f64;
+        let bw = 0.8 + 0.4 * grid.lookup(&band_warp, a) as f64;
 
         let basin = basin_out[a] as f64;
 
         // ---------- base
-        let mut h = if cont {
+        let h = if cont {
             let ease = smoothstep(0.0, 300_000.0, e);
             let interior = 1200.0 + 450.0 * reg + 500.0 * smoothstep(300_000.0, 1_600_000.0, e);
             -130.0 + interior * ease
@@ -259,7 +265,7 @@ pub fn compose(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Compo
         tect += hot * if cont { 0.15 } else { 1.0 };
 
         // Old, eroded belts: wide and lower than active ranges.
-        let belt = smoothstep(0.58, 0.9, old_belts[a] as f64) * smoothstep(0.0, 250_000.0, e);
+        let belt = smoothstep(0.58, 0.9, grid.lookup(&old_belts, a) as f64) * smoothstep(0.0, 250_000.0, e);
         tect += 1300.0 * mscale * belt;
         let belt_uplift = 0.5 * belt * mscale;
 
@@ -272,7 +278,7 @@ pub fn compose(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Compo
             let soft = fbm(d, s_det, 12.0, oct, 0.55);
             det_land = rough * 850.0 * soft * (0.3 + 0.7 * (1.0 - craton));
             // Tablelands with steep edges, and low rolling uplands.
-            let table = smoothstep(0.12, 0.3, plateau_n[a] as f64) * smoothstep(0.0, 300_000.0, e);
+            let table = smoothstep(0.12, 0.3, grid.lookup(&plateau_n, a) as f64) * smoothstep(0.0, 300_000.0, e);
             det_land += 650.0 * table * (1.0 - 0.5 * craton);
             det_land += rough * 450.0 * (ridged(d, s_det.wrapping_add(77), 5.0, oct - 1, 0.6) - 0.35)
                 * (1.0 - 0.6 * craton);
@@ -298,13 +304,9 @@ pub fn compose(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Compo
             det_sea = rough * amp * fbm(d, s_abyss, 14.0, oct, 0.6);
         }
 
-        tect_out[a] = tect as f32;
-        det_land_out[a] = det_land as f32;
-        det_sea_out[a] = det_sea as f32;
-        raw[a] = (h + tect + det_land + det_sea) as f32;
-        let _ = &mut h;
-    }
-    Composed { raw, basin: basin_out, tect: tect_out, det_land: det_land_out, det_sea: det_sea_out, margin_w }
+        [tect as f32, det_land as f32, det_sea as f32, (h + tect + det_land + det_sea) as f32]
+    });
+    Composed { parts, basin: basin_out, margin_w }
 }
 
 /// Shift by the sea level and rebuild the sea floor near coasts.
@@ -317,7 +319,7 @@ pub fn compose(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Compo
 pub fn finish(grid: &Grid, p: &Params, crust: &Crust, c: &Composed, offset: f32) -> Vec<f32> {
     let n = grid.n;
     let r = p.radius_m;
-    let h0: Vec<f32> = c.raw.iter().map(|h| h - offset).collect();
+    let h0: Vec<f32> = c.parts.iter().map(|p| p[3] - offset).collect();
     let mut coast: Vec<u32> = Vec::new();
     for a in 0..n {
         if h0[a] > 0.0 && grid.neighbors(a).iter().any(|&b| h0[b as usize] <= 0.0) {
@@ -326,8 +328,7 @@ pub fn finish(grid: &Grid, p: &Params, crust: &Crust, c: &Composed, offset: f32)
     }
     let near = grid.nearest_source(&coast, PI as f32);
     let half_cell = 0.5 * grid.spacing_rad() * r;
-    let mut out = vec![0f32; n];
-    for a in 0..n {
+    par_map(n, |a| {
         let mut h = h0[a] as f64;
         if h0[a] <= 0.0 {
             let dc = (near.dist_rad[a] as f64 * r - half_cell).max(0.0);
@@ -345,11 +346,11 @@ pub fn finish(grid: &Grid, p: &Params, crust: &Crust, c: &Composed, offset: f32)
                 lerp(130.0, basin_depth, t.powf(0.9))
             };
             let det = if crust.cont[a] {
-                0.3 * c.det_land[a] as f64
+                0.3 * c.parts[a][1] as f64
             } else {
-                c.det_sea[a] as f64 + 0.5 * c.det_land[a] as f64
+                c.parts[a][2] as f64 + 0.5 * c.parts[a][1] as f64
             };
-            h = (-depth + c.tect[a] as f64 + det).min(-1.0);
+            h = (-depth + c.parts[a][0] as f64 + det).min(-1.0);
         }
         // Soft limits so extremes stay Earth-like (peaks <~ 8.8 km, trenches >~ -11 km).
         if h > 3800.0 {
@@ -358,7 +359,6 @@ pub fn finish(grid: &Grid, p: &Params, crust: &Crust, c: &Composed, offset: f32)
         if h < -7000.0 {
             h = -7000.0 - 4000.0 * ((-7000.0 - h) / 4000.0).tanh();
         }
-        out[a] = h as f32;
-    }
-    out
+        h as f32
+    })
 }

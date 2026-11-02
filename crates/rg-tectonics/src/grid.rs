@@ -10,8 +10,8 @@
 
 use glam::DVec3;
 use rg_geo::{CubeFace, CubeField};
-use std::cmp::Reverse;
-use std::collections::BinaryHeap;
+use crate::util::par_map;
+
 
 pub struct Grid {
     /// Cells per cube-face edge (same meaning as `CubeField::res`).
@@ -25,8 +25,9 @@ pub struct Grid {
     /// CSR adjacency: neighbours of node `a` are `adj[adj_start[a]..adj_start[a + 1]]`.
     pub adj_start: Vec<u32>,
     pub adj: Vec<u32>,
-    /// Distance to each neighbour in `adj`, in radians of arc (unit sphere).
-    pub adj_len: Vec<f32>,
+    /// Shortest and longest edge in `adj`, radians of arc.
+    pub min_edge: f32,
+    pub max_edge: f32,
     /// For every `CubeField` sample index, the node it belongs to.
     pub sample_node: Vec<u32>,
     /// For every node, one representative `CubeField` sample index.
@@ -91,10 +92,13 @@ impl Grid {
         }
         let n = node_sample.len();
         let dir: Vec<DVec3> = node_sample.iter().map(|&s| sample_dir[s as usize]).collect();
+        drop(sample_dir);
+        drop(rep);
+        drop(edge_keys);
 
         // Area weights: solid angle element of the tangent-warped cube face, with trapezoid
         // end weights on the face edges so twin samples share their cell areas correctly.
-        let mut weight = vec![0f64; n];
+        let mut weight64 = vec![0f64; n];
         let quarter_pi = std::f64::consts::FRAC_PI_4;
         for face in CubeFace::ALL {
             for j in 0..=res {
@@ -105,12 +109,13 @@ impl Grid {
                     let w = (1.0 + x * x) * (1.0 + y * y) / (1.0 + x * x + y * y).powf(1.5);
                     let tw = |k: u32| if k == 0 || k == res { 0.5 } else { 1.0 };
                     let idx = probe.index(face, i, j);
-                    weight[sample_node[idx] as usize] += w * tw(i) * tw(j);
+                    weight64[sample_node[idx] as usize] += w * tw(i) * tw(j);
                 }
             }
         }
-        let wsum: f64 = weight.iter().sum();
-        let weight: Vec<f32> = weight.iter().map(|w| (w / wsum) as f32).collect();
+        let wsum: f64 = weight64.iter().sum();
+        let weight: Vec<f32> = weight64.iter().map(|w| (w / wsum) as f32).collect();
+        drop(weight64);
 
         // Adjacency. Each sample contributes its in-face neighbours to its node; nodes made of
         // several twin samples therefore collect neighbours from every face they touch.
@@ -150,29 +155,43 @@ impl Grid {
                 }
             }
         }
-        // Sort and de-duplicate each node's list (only twin-edge nodes have duplicates).
+        // Sort and de-duplicate each node's list (only twin-edge nodes have duplicates), moving
+        // the survivors to the front of the same buffer to avoid a second copy.
+        drop(fill);
+        drop(deg);
         let mut adj_start = vec![0u32; n + 1];
-        let mut adj: Vec<u32> = Vec::with_capacity(raw.len());
+        let mut w = 0usize;
         for a in 0..n {
-            let s = &mut raw[start[a] as usize..start[a + 1] as usize];
-            s.sort_unstable();
+            let (lo, hi) = (start[a] as usize, start[a + 1] as usize);
+            raw[lo..hi].sort_unstable();
             let mut last = u32::MAX;
-            for &b in s.iter() {
+            for i in lo..hi {
+                let b = raw[i];
                 if b != last && b as usize != a {
-                    adj.push(b);
+                    raw[w] = b;
+                    w += 1;
                     last = b;
                 }
             }
-            adj_start[a + 1] = adj.len() as u32;
+            adj_start[a + 1] = w as u32;
         }
-        let mut adj_len = Vec::with_capacity(adj.len());
-        for a in 0..n {
-            for &b in &adj[adj_start[a] as usize..adj_start[a + 1] as usize] {
-                adj_len.push((dir[a] - dir[b as usize]).length() as f32);
-            }
-        }
+        drop(start);
+        raw.truncate(w);
+        raw.shrink_to_fit();
+        let adj = raw;
 
-        Grid { res, n, dir, weight, adj_start, adj, adj_len, sample_node, node_sample }
+        // Shortest and longest edge (bounds for the search queues).
+        let edge_range = par_map(n, |a| {
+            let mut r = [f32::INFINITY, 0f32];
+            for &b in &adj[adj_start[a] as usize..adj_start[a + 1] as usize] {
+                let l = (dir[a] - dir[b as usize]).length() as f32;
+                r = [r[0].min(l), r[1].max(l)];
+            }
+            r
+        });
+        let min_edge = edge_range.iter().fold(f32::INFINITY, |m, r| m.min(r[0]));
+        let max_edge = edge_range.iter().fold(0f32, |m, r| m.max(r[1]));
+        Grid { res, n, dir, weight, adj_start, adj, min_edge, max_edge, sample_node, node_sample }
     }
 
     #[inline]
@@ -197,23 +216,38 @@ impl Grid {
     /// Evaluate `f(dir)` on a coarser cube grid and interpolate (bilinear in face coordinates)
     /// up to every node. Use this for smooth, low-frequency fields: it is much cheaper than
     /// evaluating noise at every node.
-    pub fn coarse_field(&self, coarse_res: u32, f: impl FnMut(DVec3) -> f32) -> Vec<f32> {
-        let coarse = CubeField::<f32>::from_fn(coarse_res, f);
-        let rc = coarse_res as f64;
-        (0..self.n)
-            .map(|node| {
-                let (face, i, j) = self.node_face_ij(node);
-                let x = i as f64 * rc / self.res as f64;
-                let y = j as f64 * rc / self.res as f64;
-                let i0 = (x.floor() as u32).min(coarse_res - 1);
-                let j0 = (y.floor() as u32).min(coarse_res - 1);
-                let (fx, fy) = ((x - i0 as f64) as f32, (y - j0 as f64) as f32);
-                let at = |ii: u32, jj: u32| coarse.data[coarse.index(face, ii, jj)];
-                let top = at(i0, j0) + (at(i0 + 1, j0) - at(i0, j0)) * fx;
-                let bot = at(i0, j0 + 1) + (at(i0 + 1, j0 + 1) - at(i0, j0 + 1)) * fx;
-                top + (bot - top) * fy
-            })
-            .collect()
+    pub fn coarse_field(&self, coarse_res: u32, f: impl Fn(DVec3) -> f32 + Sync) -> Vec<f32> {
+        let coarse = self.coarse(coarse_res, f);
+        par_map(self.n, |node| self.lookup(&coarse, node))
+    }
+
+    /// Only the coarse grid of [`Grid::coarse_field`]. Use [`Grid::lookup`] to read it at a
+    /// node. This saves memory when a field is needed in just one pass: no per-node array.
+    pub fn coarse(&self, coarse_res: u32, f: impl Fn(DVec3) -> f32 + Sync) -> CubeField<f32> {
+        let mut coarse = CubeField::<f32>::new(coarse_res);
+        let per = (coarse_res + 1) as usize;
+        let data = par_map(6 * per * per, |idx| {
+            let (face, r) = (CubeFace::ALL[idx / (per * per)], idx % (per * per));
+            f(coarse.sample_dir(face, (r % per) as u32, (r / per) as u32))
+        });
+        coarse.data = data;
+        coarse
+    }
+
+    /// Value of a coarse grid, interpolated bilinearly (in face coordinates) at a node.
+    #[inline]
+    pub fn lookup(&self, coarse: &CubeField<f32>, node: usize) -> f32 {
+        let rc = coarse.res as f64;
+        let (face, i, j) = self.node_face_ij(node);
+        let x = i as f64 * rc / self.res as f64;
+        let y = j as f64 * rc / self.res as f64;
+        let i0 = (x.floor() as u32).min(coarse.res - 1);
+        let j0 = (y.floor() as u32).min(coarse.res - 1);
+        let (fx, fy) = ((x - i0 as f64) as f32, (y - j0 as f64) as f32);
+        let at = |ii: u32, jj: u32| coarse.data[coarse.index(face, ii, jj)];
+        let top = at(i0, j0) + (at(i0 + 1, j0) - at(i0, j0)) * fx;
+        let bot = at(i0, j0 + 1) + (at(i0 + 1, j0 + 1) - at(i0, j0 + 1)) * fx;
+        top + (bot - top) * fy
     }
 
     /// Area-weighted fraction of nodes for which `pred` holds.
@@ -221,7 +255,7 @@ impl Grid {
         (0..self.n).filter(|&a| pred(a)).map(|a| self.weight[a] as f64).sum()
     }
 
-    /// Grow regions outward from `seeds` at once (multi-source Dijkstra). Several seeds may
+    /// Grow regions outward from `seeds` at once (multi-source shortest paths). Several seeds may
     /// belong to one region (`seed_region[i]`). Every node ends up with the region that
     /// reaches it cheapest. Stepping onto a node
     /// costs `edge length * cost[node] / speed[seed]`. Because every node inherits its parent's
@@ -239,30 +273,41 @@ impl Grid {
         stretch: &[f32],
         cost: &[f32],
     ) -> Vec<u16> {
+        // Bounds on one step's cost, to size the bucket queue.
+        let cost_min = cost.iter().copied().fold(f32::INFINITY, f32::min);
+        let cost_max = cost.iter().copied().fold(0.0, f32::max);
+        let speed_min = speed.iter().copied().fold(f32::INFINITY, f32::min);
+        let speed_max = speed.iter().copied().fold(0.0, f32::max);
+        let stretch_max = stretch.iter().copied().fold(0.0, f32::max);
+        let step_min = self.min_edge * cost_min / speed_max;
+        let step_max = self.max_edge * cost_max / speed_min * (1.0 + stretch_max);
+
         let mut best = vec![f32::INFINITY; self.n];
+        let mut done = Bits::new(self.n); // set once a node has been expanded with its current label
         let mut owner = vec![u16::MAX; self.n];
-        let mut heap: BinaryHeap<Reverse<u64>> = BinaryHeap::new();
+        let mut queue = BucketQueue::new(2.0 * step_min, step_max);
         for (&s, &k) in seeds.iter().zip(seed_region) {
             best[s as usize] = 0.0;
             owner[s as usize] = k;
-            heap.push(Reverse(pack(0.0, s)));
+            queue.push(0.0, s);
         }
-        while let Some(Reverse(item)) = heap.pop() {
-            let (d, a) = unpack(item);
+        while let Some(a) = queue.pop() {
             let a = a as usize;
-            if d > best[a] {
-                continue;
+            if done.test_and_set(a) {
+                continue; // already expanded with its current label
             }
+            let d = best[a];
             let k = owner[a] as usize;
             let (lo, hi) = (self.adj_start[a] as usize, self.adj_start[a + 1] as usize);
             for e in lo..hi {
                 let b = self.adj[e] as usize;
-                let mut step = self.adj_len[e] * 0.5 * (cost[a] + cost[b]) / speed[k];
+                let edge_len = (self.dir[b] - self.dir[a]).length() as f32;
+                let mut step = edge_len * 0.5 * (cost[a] + cost[b]) / speed[k];
                 if stretch[k] > 0.0 {
                     let t = axis[k].cross(self.dir[a]);
                     let tl = t.length();
                     if tl > 1e-6 {
-                        let along = ((self.dir[b] - self.dir[a]).dot(t) / (tl * self.adj_len[e] as f64)).abs();
+                        let along = ((self.dir[b] - self.dir[a]).dot(t) / (tl * edge_len as f64)).abs();
                         step *= 1.0 + stretch[k] * (1.0 - along as f32);
                     }
                 }
@@ -270,7 +315,8 @@ impl Grid {
                 if nd < best[b] {
                     best[b] = nd;
                     owner[b] = k as u16;
-                    heap.push(Reverse(pack(nd, b as u32)));
+                    done.clear(b);
+                    queue.push(nd, b as u32);
                 }
             }
         }
@@ -279,7 +325,7 @@ impl Grid {
 
     /// For every node, the nearest of `sources` and the true great-circle distance to it.
     ///
-    /// A plain graph Dijkstra would measure distance along grid lines and be up to ~8% off
+    /// A plain graph shortest-path would measure distance along grid lines and be up to ~8% off
     /// (diamond-shaped isolines). Instead we propagate "which source is nearest" through the
     /// graph, and measure the exact straight-line distance to that source. Nodes farther than
     /// `max_rad` from every source are left with `src = u32::MAX` and `dist = max_rad`.
@@ -289,17 +335,19 @@ impl Grid {
             (c * c * 1.0001 + 1e-6) as f32
         };
         let mut best = vec![f32::INFINITY; self.n]; // squared chord distance
+        let mut done = Bits::new(self.n);
         let mut src = vec![u32::MAX; self.n];
-        let mut heap: BinaryHeap<Reverse<u64>> = BinaryHeap::new();
+        // The queue is ordered by chord length (not squared): one edge changes it by at most
+        // the edge length.
+        let mut queue = BucketQueue::new(2.0 * self.min_edge, self.max_edge);
         for &s in sources {
             best[s as usize] = 0.0;
             src[s as usize] = s;
-            heap.push(Reverse(pack(0.0, s)));
+            queue.push(0.0, s);
         }
-        while let Some(Reverse(item)) = heap.pop() {
-            let (d, a) = unpack(item);
+        while let Some(a) = queue.pop() {
             let a = a as usize;
-            if d > best[a] {
+            if done.test_and_set(a) {
                 continue;
             }
             let s = src[a];
@@ -311,7 +359,8 @@ impl Grid {
                 if nd < best[b] && nd <= max_chord2 {
                     best[b] = nd;
                     src[b] = s;
-                    heap.push(Reverse(pack(nd, b as u32)));
+                    done.clear(b);
+                    queue.push(nd.sqrt(), b as u32);
                 }
             }
         }
@@ -323,22 +372,89 @@ impl Grid {
     }
 }
 
+/// A fixed-size set of bit flags.
+struct Bits(Vec<u64>);
+
+impl Bits {
+    fn new(n: usize) -> Self {
+        Bits(vec![0; n.div_ceil(64)])
+    }
+
+    /// Set bit `i`; returns whether it was already set.
+    #[inline]
+    fn test_and_set(&mut self, i: usize) -> bool {
+        let (w, m) = (i / 64, 1u64 << (i % 64));
+        let was = self.0[w] & m != 0;
+        self.0[w] |= m;
+        was
+    }
+
+    #[inline]
+    fn clear(&mut self, i: usize) {
+        self.0[i / 64] &= !(1u64 << (i % 64));
+    }
+}
+
+/// A priority queue that pops keys *approximately* in order: keys are cut into buckets of a
+/// fixed width, and inside one bucket the order is arbitrary. That is much faster than a
+/// binary heap on millions of nodes. It is only used for shortest-path style searches that
+/// re-expand a node whenever it gets a better label, so the final labels are the same as with
+/// an exact queue (up to ties); a small ordering error only costs a few repeated expansions.
+///
+/// `max_step` is the largest amount by which a newly pushed key can exceed the key of the
+/// entry being expanded. The buckets form a ring of just over `max_step / width` slots.
+struct BucketQueue {
+    inv_width: f32,
+    ring: Vec<Vec<u32>>,
+    /// Index (not wrapped) of the bucket being drained.
+    cur: usize,
+    len: usize,
+    /// Value of `cur` for which the slot has been sorted.
+    sorted_for: usize,
+}
+
+impl BucketQueue {
+    fn new(width: f32, max_step: f32) -> Self {
+        let slots = (max_step / width).ceil() as usize + 3;
+        Self { inv_width: 1.0 / width, ring: vec![Vec::new(); slots], cur: 0, len: 0, sorted_for: usize::MAX }
+    }
+
+    fn push(&mut self, key: f32, node: u32) {
+        // Keys below the current bucket (rounding, or a source that gets closer) are
+        // processed right away.
+        let k = ((key * self.inv_width) as usize).max(self.cur);
+        debug_assert!(k - self.cur < self.ring.len(), "key too far ahead");
+        let slot = k % self.ring.len();
+        self.ring[slot].push(node);
+        self.len += 1;
+    }
+
+    fn pop(&mut self) -> Option<u32> {
+        while self.len > 0 {
+            let slot = self.cur % self.ring.len();
+            if self.sorted_for != self.cur {
+                // Handle a bucket in node order (descending, since we pop from the back):
+                // neighbouring nodes are then expanded one after another, which keeps
+                // the memory accesses local.
+                self.ring[slot].sort_unstable_by(|a, b| b.cmp(a));
+                self.sorted_for = self.cur;
+            }
+            if let Some(node) = self.ring[slot].pop() {
+                self.len -= 1;
+                return Some(node);
+            }
+            self.cur += 1;
+        }
+        None
+    }
+}
+
 /// Result of [`Grid::nearest_source`].
 pub struct Nearest {
     /// Distance to the nearest source, radians of arc.
     pub dist_rad: Vec<f32>,
     /// Node index of that source, or `u32::MAX` when out of range.
     pub src: Vec<u32>,
-}
-
-#[inline]
-fn pack(key: f32, node: u32) -> u64 {
-    ((key.to_bits() as u64) << 32) | node as u64
-}
-
-#[inline]
-fn unpack(item: u64) -> (f32, u32) {
-    (f32::from_bits((item >> 32) as u32), item as u32)
 }
 
 #[cfg(test)]

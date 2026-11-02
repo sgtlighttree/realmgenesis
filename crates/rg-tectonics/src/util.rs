@@ -81,3 +81,74 @@ pub fn solve_threshold(values: &[f32], weights: &[f32], target_above: f64) -> f3
     }
     best.1
 }
+
+/// `(0..n).map(f).collect()`, spread over threads on native targets.
+///
+/// `f(i)` must depend only on `i` (and shared, read-only data). Then the result is exactly the
+/// same Vec whatever the thread count, so generation stays deterministic. On wasm32 (no
+/// threads in the web build) and for small `n` this is a plain sequential loop.
+pub fn par_map<T, F>(n: usize, f: F) -> Vec<T>
+where
+    T: Send + Default + Clone,
+    F: Fn(usize) -> T + Sync,
+{
+    let mut out = vec![T::default(); n];
+    par_fill(&mut out, &f);
+    out
+}
+
+#[cfg(target_arch = "wasm32")]
+fn par_fill<T, F: Fn(usize) -> T>(out: &mut [T], f: &F) {
+    for (i, o) in out.iter_mut().enumerate() {
+        *o = f(i);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn par_fill<T: Send, F: Fn(usize) -> T + Sync>(out: &mut [T], f: &F) {
+    // Work is handed out in small blocks (land and sea nodes cost different amounts, so a
+    // fixed split per thread would leave some threads idle).
+    const BLOCK: usize = 2048;
+    let threads = std::thread::available_parallelism().map_or(1, |t| t.get()).min(16);
+    if threads == 1 || out.len() < 4 * BLOCK {
+        for (i, o) in out.iter_mut().enumerate() {
+            *o = f(i);
+        }
+        return;
+    }
+    let blocks = std::sync::Mutex::new(out.chunks_mut(BLOCK).enumerate());
+    std::thread::scope(|s| {
+        for _ in 0..threads {
+            s.spawn(|| {
+                loop {
+                    let next = blocks.lock().unwrap().next();
+                    let Some((b, chunk)) = next else { break };
+                    for (k, o) in chunk.iter_mut().enumerate() {
+                        *o = f(b * BLOCK + k);
+                    }
+                }
+            });
+        }
+    });
+}
+
+/// Run two independent jobs at the same time (native) or one after the other (wasm32).
+/// The result is the same either way.
+pub fn join<A, B>(fa: impl FnOnce() -> A + Send, fb: impl FnOnce() -> B + Send) -> (A, B)
+where
+    A: Send,
+    B: Send,
+{
+    #[cfg(target_arch = "wasm32")]
+    {
+        (fa(), fb())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::thread::scope(|s| {
+            let hb = s.spawn(fb);
+            let a = fa();
+            (a, hb.join().expect("worker thread panicked"))
+        })
+    }
+}
