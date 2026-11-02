@@ -40,12 +40,14 @@ pub struct MacroNet {
     pub area_km2: Arc<CubeField<f32>>,
     /// Rock uplift rate (mm/yr), same resolution, if stored (world schema ≥ 4).
     pub uplift_mm_yr: Option<Arc<CubeField<f32>>>,
+    /// Lake water depth over the bed (m), same resolution, if the world has lakes.
+    pub lake_depth_m: Option<Arc<CubeField<f32>>>,
 }
 
 impl MacroNet {
     /// `None` if the fields don't share a resolution.
     pub fn new(height: Arc<CubeField<f32>>, flow_dir: Arc<CubeField<[f32; 3]>>, area_km2: Arc<CubeField<f32>>) -> Option<Self> {
-        (height.res == flow_dir.res && height.res == area_km2.res).then_some(Self { height, flow_dir, area_km2, uplift_mm_yr: None })
+        (height.res == flow_dir.res && height.res == area_km2.res).then_some(Self { height, flow_dir, area_km2, uplift_mm_yr: None, lake_depth_m: None })
     }
 
     /// Attach the uplift field (ignored if its resolution differs).
@@ -54,6 +56,21 @@ impl MacroNet {
             self.uplift_mm_yr = Some(u);
         }
         self
+    }
+
+    /// Attach lake depths (ignored if the resolution differs).
+    pub fn with_lakes(mut self, d: Arc<CubeField<f32>>) -> Self {
+        if d.res == self.height.res {
+            self.lake_depth_m = Some(d);
+        }
+        self
+    }
+
+    /// Water surface at a node: the bed plus any lake depth (rivers end at a lake's surface,
+    /// a sink exactly like the sea).
+    pub fn surface_at(&self, n: Node) -> f64 {
+        let d = self.lake_depth_m.as_ref().map_or(0.0, |f| f.data[f.index(n.face, n.i, n.j)] as f64);
+        self.height_at(n) + d.max(0.0)
     }
 
     pub fn uplift_at(&self, n: Node) -> Option<f64> {

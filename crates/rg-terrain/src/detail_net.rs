@@ -85,6 +85,27 @@ const WALL_LEN: f64 = 1.5;
 const REACH_TOTAL: f64 = 2.0 + WALL_LEN;
 /// Hack's exponent (L ∝ A^h, h ≈ 0.57; Hack 1957), for the along-channel area decline.
 const HACK_H: f64 = 0.57;
+/// Lake depth (m) at a node above which it counts as under a lake.
+const LAKE_MIN_DEPTH_M: f64 = 0.5;
+
+/// The water level of a lake whose nodes include a corner of the macro cell around `p`
+/// (the highest such level), if any.
+fn lake_level_near(h: &CubeField<f32>, depth: &CubeField<f32>, p: DVec3) -> Option<f64> {
+    let (face, u, v) = CubeFace::from_dir(p);
+    let r = h.res as f64;
+    let (x, y) = (((u + 1.0) * 0.5 * r).clamp(0.0, r), ((v + 1.0) * 0.5 * r).clamp(0.0, r));
+    let (i0, j0) = ((x.floor() as u32).min(h.res - 1), (y.floor() as u32).min(h.res - 1));
+    let mut level: Option<f64> = None;
+    for (di, dj) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+        let k = h.index(face, i0 + di, j0 + dj);
+        let d = depth.data[k] as f64;
+        if d > LAKE_MIN_DEPTH_M {
+            let l = h.data[k] as f64 + d;
+            level = Some(level.map_or(l, |m: f64| m.max(l)));
+        }
+    }
+    level
+}
 /// Pieces per child channel (meander).
 const CHILD_PIECES: usize = 3;
 /// Pieces per curved level-0 edge.
@@ -842,6 +863,7 @@ pub struct Patch {
     cutoffs: [f64; 3],
     net: Arc<CubeField<f32>>,
     ridge_alpha: f64,
+    lake_depth: Option<Arc<CubeField<f32>>>,
 }
 
 impl Patch {
@@ -918,7 +940,7 @@ impl Patch {
                 list.sort_by(|a, c| a.z_min().total_cmp(&c.z_min()));
             }
         }
-        Self { center, east, north, radius_m, planet_r: pr, block_m, blocks_per_side, blocks, cutoffs, net: dn.macro_net.height.clone(), ridge_alpha: dn.ridge_alpha }
+        Self { center, east, north, radius_m, planet_r: pr, block_m, blocks_per_side, blocks, cutoffs, net: dn.macro_net.height.clone(), ridge_alpha: dn.ridge_alpha, lake_depth: dn.macro_net.lake_depth_m.clone() }
     }
 
     /// Heights at this patch's band-limit, its parent LOD (2× coarser) and child LOD
@@ -948,7 +970,18 @@ impl Patch {
             }
         }
         // Land stays land: every wedge is ≥ 0 (z ≥ 0 at sea) and the cap → 0 at the coast.
-        best.map(|h| h.max(1.0e-3_f64.min(u)))
+        let mut out = best.map(|h| h.max(1.0e-3_f64.min(u)));
+        // Lakes: the water surface is flat at the lake's level (bed + depth at its nodes).
+        // Near lake nodes (the cell's corners), water shows wherever the terrain is below that
+        // level, so shorelines follow the terrain's own contours.
+        if let Some(ld) = &self.lake_depth {
+            // Only inside the lake's macro footprint (bed below the level), so the shoreline
+            // follows the bed's contour rather than cell edges.
+            if let Some(level) = lake_level_near(&self.net, ld, p).filter(|&l| self.net.sample_tri(p) < l) {
+                out = out.map(|h| h.max(level));
+            }
+        }
+        out
     }
 
     /// Diagnostics: true where the active wedge is inside its reach wall (d > reach), the
@@ -1064,8 +1097,8 @@ impl MacroNet {
         let (p1, p2) = (self.dir(n), self.dir(m));
         let p0 = self.main_donor(n).map_or(p1 * 2.0 - p2, |d| self.dir(d));
         let p3 = self.receiver(m).map_or(p2 * 2.0 - p1, |r| self.dir(r));
-        let z_up = self.height_at(n);
-        let z_down = self.height_at(m).max(0.0);
+        let z_up = self.surface_at(n);
+        let z_down = self.surface_at(m).max(0.0);
         let area_km2 = self.area_km2.data[self.height.index(n.face, n.i, n.j)] as f64;
         let uplift = self.uplift_at(n);
         // Centripetal knots (α = 0.5): no cusps or self-intersections.
@@ -1097,7 +1130,9 @@ impl MacroNet {
             }
             let z = z_up + (z_down - z_up) * f;
             let tq = self.height.sample_tri(*q);
-            if tq < z + 1.0 {
+            // The bed must stay below the macro surface there (else the river vanishes under
+            // the cap); allow it to graze it within a few metres.
+            if tq + 5.0 < z {
                 straight = true;
             }
         }

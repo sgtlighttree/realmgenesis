@@ -46,6 +46,9 @@ pub struct ErosionStats {
     /// Volume added by Priority-Flood filling ÷ volume eroded over the run: the "sediment
     /// from nowhere" mass leak of filling the rock surface each step (s01 advisor).
     pub fill_to_erosion: f64,
+    /// Share of land whose water ends in a closed lake (Earth ~20%), and share under lakes.
+    pub endorheic_fraction: f64,
+    pub lake_fraction: f64,
     pub grid_res: u32,
     /// True if uplift came from plate boundaries/motions, false if from the elevation fallback.
     pub uplift_from_tectonics: bool,
@@ -180,6 +183,8 @@ pub(crate) fn measure(
         fill_steps,
         amplitude_scale: scale,
         fill_to_erosion: 0.0,
+        endorheic_fraction: 0.0,
+        lake_fraction: 0.0,
         grid_res: grid.res,
         uplift_from_tectonics: false,
         mass_balance_error: 0.0,

@@ -86,8 +86,14 @@ pub fn generate(params: &WorldParams) -> World {
         // Climate feeds erosion: a first tier-A pass on the tectonic surface gives annual
         // precipitation; rivers carve with precipitation-weighted drainage (a discharge
         // proxy), so rain shadows and deserts erode less. Climate is rerun on the result.
-        let runoff = relative_runoff(&params.planet, &tectonics);
-        let r = rg_erosion::erode_with_runoff(&tectonics, params.tectonics.radius_m, &ep, Some(&runoff));
+        let (_, climate0, _) = run_climate(&params.planet, &tectonics);
+        let wb = water_balance(&params.planet, &climate0, &tectonics.height_m);
+        let mean = wb.mean_land_runoff_mm.max(1.0) as f32;
+        let runoff = CubeField { res: wb.runoff_mm.res, data: wb.runoff_mm.data.iter().map(|v| v / mean).collect() };
+        // Lakes and closed basins from the water balance: open-water net evaporation ≈ PET − P.
+        let net_evap = CubeField { res: wb.pet_mm.res, data: wb.pet_mm.data.iter().zip(&wb.precip_mm.data).map(|(e, p)| e - p).collect() };
+        let lakes = ep.lakes.then_some((&wb.runoff_mm, &net_evap));
+        let r = rg_erosion::erode_climate(&tectonics, params.tectonics.radius_m, &ep, Some(&runoff), lakes);
         tectonics.height_m = r.height_m;
         Hydrology {
             drainage_km2: r.drainage_km2,
@@ -131,6 +137,7 @@ pub fn terrain_sampler(world: &World) -> rg_terrain::TerrainSampler {
                 Some(u) => mn.with_uplift(std::sync::Arc::new(u.clone())),
                 None => mn,
             };
+            let mn = if world.params.erosion.lakes { mn.with_lakes(std::sync::Arc::new(h.lake_depth_m.clone())) } else { mn };
             let net = rg_terrain::detail_net::DetailNet::new(mn, world.params.tectonics.radius_m, world.params.tectonics.seed)
                 // Linear calibration scales slopes by one factor: the committed surface's
                 // steepness is factor·U/K, i.e. an effective K of K/factor.

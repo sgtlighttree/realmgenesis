@@ -94,6 +94,8 @@ pub struct ErosionParams {
     /// U_eff = U·(1 − h/limit). Lithospheric strength caps plateau elevation (Earth's highest
     /// plateaus ~5 km); 0 disables.
     pub elevation_limit_m: f64,
+    /// Lakes and closed (endorheic) basins from the water balance (needs climate inputs).
+    pub lakes: bool,
 }
 
 impl Default for ErosionParams {
@@ -122,6 +124,7 @@ impl Default for ErosionParams {
             hypsometry_scale: 1.0,
             linear_mean_m: 656.0,
             elevation_limit_m: 7000.0,
+            lakes: true,
         }
     }
 }
@@ -309,6 +312,33 @@ pub fn implicit_step_varying(c: &Column, h: &mut [f64], k: impl Fn(usize) -> f64
     b
 }
 
+/// As [`implicit_step_varying`], with base-level nodes held at `base_h` (0 for the ocean,
+/// the water level for lakes) instead of 0, and base nodes uplifted but never eroded.
+fn implicit_step_based(c: &Column, h: &mut [f64], k: impl Fn(usize) -> f64, m: f64, dt: f64, base_h: &[f64]) -> MassBudget {
+    let mut b = MassBudget::default();
+    for &i in c.stack {
+        let i = i as usize;
+        if c.base[i] {
+            continue;
+        }
+        let r = c.receiver[i] as usize;
+        let hr = if c.base[r] { base_h[r] } else { h[r] };
+        let f = k(i) * dt * c.drainage_m2[i].powf(m) / c.length_m[i].max(1.0);
+        let new = (h[i] + c.uplift_m_yr[i] * dt + f * hr) / (1.0 + f);
+        b.uplift_m3 += c.uplift_m_yr[i] * dt * c.cell_area_m2[i];
+        b.eroded_m3 += f * (new - hr) * c.cell_area_m2[i];
+        h[i] = new;
+    }
+    b
+}
+
+/// Water inputs for lakes inside the solve: per node runoff and open-water net evaporation
+/// (E − P), m/yr.
+pub struct LakeInputs<'a> {
+    pub runoff_m_yr: &'a [f64],
+    pub net_evap_m_yr: &'a [f64],
+}
+
 /// What [`solve`] leaves behind.
 pub struct Solved {
     /// The drainage network of the last step (receivers, stack, areas).
@@ -317,6 +347,8 @@ pub struct Solved {
     pub budget: MassBudget,
     /// How many steps needed a Priority-Flood fill.
     pub filled_steps: u32,
+    /// Lakes at the end of the run (with lake inputs).
+    pub lakes: Option<crate::lakes::Lakes>,
 }
 
 /// Run `p.steps` implicit steps of duration `p.duration_myr / p.steps` on `h` (metres, with
@@ -335,7 +367,7 @@ pub fn solve_with_k(
     k: &[f64],
     p: &ErosionParams,
 ) -> Solved {
-    solve_full(grid, radius_m, h, ocean, uplift_m_yr, k, None, None, p)
+    solve_full(grid, radius_m, h, ocean, uplift_m_yr, k, None, None, None, p)
 }
 
 /// As [`solve_with_k`], with per-node relative runoff (1 = the land mean): the stream-power
@@ -351,6 +383,7 @@ pub fn solve_full(
     k: &[f64],
     runoff: Option<&[f64]>,
     elevation_limit_m: Option<f64>,
+    lake_in: Option<&LakeInputs>,
     p: &ErosionParams,
 ) -> Solved {
     let n = grid.n;
@@ -366,19 +399,45 @@ pub fn solve_full(
     let steps = p.steps.max(1);
     let dt = p.duration_myr * 1.0e6 / steps as f64;
     let mut length = vec![0.0f64; n];
+    let mut lakes_now: Option<crate::lakes::Lakes> = None;
     for step in 0..steps {
-        // 1. Receivers (fill pits first if there are any, and always on step 0).
-        if step == 0 || net.route(grid, h, ocean) > 0 {
-            let before = h.to_vec();
-            priority_flood_fill(grid, h, ocean);
-            budget.filled_m3 += (0..n).filter(|&i| !ocean[i]).map(|i| (h[i] - before[i]) * cell_area[i]).sum::<f64>();
-            filled_steps += 1;
-            let pits = net.route(grid, h, ocean);
-            debug_assert_eq!(pits, 0, "filled surface must drain everywhere");
+        // Base level: the ocean, plus lake water surfaces when lakes are on. With lakes the
+        // rock is never filled (no "sediment from nowhere"); routing uses a filled copy with
+        // closed lakes as outlets, so all water reaches the sea or a closed lake.
+        let (sink, base, base_h, route_h): (Vec<bool>, Vec<bool>, Vec<f64>, Option<Vec<f64>>) = match lake_in {
+            Some(li) => {
+                let lk = crate::lakes::compute(grid, h, ocean, li.runoff_m_yr, li.net_evap_m_yr, &cell_area);
+                let sub: Vec<bool> = (0..n).map(|i| !ocean[i] && lk.level[i] > h[i]).collect();
+                let sink: Vec<bool> = (0..n).map(|i| ocean[i] || lk.closed_lake[i]).collect();
+                let base: Vec<bool> = (0..n).map(|i| ocean[i] || sub[i]).collect();
+                let base_h: Vec<f64> = (0..n).map(|i| if sub[i] { lk.level[i] } else { 0.0 }).collect();
+                let mut f: Vec<f64> = (0..n).map(|i| if sub[i] { lk.level[i] } else { h[i] }).collect();
+                priority_flood_fill_to(grid, &mut f, &sink, Some(&base_h));
+                lakes_now = Some(lk);
+                (sink, base, base_h, Some(f))
+            }
+            None => (ocean.to_vec(), ocean.to_vec(), vec![0.0; n], None),
+        };
+        // 1. Receivers (without lakes: fill pits first if there are any, and always on step 0).
+        match &route_h {
+            Some(f) => {
+                net.route(grid, f, &sink);
+            }
+            None => {
+                if step == 0 || net.route(grid, h, ocean) > 0 {
+                    let before = h.to_vec();
+                    priority_flood_fill(grid, h, ocean);
+                    budget.filled_m3 += (0..n).filter(|&i| !ocean[i]).map(|i| (h[i] - before[i]) * cell_area[i]).sum::<f64>();
+                    filled_steps += 1;
+                    let pits = net.route(grid, h, ocean);
+                    debug_assert_eq!(pits, 0, "filled surface must drain everywhere");
+                }
+            }
         }
-        // 2–3. Stack and drainage area (runoff-weighted when climate is given).
+        // 2–3. Stack and drainage area (runoff-weighted when climate is given). Closed
+        // lakes absorb their inflow; open lakes pass it on to their outlet.
         net.build_stack();
-        net.accumulate(&wet_area, ocean);
+        net.accumulate(&wet_area, &sink);
         // 4. Implicit stream-power incision with uplift.
         for (i, l) in length.iter_mut().enumerate() {
             *l = (grid.dir[i] - grid.dir[net.receiver[i] as usize]).length() * radius_m;
@@ -400,12 +459,21 @@ pub fn solve_full(
             drainage_m2: &net.area,
             length_m: &length,
             uplift_m_yr: uplift_now,
-            base: ocean,
+            base: &base,
             cell_area_m2: &cell_area,
         };
-        budget.add(implicit_step_varying(&col, h, |i| k[i], p.m, dt));
+        if lake_in.is_some() {
+            budget.add(implicit_step_based(&col, h, |i| k[i], p.m, dt, &base_h));
+            // Lake beds still rise with the rock (but don't erode).
+            for i in (0..n).filter(|&i| base[i] && !ocean[i]) {
+                h[i] += uplift_now[i] * dt;
+                budget.uplift_m3 += uplift_now[i] * dt * cell_area[i];
+            }
+        } else {
+            budget.add(implicit_step_varying(&col, h, |i| k[i], p.m, dt));
+        }
     }
-    Solved { net, budget, filled_steps }
+    Solved { net, budget, filled_steps, lakes: lakes_now }
 }
 
 /// Erode the tectonic snapshot. Deterministic: same input, same output, on any thread count.
@@ -419,6 +487,20 @@ pub fn erode(tectonic: &TectonicSnapshot, radius_m: f64, p: &ErosionParams) -> E
 /// As [`erode`], with relative runoff (1 = land mean; any resolution, sampled per node).
 /// Drainage areas (and the stored `drainage_km2`) are then runoff-weighted.
 pub fn erode_with_runoff(tectonic: &TectonicSnapshot, radius_m: f64, p: &ErosionParams, runoff: Option<&CubeField<f32>>) -> ErosionResult {
+    erode_climate(tectonic, radius_m, p, runoff, None)
+}
+
+/// As [`erode_with_runoff`], plus lakes and closed basins from the water balance:
+/// `lakes` = (runoff, open-water net evaporation E − P), both mm/yr. Lakes are base level
+/// in the solve (see `solve_full`); the committed height is the rock/lake bed and
+/// `lake_depth_m` is the water depth (level − bed).
+pub fn erode_climate(
+    tectonic: &TectonicSnapshot,
+    radius_m: f64,
+    p: &ErosionParams,
+    runoff: Option<&CubeField<f32>>,
+    lakes: Option<(&CubeField<f32>, &CubeField<f32>)>,
+) -> ErosionResult {
     let tectonic_h = &tectonic.height_m;
     let res = if p.res > 0 { p.res.max(16) } else { tectonic_h.res.min(p.max_res.max(16)) };
     let grid = Grid::new(res);
@@ -443,6 +525,10 @@ pub fn erode_with_runoff(tectonic: &TectonicSnapshot, radius_m: f64, p: &Erosion
     }
     let k_field = lithology(&grid, radius_m, p);
     let runoff_w: Option<Vec<f64>> = runoff.map(|f| par_map(n, |i| f.sample(grid.dir[i]).clamp(0.02, 6.0) as f64));
+    let lake_fields: Option<(Vec<f64>, Vec<f64>)> = lakes.map(|(ro, ev)| {
+        (par_map(n, |i| ro.sample(grid.dir[i]) as f64 * 1e-3), par_map(n, |i| ev.sample(grid.dir[i]) as f64 * 1e-3))
+    });
+    let lake_in = lake_fields.as_ref().map(|(r, e)| LakeInputs { runoff_m_yr: r, net_evap_m_yr: e });
 
     let mut land_h: Vec<f64> = (0..n).filter(|&i| !ocean[i]).map(|i| h0[i]).collect();
     land_h.sort_by(f64::total_cmp);
@@ -458,7 +544,7 @@ pub fn erode_with_runoff(tectonic: &TectonicSnapshot, radius_m: f64, p: &Erosion
     let mut budget = MassBudget::default();
     if p.enabled && !land_h.is_empty() {
         let lim = (p.elevation_limit_m > 0.0).then_some(p.elevation_limit_m);
-        let solved = solve_full(&grid, radius_m, &mut h, &ocean, &uplift, &k_field, runoff_w.as_deref(), lim, p);
+        let solved = solve_full(&grid, radius_m, &mut h, &ocean, &uplift, &k_field, runoff_w.as_deref(), lim, lake_in.as_ref(), p);
         net = solved.net;
         budget = solved.budget;
         filled_steps = solved.filled_steps;
@@ -467,16 +553,43 @@ pub fn erode_with_runoff(tectonic: &TectonicSnapshot, radius_m: f64, p: &Erosion
     let end_land_m3: f64 = (0..n).filter(|&i| !ocean[i]).map(|i| h[i] * area_m2[i]).sum();
     let mass_balance_error = (end_land_m3 - start_land_m3 - budget.net_m3()).abs() / start_land_m3.abs().max(1.0);
 
-    // Final routing on the result, measuring lakes before filling them for drainage.
-    let pre_fill = h.clone();
-    priority_flood_fill(&grid, &mut h, &ocean);
-    net.route(&grid, &h, &ocean);
-    net.build_stack();
-    match &runoff_w {
-        Some(r) => net.accumulate(&area_m2.iter().zip(r).map(|(a, r)| a * r).collect::<Vec<_>>(), &ocean),
-        None => net.accumulate(&area_m2, &ocean),
-    }
-    let lake: Vec<f64> = (0..n).map(|i| if ocean[i] { 0.0 } else { (h[i] - pre_fill[i]).max(0.0) }).collect();
+    // Final routing on the result. Without lakes: measure depressions, then fill them for
+    // drainage. With lakes: keep the bed, route on a filled copy to the sea or closed lakes.
+    let wet: Vec<f64> = match &runoff_w {
+        Some(r) => area_m2.iter().zip(r).map(|(a, r)| a * r).collect(),
+        None => area_m2.clone(),
+    };
+    let mut endorheic_frac = 0.0;
+    let mut lake_frac = 0.0;
+    let mut lake: Vec<f64> = match &lake_in {
+        Some(li) => {
+            let lk = crate::lakes::compute(&grid, &h, &ocean, li.runoff_m_yr, li.net_evap_m_yr, &area_m2);
+            let sub: Vec<bool> = (0..n).map(|i| !ocean[i] && lk.level[i] > h[i]).collect();
+            let sink: Vec<bool> = (0..n).map(|i| ocean[i] || lk.closed_lake[i]).collect();
+            let base_h: Vec<f64> = (0..n).map(|i| if sub[i] { lk.level[i] } else { 0.0 }).collect();
+            let mut f: Vec<f64> = (0..n).map(|i| if sub[i] { lk.level[i] } else { h[i] }).collect();
+            priority_flood_fill_to(&grid, &mut f, &sink, Some(&base_h));
+            net.route(&grid, &f, &sink);
+            net.build_stack();
+            net.accumulate(&wet, &sink);
+            let land: f64 = (0..n).filter(|&i| !ocean[i]).map(|i| area_m2[i]).sum::<f64>().max(1.0);
+            endorheic_frac = (0..n).filter(|&i| !ocean[i] && lk.endorheic[i]).map(|i| area_m2[i]).sum::<f64>() / land;
+            lake_frac = (0..n).filter(|&i| sub[i]).map(|i| area_m2[i]).sum::<f64>() / land;
+            (0..n).map(|i| if sub[i] { lk.level[i] - h[i] } else { 0.0 }).collect()
+        }
+        None => {
+            let pre_fill = h.clone();
+            priority_flood_fill(&grid, &mut h, &ocean);
+            net.route(&grid, &h, &ocean);
+            net.build_stack();
+            net.accumulate(&wet, &ocean);
+            (0..n).map(|i| if ocean[i] { 0.0 } else { (h[i] - pre_fill[i]).max(0.0) }).collect()
+        }
+    };
+
+    let uplift_eff: Vec<f64> = (0..n)
+        .map(|i| if p.elevation_limit_m > 0.0 { uplift[i] * (1.0 - h[i].max(0.0) / p.elevation_limit_m).max(0.0) } else { uplift[i] })
+        .collect();
 
     // Rescale land so the 99th percentile matches tectonics (see crate docs: calibration).
     let mut eroded_land: Vec<f64> = (0..n).filter(|&i| !ocean[i]).map(|i| h[i]).collect();
@@ -485,6 +598,7 @@ pub fn erode_with_runoff(tectonic: &TectonicSnapshot, radius_m: f64, p: &Erosion
     for i in 0..n {
         if !ocean[i] {
             h[i] *= scale;
+            lake[i] *= scale;
         }
     }
 
@@ -494,6 +608,8 @@ pub fn erode_with_runoff(tectonic: &TectonicSnapshot, radius_m: f64, p: &Erosion
     stats.uplift_from_tectonics = uplift_used == UpliftSource::Tectonic;
     stats.mass_balance_error = mass_balance_error;
     stats.fill_to_erosion = budget.filled_m3 / budget.eroded_m3.max(1.0);
+    stats.endorheic_fraction = endorheic_frac;
+    stats.lake_fraction = lake_frac;
 
     let mut height_scale = None;
     if p.linear_mean_m > 0.0 {
@@ -508,6 +624,7 @@ pub fn erode_with_runoff(tectonic: &TectonicSnapshot, radius_m: f64, p: &Erosion
         let c = target / mean.max(1e-6);
         for i in (0..n).filter(|&i| !ocean[i]) {
             h[i] = (h[i] * c).max(1.0e-3);
+            lake[i] *= c;
         }
         stats.mean_land_m = target;
         height_scale = Some(scale * c);
@@ -555,7 +672,10 @@ pub fn erode_with_runoff(tectonic: &TectonicSnapshot, radius_m: f64, p: &Erosion
     };
     let drainage_km2 = to_field(&net.area.iter().map(|a| a * 1.0e-6).collect::<Vec<_>>());
     let lake_depth_m = to_field(&lake);
-    let uplift_mm_yr = to_field(&uplift.iter().map(|u| u * 1000.0).collect::<Vec<_>>());
+    // Committed uplift is the *effective* rate at the final surface, U·(1 − h/limit): at
+    // steady state it equals the erosion rate, which sets the detail's hillslope regime
+    // (plateaus at the strength limit erode slowly and stay gentle).
+    let uplift_mm_yr = to_field(&uplift_eff.iter().map(|u| u * 1000.0).collect::<Vec<_>>());
     let mut flow_dir = CubeField::<[f32; 3]>::new(res);
     for (k, v) in flow_dir.data.iter_mut().enumerate() {
         let i = grid.sample_node[k] as usize;
@@ -697,6 +817,12 @@ impl Network {
 /// Priority-Flood+ε (Barnes et al. 2014): raise every closed depression on land to its
 /// spill height plus a tiny gradient, so each land node has a strictly lower path to the sea.
 pub fn priority_flood_fill(grid: &Grid, h: &mut [f64], ocean: &[bool]) {
+    priority_flood_fill_to(grid, h, ocean, None)
+}
+
+/// As [`priority_flood_fill`], with outlets seeded at their own `base` height instead of 0
+/// (closed lakes are outlets at their water level).
+pub fn priority_flood_fill_to(grid: &Grid, h: &mut [f64], ocean: &[bool], base: Option<&[f64]>) {
     #[derive(PartialEq)]
     struct Item(f64, u32);
     impl Eq for Item {}
@@ -717,7 +843,7 @@ pub fn priority_flood_fill(grid: &Grid, h: &mut [f64], ocean: &[bool]) {
     // Seeds: ocean nodes touching land, at base level 0.
     for i in 0..n {
         if ocean[i] && grid.neighbors(i).iter().any(|&j| !ocean[j as usize]) {
-            heap.push(Item(0.0, i as u32));
+            heap.push(Item(base.map_or(0.0, |b| b[i]), i as u32));
         }
     }
     // A world with no ocean: drain to the lowest node.
