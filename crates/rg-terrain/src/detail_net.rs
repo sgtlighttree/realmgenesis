@@ -56,6 +56,10 @@ const KEEP_FRACTION: f64 = 0.85;
 const MIN_ATTACH: f64 = 0.35;
 /// Floodplain width per √(km²) of drainage (see `floor_width`), m.
 const FLOOR_M_PER_SQRT_KM2: f64 = 30.0;
+/// Where channel heads aim relative to the macro surface, as a share of the ridge
+/// allowance (heads at T + share·R; ridges rise up to T + R). Calibrated so the detail is
+/// mean-neutral against the macro, which already carries the hypsometry (probe_hypsometry).
+const HEAD_SHARE: f64 = -0.33;
 /// Macro height above which the ridge allowance stops growing, m.
 const RIDGE_FULL_M: f64 = 3000.0;
 /// Ridge allowance per metre of macro height (see `DetailNet::ridge`).
@@ -615,7 +619,7 @@ impl DetailNet {
         let w = 0.25 * lk;
         let s_channel = (ksn * (lk * lk).powf(-THETA)).min(S_CHANNEL_MAX);
         let hollow = 0.5 * s_wall * w;
-        let head_target = pre.t_q + 0.5 * self.ridge(pre.t_q);
+        let head_target = pre.t_q + tune("RG_HEAD", HEAD_SHARE) * self.ridge(pre.t_q);
         // Incised into the hillslope it drains: the head sits a hollow below the coarser
         // surface (and below the sibling hillsides seen in the search).
         let z_head = (z_a + s_channel * len).min(head_target - hollow).min(coarse - hollow).max(z_a + EPS_SLOPE * len);
