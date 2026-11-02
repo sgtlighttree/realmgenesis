@@ -27,6 +27,24 @@ fn main() {
     let endo: f64 = (0..n).filter(|&i| !ocean[i] && l.endorheic[i]).map(|i| area[i]).sum();
     let lake: f64 = (0..n).filter(|&i| !ocean[i] && !l.level[i].is_nan()).map(|i| area[i]).sum();
     let closed: f64 = (0..n).filter(|&i| l.closed_lake[i]).map(|i| area[i]).sum();
+    // Where is it? Köppen B (arid, codes 4–7) share.
+    let is_b = |i: usize| {
+        let d = grid.dir[i];
+        let (lat, lon) = (d.z.clamp(-1.0, 1.0).asin(), d.y.atan2(d.x));
+        let (x, y) = (
+            (((lon + std::f64::consts::PI) / std::f64::consts::TAU * w.climate.width as f64) as u32).min(w.climate.width - 1),
+            (((std::f64::consts::FRAC_PI_2 - lat) / std::f64::consts::PI * w.climate.height as f64) as u32).min(w.climate.height - 1),
+        );
+        (4..=7).contains(&w.climate.koppen.data[(y * w.climate.width + x) as usize])
+    };
+    let b_land: f64 = (0..n).filter(|&i| !ocean[i] && is_b(i)).map(|i| area[i]).sum();
+    let endo_b: f64 = (0..n).filter(|&i| !ocean[i] && l.endorheic[i] && is_b(i)).map(|i| area[i]).sum();
+    println!(
+        "  arid (Köppen B) = {:.0}% of land (Earth ~30%); {:.0}% of endorheic land is arid; {:.0}% of arid land is endorheic",
+        b_land / land * 100.0,
+        endo_b / endo.max(1.0) * 100.0,
+        endo_b / b_land.max(1.0) * 100.0
+    );
     println!(
         "{surface}: endorheic land {:.1}% (Earth ~20%), lakes {:.2}% of land (closed {:.2}%), {:.0} ms",
         endo / land * 100.0,

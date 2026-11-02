@@ -100,6 +100,9 @@ pub struct TectonicSnapshot {
     pub sea_level_offset_m: f32,
     /// Achieved share of the sphere's area above sea level.
     pub land_fraction: f32,
+    /// Continental dynamic topography to build during erosion (m), if generated in this run.
+    /// Not stored in world files: only erosion uses it, and its result is committed.
+    pub dynamic_topo_m: Option<CubeField<f32>>,
 }
 
 /// Area-weighted fraction of a height field above 0 (cube-sphere cells near face corners are
@@ -138,6 +141,8 @@ pub fn generate(p: &TectonicsParams) -> TectonicSnapshot {
         plates: pm.plates.clone(),
         sea_level_offset_m: offset,
         land_fraction: achieved,
+        // Static offset in the heights (see relief.rs); the rate mechanism is off.
+        dynamic_topo_m: None,
     };
     for (s, &node) in grid.sample_node.iter().enumerate() {
         let a = node as usize;
@@ -145,6 +150,9 @@ pub fn generate(p: &TectonicsParams) -> TectonicSnapshot {
         snap.plate_id.data[s] = pm.plate_of[a];
         snap.crust.data[s] = crust.cont[a] as u8;
         snap.boundary.data[s] = pm.boundary[a];
+        if let Some(f) = snap.dynamic_topo_m.as_mut() {
+            f.data[s] = composed.dyn_topo[a];
+        }
     }
     snap
 }

@@ -42,6 +42,9 @@ pub const DYNAMIC_TOPO_STD_M: f64 = 350.0;
 /// 18.5 M km², 5.11% of the oceans), and how far plateaus stand above the floor (Ontong
 /// Java, Kerguelen, Shatsky: tops at 1.5–3 km in 5 km deep basins).
 pub const PLATEAU_AREA: f64 = 0.051;
+/// Continental residual (dynamic) topography std, m: a little below the oceanic value, as
+/// thick continental lithosphere damps it (cf. Hoggard et al. 2016; not a fitted value).
+pub const CONT_DYNAMIC_TOPO_STD_M: f64 = 300.0;
 pub const PLATEAU_LIFT_M: f64 = 2200.0;
 
 fn mean_sd(v: &[f64]) -> (f64, f64) {
@@ -155,6 +158,10 @@ pub struct Composed {
     pub basin: Vec<f32>,
     /// Slowly varying 0..1 noise used to vary shelf widths.
     pub margin_w: Vec<f32>,
+    /// Continental dynamic (residual) topography to build during erosion, m per node:
+    /// broad sags and swells ~1000–3000 km across (Africa's basin-and-swell; Hoggard et al.
+    /// 2016), from the same mantle field as the sea-floor residual.
+    pub dyn_topo: Vec<f32>,
 }
 
 impl Composed {
@@ -260,7 +267,7 @@ pub fn compose(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Compo
         let sed = sediment_m(t, -(crust.edge_m[a] as f64));
         -((water - SEDIMENT_LIFT * sed) as f32)
     });
-    drop((speed, swell));
+    drop(speed);
     for _ in 0..4 {
         basin_out = par_map(n, |a| {
             let nb = grid.neighbors(a);
@@ -268,6 +275,8 @@ pub fn compose(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Compo
             0.5 * basin_out[a] + 0.5 * sum / nb.len() as f32
         });
     }
+
+    let dyn_topo: Vec<f32> = (0..n).map(|a| (CONT_DYNAMIC_TOPO_STD_M * (grid.lookup(&swell, a) as f64 - sw_mean) / sw_sd.max(1e-9)) as f32).collect();
 
     // The per-node work below depends only on read-only tables, so it runs in parallel.
     let parts: Vec<[f32; 4]> = par_map(n, |a| {
@@ -283,7 +292,13 @@ pub fn compose(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Compo
         let h = if cont {
             let ease = smoothstep(0.0, 300_000.0, e);
             let interior = 1200.0 + 450.0 * reg + 500.0 * smoothstep(300_000.0, 1_600_000.0, e);
-            -130.0 + interior * ease
+            // Continental dynamic topography: the same mantle-driven residual as on the sea
+            // floor (one field across the margin), giving broad interior sags and swells
+            // ~1000–3000 km across (Africa's basin-and-swell; Hoggard et al. 2016). Faded in
+            // from the coast so shorelines stay put. Applied as a static offset: as an uplift
+            // *rate* it raised endorheic land a little (2.3 → 3.6%) but pushed hypsometry off
+            // Earth's (> 4 km 2.0 → 3.9%); hypsometry is the resolution-robust check (s01).
+            -130.0 + (interior + dyn_topo[a] as f64) * ease
         } else {
             basin
         };
@@ -396,7 +411,7 @@ pub fn compose(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Compo
 
         [tect as f32, det_land as f32, det_sea as f32, (h + tect + det_land + det_sea) as f32]
     });
-    Composed { parts, basin: basin_out, margin_w }
+    Composed { parts, basin: basin_out, margin_w, dyn_topo }
 }
 
 /// Shift by the sea level and rebuild the sea floor near coasts.

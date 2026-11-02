@@ -36,12 +36,25 @@ pub(crate) fn compute(
     ocean: &[bool],
     p: &ErosionParams,
 ) -> (Vec<f64>, UpliftSource) {
-    if p.uplift_source == UpliftSource::Tectonic
+    let (mut u, src) = if p.uplift_source == UpliftSource::Tectonic
         && let Some(u) = from_boundaries(grid, snap, radius_m, ocean, p)
     {
-        return (u, UpliftSource::Tectonic);
+        (u, UpliftSource::Tectonic)
+    } else {
+        (from_elevation(h0, ocean, p), UpliftSource::Elevation)
+    };
+    // Continental dynamic topography as a rate: sags subside and swells rise over the run,
+    // so arid sags stay closed basins against erosion (s01: as a static offset, 30 Myr of
+    // erosion captured most closed basins, 14.7% → 2.3% endorheic).
+    if let Some(dt) = &snap.dynamic_topo_m {
+        let years = (p.duration_myr * 1.0e6).max(1.0);
+        for i in 0..u.len() {
+            if !ocean[i] {
+                u[i] += dt.sample(grid.dir[i]) as f64 / years;
+            }
+        }
     }
-    (from_elevation(h0, ocean, p), UpliftSource::Elevation)
+    (u, src)
 }
 
 /// Legacy / fallback: uplift ∝ (h / h95)^exponent. Circular (see module docs), but needs no

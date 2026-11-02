@@ -179,6 +179,7 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
         plates,
         sea_level_offset_m: num(sh, "sea_level_offset_m")? as f32,
         land_fraction: num(sh, "land_fraction")? as f32,
+        dynamic_topo_m: None,
     };
     let ch = &h["climate"];
     let (cw, chh) = (num(ch, "width")? as u32, num(ch, "height")? as u32);
