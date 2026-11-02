@@ -31,12 +31,13 @@ tectonics (plates, crust, boundary relief)                  rg-tectonics
   - coast unchanged;
   - deterministic.
 
-## 2. Hypsometric calibration
+## 2. Calibration: one physical factor (s01, replaces the quantile remap)
 
-At 10–50 km cells, K and U are underdetermined, so absolute heights aren't meaningful. After erosion, land heights are **area-weighted quantile-mapped onto a measured, smoothed, ice-free land hypsometric curve** (× the "mountains" setting; mean 656 m, median 382 m), strictly increasing as stored f32.
-- The map is monotonic, so every drainage direction, divide and valley is unchanged. Solver stats are measured before the remap.
-- **Measured (seed 3):** mean 841 m (Earth 840), median 429 m (~440), > 2 km 10.3% (~9%), > 4 km 2.8% (~2%).
-- **Curve:** approximate ETOPO1-class numbers (table in `solver.rs`).
+At stream-power steady state h ≈ (U/K)·χ is linear in 1/K, and at 10–50 km cells K and U are underdetermined. Land heights are therefore scaled by **one factor**, so that the area-weighted mean land height equals 656 m (× the "mountains" setting). That is equivalent to fitting K. The hypsometric curve's *shape* comes from the physics and is only **checked** against Earth (`probe_hypsometry`):
+- **Emergent curve (seed 3):** median 271 m, > 2 km 11%, > 4 km 4%, max 8.7 km. Earth's ice-free land is roughly median 330–400 m, > 2 km 6–9%, > 4 km ~2%, Everest 8.85 km.
+- So high ground is about 2× Earth's share: steady-state belts concentrate relief, and the model has no plateau-building crustal thickening or isostasy. That is a located gap, not a knob.
+- The factor is committed (`Hydrology::height_scale`). The detail network uses k_sn = factor·U/K, so stream steepness is consistent with the committed surface. **Slope–area θ on the final surface improved from erratic (−0.02–0.84) to 0.11–0.27** (Earth reference 0.19–0.45, `earth_reference`).
+- The old quantile remap onto a smoothed ice-free curve (mean 656 m, median 382 m) is still available (`linear_mean_m` = 0). It forced Earth's shape onto every planet and bent slopes non-linearly (s01 review: "heights fitted, not modelled").
 
 ## 3. Detail: the drained detail network (`rg-terrain/src/detail_net.rs`, s01)
 

@@ -69,10 +69,12 @@ pub fn to_file(w: &World) -> WorldFile {
             "scale_by_convergence_rate": w.params.erosion.scale_by_convergence_rate,
             "rho8": w.params.erosion.rho8,
             "seed": w.params.erosion.seed,
+            "linear_mean_m": w.params.erosion.linear_mean_m,
             "k_variability": w.params.erosion.k_variability,
             "lithology_scale_km": w.params.erosion.lithology_scale_km,
             "initial_roughness_m": w.params.erosion.initial_roughness_m,
             "hydrology_res": w.hydrology.as_ref().map(|h| h.drainage_km2.res),
+            "height_scale": w.hydrology.as_ref().and_then(|h| h.height_scale),
         },
     });
     let c = &w.climate;
@@ -223,6 +225,7 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
             scale_by_convergence_rate: eh["scale_by_convergence_rate"].as_bool().unwrap_or(true),
             rho8: eh["rho8"].as_bool().unwrap_or(false),
             seed: eh["seed"].as_u64().unwrap_or(0),
+            linear_mean_m: eh["linear_mean_m"].as_f64().unwrap_or(0.0),
             k_variability: eh["k_variability"].as_f64().unwrap_or(0.0),
             lithology_scale_km: eh["lithology_scale_km"].as_f64().unwrap_or(250.0),
             initial_roughness_m: eh["initial_roughness_m"].as_f64().unwrap_or(0.0),
@@ -248,6 +251,7 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
                 flow_dir: CubeField { res: hres, data: fd.as_chunks::<3>().0.to_vec() },
                 lake_depth_m: f32_field("hydrology.lake_depth_m")?,
                 uplift_mm_yr: if f.chunk("hydrology.uplift_mm_yr").is_some() { Some(f32_field("hydrology.uplift_mm_yr")?) } else { None },
+                height_scale: eh["height_scale"].as_f64(),
                 rivers: rv
                     .as_chunks::<7>()
                     .0

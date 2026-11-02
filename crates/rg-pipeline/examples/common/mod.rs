@@ -26,6 +26,9 @@ pub fn world(seed: u64) -> World {
     if let Some(v) = env("RG_ROUGH") {
         p.erosion.initial_roughness_m = v;
     }
+    if let Some(v) = env("RG_LINEAR") {
+        p.erosion.linear_mean_m = v;
+    }
     if let Some(v) = env::<u8>("RG_RHO8") {
         p.erosion.rho8 = v != 0;
     }
@@ -34,7 +37,7 @@ pub fn world(seed: u64) -> World {
     }
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/probe-cache");
     let path = dir.join(format!(
-        "s{seed}-t{}-e{}-n{}-k{}-r{}-l{}-rho{}-g{}-b{}.rgw",
+        "s{seed}-t{}-e{}-n{}-k{}-r{}-l{}-rho{}-lin{}-g{}-b{}.rgw",
         p.tectonics.res,
         p.erosion.res,
         p.erosion.steps,
@@ -42,6 +45,7 @@ pub fn world(seed: u64) -> World {
         p.erosion.initial_roughness_m,
         p.erosion.lithology_scale_km,
         p.erosion.rho8 as u8,
+        p.erosion.linear_mean_m,
         rg_pipeline::file::WORLD_SCHEMA,
         build_stamp()
     ));

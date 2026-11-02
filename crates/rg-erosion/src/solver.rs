@@ -84,6 +84,12 @@ pub struct ErosionParams {
     /// twice as high). 0 disables it (land is then linearly rescaled to the tectonic 99th
     /// percentile).
     pub hypsometry_scale: f64,
+    /// Physical calibration instead of the quantile remap: if > 0, land heights from the
+    /// solve are scaled by ONE factor so the area-weighted mean land height equals this (m,
+    /// × `hypsometry_scale`). At stream-power steady state h ≈ (U/K)·χ is linear in 1/K, so
+    /// this is fitting K; the hypsometric curve's *shape* then comes from the physics and is
+    /// only checked against Earth (s01 review: "heights fitted, not modelled").
+    pub linear_mean_m: f64,
 }
 
 impl Default for ErosionParams {
@@ -110,6 +116,7 @@ impl Default for ErosionParams {
             seed: 0,
             river_min_area_km2: 20_000.0,
             hypsometry_scale: 1.0,
+            linear_mean_m: 656.0,
         }
     }
 }
@@ -137,6 +144,10 @@ pub struct ErosionResult {
     /// Rock uplift rate, mm/yr, at the erosion grid's resolution. At stream-power steady
     /// state it is also the erosion rate, and `k_sn = U/K`: streamed detail reads it.
     pub uplift_mm_yr: CubeField<f32>,
+    /// With linear calibration (`linear_mean_m` > 0): the single factor from solved to
+    /// committed heights, so slopes scale by it and the committed surface's steepness is
+    /// k_sn = factor·U/K. `None` with the (non-linear) quantile remap.
+    pub height_scale: Option<f64>,
     pub rivers: Vec<RiverSegment>,
     pub stats: ErosionStats,
 }
@@ -465,7 +476,23 @@ pub fn erode_with_runoff(tectonic: &TectonicSnapshot, radius_m: f64, p: &Erosion
     stats.uplift_from_tectonics = uplift_used == UpliftSource::Tectonic;
     stats.mass_balance_error = mass_balance_error;
 
-    if p.hypsometry_scale > 0.0 {
+    let mut height_scale = None;
+    if p.linear_mean_m > 0.0 {
+        // One factor: undo the p99 rescale's arbitrariness and hit the target mean.
+        let (mut sum, mut wsum) = (0.0, 0.0);
+        for i in (0..n).filter(|&i| !ocean[i]) {
+            sum += h[i] * weight[i];
+            wsum += weight[i];
+        }
+        let mean = sum / wsum.max(1e-12);
+        let target = p.linear_mean_m * p.hypsometry_scale.max(1e-6);
+        let c = target / mean.max(1e-6);
+        for i in (0..n).filter(|&i| !ocean[i]) {
+            h[i] = (h[i] * c).max(1.0e-3);
+        }
+        stats.mean_land_m = target;
+        height_scale = Some(scale * c);
+    } else if p.hypsometry_scale > 0.0 {
         hypsometry::remap(&mut h, &ocean, &weight, p.hypsometry_scale);
         let (mut sum, mut wsum) = (0.0, 0.0);
         for i in (0..n).filter(|&i| !ocean[i]) {
@@ -531,7 +558,7 @@ pub fn erode_with_runoff(tectonic: &TectonicSnapshot, radius_m: f64, p: &Erosion
         })
         .collect();
 
-    ErosionResult { height_m, drainage_km2, flow_dir, lake_depth_m, uplift_mm_yr, rivers, stats }
+    ErosionResult { height_m, drainage_km2, flow_dir, lake_depth_m, uplift_mm_yr, height_scale, rivers, stats }
 }
 
 /// The drainage network: receivers, the topological stack and drainage areas.

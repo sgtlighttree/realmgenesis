@@ -53,6 +53,10 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 - **River overlay:** coverage in the layer alpha, faded when zoomed in. This fixes Matt's "terrain near rivers doesn't generate".
 - **Web preview v7** at the URL above, with all of the above.
 
+**Calibration is now one physical factor** (`ErosionParams::linear_mean_m` = 656, i.e. fitting K). Hypsometry is emergent and checked, not forced. High ground is ~2× Earth's share (no crustal thickening/isostasy yet). k_sn = factor·U/K (`Hydrology::height_scale`); θ 0.11–0.27 vs Earth 0.19–0.45.
+
+**Earth reference** (`--example earth_reference`): AWS terrain tiles scored by the same metric code (`examples/common/metrics.rs`). Earth coherence 0.23–0.59, β 2.3–4.7, θ 0.19–0.45, mountain slopes 26–27° (Taiwan, Himalaya, Alps), 16° Appalachians.
+
 **Climate → erosion (done):** precipitation-weighted drainage; climate runs before and after erosion; wettest third of land erodes 7.1× the driest (it was 0.98×).
 
 **Scientific review (s01 log, "Whole-pipeline scientific review"):** next steps in its order:

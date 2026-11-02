@@ -44,6 +44,8 @@ pub struct Hydrology {
     /// Rock uplift rate, mm/yr (= erosion rate at steady state). None in files before
     /// schema 4.
     pub uplift_mm_yr: Option<CubeField<f32>>,
+    /// Solved → committed height factor under linear calibration (k_sn = factor·U/K).
+    pub height_scale: Option<f64>,
     pub rivers: Vec<RiverSegment>,
     pub stats: ErosionStats,
 }
@@ -92,6 +94,7 @@ pub fn generate(params: &WorldParams) -> World {
             flow_dir: r.flow_dir,
             lake_depth_m: r.lake_depth_m,
             uplift_mm_yr: Some(r.uplift_mm_yr),
+            height_scale: r.height_scale,
             rivers: r.rivers,
             stats: r.stats,
         }
@@ -129,7 +132,9 @@ pub fn terrain_sampler(world: &World) -> rg_terrain::TerrainSampler {
                 None => mn,
             };
             let net = rg_terrain::detail_net::DetailNet::new(mn, world.params.tectonics.radius_m, world.params.tectonics.seed)
-                .with_erodibility(world.params.erosion.k);
+                // Linear calibration scales slopes by one factor: the committed surface's
+                // steepness is factor·U/K, i.e. an effective K of K/factor.
+                .with_erodibility(world.params.erosion.k / h.height_scale.unwrap_or(1.0));
             s.with_network(net)
         }
         None => s,
