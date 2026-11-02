@@ -10,7 +10,7 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
   - Layers: satellite, elevation, plates, Köppen, temperature (year/Jan/Jul), precipitation. Globe + 2D equirect map, with a hover readout (lat/lon, height, °C, mm, Köppen).
   - Save/load `~/RealmGenesis/world-<seed>.rgworld` (`rg-world` container; byte-identical round trip; golden determinism test). 16-bit heightmap export + JSON sidecar.
   - Web preview artifact (v2 = commit 7015550): https://claude.ai/artifact/1Tq1v7fz6zdbLTtUoLMPME. **Not yet confirmed loading in a real browser.** GPU probe: https://claude.ai/artifact/64fD9SPXY3zpiZh8HjAURZ.
-  - CI: `.github/workflows/build.yml` (test + clippy, macOS arm64 / Windows / Linux binaries, web bundle). Runs 1–4 failed or were cancelled on intermediate commits; run 5 (the MVP commit) was in progress at handoff. **Check it first.**
+  - CI: `.github/workflows/build.yml` (test + clippy, macOS arm64 / Windows / Linux binaries, web bundle). **All green on 496a464** (run 41410046937). The toolchain is pinned to 1.97.0 in `rust-toolchain.toml`, because CI stable (1.99) added clippy lints that broke `-D warnings`.
 - **Rebuild the preview:** `scripts/build-web-artifact.sh <out>`, then republish to the same URL (from a new session, pass `url`).
 - **Visual checks in the container:** web screenshots don't work (WebGPU canvases capture blank). Use the native app under Xvfb + lavapipe:
   1. `apt-get install -y mesa-vulkan-drivers libxkbcommon-x11-0 xdotool`
