@@ -47,3 +47,25 @@ pub fn heightmap_png(world: &World, width: u32) -> Result<HeightmapExport, Strin
     .map_err(|e| e.to_string())?;
     Ok(HeightmapExport { png, sidecar })
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn heightmap_is_16_bit_and_spans_range() {
+        let mut p = crate::WorldParams::default();
+        p.tectonics.res = 32;
+        let w = crate::generate(&p);
+        let ex = super::heightmap_png(&w, 256).unwrap();
+        let dec = png::Decoder::new(std::io::Cursor::new(&ex.png));
+        let mut r = dec.read_info().unwrap();
+        let info = r.info();
+        assert_eq!((info.width, info.height), (256, 128));
+        assert_eq!(info.bit_depth, png::BitDepth::Sixteen);
+        let mut buf = vec![0; r.output_buffer_size().unwrap()];
+        r.next_frame(&mut buf).unwrap();
+        let vals: Vec<u16> = buf.chunks_exact(2).map(|b| u16::from_be_bytes([b[0], b[1]])).collect();
+        let (lo, hi) = (*vals.iter().min().unwrap(), *vals.iter().max().unwrap());
+        assert!(lo < 2000 && hi > 60000, "{lo}..{hi}");
+        assert!(ex.sidecar.contains("sea_level_grey"));
+    }
+}

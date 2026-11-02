@@ -2,14 +2,23 @@
 
 The current state, for the next session. History lives in `docs/session-logs/`. The newest log is the detail behind this file.
 
-## State (2026-11-02, s01)
+## State (2026-11-02, s01: MVP reached, pending Matt's browser check)
 
-- **Branch:** `claude/peaceful-brahmagupta-rkl4y0`, an **orphan** history (v2 has no V1 ancestry). V1 lives on `main`. Matt may rename the branch to `v2`.
-- **Docs:** `docs/ARCHITECTURE.md` (draft), `docs/research/2026-11-02-climate-tier-b.md`, `docs/lineage/` (lessons carried from V1 and tcotg).
-- **Code:** M0 runs natively: eframe shell, offscreen reversed-Z globe, placeholder fBm planet, orbit/zoom, perf HUD. `rg-geo` (ellipsoid, cube-sphere, `CubeField`), `rg-noise`, `rg-render`, `rg-app`. CI workflow `.github/workflows/build.yml`.
-- **In flight (s01, parallel Sonnet agents, uncommitted):** `crates/rg-tectonics` (plate snapshot → macro heights) and `crates/rg-climate` (tier A + Köppen). If a session dies mid-way, check `git status` for these dirs: they may be partial.
-- **Web preview artifact:** https://claude.ai/artifact/1Tq1v7fz6zdbLTtUoLMPME. Rebuild with `scripts/build-web-artifact.sh <out>` and republish to the same URL (from a new session, pass `url`). GPU probe: https://claude.ai/artifact/64fD9SPXY3zpiZh8HjAURZ.
-- **Verifying visuals in the container:** web screenshots don't work. Headless and headed Chromium both give white or blank WebGPU canvases, whatever the flags. **Use the native app under Xvfb + lavapipe:** `apt-get install -y mesa-vulkan-drivers libxkbcommon-x11-0`, `Xvfb :99 &`, `DISPLAY=:99 ./target/debug/realmgenesis &`, then `PIL.ImageGrab.grab(xdisplay=':99')`.
+- **Branch:** `claude/peaceful-brahmagupta-rkl4y0`, an orphan history (v2 has no V1 ancestry). V1 lives on `main`.
+- **What works** (verified by native Xvfb screenshots, plus all workspace tests and clean clippy):
+  - Generate: tectonic snapshot (`rg-tectonics`, about 0.8 s at res 192) → tier A climate (`rg-climate`, about 0.2 s) → layers baked per pixel with climate downscaling (`rg-pipeline`).
+  - Layers: satellite, elevation, plates, Köppen, temperature (year/Jan/Jul), precipitation. Globe + 2D equirect map, with a hover readout (lat/lon, height, °C, mm, Köppen).
+  - Save/load `~/RealmGenesis/world-<seed>.rgworld` (`rg-world` container; byte-identical round trip; golden determinism test). 16-bit heightmap export + JSON sidecar.
+  - Web preview artifact (v2 = commit 7015550): https://claude.ai/artifact/1Tq1v7fz6zdbLTtUoLMPME. **Not yet confirmed loading in a real browser.** GPU probe: https://claude.ai/artifact/64fD9SPXY3zpiZh8HjAURZ.
+  - CI: `.github/workflows/build.yml` (test + clippy, macOS arm64 / Windows / Linux binaries, web bundle). Runs 1–4 failed or were cancelled on intermediate commits; run 5 (the MVP commit) was in progress at handoff. **Check it first.**
+- **Rebuild the preview:** `scripts/build-web-artifact.sh <out>`, then republish to the same URL (from a new session, pass `url`).
+- **Visual checks in the container:** web screenshots don't work (WebGPU canvases capture blank). Use the native app under Xvfb + lavapipe:
+  1. `apt-get install -y mesa-vulkan-drivers libxkbcommon-x11-0 xdotool`
+  2. `Xvfb :99 &`
+  3. `DISPLAY=:99 XDG_RUNTIME_DIR=/tmp RG_SEED=3 RG_LAYER=4 RG_VIEW=map ./target/debug/realmgenesis &`
+  4. `PIL.ImageGrab.grab(xdisplay=':99')`
+
+  xdotool keypresses don't reach the window (no window manager), so use the `RG_*` env vars.
 
 ## Settled decisions (don't re-litigate)
 
@@ -34,10 +43,18 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 
 Post-MVP: LOD tile streaming, tier B climate, sculpting, the vector layer, erosion/rivers.
 
-## Next
+## Next (post-MVP, roughly by value)
 
-1. Integrate rg-tectonics + rg-climate into the app (the `rg-pipeline` layer), with layer switching.
-2. 2D equirect view. World file + export.
+1. Matt checks the web preview and the CI macOS binary on the M1; fix whatever he hits.
+2. **Known quality gaps:**
+   - Climate edges are blocky (1° grid; better downscaling or 0.5°).
+   - Tier A weaknesses, listed in the rg-climate agent report (s01 log): dry Brazil-analogue interiors, weak monsoon, cold mid-latitude west coasts in winter.
+   - Satellite palette tuning.
+   - Tectonics: smooth Voronoi-ish plate borders, no fracture zones, land p99 about 6200 m.
+3. M1 proper: `rg-gpu`, `Job` stepping (generation is currently blocking between frames, with a busy overlay), tile quadtree LOD streaming with integer-lattice detail noise.
+4. Tier B climate on the GPU (see the research doc).
+5. Hydrology/erosion/rivers → the vector layer (coastlines, rivers, borders, labels) → sculpting.
+6. A file dialog (`rfd`) instead of the fixed folder; saving on the web.
 
 ## Open questions for Matt
 
