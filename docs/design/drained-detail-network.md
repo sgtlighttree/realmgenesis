@@ -56,3 +56,29 @@ So the network part has no closed depressions. `U` adds at most the macro interp
 1. Does `U` binding break drainage in practice? It's the macro interpolant, with a 0.05–3% residual.
 2. Is `D_k = S_h ℓ_k / 2` the right valley-depth scaling, or should channel relief follow `k_sn ∫ A^−θ`?
 3. Straight child segments will look like a polyline at the finest level; Dendry uses midpoint displacement. Is that needed in v1?
+
+## Review outcome (advisor stand-in, s01): go-with-changes → v1.1
+
+The lemmas hold. The surface as first specified didn't, so these are the changes:
+
+1. **Reach wall:** `H(d) = (S_h − S_t)·w·tanh(g/w) + S_t·g + P·max(0, d − ρ_k)²` with `g = √(d² + f²) − f` (rounded floor of width f).
+   - The wall P makes a wedge exceed any land height beyond `r_k`. So a candidate set of "all segments within `r_k`" is exact: it depends only on p, so tiles agree and there are no seams.
+   - A parent passes through its child's junction, so it's always in reach there, and there's no pit at the junction.
+   - `S_h, S_t, w, f` are fixed per segment, not sampled at p (lemma 2 needs that).
+2. **Coast:**
+   - Level-0 edges end at z = 0 at sea.
+   - The cap `U = T(p) + R(T(p))`, where T is the **triangle-split** macro (proven drained) and R(0) = 0. U is then a strictly increasing function of a drained surface, so it's drained.
+   - Land h ∈ (0, U], so the coastline is exact without `coast_rule`.
+3. **Elevation, junction up:** a child channel rises from its junction with gradient `S_k = min(S_cap, k_sn·A_k^−θ)`, where `A_k ≈ ℓ_k²` is the area of a level-k cell and `k_sn` is inherited from the parent (macro edges: `k_sn = S·A^θ`).
+   - The head is capped at `U(q) − hollow_k`, always ≥ `z_a + εL` (ε = 1e-3).
+   - So valleys are shallow at the head and deepen downstream, as real ones do, and relief comes from the stream-power law at every level.
+   - Hillslopes: `S_h = S_c·(1 − e^(−E/E_0))` with `E = K·k_sn`, `S_c = tan 33°`, `E_0 = 0.3 mm/yr`. `S_t = 0.3·S_h`. `w = ℓ_k/4`, `f = ℓ_k/8` (level 0: hydraulic width).
+4. **Attach:**
+   - To the nearest point on the union of all coarser levels, shifted downstream (about 60° junctions).
+   - Skip targets the head would have to climb to (U at the midpoint above U at the head).
+   - The attach depends only on q's own cell window (memo-safe).
+5. **Evaluation per patch:** gather the segments within reach of a patch (a tile, or a probe box) coarse to fine into flat arrays, sorted by `z_min`. Per vertex, stop once `z_min ≥` the current best.
+6. **LOD:** a level fades in by blending its profile toward a steep ramp from the junction. That's strictly monotone at every blend, so it stays drained, with no pops.
+   - Probes and readouts use unmorphed heights.
+   - Distances in 3D (chords), never in (u, v).
+7. **Later:** midpoint-displaced (curved) segments, stored receivers (schema bump), and a strictly increasing remap of the final surface's hypsometry with g(0) = 0.
