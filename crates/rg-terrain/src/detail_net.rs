@@ -384,7 +384,8 @@ impl DetailNet {
                         let ch = self.channel_of(k, c, &binned);
                         if let Ok(mut m) = shard.lock() {
                             // Bound memory: drop the shard when it grows large (it's only a cache).
-                            if m.len() > 400_000 {
+                            // ~50k × 16 shards × ~170 B ≈ 140 MB at most.
+                            if m.len() > 50_000 {
                                 m.clear();
                             }
                             m.insert((k as u8, c), ch);
@@ -464,8 +465,8 @@ impl Patch {
     fn new(dn: &DetailNet, center: DVec3, radius_m: f64, cutoff_m: f64, binned: Vec<Binned>) -> Self {
         let east = DVec3::Z.cross(center).normalize_or(DVec3::X);
         let north = center.cross(east);
-        // Blocks about two cut-offs across (≥ 150 m), at most 48 per side.
-        let blocks_per_side = ((2.0 * radius_m / (2.0 * cutoff_m).max(150.0)).ceil() as usize).clamp(1, 48);
+        // Blocks about two cut-offs across (≥ 150 m), at most 16 per side.
+        let blocks_per_side = ((2.0 * radius_m / (2.0 * cutoff_m).max(150.0)).ceil() as usize).clamp(1, 16);
         let block_m = 2.0 * radius_m / blocks_per_side as f64;
         let mut blocks = vec![Vec::new(); blocks_per_side * blocks_per_side];
         let half_diag = block_m * std::f64::consts::FRAC_1_SQRT_2;
@@ -591,6 +592,11 @@ impl Patch {
             }
         }
         best.1
+    }
+
+    /// Approximate heap size, bytes (for cache budgets).
+    pub fn bytes(&self) -> usize {
+        self.channel_count() * std::mem::size_of::<Channel>() + self.blocks.len() * std::mem::size_of::<Vec<Channel>>()
     }
 
     pub fn channel_count(&self) -> usize {

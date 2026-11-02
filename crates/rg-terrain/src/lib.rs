@@ -126,7 +126,9 @@ impl TerrainSampler {
                 // Cells are up to ~1.4 blocks across near face corners; cover the whole cell.
                 let p = Arc::new(net.patch(centre, block_m, cutoff));
                 if let Ok(mut m) = self.patches.lock() {
-                    if m.len() > 512 {
+                    // Budget ~96 MB: a patch is a few KB to a few MB.
+                    let bytes: usize = m.values().map(|p| p.bytes()).sum();
+                    if bytes > 96 << 20 {
                         m.clear();
                     }
                     m.insert(key, p.clone());
