@@ -1,0 +1,29 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+rg-geo = { path = "crates/rg-geo" }
+rg-noise = { path = "crates/rg-noise" }
+rg-render = { path = "crates/rg-render" }
+glam = { version = "0.34", features = ["bytemuck"] }
+bytemuck = { version = "1.25", features = ["derive"] }
+wgpu = "30"
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "accesskit", "persistence"] }
+egui = "0.37"
+log = "0.4"
+
+[profile.dev]
+opt-level = 1            # sims are unusably slow at opt 0
+
+[profile.dev.package."*"]
+opt-level = 3            # deps optimised once, cached
+
+[profile.release]
+lto = "thin"

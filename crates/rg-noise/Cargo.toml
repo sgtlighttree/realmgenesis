@@ -1,0 +1,10 @@
+[package]
+name = "rg-noise"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rg-geo.workspace = true
+glam.workspace = true

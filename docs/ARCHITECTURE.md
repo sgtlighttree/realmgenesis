@@ -2,7 +2,7 @@
 
 A fantasy planet generator: "Google Earth, but fantasy." A 3D globe and a flat 2D map; a raster view (satellite/data) and a vector view (political/cartographic); plate tectonics, a one-shot climate run, ocean currents; height detail generated as you zoom; sculpting.
 
-Status: **draft, 2026-11-02.** Decisions with their rationale and rejected alternatives also go in `HANDOFF.md`.
+Status: **draft, 2026-11-02, revised after the advisor-stand-in review (s01).** Decisions with their rationale and rejected alternatives also go in `HANDOFF.md`.
 
 ## 1. Stack
 
@@ -29,35 +29,46 @@ Status: **draft, 2026-11-02.** Decisions with their rationale and rejected alter
 | Crate | Role | Deps |
 |---|---|---|
 | `rg-geo` | Ellipsoid (a, f; f = 0 is a sphere), geodetic ↔ ECEF, cube-sphere face/tile addressing, great-circle math | glam |
+| `rg-gpu` | Device handle, compute and readback helpers, `Job` stepping, shared WGSL (plain `include_str!` concatenation; naga_oil only if that hurts) | wgpu |
 | `rg-noise` | Deterministic integer-hashed noise sampled on the unit sphere, with a matching WGSL implementation | rg-geo |
 | `rg-tectonics` | Plate snapshot → crust, boundaries, uplift (M2) | rg-geo, rg-noise |
 | `rg-climate` | Tier A rules, tier B one-shot solver, Köppen (M3–M4) | rg-geo, wgpu |
 | `rg-terrain` | Macro height composition, fine-detail amplification, erosion, hydrology (M2+) | rg-geo, rg-noise |
-| `rg-world` | World document: params, committed fields, edit layers, versioned serialization | all sim crates |
-| `rg-render` | wgpu globe and flat renderers, tile quadtree, LOD, streaming | rg-geo, wgpu |
+| `rg-world` | World document **types and serialization only**: params, committed fields, edit layers, the command/edit log (undo/redo) | rg-geo |
+| `rg-pipeline` | Orchestration: drives the sims as `Job`s, writes results into `rg-world` | sims, rg-world, rg-gpu |
+| `rg-render` | wgpu globe and flat renderers, tile quadtree, LOD, streaming. Owns offscreen colour + **reversed-Z Depth32Float** targets; takes `&Device`/`&Queue`, never sees eframe | rg-geo, rg-gpu, wgpu |
 | `rg-app` | eframe app, egui UI, commands; native `main` and wasm entry point | everything |
 
-Split for compile time: editing UI code rebuilds `rg-app` only.
+Split for compile time: editing UI code rebuilds `rg-app` only. **The workspace `wgpu` version is pinned to the one egui-wgpu uses; upgrade them together.**
 
 ## 4. Geodesy and grids
 
-- **One shape model:** an ellipsoid with semi-major axis `a` and flattening `f`. Default `f = 0`, a sphere, with a radius slider. "Make it oblate" sets `f` (later derived from rotation rate). Latitudes are **geodetic**. Heights are relative to the ellipsoid. Distances and bearings via geodesics (`geographiclib-rs` when needed).
-- **Tile grid:** a cube-sphere quadtree with 6 faces, using an equal-area-ish face warp to keep cell areas even. Each tile holds 256² samples plus a 1-sample border.
-  - Cell size at level L ≈ `(π/2 · R) / (256 · 2^L)`. For R = 6371 km: L0 ≈ 39 km, **L4 ≈ 2.4 km (macro edit level)**, **L10 ≈ 38 m (local edit level)**, **L12 ≈ 9.5 m (zoom floor)**.
+- **One shape model:** an ellipsoid with semi-major axis `a` and flattening `f`. Default `f = 0`, a sphere, with a radius slider. "Make it oblate" sets `f` (later derived from rotation rate). **`f` is locked at generation;** changing it invalidates everything committed. Latitudes are **geodetic**. Heights are relative to the ellipsoid. Distances and bearings via geodesics (`geographiclib-rs` when needed).
+- **Tile grid:** a cube-sphere quadtree with 6 faces. **Face warp: tangent (`tan(u·π/4)`), warp id 1, stored in the world file.** It inverts in closed form in shaders, and its area ratio is about 1.4. Rejected: equal-area warps that need iteration to invert.
+- **Tile layout:** 256 cells = **257² corner-aligned vertices** (2^n + 1) plus a 1-sample skirt. Each parent sample coincides with every second child sample, so stitching is crack-free and delta downsampling is exact.
+  - Cell size at level L ≈ `(π/2 · R) / (256 · 2^L)`. For R = 6371 km: L0 ≈ 39 km, **L3 ≈ 4.9 km (committed macro fields)**, **L4 ≈ 2.4 km (macro edit level, sparse deltas)**, **L10 ≈ 38 m (local edit level)**, **L12 ≈ 9.5 m (zoom floor)**.
+  - **Sizes:** L3 is 6 × 2048² ≈ 25M samples per field, quantized to u16/f16 and compressed in the file. L4 dense would be about 100M samples (≈ 400 MB f32 per field), too big for the file, for wasm memory, and for serial hydrology.
 - **Simulation grids:**
-  - Tectonics and macro terrain use cube-sphere L2–L4.
+  - Tectonics: a graph of about 10k–100k cells (as in V1), upsampled to L3. Hydrology on L2–L3. Macro terrain committed at L3.
   - Climate runs on a regular lat-lon 1° grid (360×180, 0.5° later), with polar filtering. Every reference model uses lat-lon, and stencils stay trivial.
   - Results are resampled to the cube-sphere for display.
 - **Precision:** world positions are f64 on the CPU. Rendering is camera-relative: tile origins relative to the camera in f64, uploaded as f32 offsets. Without this, jitter appears above about 1 m/px.
+- **Noise precision (the `rg-noise` contract):** WGSL has no f64. An f32 unit-sphere position has about 0.4 m spacing at Earth radius, which stair-steps high octaves. **High-octave noise takes its lattice coordinates as integers from (face, level, tile x/y) plus an f32 fraction within the tile.** Only low octaves may use the raw direction.
 - **2D mode:** the same tiles reprojected. Equirectangular first; others (equal-area, Dymaxion) later.
 
 ## 5. Determinism contract
 
-Learned in tcotg: locked geography has to stay byte-identical.
+Learned in tcotg: locked geography has to stay byte-identical. **The world file lands at M2**, not later, so this is testable from the start: a header, a schema version, field chunks. Golden tests: CPU paths byte-exact, GPU paths checked against a CPU reference within a tolerance.
 
 - **Stored, never re-derived:** everything **committed** (macro heights, crust/plates, climate fields, sculpt deltas, vector features). The world file holds data, not just a seed. GPU floats are not bit-reproducible across vendors, so nothing gated may depend on GPU recomputation.
-- **Re-derived:** fine procedural detail between the stored levels and the zoom floor. It's a pure function of (seed, committed coarse state, tile address). It may differ in the last bits between GPUs. That's acceptable, because it's visual detail and no gate checks it.
+- **Re-derived:** fine procedural detail between the stored levels and the zoom floor. It's a pure function of (seed, committed coarse state, **committed vector features**, tile address, `detail_generator_version`).
+  - **Detail is constrained:** amplitude is clamped near sea level using the committed coast signed-distance field, so the coastline never moves at zoom. It is carved along committed rivers, so rivers sit in their valleys.
+  - **Versioned:** old `detail_generator_version`s stay callable, so stored sculpt deltas keep their meaning when the generator improves. It may differ in the last bits between GPUs. That's acceptable, because it's visual detail and no gate checks it.
 - Noise uses integer hashing (no platform `sin` hashes), so CPU and WGSL agree up to float rounding.
+
+## 5b. Jobs, not functions
+
+GPU readback is async on the web: `map_async` resolves only after yielding to the browser. Long dispatches trip the GPU watchdog and lose the device. **So every simulation is a stepped `Job` state machine ticked once per frame.** Dispatches are chunked (under about 100 ms each), with a progress UI and device-lost recovery. Never `fn run_climate() -> Fields`.
 
 ## 6. Pipeline (user flow)
 
@@ -70,6 +81,7 @@ Learned in tcotg: locked geography has to stay byte-identical.
 
 - **Tier A** (milliseconds): rules → monthly T/P → Köppen. Drives the reroll preview.
 - **Tier B** (one-shot, target < 60 s on the M1): insolation → seasonal energy balance → pressure belts and winds → Sverdrup/Stommel gyres → moisture advection with orographic rain-out → sea ice → iterate 2–3× → Köppen. Steps 2, 4 and 5 run as compute shaders.
+- **Display-time downscaling:** 1° misses ranges narrower than about 110 km. Temperature is downscaled via lapse rate from fine heights; precipitation via an orographic term (L3 slope · wind).
 
 ## 8. Layers and views
 
@@ -80,14 +92,14 @@ Learned in tcotg: locked geography has to stay byte-identical.
 
 | # | Deliverable |
 |---|---|
-| M0 | Workspace, eframe window (native + web), cube-sphere globe with placeholder fBm heights, orbit camera, egui panel (seed, radius, regenerate), CI binaries, artifact preview |
-| M1 | Tile quadtree + LOD streaming with GPU-generated detail, camera-relative precision, flat 2D (equirect) mode |
-| M2 | Tectonic snapshot → macro heights; fast reroll |
-| M3 | Tier A climate + Köppen; raster layers (height, climate, satellite v0) |
+| M0 | Workspace, eframe window (native + web), cube-sphere globe with placeholder fBm heights, orbit camera, egui panel (seed, radius, regenerate), **frame-time HUD**, CI binaries, artifact preview |
+| M1 | `rg-gpu` + `Job` stepping; tile quadtree + LOD streaming with GPU-generated detail (integer-lattice noise); camera-relative precision; automated budget screenshots |
+| M2 | Tectonic snapshot → macro heights (L3); fast reroll; **versioned world file + golden tests** |
+| M3 | Tier A climate + Köppen; raster layers (height, climate, satellite v0); **flat 2D (equirect) mode** |
 | M4 | Tier B climate on GPU |
 | M5 | Hydrology, erosion, biomes; satellite shading |
-| M6 | Sculpt (macro L4 + local L10 delta tiles), intent painting, stale-climate flow |
+| M6 | Sculpt: sparse L10 delta tiles with downsampled parents up to about L6, and sparse L4 macro deltas; intent painting; stale-climate flow |
 | M7 | Vector layer: procedural borders/settlements/rivers/roads/labels, editable; 2D cartographic styles |
-| M8 | Save/load world file; exports: 16-bit PNG/EXR height, equirect textures, GeoTIFF tags, glTF |
+| M8 | Exports: 16-bit PNG/EXR height, equirect textures, GeoTIFF tags, glTF |
 
 **Parked:** tectonic history (deep time), mobile, the custom-CRS WKT export, a UI redesign (Slint/Iced/themed egui).

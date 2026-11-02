@@ -14,7 +14,8 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 - Rust + wgpu + eframe/egui. The UI is isolated behind commands, and a redesign is planned later.
 - GPU-first simulations, because the web preview has no threads.
 - Sphere by default (`f = 0`), with the ellipsoid in the same code path. Geodetic latitudes.
-- Cube-sphere tile quadtree. L4 ≈ 2.4 km is the macro edit level, L10 ≈ 38 m local edits, L12 ≈ 9.5 m the zoom floor.
+- Cube-sphere tile quadtree with the tangent warp; 257² corner-aligned vertices per tile. Committed macro at L3 (≈4.9 km). L4 is sparse macro edits, L10 local edits, L12 (≈9.5 m) the zoom floor.
+- Sims are stepped `Job`s (async web readback). High-octave noise uses integer lattice coordinates from the tile address. The world file + golden tests land at M2.
 - Climate: tier A for the reroll preview, tier B for the one-shot commit. Committed fields are stored, never re-derived.
 - Tectonics: a snapshot for the MVP; history mode parked.
 - Borders: procedural by default, editable.
