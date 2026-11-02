@@ -46,9 +46,14 @@ const EPS_SLOPE: f64 = 1.0e-3;
 const JITTER: f64 = 0.4;
 /// Finest level spacing we ever build, m.
 const FINEST_M: f64 = 80.0;
-/// A junction moves downstream along its parent by this share of the attach distance, so
-/// tributaries meet at ~60° instead of 90°.
-const JUNCTION_SHIFT: f64 = 0.5;
+/// Junction angles are drawn per channel in this range (degrees). The shift downstream is
+/// d / tan α, at most d / tan 44° ≈ 1.04 d, inside the margin derivation's 1.5× length bound.
+const JUNCTION_ANGLE_MIN_DEG: f64 = 44.0;
+const JUNCTION_ANGLE_MAX_DEG: f64 = 80.0;
+/// Share of lattice cells that get a channel (the rest are thinned out).
+const KEEP_FRACTION: f64 = 0.85;
+/// No channel closer to its parent than this many level spacings (a stub).
+const MIN_ATTACH: f64 = 0.35;
 /// Floodplain width per √(km²) of drainage (see `floor_width`), m.
 const FLOOR_M_PER_SQRT_KM2: f64 = 30.0;
 /// Macro height above which the ridge allowance stops growing, m.
@@ -60,8 +65,12 @@ const RIDGE_ALPHA: f64 = 0.3;
 /// Sets the gather margins (see `DetailNet::margin`).
 const ATTACH_SEARCH: f64 = 1.2;
 /// Fade-out terms (see `wedge`): large enough that a faded channel never wins.
-const FADE_RAMP_M: f64 = 1.0e4;
+/// A faded channel's bed climbs this steeply (m/m) from its junction, and its walls this
+/// steeply, so a channel at presence 0 never wins anywhere but its junction.
+const FADE_RAMP_SLOPE: f64 = 2.0;
 const FADE_SLOPE: f64 = 50.0;
+/// Most ancestors a channel can have (levels ≥ 1 above it).
+const MAX_ANCESTORS: usize = 7;
 
 /// One shard of the channel memo: (level, cell) → channel (None = no channel there).
 type MemoShard = std::sync::Mutex<HashMap<(u8, Cell), Option<Channel>>>;
@@ -85,6 +94,18 @@ pub struct Channel {
     /// Beyond `reach` (m) the wedge rises steeply (`wall_k` per m²), so it never wins there.
     pub reach: f64,
     pub wall_k: f64,
+    /// Effective level spacing for LOD presence (m): the level spacing × a hashed factor in
+    /// [0.75, 1.33], so siblings fade in at different zooms. A parent's (≥ 3/1.33 × the
+    /// child's level spacing) always exceeds its child's, so a parent is never less present.
+    pub lod_spacing: f64,
+    /// Channel length, m.
+    pub len_m: f64,
+    /// Fading ancestors (levels ≥ 1), each (LOD spacing, distance from its junction to where
+    /// this lineage attaches, m). A faded ancestor's bed is raised by (1 − φ)·ramp·distance
+    /// there, and descendants carry that offset, so every junction sits on its parent's
+    /// effective bed at every zoom (otherwise fading made junction pits ~100 m deep, s01).
+    pub anc: [[f32; 2]; MAX_ANCESTORS],
+    pub n_anc: u8,
 }
 
 impl Channel {
@@ -107,22 +128,41 @@ impl Channel {
         self.z_down
     }
 
+    /// Presence at band-limit `cutoff`. Level 0 never fades: consecutive macro segments
+    /// aren't parent and child, so a ramp would break their continuity (band-limited floors
+    /// handle coarse views instead).
+    #[inline]
+    fn presence(&self, cutoff: f64) -> f64 {
+        if self.level == 0 { 1.0 } else { presence_of(self.lod_spacing, cutoff) }
+    }
+
+    /// Fade offset inherited from ancestors at band-limit `cutoff` (m, ≥ 0).
+    #[inline]
+    fn inherited_offset(&self, cutoff: f64) -> f64 {
+        let mut off = 0.0;
+        for a in &self.anc[..self.n_anc as usize] {
+            let phi = presence_of(a[0] as f64, cutoff);
+            off += (1.0 - phi) * FADE_RAMP_SLOPE * a[1] as f64;
+        }
+        off
+    }
+
     /// The wedge at distance `d`, parameter `t`, faded in by `phi` (1 = fully present), with
     /// the valley floor at least `min_floor` wide (band-limiting: a level of detail can't
     /// show a floor narrower than it resolves, and sampling a sharper V makes grid pits).
     /// Every term is strictly increasing in `d` and in `t`, at any `phi`; `min_floor` is
     /// fixed per evaluation, so each wedge's shape is fixed as the proof requires.
     #[inline]
-    fn wedge(&self, d: f64, t: f64, phi: f64, min_floor: f64) -> f64 {
+    fn wedge(&self, d: f64, t: f64, phi: f64, min_floor: f64, offset: f64) -> f64 {
         let f = self.floor.max(min_floor);
         let g = floor_hinge(d, f);
-        let mut h = self.z_at(t) + (self.s_wall - self.s_top) * self.w * (g / self.w).tanh() + self.s_top * g;
+        let mut h = self.z_at(t) + offset + (self.s_wall - self.s_top) * self.w * (g / self.w).tanh() + self.s_top * g;
         let over = d - self.reach;
         if over > 0.0 {
             h += self.wall_k * over * over;
         }
         if phi < 1.0 {
-            h += (1.0 - phi) * (FADE_RAMP_M * t + FADE_SLOPE * g);
+            h += (1.0 - phi) * (FADE_RAMP_SLOPE * self.len_m * t + FADE_SLOPE * g);
         }
         h
     }
@@ -172,6 +212,12 @@ fn wall_slope(ksn: f64) -> f64 {
 /// hillslope form and relief").
 fn top_share(ksn: f64) -> f64 {
     TOP_SLOPE_SHARE + (tune("RG_TOP", TOP_SHARE_FAST) - TOP_SLOPE_SHARE) * threshold_fraction(ksn)
+}
+
+/// Presence of a channel with LOD spacing `lod_spacing` at band-limit `cutoff`.
+#[inline]
+fn presence_of(lod_spacing: f64, cutoff: f64) -> f64 {
+    smoothstep(2.0 * cutoff, 4.0 * cutoff, lod_spacing)
 }
 
 /// Linear smoothstep.
@@ -239,8 +285,9 @@ impl DetailNet {
 
     /// How present level `k` is at band-limit `cutoff_m` (0 = absent, 1 = full): a level of
     /// spacing ℓ needs about ℓ/4 resolution (its convexity width).
+    /// (Upper bound over channels: their LOD spacing is up to 1.33 × the level's.)
     pub fn presence(&self, k: usize, cutoff_m: f64) -> f64 {
-        smoothstep(2.0 * cutoff_m, 4.0 * cutoff_m, self.spacing[k])
+        smoothstep(2.0 * cutoff_m, 4.0 * cutoff_m, 1.33 * self.spacing[k])
     }
 
     fn level0_channel(&self, s: &Segment) -> Channel {
@@ -273,6 +320,10 @@ impl DetailNet {
             floor,
             reach: 2.0 * l0,
             wall_k: 1.0e4 / (l0 * l0),
+            lod_spacing: l0,
+            len_m: len,
+            anc: [[0.0; 2]; MAX_ANCESTORS],
+            n_anc: 0,
         }
     }
 
@@ -296,6 +347,12 @@ impl DetailNet {
     fn channel_of(&self, k: usize, c: Cell, coarser: &[Binned]) -> Option<Channel> {
         let lk = self.spacing[k];
         let q = lattice::jittered(c, self.cells[k], self.salt.wrapping_add(k as u64), JITTER);
+        // Per-cell randomness (three uniforms) breaks the lattice's regularity.
+        let hsh = lattice::hash(self.salt ^ 0x5EED_0000_0000_0000 ^ k as u64, c);
+        let u = |i: u32| ((hsh >> (i * 21)) & 0x1F_FFFF) as f64 / 0x1F_FFFF as f64;
+        if u(0) > KEEP_FRACTION {
+            return None; // thinning: drainage density varies; dropping a channel is always safe
+        }
         let t_q = self.macro_tri(q);
         if t_q <= 0.0 {
             return None;
@@ -315,7 +372,7 @@ impl DetailNet {
                 if d > search || d < 1.0 {
                     return;
                 }
-                let wq = ch.wedge(d, t, 1.0, 0.0);
+                let wq = ch.wedge(d, t, 1.0, 0.0, 0.0);
                 if best.as_ref().is_some_and(|(bw, ..)| *bw <= wq) {
                     return;
                 }
@@ -323,12 +380,30 @@ impl DetailNet {
             });
         }
         let (_, d, t, parent) = best?;
-        // Junction: shifted downstream along the parent (towards t = 0).
+        if d < MIN_ATTACH * lk {
+            return None; // a stub: too close to its parent to make a valley of its own
+        }
+        // Junction: shifted downstream along the parent (towards t = 0) so the tributary
+        // meets it at angle α, drawn per cell (Seybold et al. 2017: humid basins ~60–70°
+        // on average, with wide scatter).
+        let alpha = (JUNCTION_ANGLE_MIN_DEG + (JUNCTION_ANGLE_MAX_DEG - JUNCTION_ANGLE_MIN_DEG) * u(1)).to_radians();
         let parent_len = (parent.up - parent.down).length() * self.radius_m;
-        let tj = (t - JUNCTION_SHIFT * d / parent_len.max(1.0)).max(0.0);
-        let junction = (parent.down + (parent.up - parent.down) * tj).normalize();
+        let mut tj = (t - d / alpha.tan() / parent_len.max(1.0)).max(0.0);
+        let mut junction = (parent.down + (parent.up - parent.down) * tj).normalize();
+        // The gather margins assume a channel is at most 1.5 × the search radius long.
+        if (q - junction).length() * self.radius_m > 1.5 * search {
+            tj = t;
+            junction = (parent.down + (parent.up - parent.down) * tj).normalize();
+        }
         let z_a = parent.z_at(tj);
         let len = (q - junction).length() * self.radius_m;
+        // This lineage's fading ancestors: the parent's own, plus the parent itself (unless it
+        // is level 0, which never fades) at the junction's distance along it.
+        let (mut anc, mut n_anc) = (parent.anc, parent.n_anc);
+        if parent.level > 0 && (n_anc as usize) < MAX_ANCESTORS {
+            anc[n_anc as usize] = [parent.lod_spacing as f32, (tj * parent.len_m) as f32];
+            n_anc += 1;
+        }
         // Stream-power profile from the junction: S = k_sn·A^−θ with A ≈ one level-k cell.
         let ksn = parent.ksn;
         let s_wall = wall_slope(ksn).max(0.002);
@@ -343,7 +418,7 @@ impl DetailNet {
         for b in coarser {
             b.for_each_near(q, 3.0 * b.spacing_m + b.max_len, |ch| {
                 let (d, t) = ch.nearest(q, self.radius_m);
-                coarse = coarse.min(ch.wedge(d, t, 1.0, 0.0));
+                coarse = coarse.min(ch.wedge(d, t, 1.0, 0.0, 0.0));
             });
         }
         let z_head = (z_a + s_channel * len).min(head_target - hollow).min(coarse - hollow).max(z_a + EPS_SLOPE * len);
@@ -360,6 +435,10 @@ impl DetailNet {
             floor: floor_width(lk * lk * 1.0e-6) * (1.0 - 0.8 * threshold_fraction(ksn)),
             reach: 2.0 * lk,
             wall_k: 1.0e4 / (lk * lk),
+            lod_spacing: lk * (0.75 + 0.58 * u(2)),
+            len_m: len,
+            anc,
+            n_anc,
         })
     }
 
@@ -464,8 +543,6 @@ pub struct Patch {
     blocks_per_side: usize,
     /// Per block: channels that can reach it, sorted by junction elevation.
     blocks: Vec<Vec<Channel>>,
-    /// Presence of each level at the patch's band-limit and the two neighbouring LODs.
-    presence: Vec<[f64; 3]>,
     /// The three band-limits themselves, m (this, parent, child): minimum floor widths.
     cutoffs: [f64; 3],
     net: Arc<CubeField<f32>>,
@@ -510,9 +587,6 @@ impl Patch {
                 }
             }
         }
-        let presence: Vec<[f64; 3]> = (0..binned.len())
-            .map(|k| [dn.presence(k, cutoff_m), dn.presence(k, 2.0 * cutoff_m), dn.presence(k, 0.5 * cutoff_m)])
-            .collect();
         let cutoffs = [cutoff_m, 2.0 * cutoff_m, 0.5 * cutoff_m];
         // Exact pruning per block. Anywhere in the block a wedge is ≥ its lower bound
         // z_down + H(max(0, d_c − hd)) (z ≥ z_down, H monotone), and the block's minimum is
@@ -533,9 +607,9 @@ impl Patch {
                 for ch in list.iter() {
                     let (d, tt) = ch.nearest(pc, pr);
                     for i in 0..3 {
-                        let ph = presence[ch.level as usize][i];
+                        let ph = ch.presence(cutoffs[i]);
                         if ph > 0.0 {
-                            ub[i] = ub[i].min(ch.wedge(d, tt, ph, cutoffs[i]));
+                            ub[i] = ub[i].min(ch.wedge(d, tt, ph, cutoffs[i], ch.inherited_offset(cutoffs[i])));
                         }
                     }
                 }
@@ -545,12 +619,12 @@ impl Patch {
                     let dl = (d - half_diag).max(0.0);
                     // The lower bound: full presence (fading only raises a wedge), the junction
                     // elevation, and the widest floor of the three LODs (wider floor → lower H).
-                    ch.wedge(dl, 0.0, 1.0, cutoffs[1]) <= ub_max
+                    ch.wedge(dl, 0.0, 1.0, cutoffs[1], 0.0) <= ub_max
                 });
                 list.sort_by(|a, c| a.z_min().total_cmp(&c.z_min()));
             }
         }
-        Self { center, east, north, radius_m, planet_r: pr, block_m, blocks_per_side, blocks, presence, cutoffs, net: dn.macro_net.height.clone(), ridge_alpha: dn.ridge_alpha }
+        Self { center, east, north, radius_m, planet_r: pr, block_m, blocks_per_side, blocks, cutoffs, net: dn.macro_net.height.clone(), ridge_alpha: dn.ridge_alpha }
     }
 
     /// Heights at this patch's band-limit, its parent LOD (2× coarser) and child LOD
@@ -572,10 +646,10 @@ impl Patch {
                 break;
             }
             let (d, t) = ch.nearest(p, self.planet_r);
-            let pres = self.presence[ch.level as usize];
             for i in 0..3 {
-                if pres[i] > 0.0 {
-                    best[i] = best[i].min(ch.wedge(d, t, pres[i], self.cutoffs[i]));
+                let pres = ch.presence(self.cutoffs[i]);
+                if pres > 0.0 {
+                    best[i] = best[i].min(ch.wedge(d, t, pres, self.cutoffs[i], ch.inherited_offset(self.cutoffs[i])));
                 }
             }
         }
@@ -594,9 +668,9 @@ impl Patch {
         let by = (((y + self.radius_m) / self.block_m).floor().max(0.0) as usize).min(self.blocks_per_side - 1);
         for ch in &self.blocks[by * self.blocks_per_side + bx] {
             let (d, t) = ch.nearest(p, self.planet_r);
-            let pres = self.presence[ch.level as usize][0];
+            let pres = ch.presence(self.cutoffs[0]);
             if pres > 0.0 {
-                let w = ch.wedge(d, t, pres, self.cutoffs[0]);
+                let w = ch.wedge(d, t, pres, self.cutoffs[0], ch.inherited_offset(self.cutoffs[0]));
                 if w < best.0 {
                     best = (w, Some((ch.level, t, d)));
                 }
