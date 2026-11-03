@@ -314,6 +314,7 @@ fn viewport(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) 
     let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
     let aspect = (rect.width() / rect.height().max(1.0)) as f64;
     let multi = ui.input(|i| i.multi_touch());
+    let touching = multi.is_some();
     if let (ViewMode::Globe, Some(mt)) = (app.view, multi) {
         // Two fingers: twist to turn, slide up/down to tilt (pinch zoom is handled below).
         app.camera.orbit(-mt.rotation_delta as f64, -mt.translation_delta.y as f64 * 0.005);
@@ -382,12 +383,47 @@ fn viewport(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) 
     {
         app.push(Command::TogglePanel);
     }
+    if app.view == ViewMode::Globe {
+        stop_tiles_button(app, ui, rect);
+    }
     if let Some(msg) = app.busy {
         let r = egui::Rect::from_center_size(rect.center(), egui::vec2(260.0, 48.0));
         ui.painter().rect_filled(r, 6.0, theme::PANEL.gamma_multiply(0.92));
         ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, msg, egui::FontId::proportional(15.0), theme::TEXT);
     }
-    if response.dragged() || response.hovered() || app.busy.is_some() || app.streaming {
+    // Repaint for real input only: hovering alone used to keep a 60 fps loop running.
+    let input_moving = response.hovered()
+        && ui.input(|i| i.pointer.is_moving() || i.smooth_scroll_delta != egui::Vec2::ZERO || i.zoom_delta() != 1.0);
+    if response.dragged() || input_moving || touching || app.settling || app.busy.is_some() || app.streaming {
         ui.ctx().request_repaint();
+    }
+}
+
+/// The red "stop background rendering" button, top-right of the viewport (the sidebar can
+/// be hidden, so it isn't there). Stopping cancels queued terrain tiles; resuming picks up
+/// whatever the view needs.
+fn stop_tiles_button(app: &mut RealmApp, ui: &mut egui::Ui, rect: egui::Rect) {
+    let paused = app.tiles_paused();
+    let (label, fill, tip) = if paused {
+        (
+            "RESUME BACKGROUND RENDERING",
+            theme::SURFACE.gamma_multiply(0.92),
+            "Terrain tiles are stopped, so zooming in won't add detail. Click to resume.",
+        )
+    } else {
+        (
+            "STOP BACKGROUND RENDERING",
+            theme::DANGER,
+            "Stop generating terrain tiles in the background and free the CPU. \
+             A tile already being built finishes first (under a second).",
+        )
+    };
+    let size = egui::vec2(250.0, 32.0);
+    // Right-aligned, but never over the sidebar toggle at the top-left.
+    let x = (rect.right() - size.x - 8.0).max(rect.left() + 52.0);
+    let r = egui::Rect::from_min_size(egui::pos2(x, rect.top() + 8.0), size);
+    let button = egui::Button::new(egui::RichText::new(label).strong().color(egui::Color32::WHITE)).fill(fill);
+    if ui.put(r, button).on_hover_text(tip).clicked() {
+        app.push(Command::ToggleTileStreaming);
     }
 }

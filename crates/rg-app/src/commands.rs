@@ -18,6 +18,9 @@ pub enum Command {
     ResetCamera,
     /// Show or hide the controls sidebar.
     TogglePanel,
+    /// Stop or resume background terrain-tile generation. Stopping also drops every
+    /// queued tile, so the CPU goes quiet within one tile's time.
+    ToggleTileStreaming,
     /// Save the world file (native only for now).
     SaveWorld,
     /// Load the most recent world file.

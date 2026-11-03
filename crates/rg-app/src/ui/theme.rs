@@ -11,6 +11,8 @@ pub const TEXT: Color32 = Color32::from_rgb(218, 224, 228);
 pub const MUTED: Color32 = Color32::from_rgb(132, 144, 152);
 /// Patina green: a nod to old map inks.
 pub const ACCENT: Color32 = Color32::from_rgb(110, 186, 154);
+/// Red for controls that stop work (the "stop background rendering" button).
+pub const DANGER: Color32 = Color32::from_rgb(196, 48, 48);
 
 pub fn apply(ctx: &egui::Context) {
     let mut style = (*ctx.global_style()).clone();

@@ -141,6 +141,8 @@ pub struct RealmApp {
     pub hover: Option<String>,
     /// True while tiles are loading or morphing in (keep repainting).
     pub streaming: bool,
+    /// True while the orbit point is still easing onto the ground height (keep repainting).
+    pub settling: bool,
     /// Whether the controls sidebar is shown. `None` until the first frame, when it
     /// defaults to hidden on narrow (phone-sized) screens.
     pub show_panel: Option<bool>,
@@ -172,6 +174,7 @@ impl RealmApp {
             status: String::new(),
             hover: None,
             streaming: false,
+            settling: false,
             show_panel: None,
             renderer: None,
             feeder: TileFeeder::new(),
@@ -239,6 +242,11 @@ impl RealmApp {
         }
     }
 
+    /// Whether background tile generation is stopped (the red button).
+    pub fn tiles_paused(&self) -> bool {
+        self.feeder.paused()
+    }
+
     pub fn push(&mut self, c: Command) {
         self.pending.push(c);
     }
@@ -260,6 +268,7 @@ impl RealmApp {
             }
             Command::SetView(v) => self.view = v,
             Command::TogglePanel => self.show_panel = Some(!self.show_panel.unwrap_or(true)),
+            Command::ToggleTileStreaming => self.feeder.set_paused(!self.feeder.paused()),
             Command::ResetCamera => {
                 self.camera = EarthCamera::new(self.camera.radius_m);
                 self.map = MapView::default();
@@ -367,6 +376,7 @@ impl RealmApp {
             let h = t.height(target_dir, 50.0).0.max(0.0) * exag;
             let k = if self.camera.target_height_m == 0.0 { 1.0 } else { 0.25 };
             self.camera.target_height_m += (h - self.camera.target_height_m) * k;
+            self.settling = (h - self.camera.target_height_m).abs() > 0.5;
         }
         // Keep the eye above the displayed terrain (checked under the eye; good enough
         // for M1a, which has no flight-through).
@@ -402,7 +412,10 @@ impl RealmApp {
             self.stats.tiles_drawn = sel.drawn;
             self.stats.tiles_resident = r.tiles.len();
             self.stats.tiles_in_flight = self.feeder.in_flight();
-            self.streaming = sel.animating || !sel.wanted.is_empty() || self.feeder.in_flight() > 0;
+            // While stopped, wanted tiles never arrive: repainting for them would keep a
+            // 60 fps loop running, so only morph-ins of resident tiles count then.
+            let loading = !self.feeder.paused() && (!sel.wanted.is_empty() || self.feeder.in_flight() > 0);
+            self.streaming = sel.animating || loading;
             #[cfg(not(target_arch = "wasm32"))]
             if std::env::var_os("RG_LOG_TILES").is_some() && self.stats.log_due(now) {
                 eprintln!(

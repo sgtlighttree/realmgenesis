@@ -5,7 +5,8 @@
 //! - **Web:** no threads (no SharedArrayBuffer in the preview frame), so tiles are generated
 //!   in-frame until a time budget is spent (always at least one per frame).
 //!
-//! An `epoch` counter tags work, so results for a previous world are dropped.
+//! An `epoch` counter tags work. Moving it on (a new world, or the stop button) cancels
+//! everything queued: workers skip jobs from an old epoch, and late results are dropped.
 
 use rg_geo::{CubeFace, TileId};
 use rg_render::{TileCache, TileUpload, TileVertex};
@@ -38,6 +39,8 @@ pub struct TileFeeder {
     generator: Option<TileGenerator>,
     epoch: u64,
     in_flight: HashSet<TileId>,
+    /// While true, no new tiles are generated ("stop background rendering").
+    paused: bool,
     #[cfg(not(target_arch = "wasm32"))]
     pool: native::Pool,
     /// Tiles generated in the last update (for the HUD).
@@ -50,6 +53,7 @@ impl TileFeeder {
             generator: None,
             epoch: 0,
             in_flight: HashSet::new(),
+            paused: false,
             #[cfg(not(target_arch = "wasm32"))]
             pool: native::Pool::new(),
             last_generated: 0,
@@ -60,11 +64,32 @@ impl TileFeeder {
         self.in_flight.len()
     }
 
-    /// Switch to a new world. Clears the cache and generates the six root tiles right
-    /// away, so the globe is never empty.
-    pub fn set_world(&mut self, generator: TileGenerator, cache: &mut TileCache, device: &wgpu::Device, now_s: f64) {
+    pub fn paused(&self) -> bool {
+        self.paused
+    }
+
+    /// Stop or resume background tile generation. Stopping cancels the queue as well, so
+    /// only tiles already being built finish (one tile each, well under a second).
+    pub fn set_paused(&mut self, paused: bool) {
+        if paused && !self.paused {
+            self.new_epoch();
+        }
+        self.paused = paused;
+    }
+
+    /// Start a new epoch: queued jobs and late results from the old one are dropped.
+    fn new_epoch(&mut self) {
         self.epoch += 1;
         self.in_flight.clear();
+        #[cfg(not(target_arch = "wasm32"))]
+        self.pool.set_epoch(self.epoch);
+    }
+
+    /// Switch to a new world. Clears the cache and generates the six root tiles right
+    /// away, so the globe is never empty.
+    /// Pausing survives this: the roots are made, nothing else until resumed.
+    pub fn set_world(&mut self, generator: TileGenerator, cache: &mut TileCache, device: &wgpu::Device, now_s: f64) {
+        self.new_epoch();
         cache.clear();
         for face in CubeFace::ALL {
             cache.insert(device, to_upload(generator.generate(TileId::root(face))), now_s);
@@ -81,11 +106,16 @@ impl TileFeeder {
         {
             // Collect finished work first, then top the queue up.
             for (epoch, upload) in self.pool.finished() {
-                self.in_flight.remove(&upload.id);
+                // Only current-epoch results count: after a cancel, the same tile may be
+                // in flight again under the new epoch.
                 if epoch == self.epoch {
+                    self.in_flight.remove(&upload.id);
                     cache.insert(device, upload, now_s);
                     self.last_generated += 1;
                 }
+            }
+            if self.paused {
+                return;
             }
             let cap = self.pool.workers * 3;
             for id in wanted {
@@ -100,7 +130,7 @@ impl TileFeeder {
         }
 
         #[cfg(target_arch = "wasm32")]
-        {
+        if !self.paused {
             const BUDGET_S: f64 = 0.006;
             let t0 = web_time::Instant::now();
             for id in wanted {
@@ -123,6 +153,7 @@ mod native {
     use rg_geo::TileId;
     use rg_render::TileUpload;
     use rg_terrain::TileGenerator;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::mpsc::{channel, Receiver, Sender};
     use std::sync::{Arc, Mutex};
 
@@ -134,6 +165,8 @@ mod native {
         jobs: Sender<Job>,
         results: Receiver<(u64, TileUpload)>,
         pub workers: usize,
+        /// The feeder's current epoch. Workers skip queued jobs from older ones.
+        epoch: Arc<AtomicU64>,
     }
 
     impl Pool {
@@ -142,9 +175,11 @@ mod native {
             let (jobs, job_rx) = channel::<Job>();
             let (result_tx, results) = channel();
             let job_rx = Arc::new(Mutex::new(job_rx));
+            let epoch = Arc::new(AtomicU64::new(0));
             for i in 0..workers {
                 let rx = Arc::clone(&job_rx);
                 let tx = result_tx.clone();
+                let current = Arc::clone(&epoch);
                 std::thread::Builder::new()
                     .name(format!("tile-worker-{i}"))
                     .spawn(move || {
@@ -152,6 +187,11 @@ mod native {
                             // Hold the lock only while taking a job, not while working.
                             let job = rx.lock().ok().and_then(|r| r.recv().ok());
                             let Some((epoch, id, generator)) = job else { break };
+                            // Cancelled while queued (stop button or a new world): skip it.
+                            // A stale read costs at most one extra tile, so Relaxed is enough.
+                            if epoch != current.load(Ordering::Relaxed) {
+                                continue;
+                            }
                             if tx.send((epoch, to_upload(generator.generate(id)))).is_err() {
                                 break;
                             }
@@ -159,7 +199,11 @@ mod native {
                     })
                     .expect("failed to spawn tile worker");
             }
-            Self { jobs, results, workers }
+            Self { jobs, results, workers, epoch }
+        }
+
+        pub fn set_epoch(&self, epoch: u64) {
+            self.epoch.store(epoch, Ordering::Relaxed);
         }
 
         pub fn submit(&self, epoch: u64, id: TileId, generator: TileGenerator) {
