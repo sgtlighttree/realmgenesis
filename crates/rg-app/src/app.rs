@@ -369,11 +369,24 @@ impl RealmApp {
         let radius = self.camera.radius_m;
         let exag = self.display.effective_exaggeration(self.camera.distance_m, radius);
         self.stats.exaggeration = exag;
+        // One band-limit for both camera height queries below (one patch-cache key), from
+        // a cheap macro-only clearance estimate. See `camera_query_cutoff_m`.
+        let cutoff = self.terrain.as_ref().and_then(|t| {
+            let eye = self.camera.eye();
+            camera_query_cutoff_m(eye.length() - radius - t.macro_height(eye.normalize()).max(0.0) * exag)
+        });
+        let ground_at = |t: &TerrainSampler, dir: glam::DVec3| {
+            let h = match cutoff {
+                Some(c) => t.height(dir, c).0,
+                None => t.macro_height(dir),
+            };
+            h.max(0.0) * exag
+        };
         // Orbit a point on the ground: track the displayed height under the target
         // (smoothed, so panning over ridges doesn't jolt the view).
         if let Some(t) = self.terrain.as_ref() {
             let target_dir = rg_render::earth_camera::dir(self.camera.lat, self.camera.lon);
-            let h = t.height(target_dir, 50.0).0.max(0.0) * exag;
+            let h = ground_at(t, target_dir);
             let k = if self.camera.target_height_m == 0.0 { 1.0 } else { 0.25 };
             self.camera.target_height_m += (h - self.camera.target_height_m) * k;
             self.settling = (h - self.camera.target_height_m).abs() > 0.5;
@@ -381,11 +394,7 @@ impl RealmApp {
         // Keep the eye above the displayed terrain (checked under the eye; good enough
         // for M1a, which has no flight-through).
         let eye = self.camera.eye();
-        let ground = self
-            .terrain
-            .as_ref()
-            .map(|t| t.height(eye.normalize(), 30.0).0.max(0.0) * exag)
-            .unwrap_or(0.0);
+        let ground = self.terrain.as_ref().map(|t| ground_at(t, eye.normalize())).unwrap_or(0.0);
         let min_clear = 20.0;
         let clearance = eye.length() - radius - ground;
         if clearance < min_clear {
@@ -508,8 +517,52 @@ impl eframe::App for RealmApp {
     }
 }
 
+/// Band-limit (minimum detail wavelength, m) for the camera's own height queries (orbit
+/// target and eye clearance), or `None` to use the cheap macro height.
+///
+/// These run on the UI thread, and each new (block, cut-off) pair builds a detail-network
+/// patch: ~240 ms at 40 m on an M1 P-core (s02, `bench_tiles`). They used to ask for 50 m
+/// and 30 m at every altitude, so dragging from orbit built patches nearly every frame.
+/// Now:
+/// - above `MACRO_ONLY_ABOVE_M` of clearance the macro height is enough (detail is a few
+///   hundred metres at most, small next to the clearance);
+/// - below it, a power of two near clearance / 8 (powers of two keep the cache key stable
+///   while zooming; a continuous value would miss on every frame). A patch block is 32
+///   cut-offs, so ~4× the altitude: a drag crosses one every few screen widths.
+fn camera_query_cutoff_m(clearance_m: f64) -> Option<f64> {
+    const MACRO_ONLY_ABOVE_M: f64 = 10_000.0;
+    if clearance_m > MACRO_ONLY_ABOVE_M {
+        return None;
+    }
+    let raw = (clearance_m / 8.0).clamp(32.0, 1024.0);
+    Some(2f64.powi(raw.log2().round() as i32))
+}
+
 fn random_seed() -> u64 {
     // Time-based on purpose: this only picks a new seed. Generation itself is deterministic.
     let t = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).unwrap_or_default();
     (t.as_nanos() as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) % 1_000_000
+}
+
+#[cfg(test)]
+mod tests {
+    use super::camera_query_cutoff_m;
+
+    #[test]
+    fn camera_cutoff_is_macro_from_high_up() {
+        assert_eq!(camera_query_cutoff_m(10_001.0), None);
+        assert_eq!(camera_query_cutoff_m(6_000_000.0), None);
+    }
+
+    #[test]
+    fn camera_cutoff_is_a_clamped_power_of_two_that_grows_with_clearance() {
+        let mut last = 0.0;
+        for c in [0.0, 5.0, 100.0, 300.0, 1_000.0, 3_000.0, 8_000.0, 10_000.0] {
+            let cut = camera_query_cutoff_m(c).expect("detail below 10 km");
+            assert!((32.0..=1024.0).contains(&cut), "{c} m -> {cut}");
+            assert_eq!(cut.log2().fract(), 0.0, "{cut} is not a power of two");
+            assert!(cut >= last, "not monotone at {c} m");
+            last = cut;
+        }
+    }
 }
