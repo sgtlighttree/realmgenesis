@@ -29,6 +29,7 @@ Applies only on Matt's MacBook Air M1 (4 P + 4 E cores, 16 GB, fanless; also his
   taskpolicy -b cargo test --workspace --release -j 4 -- --test-threads=2
   taskpolicy -b cargo clippy --workspace --all-targets --release -j 4
   ```
+- **Plugged in, ~75% (Matt, s02: "leave about 25%")**: drop `taskpolicy -b`, use `-j 6` (cargo's jobserver also caps rustc codegen/LTO threads). Incremental `rg-app` release build: 36 s vs 3 m 46 s capped. Tests still need `--test-threads=2`, and world generation inside them uses every core.
 - **Full speed** (drop `taskpolicy -b` and `-j 4`) only when Matt says the Mac is free. Offer it when After Effects, aerender and Blender aren't using CPU: check `top -l 2 -s 2 -o cpu` (open ≠ busy). If one is busy, ask first or drop to `-j 2 -- --test-threads=1`.
 - **Never cap the interactive app:** build capped, then run `target/release/realmgenesis` directly. On E-cores the UI and tile workers would misrepresent performance.
 - **Timing runs (`bench_tiles`, probes' ms figures) go uncapped.** E-cores make tiles look ~2–5× slower. Warm up capped once (caches the world in `target/probe-cache/`), then rerun without `taskpolicy`; the timed tile loop is single-threaded, so it takes ~1 P-core. Measured capped (s02): build 11 min, `cargo test --workspace --release` 14 min (`terrain_realism` 232 s), clippy 2 min; peak RSS 1.7 GB.
