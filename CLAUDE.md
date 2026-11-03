@@ -19,6 +19,22 @@ cargo test --workspace
 cargo clippy --workspace --all-targets
 ```
 
+## Local (M1) sessions (Matt, 2026-11-03)
+
+Applies only on Matt's MacBook Air M1 (4 P + 4 E cores, 16 GB, fanless; also his After Effects / Blender workstation). Cloud sessions skip this section.
+
+- **Capped is the default** for every build, test, clippy and probe run. The engine sizes its own thread pools from `available_parallelism()`, so `-j` and `--test-threads` alone don't cap it; `taskpolicy -b` (background QoS, E-cores only) does (s02: 2.2 vs 6.8 cores measured).
+  ```
+  taskpolicy -b cargo build -p rg-app --release -j 4
+  taskpolicy -b cargo test --workspace --release -j 4 -- --test-threads=2
+  taskpolicy -b cargo clippy --workspace --all-targets --release -j 4
+  ```
+- **Full speed** (drop `taskpolicy -b` and `-j 4`) only when Matt says the Mac is free. Offer it when After Effects, aerender and Blender aren't using CPU: check `top -l 2 -s 2 -o cpu` (open ≠ busy). If one is busy, ask first or drop to `-j 2 -- --test-threads=1`.
+- **Never cap the interactive app:** build capped, then run `target/release/realmgenesis` directly. On E-cores the UI and tile workers would misrepresent performance.
+- **RAM has no hard cap on macOS** (`ulimit -v` fails, no cgroups). Concurrency is the lever; measure peaks with `/usr/bin/time -l`.
+- **Release profile for everything**, tests and clippy included: a debug-profile run builds a second dependency tree, and disk is tight.
+- **Low data (metered link):** the toolchain is rustup's minimal profile plus `rustup override set 1.97.0` (no wasm32 until a web build; `rustup override unset` restores the toml). Builds pass `--offline`; after a dependency change run `cargo fetch --target aarch64-apple-darwin` first.
+
 ## Code rules
 
 - Core crates (`rg-geo`, `rg-noise`, the sim crates, `rg-world`, `rg-render`) never depend on egui or eframe. The UI talks to the core through `Command`s.
