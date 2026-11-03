@@ -31,6 +31,7 @@ Applies only on Matt's MacBook Air M1 (4 P + 4 E cores, 16 GB, fanless; also his
   ```
 - **Full speed** (drop `taskpolicy -b` and `-j 4`) only when Matt says the Mac is free. Offer it when After Effects, aerender and Blender aren't using CPU: check `top -l 2 -s 2 -o cpu` (open ≠ busy). If one is busy, ask first or drop to `-j 2 -- --test-threads=1`.
 - **Never cap the interactive app:** build capped, then run `target/release/realmgenesis` directly. On E-cores the UI and tile workers would misrepresent performance.
+- **Timing runs (`bench_tiles`, probes' ms figures) go uncapped.** E-cores make tiles look ~2–5× slower. Warm up capped once (caches the world in `target/probe-cache/`), then rerun without `taskpolicy`; the timed tile loop is single-threaded, so it takes ~1 P-core. Measured capped (s02): build 11 min, `cargo test --workspace --release` 14 min (`terrain_realism` 232 s), clippy 2 min; peak RSS 1.7 GB.
 - **RAM has no hard cap on macOS** (`ulimit -v` fails, no cgroups). Concurrency is the lever; measure peaks with `/usr/bin/time -l`.
 - **Release profile for everything**, tests and clippy included: a debug-profile run builds a second dependency tree, and disk is tight.
 - **Low data (metered link):** the toolchain is rustup's minimal profile plus `rustup override set 1.97.0` (no wasm32 until a web build; `rustup override unset` restores the toml). Builds pass `--offline`; after a dependency change run `cargo fetch --target aarch64-apple-darwin` first.
