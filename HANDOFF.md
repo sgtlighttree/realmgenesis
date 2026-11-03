@@ -21,6 +21,7 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
   - `river_map` (PNG hillshade; `RG_MAP_FULL=1`);
   - `bench_tiles`.
   - Probe worlds are cached in `target/probe-cache/`.
+- **On Matt's M1 (s02):** see CLAUDE.md → "Local (M1) sessions": builds/tests capped with `taskpolicy -b -j 4`, timing runs uncapped, a lean offline toolchain (minimal profile + `rustup override set 1.97.0`, no wasm32 yet). The full test suite takes ~14 min capped.
 - Web preview artifact (claude.ai): https://claude.ai/artifact/1Tq1v7fz6zdbLTtUoLMPME (v7, from before lakes/climate erosion; rebuild with `scripts/build-web-artifact.sh`).
 
 ## State (2026-11-02, s01: MVP reached)
@@ -87,7 +88,12 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 - **Bathymetry:** mean depth 3626–3709 m on hold-out seeds (Earth 3688).
 
 **Known gaps (ranked):**
-0. **Mobile performance is bad** (Matt tested web preview v7 on his phone, end of s01). Network-detail tiles are 85–240 ms each on a desktop CPU, single-threaded on the web. See ROADMAP → Engineering.
+0. **Performance.** Mobile is bad (Matt, web preview v7, end of s01); network tiles are 56–148 ms each on an M1 P-core, single-threaded on the web. **s02 (native, M1):** the app locked up the Mac and dragging crawled. Fixed in code, **not yet confirmed by Matt in the app**:
+   - a red STOP BACKGROUND RENDERING button (top-right of the globe) that cancels queued tiles and stops the repaint loop;
+   - camera height queries no longer build 240 ms detail patches on the UI thread mid-drag (macro height above 10 km clearance; one quantised cut-off below);
+   - tile workers: half the cores (≤ 4), utility QoS on macOS, unwanted tiles skipped;
+   - no repaint on mere hover.
+   **Still open:** world generation (launch, G, R) runs synchronously on the UI thread on every core for seconds (M1b `Job` stepping); the web build has no stop button benefit beyond pausing in-frame generation. See ROADMAP → Engineering.
 1. **Leaky lake rims:** neighbour-basin wedges cross the macro divide below a closed lake's level; water stands as a wall on part of the footprint edge. Fix idea: partition wedges by terminal sink inside closed catchments, with a continuous rim (needs design; min/max compositions can make pits).
 2. **Endorheic 4.5% vs ~20%:** Thornthwaite underestimates arid PET; no sediment infill; 1° climate.
 3. **Mountains too gentle and θ low:** relief-limited channel heads, effective uplift; no glacial/threshold landscapes as steep as Taiwan/Himalaya.
