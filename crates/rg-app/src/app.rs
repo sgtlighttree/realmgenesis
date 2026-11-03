@@ -369,12 +369,15 @@ impl RealmApp {
         let radius = self.camera.radius_m;
         let exag = self.display.effective_exaggeration(self.camera.distance_m, radius);
         self.stats.exaggeration = exag;
-        // One band-limit for both camera height queries below (one patch-cache key), from
-        // a cheap macro-only clearance estimate. See `camera_query_cutoff_m`.
-        let cutoff = self.terrain.as_ref().and_then(|t| {
-            let eye = self.camera.eye();
-            camera_query_cutoff_m(eye.length() - radius - t.macro_height(eye.normalize()).max(0.0) * exag)
-        });
+        // One band-limit for both camera height queries below (one patch-cache key). It's
+        // picked from the eye's height above the orbit point, which the queried height
+        // doesn't move: the eye position includes `target_height_m`, so choosing from it
+        // could flip the band every frame near a threshold and never settle (a repaint
+        // loop). See `camera_query_cutoff_m`.
+        let cutoff = self
+            .terrain
+            .as_ref()
+            .and_then(|_| camera_query_cutoff_m(self.camera.distance_m * self.camera.tilt.cos()));
         let ground_at = |t: &TerrainSampler, dir: glam::DVec3| {
             let h = match cutoff {
                 Some(c) => t.height(dir, c).0,
