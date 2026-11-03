@@ -105,18 +105,22 @@ impl TileFeeder {
         #[cfg(not(target_arch = "wasm32"))]
         {
             // Collect finished work first, then top the queue up.
-            for (epoch, upload) in self.pool.finished() {
+            for (epoch, id, upload) in self.pool.finished() {
                 // Only current-epoch results count: after a cancel, the same tile may be
                 // in flight again under the new epoch.
                 if epoch == self.epoch {
-                    self.in_flight.remove(&upload.id);
-                    cache.insert(device, upload, now_s);
-                    self.last_generated += 1;
+                    self.in_flight.remove(&id);
+                    if let Some(upload) = upload {
+                        cache.insert(device, upload, now_s);
+                        self.last_generated += 1;
+                    }
                 }
             }
             if self.paused {
                 return;
             }
+            // Workers skip queued tiles the view no longer wants (e.g. after a drag).
+            self.pool.set_wanted(wanted);
             let cap = self.pool.workers * 3;
             for id in wanted {
                 if self.in_flight.len() >= cap {
@@ -153,36 +157,48 @@ mod native {
     use rg_geo::TileId;
     use rg_render::TileUpload;
     use rg_terrain::TileGenerator;
+    use std::collections::HashSet;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::mpsc::{channel, Receiver, Sender};
     use std::sync::{Arc, Mutex};
 
     type Job = (u64, TileId, TileGenerator);
 
+    /// (epoch, tile, the tile or `None` if it was skipped as no longer wanted).
+    type Done = (u64, TileId, Option<TileUpload>);
+
     /// A small fixed thread pool. Workers pull jobs from a shared queue and send finished
     /// tiles back; dropping the pool closes the queue and the workers exit.
     pub struct Pool {
         jobs: Sender<Job>,
-        results: Receiver<(u64, TileUpload)>,
+        results: Receiver<Done>,
         pub workers: usize,
         /// The feeder's current epoch. Workers skip queued jobs from older ones.
         epoch: Arc<AtomicU64>,
+        /// The tiles the view wants this frame. Queued jobs outside it are skipped.
+        wanted: Arc<Mutex<HashSet<TileId>>>,
     }
 
     impl Pool {
         pub fn new() -> Self {
-            let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).saturating_sub(1).clamp(1, 8);
+            // Half the cores, at most 4: tiles are background work, and with every core
+            // busy the whole machine locked up (Matt, M1, s02). On an 8-core M1 that's 4.
+            let workers = (std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4) / 2).clamp(1, 4);
             let (jobs, job_rx) = channel::<Job>();
             let (result_tx, results) = channel();
             let job_rx = Arc::new(Mutex::new(job_rx));
             let epoch = Arc::new(AtomicU64::new(0));
+            let wanted = Arc::new(Mutex::new(HashSet::new()));
             for i in 0..workers {
                 let rx = Arc::clone(&job_rx);
                 let tx = result_tx.clone();
                 let current = Arc::clone(&epoch);
+                let wanted_now = Arc::clone(&wanted);
                 std::thread::Builder::new()
                     .name(format!("tile-worker-{i}"))
                     .spawn(move || {
+                        #[cfg(target_os = "macos")]
+                        lower_priority();
                         loop {
                             // Hold the lock only while taking a job, not while working.
                             let job = rx.lock().ok().and_then(|r| r.recv().ok());
@@ -192,14 +208,25 @@ mod native {
                             if epoch != current.load(Ordering::Relaxed) {
                                 continue;
                             }
-                            if tx.send((epoch, to_upload(generator.generate(id)))).is_err() {
+                            // Panned or zoomed away since it was queued: skip, but report
+                            // back so the feeder can request it again if it's wanted later.
+                            let still_wanted = wanted_now.lock().map_or(true, |w| w.contains(&id));
+                            let tile = still_wanted.then(|| to_upload(generator.generate(id)));
+                            if tx.send((epoch, id, tile)).is_err() {
                                 break;
                             }
                         }
                     })
                     .expect("failed to spawn tile worker");
             }
-            Self { jobs, results, workers, epoch }
+            Self { jobs, results, workers, epoch, wanted }
+        }
+
+        pub fn set_wanted(&self, ids: &[TileId]) {
+            if let Ok(mut w) = self.wanted.lock() {
+                w.clear();
+                w.extend(ids.iter().copied());
+            }
         }
 
         pub fn set_epoch(&self, epoch: u64) {
@@ -210,8 +237,19 @@ mod native {
             let _ = self.jobs.send((epoch, id, generator));
         }
 
-        pub fn finished(&self) -> Vec<(u64, TileUpload)> {
+        pub fn finished(&self) -> Vec<Done> {
             self.results.try_iter().collect()
+        }
+    }
+
+    /// Run the calling thread at "utility" QoS, so macOS schedules the UI and other apps
+    /// ahead of tile work (Apple's class for long-running work the user isn't waiting on).
+    #[cfg(target_os = "macos")]
+    fn lower_priority() {
+        // SAFETY: only changes the calling thread's scheduling class; plain-value arguments.
+        // A failure just leaves the default QoS, so the result is ignored.
+        unsafe {
+            libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_UTILITY, 0);
         }
     }
 }
