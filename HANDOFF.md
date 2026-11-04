@@ -26,10 +26,13 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
   - cost +22% erosion time, +0.3 GB at Ultra.
   - Position-keyed roughness (`roughness_wavelength_km`) had no measurable effect; keep it 0 (candidate for removal).
 - **The app folder `~/RealmGenesis` is this repo** (case-insensitive macOS), so saves, exports and F12 shots land in the repo root (gitignored now). Proposed: move it to `~/Documents/RealmGenesis`.
+- **Plateaus fixed and tunable** (s03): open lakes used to be fixed, never-eroding base levels, which carried dry interiors up as noisy plateaus. Now only closed lakes, plus open lakes drier than the **"plateau dryness mm"** slider (default 60), hold.
+- **Legend** for each layer (bottom-left of the viewport, "Legend" checkbox; `rg-pipeline/src/legend.rs` holds the data, `ui/mod.rs` draws it). Unseen by me; Matt to check.
 - **Next:**
-  1. Matt A/Bs drainage jitter (0 vs 0.3–0.35) and uplift blend on his seeds. If jitter wins: make it the default (fresh review first: it changes every world).
-  2. R3 design (coastline conditioning).
-  - Parked: tall flat-topped ranges (`elevation_limit_m` taper?); coast staircase (coast SDF); erosion's remaining resolution dependence (rivers 59% overlap); Ultra erosion ~60 s now vs ~30 s in s02 (cause unknown; check with Matt's app closed).
+  1. Matt checks plateau dryness (0–300), drainage jitter (0 vs 0.3–0.35), uplift blend, and the legend. If jitter wins → make it the default (fresh review first).
+  2. Matt's plate/coast question: plates are grown *after* continents (noise), with only a soft cost wall at margins, so many coasts are mid-plate. That's partly Earth-like (passive margins) and partly a snapshot simplification (no rifting history). Candidate: an exposed margin-alignment weight; it ties into R3 (coastline conditioning must fit plates to imported coasts anyway).
+  3. R3 design.
+  - Parked: tall flat-topped ranges (`elevation_limit_m` taper?); coast staircase (coast SDF); erosion's remaining resolution dependence (rivers ~59% overlap).
 
 ## Previous: project-wide review brief (s02 wrap-up, 2026-11-04)
 
