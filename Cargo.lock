@@ -2700,6 +2700,7 @@ dependencies = [
  "glam",
  "png",
  "rg-geo",
+ "rg-noise",
  "rg-tectonics",
 ]
 

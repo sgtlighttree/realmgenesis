@@ -76,6 +76,8 @@ pub fn to_file(w: &World) -> WorldFile {
             "k_variability": w.params.erosion.k_variability,
             "lithology_scale_km": w.params.erosion.lithology_scale_km,
             "initial_roughness_m": w.params.erosion.initial_roughness_m,
+            "roughness_wavelength_km": w.params.erosion.roughness_wavelength_km,
+            "node_jitter": w.params.erosion.node_jitter,
             "hydrology_res": w.hydrology.as_ref().map(|h| h.drainage_km2.res),
             "height_scale": w.hydrology.as_ref().and_then(|h| h.height_scale),
         },
@@ -237,6 +239,8 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
             k_variability: eh["k_variability"].as_f64().unwrap_or(0.0),
             lithology_scale_km: eh["lithology_scale_km"].as_f64().unwrap_or(250.0),
             initial_roughness_m: eh["initial_roughness_m"].as_f64().unwrap_or(0.0),
+            roughness_wavelength_km: eh["roughness_wavelength_km"].as_f64().unwrap_or(0.0),
+            node_jitter: eh["node_jitter"].as_f64().unwrap_or(0.0),
         }
     } else {
         rg_erosion::ErosionParams { enabled: false, ..Default::default() }

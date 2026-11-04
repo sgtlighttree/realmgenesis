@@ -38,12 +38,18 @@ pub fn world(seed: u64) -> World {
     if let Some(v) = env::<u8>("RG_CONV_SCALE") {
         p.erosion.scale_by_convergence_rate = v != 0;
     }
+    if let Some(v) = env("RG_JITTER") {
+        p.erosion.node_jitter = v;
+    }
+    if let Some(v) = env("RG_ROUGH_WL") {
+        p.erosion.roughness_wavelength_km = v;
+    }
     if let Some(v) = env("RG_CONV_SMOOTH") {
         p.erosion.convergence_smoothing_km = v;
     }
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/probe-cache");
     let path = dir.join(format!(
-        "s{seed}-t{}-e{}-n{}-k{}-r{}-l{}-rho{}-lin{}-cv{}-cs{}-g{}-b{}.rgw",
+        "s{seed}-t{}-e{}-n{}-k{}-r{}-l{}-rho{}-lin{}-cv{}-cs{}-j{}-rw{}-g{}-b{}.rgw",
         p.tectonics.res,
         p.erosion.res,
         p.erosion.steps,
@@ -54,6 +60,8 @@ pub fn world(seed: u64) -> World {
         p.erosion.linear_mean_m,
         p.erosion.scale_by_convergence_rate as u8,
         p.erosion.convergence_smoothing_km,
+        p.erosion.node_jitter,
+        p.erosion.roughness_wavelength_km,
         rg_pipeline::file::WORLD_SCHEMA,
         build_stamp()
     ));

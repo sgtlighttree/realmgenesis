@@ -76,6 +76,14 @@ pub struct ErosionParams {
     /// start from small random noise; on a perfectly smooth tilted surface the drainage
     /// network has nothing to organise around.
     pub initial_roughness_m: f64,
+    /// R1 spike (s03): wavelength (km) of the initial roughness as position-keyed fBm, down
+    /// to two cells. 0 = the original white noise per node, which is different at every
+    /// resolution (one cause of "terrain differs between resolutions", s02).
+    pub roughness_wavelength_km: f64,
+    /// R1 spike (s03): move every erosion node up to ±this many cells (0..0.4) so rivers
+    /// aren't bound to the lattice's 8 directions; results are resampled back to the raster
+    /// (`jitter.rs`). Replaces Rho8 when on. 0 = the regular grid.
+    pub node_jitter: f64,
     /// Route with Rho8 (Fairfield & Leymarie 1991) instead of plain D8: each node's diagonal
     /// neighbours get a random effective distance in [1, 2] axis spacings instead of √2.
     /// Plain D8 sends every node of a smooth tilted surface the same grid direction, which
@@ -125,6 +133,8 @@ impl Default for ErosionParams {
             k_variability: 0.3,
             lithology_scale_km: 250.0,
             initial_roughness_m: 20.0,
+            roughness_wavelength_km: 0.0,
+            node_jitter: 0.0,
             rho8: true,
             seed: 0,
             river_min_area_km2: 20_000.0,
@@ -422,7 +432,8 @@ pub fn solve_full_with_progress(
         None => cell_area.clone(),
     };
     let mut net = Network::new(n);
-    net.rho8_seed = p.rho8.then_some(p.seed);
+    // Jitter already breaks the 8-direction bias (and Rho8's diagonal test assumes a lattice).
+    net.rho8_seed = (p.rho8 && p.node_jitter <= 0.0).then_some(p.seed);
     let mut budget = MassBudget::default();
     let mut filled_steps = 0u32;
     let steps = p.steps.max(1);
@@ -549,7 +560,9 @@ pub fn erode_climate_with_progress(
 ) -> Option<ErosionResult> {
     let tectonic_h = &tectonic.height_m;
     let res = if p.res > 0 { p.res.max(16) } else { tectonic_h.res.min(p.max_res.max(16)) };
-    let grid = Grid::new(res);
+    let mut grid = Grid::new(res);
+    let jitter_offsets = (p.node_jitter > 0.0).then(|| crate::jitter::jitter_grid(&mut grid, p.node_jitter.min(0.4), p.seed));
+    let grid = grid;
     let n = grid.n;
     let area_m2: Vec<f64> = grid.weight.iter().map(|w| *w as f64 * 4.0 * std::f64::consts::PI * radius_m * radius_m).collect();
     let weight: Vec<f64> = grid.weight.iter().map(|&w| w as f64).collect();
@@ -565,7 +578,14 @@ pub fn erode_climate_with_progress(
             // turn it into ε-flats whose Priority-Flood routing is straight (s01 review).
             let relief = grid.neighbors(i).iter().map(|&j| (tectonic_relief[i] - tectonic_relief[j as usize]).abs()).fold(0.0, f64::max);
             let amp = p.initial_roughness_m.min(0.25 * relief);
-            let r = (unit_hash(p.seed ^ 0x0005_EED0_FA11, i as u64) - 0.5) * 2.0 * amp;
+            let r = if p.roughness_wavelength_km > 0.0 {
+                // Position-keyed, so every resolution starts from the same large-scale bumps.
+                let cell_m = std::f64::consts::FRAC_PI_2 * radius_m / res as f64;
+                let salt = (p.seed as u32) ^ 0x5EED_FA11;
+                crate::jitter::roughness_at(grid.dir[i], radius_m, p.roughness_wavelength_km * 1e3, 2.0 * cell_m, salt) * amp
+            } else {
+                (unit_hash(p.seed ^ 0x0005_EED0_FA11, i as u64) - 0.5) * 2.0 * amp
+            };
             h0[i] = (h0[i] + r).max(h0[i].min(1.0));
         }
     }
@@ -585,7 +605,8 @@ pub fn erode_climate_with_progress(
 
     let mut h = h0.clone();
     let mut net = Network::new(n);
-    net.rho8_seed = p.rho8.then_some(p.seed);
+    // Jitter already breaks the 8-direction bias (and Rho8's diagonal test assumes a lattice).
+    net.rho8_seed = (p.rho8 && p.node_jitter <= 0.0).then_some(p.seed);
     let mut filled_steps = 0u32;
     let mut budget = MassBudget::default();
     if p.enabled && !land_h.is_empty() {
@@ -686,6 +707,9 @@ pub fn erode_climate_with_progress(
 
     // Back to CubeFields. If the solve ran coarser than the input, upsample the *change*.
     let to_field = |vals: &[f64]| -> CubeField<f32> {
+        if let Some(offsets) = &jitter_offsets {
+            return crate::jitter::resample(&grid, offsets, vals);
+        }
         let mut f = CubeField::<f32>::new(res);
         for (k, v) in f.data.iter_mut().enumerate() {
             *v = vals[grid.sample_node[k] as usize] as f32;
@@ -695,7 +719,19 @@ pub fn erode_climate_with_progress(
     let delta: Vec<f64> = (0..n).map(|i| h[i] - h0[i]).collect();
     let delta_f = to_field(&delta);
     let height_m = if res >= tectonic_h.res {
-        to_field(&h)
+        let mut f = to_field(&h);
+        if jitter_offsets.is_some() {
+            // Interpolated between jittered nodes, the raster can hold small pits: fill them
+            // on the regular grid so the committed field stays drained.
+            let reg = Grid::new(res);
+            let mut hr: Vec<f64> = (0..reg.n).map(|i| f.data[reg.node_sample[i] as usize] as f64).collect();
+            let reg_ocean: Vec<bool> = hr.iter().map(|&v| v <= 0.0).collect();
+            priority_flood_fill(&reg, &mut hr, &reg_ocean);
+            for (k, v) in f.data.iter_mut().enumerate() {
+                *v = hr[reg.sample_node[k] as usize] as f32;
+            }
+        }
+        f
     } else {
         let mut out = tectonic_h.clone();
         for (k, d) in out.iter_samples().map(|(k, _, _, _, d)| (k, d)).collect::<Vec<_>>() {
@@ -722,14 +758,28 @@ pub fn erode_climate_with_progress(
     // steady state it equals the erosion rate, which sets the detail's hillslope regime
     // (plateaus at the strength limit erode slowly and stay gentle).
     let uplift_mm_yr = to_field(&uplift_eff.iter().map(|u| u * 1000.0).collect::<Vec<_>>());
-    let mut flow_dir = CubeField::<[f32; 3]>::new(res);
-    for (k, v) in flow_dir.data.iter_mut().enumerate() {
-        let i = grid.sample_node[k] as usize;
-        let r = net.receiver[i] as usize;
-        if !ocean[i] && r != i {
+    // Flow direction per node (unit tangent towards the receiver), then onto the raster.
+    let node_flow: Vec<glam::DVec3> = (0..n)
+        .map(|i| {
+            let r = net.receiver[i] as usize;
+            if ocean[i] || r == i {
+                return glam::DVec3::ZERO;
+            }
             let d = grid.dir[r] - grid.dir[i];
-            let t = (d - grid.dir[i] * d.dot(grid.dir[i])).normalize_or_zero();
-            *v = [t.x as f32, t.y as f32, t.z as f32];
+            (d - grid.dir[i] * d.dot(grid.dir[i])).normalize_or_zero()
+        })
+        .collect();
+    let mut flow_dir = CubeField::<[f32; 3]>::new(res);
+    if jitter_offsets.is_some() {
+        let comp = |c: usize| to_field(&node_flow.iter().map(|v| v.to_array()[c]).collect::<Vec<_>>());
+        let (fx, fy, fz) = (comp(0), comp(1), comp(2));
+        for (k, v) in flow_dir.data.iter_mut().enumerate() {
+            let t = glam::Vec3::new(fx.data[k], fy.data[k], fz.data[k]).normalize_or_zero();
+            *v = t.to_array();
+        }
+    } else {
+        for (k, v) in flow_dir.data.iter_mut().enumerate() {
+            *v = node_flow[grid.sample_node[k] as usize].as_vec3().to_array();
         }
     }
 

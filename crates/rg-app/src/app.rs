@@ -267,6 +267,12 @@ impl RealmApp {
             if var("RG_KEEP_RELIEF").is_some() {
                 self.display.keep_relief = true;
             }
+            if let Some(v) = var("RG_JITTER").and_then(|v| v.parse().ok()) {
+                self.params.erosion.node_jitter = v;
+            }
+            if let Some(v) = var("RG_ROUGH_WL").and_then(|v| v.parse().ok()) {
+                self.params.erosion.roughness_wavelength_km = v;
+            }
             if let Some(v) = var("RG_CONV_SMOOTH").and_then(|v| v.parse().ok()) {
                 self.params.erosion.convergence_smoothing_km = v;
             }
