@@ -63,3 +63,13 @@ All points adopted; detail in `docs/design/v2-direction-s03.md` → "Fresh-conte
   - zoom floor on `distance_m` (slider "zoom floor", default 32 px per texel).
 - **Measured (n=1, seed 1 Normal, M1 on AC):** world 3.8 s, **normals bake 0.2 s** at 640 per face. Build at `-j 6` from a clean target: 1 m 38 s.
 - `screencapture` fails from this terminal ("could not create image from display"; probably no Screen Recording permission). Matt checks the look.
+
+## Matt's look at R2 (after the iTerm2 restart; screenshot 11:53, seed 1 Ultra, Elevation layer, ~36°N 150°W)
+
+- "Ultra looks the same" (expected: same data). **Zoom floor OK** at the default (32 px per texel → 402 km on his view). No seams seen so far; he asked where to look (answered: the cube edges, see below).
+- "Apart from some **oddly straight mountain ranges**, nothing else looks too off." His arrows mark an E–W ridge with parallel N–S gullies, and a ridge front running SW–NE.
+  - My read (unconfirmed): two causes stack here.
+    1. The plate-boundary uplift is straight and smooth (a known gap: "smooth Voronoi-ish plate borders").
+    2. The gullies line up with the face grid axes. The spot is on the NegX face, where the grid's v axis runs ≈ north. That's the lattice-bound Rho8 planform, which is R1's target.
+- **The resolution dependence is still there** (expected: R2 doesn't touch generation). Fix = position-keyed roughness/Rho8 (parked since s02), folded into R1.
+- Cube edges (for the seam check): PosX is centred on lon 0 (lat = asin z, lon = atan2(y, x)). So the edges are the meridians **lon ±45° and ±135° between ~35°S and ~35°N**, plus a square around each pole whose corners sit at **lat ±35.3°, lon ±45°/±135°**.
