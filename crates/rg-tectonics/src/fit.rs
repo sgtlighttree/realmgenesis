@@ -71,10 +71,10 @@ struct Geometry {
 }
 
 fn geometry(grid: &Grid, crust: &Crust, cls: &Classification, seed: u64, r: f64) -> Geometry {
-    let landmass_of = cls.landmass_labels(grid, &crust.cont);
+    let landmass_of = cls.landmass_labels(grid, &crust.land);
     let cost = coast::region_cost(grid, seed);
     let region = coast::regions(grid, &landmass_of, cls.landmasses.len(), &cost);
-    let coast = coast::coast_nodes(grid, &crust.cont, &landmass_of);
+    let coast = coast::coast_nodes(grid, &crust.land, &landmass_of);
     let near = grid.nearest_source(&coast, PI as f32);
     let margin = par_map(grid.n, |a| {
         let s = near.src[a];

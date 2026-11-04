@@ -22,6 +22,7 @@ pub mod coast;
 mod crust;
 pub mod fit;
 pub mod grid;
+pub mod mask;
 pub mod plates;
 mod relief;
 mod rng;
@@ -53,6 +54,9 @@ pub struct TectonicsParams {
     /// Target share of continental coast length that is active (trench + cordillera or arc).
     /// Earth: ~0.23 (Bradley 2008; design doc). 0 = every seaway opening ("all passive").
     pub active_share: f32,
+    /// Where the coasts come from (R3): procedural and emergent (default), procedural strict,
+    /// or an imported mask; plus brush strokes.
+    pub conditioning: mask::Conditioning,
 }
 
 impl Default for TectonicsParams {
@@ -67,6 +71,7 @@ impl Default for TectonicsParams {
             mountain_scale: 1.0,
             roughness: 1.0,
             active_share: 0.25,
+            conditioning: mask::Conditioning::default(),
         }
     }
 }
@@ -113,6 +118,10 @@ pub struct TectonicSnapshot {
     /// rate the relief used, committed so erosion's uplift reads the same one (absent in old
     /// worlds; uplift then falls back to the plates' rotations).
     pub convergence_mm_yr: Option<CubeField<f32>>,
+    /// Strict coasts (R3.1b): 1 land, 0 sea, per sample. Erosion takes its ocean from this
+    /// (sampled at its own nodes) instead of the sign of the resampled heights, so coastal
+    /// nodes can't flip. Only an erosion input; not stored in world files.
+    pub land_cover: Option<CubeField<f32>>,
     /// Continental dynamic topography to build during erosion (m), if generated in this run.
     /// Not stored in world files: only erosion uses it, and its result is committed.
     pub dynamic_topo_m: Option<CubeField<f32>>,
@@ -142,11 +151,19 @@ pub fn generate_with_model(p: &TectonicsParams) -> (TectonicSnapshot, plates::Pl
     let grid = grid::Grid::new(p.res);
     let tm = std::time::Instant::now();
     let lap = |what: &str| if std::env::var_os("RG_TIMING").is_some() { eprintln!("  {what}: {} ms", tm.elapsed().as_millis()) };
-    let mut crust = crust::build(&grid, p);
-    lap("crust");
     // R3.1a: classify the coasts on the fixed grid, then fit plates and motion to them.
     let cls = coast::Classification::build(p);
     lap("classification");
+    let strict = p.conditioning.strict;
+    let mut crust = if strict {
+        // R3.1b: the land mask first; crust = land + class-dependent margins.
+        let value = crust::continentalness(&grid, p);
+        let land: Vec<bool> = mask::land_cover(&grid, p, &value).iter().map(|&c| c > 0.5).collect();
+        crust::strict(&grid, p, &land, &cls)
+    } else {
+        crust::build(&grid, p)
+    };
+    lap("crust");
     let (pm, stats) = fit::build(&grid, p, &crust, &cls);
     lap("fit");
     crust.activity = fit::activity(&grid, &cls);
@@ -154,9 +171,14 @@ pub fn generate_with_model(p: &TectonicsParams) -> (TectonicSnapshot, plates::Pl
     lap("relief");
 
     // Sea level: the offset at which `land_fraction` of the area is above water.
-    let target = p.land_fraction.clamp(0.0, 1.0) as f64;
-    let offset = util::solve_threshold(&composed.raw(), &grid.weight, target);
-    let height_node = relief::finish(&grid, p, &crust, &composed, offset);
+    // Strict coasts: no bisection, the heights conform to the mask instead.
+    let offset = if strict {
+        0.0
+    } else {
+        let target = p.land_fraction.clamp(0.0, 1.0) as f64;
+        util::solve_threshold(&composed.raw(), &grid.weight, target)
+    };
+    let height_node = relief::finish(&grid, p, &crust, &composed, offset, strict);
     let achieved = grid.fraction(|a| height_node[a] > 0.0) as f32;
 
     // Copy node values out to every cube sample (twins on face edges get identical values).
@@ -167,6 +189,7 @@ pub fn generate_with_model(p: &TectonicsParams) -> (TectonicSnapshot, plates::Pl
         boundary: CubeField::new(p.res),
         margin: Some(CubeField::new(p.res)),
         convergence_mm_yr: Some(CubeField::new(p.res)),
+        land_cover: strict.then(|| CubeField::new(p.res)),
         plates: pm.plates.clone(),
         sea_level_offset_m: offset,
         land_fraction: achieved,
@@ -184,6 +207,9 @@ pub fn generate_with_model(p: &TectonicsParams) -> (TectonicSnapshot, plates::Pl
         }
         if let Some(f) = snap.convergence_mm_yr.as_mut() {
             f.data[s] = pm.convergence[a];
+        }
+        if let Some(f) = snap.land_cover.as_mut() {
+            f.data[s] = if height_node[a] > 0.0 { 1.0 } else { 0.0 };
         }
         if let Some(f) = snap.dynamic_topo_m.as_mut() {
             f.data[s] = composed.dyn_topo[a];
@@ -375,6 +401,31 @@ mod tests {
             }
         }
         assert!(st.rms_residual_mm_yr.is_finite() && st.wrong_sign_share < 0.4, "{st:?}");
+    }
+
+    /// R3.1b gate 1 (tectonic half): with strict coasts the committed height's sign is the
+    /// mask's at every node, land ≥ 1 m, sea ≤ −1 m.
+    #[test]
+    fn strict_coasts_conform_to_the_mask() {
+        let mut p = TectonicsParams { res: 64, ..Default::default() };
+        p.conditioning.strict = true;
+        p.conditioning.islands = false;
+        let s = generate(&p);
+        let g = grid::Grid::new(64);
+        let value = crust::continentalness(&g, &p);
+        let cover = mask::land_cover(&g, &p, &value);
+        for a in 0..g.n {
+            let h = s.height_m.data[g.node_sample[a] as usize];
+            assert_eq!(cover[a] > 0.5, h > 0.0, "node {a}: cover {} h {h}", cover[a]);
+            assert!(h >= 1.0 || h <= -1.0, "node {a}: h {h}");
+        }
+        assert!((s.land_fraction - 0.29).abs() < 0.02, "land fraction {}", s.land_fraction);
+        assert!(s.land_cover.is_some());
+        // Strokes paint land into the sea and sea into land.
+        let sea_dir = (0..g.n).find(|&a| cover[a] < 0.5 && value[a] < value.iter().copied().fold(f32::MAX, f32::min) + 0.3).unwrap();
+        p.conditioning.strokes.push(mask::Stroke { path: vec![g.dir[sea_dir]], radius_km: 600.0, op: mask::StrokeOp::Land });
+        let s2 = generate(&p);
+        assert!(s2.height_m.data[g.node_sample[sea_dir] as usize] > 0.0, "painted land stays land");
     }
 
     #[test]

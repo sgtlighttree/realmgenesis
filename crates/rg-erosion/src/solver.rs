@@ -605,7 +605,19 @@ pub fn erode_climate_with_progress(
 
     // Input heights on the solve grid.
     let mut h0: Vec<f64> = par_map(n, |i| tectonic_h.sample(grid.dir[i]) as f64);
-    let ocean: Vec<bool> = h0.iter().map(|&h| h <= 0.0).collect();
+    // Strict coasts (R3.1b): the ocean is the mask's, evaluated at this grid's own nodes, not
+    // the sign of the resampled heights (whose zero crossing drifts ~10–20% of a cell off the
+    // coast). Heights are nudged to agree with it.
+    let ocean: Vec<bool> = match &tectonic.land_cover {
+        Some(cover) => {
+            let ocean: Vec<bool> = par_map(n, |i| cover.sample(grid.dir[i]) <= 0.5);
+            for i in 0..n {
+                h0[i] = if ocean[i] { h0[i].min(-1.0) } else { h0[i].max(1.0) };
+            }
+            ocean
+        }
+        None => h0.iter().map(|&h| h <= 0.0).collect(),
+    };
     // Initial roughness (land only; the coast stays where tectonics put it).
     let tectonic_relief = h0.clone();
     if p.initial_roughness_m > 0.0 {

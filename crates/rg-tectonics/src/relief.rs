@@ -299,7 +299,13 @@ pub fn compose(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Compo
             // from the coast so shorelines stay put. Applied as a static offset: as an uplift
             // *rate* it raised endorheic land a little (2.3 → 3.6%) but pushed hypsometry off
             // Earth's (> 4 km 2.0 → 3.9%); hypsometry is the resolution-robust check (s01).
-            -130.0 + (interior + dyn_topo[a] as f64) * ease
+            match &crust.coast_m {
+                // Strict (R3.1b): ramp up from the mask coast, so the coast sits at ~0 by
+                // construction (the crust edge is 100–250 km offshore there).
+                Some(cm) if cm[a] > 0.0 => 1.0 + (interior + dyn_topo[a] as f64) * smoothstep(0.0, 300_000.0, cm[a] as f64),
+                Some(_) => -130.0,
+                None => -130.0 + (interior + dyn_topo[a] as f64) * ease,
+            }
         } else {
             basin
         };
@@ -422,10 +428,37 @@ pub fn compose(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Compo
 /// are wide on passive margins and narrow on active ones; islands on oceanic crust get only
 /// a small apron. Land is untouched, and submerged nodes stay submerged, so the land fraction
 /// found by the sea-level solve is preserved exactly.
-pub fn finish(grid: &Grid, p: &Params, crust: &Crust, c: &Composed, offset: f32) -> Vec<f32> {
+///
+/// **Strict** (R3.1b): the land/sea split is the mask's (`crust.land`). Land nodes are lifted
+/// to ≥ 1 m; sea nodes are pushed to ≤ −1 m, and sea heights above −200 m are compressed
+/// softly into [−200, −1] m, so an arc or hotspot crest becomes a shallow bank rather than
+/// a flat sheet. With `islands`, tectonic islands may stand above sea level farther than
+/// `islands_guard_km` from the drawn coast.
+pub fn finish(grid: &Grid, p: &Params, crust: &Crust, c: &Composed, offset: f32, strict: bool) -> Vec<f32> {
     let n = grid.n;
     let r = p.radius_m;
-    let h0: Vec<f32> = c.parts.iter().map(|p| p[3] - offset).collect();
+    let cond = &p.conditioning;
+    let guard_m = (cond.islands_guard_km * 1000.0) as f32;
+    let island = |a: usize, h: f32| -> bool {
+        cond.islands && h > 0.0 && crust.coast_m.as_ref().is_some_and(|cm| cm[a] < -guard_m)
+    };
+    let h0: Vec<f32> = c
+        .parts
+        .iter()
+        .enumerate()
+        .map(|(a, p)| {
+            let h = p[3] - offset;
+            if !strict {
+                h
+            } else if crust.land[a] {
+                h.max(1.0)
+            } else if island(a, h) {
+                h
+            } else {
+                h.min(-1.0)
+            }
+        })
+        .collect();
     let mut coast: Vec<u32> = Vec::new();
     for a in 0..n {
         if h0[a] > 0.0 && grid.neighbors(a).iter().any(|&b| h0[b as usize] <= 0.0) {
@@ -458,12 +491,18 @@ pub fn finish(grid: &Grid, p: &Params, crust: &Crust, c: &Composed, offset: f32)
             };
             h = (-depth + c.parts[a][0] as f64 + det).min(-1.0);
         }
+        if strict && h0[a] <= 0.0 && h > -200.0 {
+            h = -1.0 - 199.0 * (-(h + 200.0) / 199.0).exp();
+        }
         // Soft limits so extremes stay Earth-like (peaks <~ 8.8 km, trenches >~ -11 km).
         if h > 3800.0 {
             h = 3800.0 + 5000.0 * ((h - 3800.0) / 5000.0).tanh();
         }
         if h < -7000.0 {
             h = -7000.0 - 4000.0 * ((-7000.0 - h) / 4000.0).tanh();
+        }
+        if strict && h0[a] > 0.0 {
+            h = h.max(1.0);
         }
         h as f32
     })

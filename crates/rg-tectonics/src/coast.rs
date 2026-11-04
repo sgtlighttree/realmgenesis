@@ -21,6 +21,7 @@
 use crate::Params;
 use crate::crust::{self, Crust};
 use crate::grid::Grid;
+use crate::mask::StrokeOp;
 use crate::plates::Kind;
 use crate::rng::Rng;
 use crate::util::*;
@@ -138,6 +139,14 @@ impl Classification {
     pub fn build(p: &Params) -> Classification {
         let grid = Grid::new(CLASS_RES);
         let crust = crust::build(&grid, p);
+        // What the landmasses are: the continental crust (procedural; the coast emerges
+        // later) or the land mask (strict, R3.1b).
+        let src: Vec<bool> = if p.conditioning.strict {
+            let value = crust::continentalness(&grid, p);
+            crate::mask::land_cover(&grid, p, &value).iter().map(|&c| c > 0.5).collect()
+        } else {
+            crust.cont.clone()
+        };
         let r = p.radius_m;
         let n = grid.n;
         let sphere_km2 = 4.0 * PI * (r / 1000.0).powi(2);
@@ -147,7 +156,7 @@ impl Classification {
         let mut comp = vec![u32::MAX; n];
         let mut comps: Vec<(f64, Vec<u32>)> = Vec::new();
         for start in 0..n {
-            if !crust.cont[start] || comp[start] != u32::MAX {
+            if !src[start] || comp[start] != u32::MAX {
                 continue;
             }
             let id = comps.len() as u32;
@@ -159,7 +168,7 @@ impl Classification {
                 members.push(a);
                 area += grid.weight[a as usize] as f64 * sphere_km2;
                 for &b in grid.neighbors(a as usize) {
-                    if crust.cont[b as usize] && comp[b as usize] == u32::MAX {
+                    if src[b as usize] && comp[b as usize] == u32::MAX {
                         comp[b as usize] = id;
                         stack.push(b);
                     }
@@ -183,7 +192,7 @@ impl Classification {
         // --- 2. regions, coasts and the medial axis
         let cost = region_cost(&grid, p.seed);
         let region = regions(&grid, &landmass_of, n_land, &cost);
-        let coast = coast_nodes(&grid, &crust.cont, &landmass_of);
+        let coast = coast_nodes(&grid, &src, &landmass_of);
         let is_border = |a: usize| {
             landmass_of[a] == NONE && region[a] != NONE && grid.neighbors(a).iter().any(|&b| region[b as usize] != region[a])
         };
@@ -343,6 +352,14 @@ impl Classification {
                     }
                 }
             };
+            // Painted overrides win (R3.3); the last stroke covering the node decides.
+            let m = p
+                .conditioning
+                .strokes
+                .iter()
+                .rev()
+                .find(|st| matches!(st.op, StrokeOp::Active | StrokeOp::Passive) && st.weight(grid.dir[c], r) > 0.5)
+                .map_or(m, |st| if st.op == StrokeOp::Active { margin::ACTIVE } else { margin::PASSIVE });
             node_margin[c] = m;
             if m == margin::ACTIVE {
                 active_len += cell_len_m(&grid, c, r);
@@ -386,7 +403,7 @@ impl Classification {
             landmasses.push(Landmass { area_km2: area, split_seeds, suture, apron_m });
         }
 
-        Classification {
+        let mut cls = Classification {
             grid,
             crust,
             landmass_of,
@@ -395,7 +412,12 @@ impl Classification {
             facing,
             coast_margin,
             active_share: if total_coast > 0.0 { active_len / total_coast } else { 0.0 },
+        };
+        if p.conditioning.strict {
+            // Strict: crust = land + class-dependent margins (needs the classes, so last).
+            cls.crust = crust::strict(&cls.grid, p, &src, &cls);
         }
+        cls
     }
 
     /// Landmass labels for another grid's continental crust: fine nodes take the label of the

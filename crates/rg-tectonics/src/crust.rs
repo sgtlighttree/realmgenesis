@@ -63,6 +63,11 @@ impl Core {
 pub struct Crust {
     /// True for continental crust.
     pub cont: Vec<bool>,
+    /// What landmasses and coasts are measured from (R3): the continental crust in
+    /// procedural mode (the coast emerges later), the land mask in strict mode.
+    pub land: Vec<bool>,
+    /// Strict mode: signed distance to the mask coast, metres (positive on land).
+    pub coast_m: Option<Vec<f32>>,
     /// Signed distance to the continental/oceanic boundary in metres: positive inside
     /// continental crust, negative in the ocean.
     pub edge_m: Vec<f32>,
@@ -109,11 +114,57 @@ fn make_cores(p: &Params) -> Vec<Core> {
 }
 
 pub fn build(grid: &Grid, p: &Params) -> Crust {
+    let value = continentalness(grid, p);
+    let cont_target = (p.land_fraction as f64 * 1.4).clamp(0.05, 0.9);
+    let thr = solve_threshold(&value, &grid.weight, cont_target);
+    let mut cont: Vec<bool> = value.iter().map(|&v| v > thr).collect();
+
+    // Majority filter: removes single-node specks and pinholes.
+    let before = cont.clone();
+    for a in 0..grid.n {
+        let nb = grid.neighbors(a);
+        let same = nb.iter().filter(|&&b| before[b as usize] == before[a]).count();
+        if same * 3 <= nb.len() {
+            cont[a] = !before[a];
+        }
+    }
+    let edge_m = edge_distance(grid, &cont, p.radius_m);
+
+    // Margin activity: where plate boundaries are encouraged to hug the coast.
+    let s_act = salt(p.seed, STREAM_CRUST + 3);
+    let activity: Vec<f32> = grid.coarse_field(48, |d| {
+        let x = 0.5 + 0.5 * 2.2 * fbm(d, s_act, 1.8, 3, 0.5);
+        smoothstep(0.45, 0.85, x) as f32
+    });
+
+    Crust { land: cont.clone(), cont, edge_m, activity, coast_m: None }
+}
+
+/// Signed distance to the boundary of `cont`, metres (positive inside).
+pub fn edge_distance(grid: &Grid, cont: &[bool], radius_m: f64) -> Vec<f32> {
+    let mut edge_nodes: Vec<u32> = Vec::new();
+    for a in 0..grid.n {
+        if grid.neighbors(a).iter().any(|&b| cont[b as usize] != cont[a]) {
+            edge_nodes.push(a as u32);
+        }
+    }
+    let near = grid.nearest_source(&edge_nodes, PI as f32);
+    let half_cell = (0.5 * grid.spacing_rad() * radius_m) as f32;
+    (0..grid.n)
+        .map(|a| {
+            let d = near.dist_rad[a] * radius_m as f32 + half_cell;
+            if cont[a] { d } else { -d }
+        })
+        .collect()
+}
+
+/// Continentalness: warped distance to the continental cores plus multi-scale noise, per
+/// node. Thresholded, it gives the continental crust (procedural) or the land (strict).
+pub fn continentalness(grid: &Grid, p: &Params) -> Vec<f32> {
     let cores = make_cores(p);
     let s_warp = salt(p.seed, STREAM_CRUST);
     let s_big = salt(p.seed, STREAM_CRUST + 1);
     let s_fine = salt(p.seed, STREAM_CRUST + 2);
-    let s_act = salt(p.seed, STREAM_CRUST + 3);
     const R0: f64 = 0.42; // radians of arc per unit of core strength
 
     // Coarse part: warped core distance field plus large-scale noise. Smooth, so a 64-cell
@@ -135,46 +186,45 @@ pub fn build(grid: &Grid, p: &Params) -> Crust {
         (best + 0.42 * fbm(d, s_big, 1.4, 4, 0.55) + 0.33 * fbm(d, s_big.wrapping_add(50), 5.0, 3, 0.6)) as f32
     });
     // Fine part: coastline-scale detail, evaluated per node.
-    let value: Vec<f32> = par_map(grid.n, |a| {
+    par_map(grid.n, |a| {
         let d = grid.dir[a];
         value_coarse[a] + (0.2 * fbm(d, s_fine, 14.0, 3, 0.6)) as f32
-    });
+    })
+}
 
-    let cont_target = (p.land_fraction as f64 * 1.4).clamp(0.05, 0.9);
-    let thr = solve_threshold(&value, &grid.weight, cont_target);
-    let mut cont: Vec<bool> = value.iter().map(|&v| v > thr).collect();
-
-    // Majority filter: removes single-node specks and pinholes.
-    let before = cont.clone();
-    for a in 0..grid.n {
-        let nb = grid.neighbors(a);
-        let same = nb.iter().filter(|&&b| before[b as usize] == before[a]).count();
-        if same * 3 <= nb.len() {
-            cont[a] = !before[a];
+/// Strict mode (R3.1b): continental crust = the land plus an offshore margin whose width
+/// depends on the coast class (design §2). Passive: shelf + slope, 150–250 km, capped at 0.4
+/// of the seaway's half-width so a narrow seaway's ridge stays on oceanic crust. Active: the
+/// forearc, up to the trench offset minus 20 km. All widths are distances, never cell counts.
+pub fn strict(grid: &Grid, p: &Params, land: &[bool], cls: &crate::coast::Classification) -> Crust {
+    use crate::coast::{NONE, margin};
+    let r = p.radius_m;
+    let landmass_of = cls.landmass_labels(grid, land);
+    let coast = crate::coast::coast_nodes(grid, land, &landmass_of);
+    let near = grid.nearest_source(&coast, PI as f32);
+    let s_w = salt(p.seed, STREAM_CRUST + 4);
+    let var = grid.coarse_field(64, |d| fbm01(d, s_w, 3.0, 2) as f32);
+    let active_w = crate::fit::TRENCH_OFFSET_M - 20_000.0;
+    let cont: Vec<bool> = par_map(grid.n, |a| {
+        if land[a] {
+            return true;
         }
-    }
-
-    // Signed distance to the crust boundary, metres.
-    let mut edge_nodes: Vec<u32> = Vec::new();
-    for a in 0..grid.n {
-        if grid.neighbors(a).iter().any(|&b| cont[b as usize] != cont[a]) {
-            edge_nodes.push(a as u32);
+        let src = near.src[a];
+        if src == u32::MAX || landmass_of[src as usize] == NONE {
+            return false;
         }
-    }
-    let near = grid.nearest_source(&edge_nodes, PI as f32);
-    let half_cell = (0.5 * grid.spacing_rad() * p.radius_m) as f32;
-    let edge_m: Vec<f32> = (0..grid.n)
-        .map(|a| {
-            let d = near.dist_rad[a] * p.radius_m as f32 + half_cell;
-            if cont[a] { d } else { -d }
-        })
-        .collect();
-
-    // Margin activity: where plate boundaries are encouraged to hug the coast.
-    let activity: Vec<f32> = grid.coarse_field(48, |d| {
-        let x = 0.5 + 0.5 * 2.2 * fbm(d, s_act, 1.8, 3, 0.5);
-        smoothstep(0.45, 0.85, x) as f32
+        let d = near.dist_rad[a] as f64 * r;
+        let sd = grid.dir[src as usize];
+        let width = if cls.margin_at(sd) == margin::ACTIVE {
+            active_w
+        } else {
+            let s = cls.facing_at(grid.dir[a]);
+            let half = if s == u32::MAX { f64::INFINITY } else { cls.seaways[s as usize].half_width_m };
+            (150_000.0 + 100_000.0 * var[a] as f64).min(0.4 * half)
+        };
+        d < width
     });
-
-    Crust { cont, edge_m, activity }
+    let edge_m = edge_distance(grid, &cont, r);
+    let coast_m = edge_distance(grid, land, r);
+    Crust { cont, land: land.to_vec(), edge_m, activity: vec![0.0; grid.n], coast_m: Some(coast_m) }
 }
