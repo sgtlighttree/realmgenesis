@@ -6,6 +6,10 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 
 R1 un-grid/coherence (done differently) → R2 raster renderer (done) → **R3 coastline conditioning + plate plausibility pass + coastal bathymetry (next)** → R3b open-ocean seafloor → R4 regional bakes → R5 exports → alive world. Table with definitions: `ROADMAP.md` top. Matt: land terrain "largely satisfied"; active coasts: automatic + repaintable ("both").
 
+## s04 (2026-11-04, local): R3 design in progress
+
+- Log: `docs/session-logs/2026-11-04-s04-r3-design.md`. Deliverable: `docs/design/coastline-conditioning.md` + fresh review. No code until Matt approves.
+
 ## s03 (2026-11-04): review and build
 
 - Matt answered the 12 questions: `docs/session-logs/2026-11-04-s03-project-review.md`.
