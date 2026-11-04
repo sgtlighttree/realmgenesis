@@ -41,12 +41,12 @@ Applies only on Matt's MacBook Air M1 (4 P + 4 E cores, 16 GB, fanless; also his
 
 - Core crates (`rg-geo`, `rg-noise`, the sim crates, `rg-world`, `rg-render`) never depend on egui or eframe. The UI talks to the core through `Command`s.
 - Anything **committed** is stored in the world file, never re-derived (see the determinism contract in ARCHITECTURE §5).
-- GPU-first simulations. CPU fallbacks must run single-threaded on wasm32. `rayon` is native-only.
+- **Native-first (Matt, s03, 2026-11-04).** `rayon` and threads are fine in core crates. Use the GPU where it pays, not because the web lacks threads. The web build is optional: keep it compiling when that's cheap, but don't design around it.
 - Positions are f64 on the CPU and camera-relative f32 on the GPU.
 - Matt is new to Rust. Keep code idiomatic but plain: no clever trait towers or macro magic without a reason written next to it.
 
 ## Preview loop
 
-1. Build the web bundle, then screenshot it with headless Chromium (Playwright is preinstalled; no `playwright install`).
-2. Publish the bundle to the project's preview artifact (URL in `HANDOFF.md`). Republish to the same URL.
-3. CI (`.github/workflows/`) builds native binaries on push.
+1. Native: run the app and screenshot it (local), or under Xvfb + lavapipe in the cloud (HANDOFF has the recipe). Matt judges looks in the native app.
+2. CI (`.github/workflows/`) builds native binaries on push.
+3. Optional (since s03): the web bundle + artifact preview (URL in `HANDOFF.md`, republish to the same URL).

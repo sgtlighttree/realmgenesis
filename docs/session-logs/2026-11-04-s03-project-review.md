@@ -37,3 +37,11 @@ All points adopted; detail in `docs/design/v2-direction-s03.md` → "Fresh-conte
 - **Correction:** the macro is already Rho8 (`solver.rs:121`), not plain D8, so "D8 griddiness" was imprecise. The planform is still bound to the 8 lattice neighbours.
 - **Refuted (my proposal): a flat 20 km zoom floor.** At 20 km a 5 km texel is about 300 px. New rule: one texel spans at most ~8 px, which gives ~800 km over unbaked land and ~25 km over 150 m baked regions.
 - **Order changed** to R2 (raster renderer on today's macro + river overlay) → R3 design → R1 jitter-only experiment → R4 → R5. Rejected: R1 first. R2 doesn't depend on jitter, and a 3D view is the better judge.
+
+## Matt's go (s03)
+
+- **Go on R2** (raster renderer on today's macro).
+- **Q9 confirmed:** "RG becomes a fantasy oriented, user friendly, but less feature rich FOSS alternative to Gaea." Feature parity with Gaea/Terragen is long-term.
+- **Native-first:** CLAUDE.md "Code rules" and "Preview loop" updated; HANDOFF settled decisions updated (native-first, Rust stays, product line, zoom floor).
+- **Disk:** `node_modules/` (V1 leftovers) moved to `~/.Trash/node_modules-realmgenesis-v1-20261104`; `cargo clean` freed 1.9 GB (`target/probe-cache` worlds included; they rebuild on the next probe run). Free space now **40 GB**.
+- Side note (side agent, agrees with the s02/s03 finding): raster rendering alone won't fix the griddy planform. That's R1's job. Saved `.rgworld` files store committed fields, so an old seed-1 save should still load after R1 (unverified; schema permitting), but regenerating seed 1 won't reproduce it.

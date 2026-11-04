@@ -7,7 +7,8 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 - Matt answered the 12 questions: `docs/session-logs/2026-11-04-s03-project-review.md`.
 - Proposed direction (**not yet approved**): `docs/design/v2-direction-s03.md`. In short: keep Rust; native-first; R1 un-grid macro routing (jitter/MFD + position-keyed roughness) → R2 raster-displacement renderer (zoom floor 20 km) → R3 coastline-conditioning design → R4 regional bake → R5 exports.
 - Fresh-context review: **go with changes**, all adopted. Revised order: R2 raster renderer on today's macro (+ river overlay, coverage-based zoom floor) → R3 coastline design → R1 jitter-only experiment → R4 → R5.
-- Pending Matt: Q9 reading, CLAUDE.md rule changes for native-first, what to do with untracked `node_modules/` (372 MB, looks like V1), `spike/`, `heightmap-1.*`.
+- Matt approved (s03): go on R2; Q9 = in-house (FOSS Gaea alternative); native-first CLAUDE.md edits done; `node_modules/` → Trash, `target/` cleaned (40 GB free). Still open: `spike/`, `heightmap-1.*`.
+- **Now: R2 raster renderer design** (`docs/design/raster-renderer.md`), then review, then build.
 
 ## Previous: project-wide review brief (s02 wrap-up, 2026-11-04)
 
@@ -126,14 +127,16 @@ Matt wasn't satisfied with how terrain *detail* turned out ("the base maps plus 
 ## Settled decisions (don't re-litigate)
 
 - Rust + wgpu + eframe/egui. The UI is isolated behind commands, and a redesign is planned later.
-- GPU-first simulations, because the web preview has no threads.
+- Native-first (s03): threads/rayon allowed in core; GPU where it pays. Web build optional.
 - Sphere by default (`f = 0`), with the ellipsoid in the same code path. Geodetic latitudes.
-- Cube-sphere tile quadtree with the tangent warp; 257² corner-aligned vertices per tile. Committed macro at L3 (≈4.9 km). L4 is sparse macro edits, L10 local edits, L12 (≈9.5 m) the zoom floor.
+- Cube-sphere tile quadtree with the tangent warp; 257² corner-aligned vertices per tile. Committed macro at L3 (≈4.9 km). L4 is sparse macro edits, L10 local edits, L12 (≈9.5 m) was the zoom floor; **s03 replaces it** with a coverage-based floor (one stored texel ≤ ~8 px: ~800 km unbaked, ~25 km over 150 m bakes).
 - Sims are stepped `Job`s (async web readback). High-octave noise uses integer lattice coordinates from the tile address. The world file + golden tests land at M2.
 - Climate: tier A for the reroll preview, tier B for the one-shot commit. Committed fields are stored, never re-derived.
 - Tectonics: a snapshot for the MVP; history mode parked.
 - Borders: procedural by default, editable.
 - Desktop/laptop only. Minimum spec: M1 Air.
+- Rust stays the engine (s03; rewrite rejected, disk managed by pruning `target/`).
+- Product (s03): a fantasy-oriented, user-friendly FOSS alternative to Gaea; regional detail in-house; Gaea/Terragen parity is a long-term stretch. Blender/Illustrator/engines are export consumers.
 
 ## MVP definition (Matt's /goal: "until we have MVP", s01)
 
