@@ -94,13 +94,16 @@ fn main() {
         100.0 * same_plate as f64 / xs.len().max(1) as f64,
         100.0 * conv_hit as f64 / conv_a.max(1) as f64
     );
-    distribution(&format!("res {ra}"), &wa);
-    distribution(&format!("res {rb}"), &wb);
+    for use_box in [false, true] {
+        distribution(&format!("res {ra}"), &wa, use_box);
+        distribution(&format!("res {rb}"), &wb, use_box);
+    }
 }
 
 /// Land-height percentiles and lake share of one world, inside `RG_BOX` if set.
-fn distribution(label: &str, w: &rg_pipeline::World) {
-    let bx: Option<Vec<f64>> = std::env::var("RG_BOX").ok().filter(|v| !v.trim().is_empty()).map(|v| v.split(',').map(|x| x.trim().parse().unwrap()).collect());
+fn distribution(label: &str, w: &rg_pipeline::World, use_box: bool) {
+    let bx: Option<Vec<f64>> = std::env::var("RG_BOX").ok().filter(|v| use_box && !v.trim().is_empty()).map(|v| v.split(',').map(|x| x.trim().parse().unwrap()).collect());
+    let label = if bx.is_some() { format!("{label} box") } else { format!("{label} world") };
     let h = &w.tectonics.height_m;
     let lakes = w.hydrology.as_ref().map(|x| &x.lake_depth_m);
     let (mut land, mut lake_n) = (Vec::new(), 0usize);
