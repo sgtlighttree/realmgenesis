@@ -168,7 +168,9 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
         app.push(Command::SetLayer(layer));
     }
     ui.add(egui::Slider::new(&mut app.display.exaggeration, 1.0..=60.0).text("relief × (orbit)"))
-        .on_hover_text("Vertical exaggeration seen from orbit. It fades to 1.5× as you zoom in to the ground.");
+        .on_hover_text("Vertical exaggeration seen from orbit. It fades to 1.5× as you zoom in to the ground, unless kept below.");
+    ui.checkbox(&mut app.display.keep_relief, "Keep relief when zooming in")
+        .on_hover_text("Use the same exaggeration at every distance instead of fading to 1.5× near the ground.");
     ui.add(egui::Slider::new(&mut app.style.map_exaggeration, 1.0..=40.0).text("map hillshade"));
     let mut on = app.detail_streamed;
     if ui

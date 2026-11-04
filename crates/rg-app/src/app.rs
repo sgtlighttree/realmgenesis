@@ -25,6 +25,8 @@ pub struct DisplayParams {
     /// Vertical exaggeration seen from orbit. It fades to [`Self::NEAR_EXAGGERATION`] as
     /// you zoom in, so mountains look right from both orbit and the ground.
     pub exaggeration: f64,
+    /// Keep the orbit exaggeration all the way down instead of fading it (Matt, s02).
+    pub keep_relief: bool,
 }
 
 impl DisplayParams {
@@ -33,6 +35,9 @@ impl DisplayParams {
     /// Exaggeration for a camera `distance_m` from its target, on a planet of `radius_m`.
     /// Driven by distance (not height above terrain) to avoid a feedback loop.
     pub fn effective_exaggeration(&self, distance_m: f64, radius_m: f64) -> f64 {
+        if self.keep_relief {
+            return self.exaggeration;
+        }
         let t = smoothstep(50_000.0, 0.6 * radius_m, distance_m);
         Self::NEAR_EXAGGERATION + (self.exaggeration.max(Self::NEAR_EXAGGERATION) - Self::NEAR_EXAGGERATION) * t
     }
@@ -46,7 +51,7 @@ fn smoothstep(a: f64, b: f64, x: f64) -> f64 {
 impl Default for DisplayParams {
     fn default() -> Self {
         // 35: Matt's pick on the M1 (s02); 20 made network valleys read as flat grooves.
-        Self { exaggeration: 35.0 }
+        Self { exaggeration: 35.0, keep_relief: false }
     }
 }
 
