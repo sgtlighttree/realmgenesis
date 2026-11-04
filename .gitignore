@@ -12,3 +12,10 @@ tmp/
 .playwright-mcp/
 # Agent git worktrees (full repo checkouts nested in the repo)
 .claude/
+# App output: the app's folder ~/RealmGenesis IS this repo on macOS's case-insensitive
+# filesystem (s03), so saves, exports and screenshots land here.
+/shots/
+/spike/
+/*.rgworld
+/heightmap-*.png
+/heightmap-*.json

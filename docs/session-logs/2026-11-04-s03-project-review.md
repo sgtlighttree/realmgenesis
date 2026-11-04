@@ -163,3 +163,4 @@ All points adopted; detail in `docs/design/v2-direction-s03.md` → "Fresh-conte
   - roughness λ 150/50: 58–59% (no effect).
 - **Consequence:** every regenerated world changes, seed 1 Ultra included. Saved `.rgworld` files load unchanged (committed fields).
 - Remaining river incoherence (~41–48%) is erosion's own resolution dependence (stream power's intrinsic dependence and index-keyed Rho8/jitter); unconfirmed which dominates.
+- **Found:** `~/RealmGenesis` (the app's save/export/screenshot folder, `files.rs::folder`) is the repo itself on macOS's case-insensitive filesystem. That's why `heightmap-1.*` and `spike/` showed up untracked. App output patterns are now in `.gitignore`. Proposed to Matt: move the app folder (e.g. `~/Documents/RealmGenesis`).
