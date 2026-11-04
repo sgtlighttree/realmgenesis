@@ -9,12 +9,18 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 - Fresh-context review: **go with changes**, all adopted. Revised order: R2 raster renderer on today's macro (+ river overlay, coverage-based zoom floor) → R3 coastline design → R1 jitter-only experiment → R4 → R5.
 - Matt approved (s03): go on R2; Q9 = in-house (FOSS Gaea alternative); native-first CLAUDE.md edits done; `node_modules/` → Trash, `target/` cleaned (40 GB free). `spike/` + `heightmap-1.*` → `~/.Trash/realmgenesis-s02-leftovers-20261104/` (Matt). Spike PNGs also in `~/RealmGenesis/spike/`.
 - **R2 built and accepted by Matt** (`3b819c0`; clippy clean, workspace tests pass; zoom floor OK at 32): macro-only display (CPU bicubic heights per vertex) plus per-pixel lighting from a baked gradient texture, detail toggle gone, level cap, zoom-floor slider (default 32 px per texel). Design + review: `docs/design/raster-renderer.md` (the "revised design" section at the end).
+- **Since R2 (s03):**
+  - the sun is fixed to the ground (NW, 40°);
+  - lat/lon grid with labels;
+  - the detail-network code is deleted (−3k lines; tiles ~1 ms);
+  - **uplift blend** slider: the "floors"/straight escarpments were Voronoi steps in the convergence-rate factor; default 200 km, 0 = old look;
+  - "uplift focus" → **belt width** (the old slider did nothing);
+  - in-app screenshots: F12, or `RG_SHOT=<png> RG_SHOT_EXIT=1` + `RG_EXAG`/`RG_KEEP_RELIEF`/camera envs. Use these instead of `screencapture`, which fails here.
 - **Next:**
-  1. Matt looks at the app (seed 1 Normal, then Ultra) and tunes the zoom floor. Screenshots: iTerm2 now has Screen Recording (needs a restart), so `screencapture -x` should work.
-  2. Run `cargo test --workspace --release -j 6 -- --test-threads=2`.
-  3. Check the 12 cube edges and the poles for lighting seams.
-  4. Delete `detail_net`/gully code after Matt signs off.
-  5. Then R3 (coastline-conditioning design).
+  1. Matt tries uplift blend (0 vs 200+) and belt width on his seeds.
+  2. **R1 spike:** position-keyed node jitter in the erosion grid only (+ position-keyed roughness/Rho8 for resolution coherence), with full-field resampling. Judge with `field_maps`/`river_map` + app screenshots at Normal and Ultra, same spot. Changes every world.
+  3. Then R3 design (coastline conditioning).
+  - Parked: tall flat-topped ranges (the `elevation_limit_m` 7 km taper? a candidate slider); coast staircase on macro cells (coast SDF); Ultra erosion 58–63 s this session vs ~30 s before (unconfirmed cause).
 
 ## Previous: project-wide review brief (s02 wrap-up, 2026-11-04)
 
