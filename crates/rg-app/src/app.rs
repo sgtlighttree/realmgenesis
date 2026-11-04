@@ -722,14 +722,15 @@ impl eframe::App for RealmApp {
         if !self.deferred.is_empty() {
             ui.ctx().request_repaint();
         }
-        // Presentation light: the sun sits up and to the left of the camera, so the view
-        // always shows relief and a terminator. Real seasonal sun comes with climate.
+        // Presentation light: the cartographic convention, from the north-west of the point
+        // the camera orbits, 40° above the horizon. Tied to the ground, not the camera, so
+        // turning the view doesn't relight the relief (Matt, s03: the old camera-relative,
+        // mostly overhead light shifted as he rotated and flattened the contrast). Real
+        // seasonal sun comes with climate.
         let (up, east, north) = self.camera.frame();
-        let (sh, ch) = self.camera.heading.sin_cos();
-        // Light from the upper left of the screen, wherever the camera faces.
-        let screen_left = -(east * ch - north * sh);
-        let screen_up = north * ch + east * sh;
-        self.style.sun_dir = up * 1.2 + screen_left * 0.55 + screen_up * 0.7;
+        let north_west = (north - east).normalize();
+        let elevation = 40f64.to_radians();
+        self.style.sun_dir = up * elevation.sin() + north_west * elevation.cos();
         ui::draw(self, ui, &rs);
         let end = now_s();
         self.stats.frame_finished(end, ((end - frame_t0) * 1000.0) as f32);

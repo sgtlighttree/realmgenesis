@@ -74,3 +74,17 @@ All points adopted; detail in `docs/design/v2-direction-s03.md` → "Fresh-conte
 - **The resolution dependence is still there** (expected: R2 doesn't touch generation). Fix = position-keyed roughness/Rho8 (parked since s02), folded into R1.
 - Cube edges (for the seam check): PosX is centred on lon 0 (lat = asin z, lon = atan2(y, x)). So the edges are the meridians **lon ±45° and ±135° between ~35°S and ~35°N**, plus a square around each pole whose corners sit at **lat ±35.3°, lon ±45°/±135°**.
 - ✓ **Workspace tests pass after R2** (all suites ok; 142 s wall at `-j 6 --test-threads=2` on AC, with Matt's app open; peak RSS 4.0 GB per `/usr/bin/time -l`, n=1). Pending Matt: R1 before R3? Delete the detail-network code?
+
+## Matt's round 2 on R2 (12:00–12:10)
+
+- Lighting "changes slightly as I rotate… light comes from behind the camera… reduces contrast". **Cause:** `app.rs` tied the sun to the camera (screen upper-left, mostly overhead: up·1.2). **Fix (uncommitted at first, then in the next commit):** the sun now sits 40° up, from the north-west of the orbit point, independent of heading.
+- Wants a **lat/lon grid with numbers** (status bar fine) → delegated (sonnet-medium, worktree).
+- Approved: **R1 before R3**; **delete the detail-network code**.
+- **Screenshot 2 (37°N 96°W, Ultra seed 1): a stair-stepped straight escarpment.**
+  - New tool `examples/field_maps.rs` (6 panels: hillshade, uplift, runoff, lake depth, plates, crust; nearest-node sampling).
+  - **Found:** the committed uplift field has a hard straight edge exactly where the texture changes. It doesn't follow the runoff cells (bilinear from res 128) or the plate boundary.
+  - **Cause, verified (n=1):** `uplift.rs` scales the belt term by `factor(near.src)`, the convergence-rate factor of the *nearest* convergent seed (clamped 0.25–2.5). The nearest-seed regions are Voronoi cells, so the uplift jumps along straight bisectors. With `RG_CONV_SCALE=0` (new probe env), the edge disappears at the same spot.
+- **Screenshot 3 (whole map): "floors" / massive plateaus, and some ranges form super-tall plateaus.** "Interesting, not natural… worth a slider… not something to fix, simply tune."
+  - Likely the same Voronoi uplift steps (unconfirmed globally).
+  - The tall flat-topped ranges are probably the uplift taper to 0 at the 7 km strength cap (`elevation_limit_m`; unconfirmed).
+- **Plan:** smooth the convergence factor over a distance in km, exposed as a slider. At 0 it stays terraced (today's "floors"); higher values give natural ramps. Changes every world at non-zero values, so it goes in with R1.

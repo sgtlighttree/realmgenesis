@@ -35,9 +35,12 @@ pub fn world(seed: u64) -> World {
     if let Some(v) = env("RG_LITH_KM") {
         p.erosion.lithology_scale_km = v;
     }
+    if let Some(v) = env::<u8>("RG_CONV_SCALE") {
+        p.erosion.scale_by_convergence_rate = v != 0;
+    }
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/probe-cache");
     let path = dir.join(format!(
-        "s{seed}-t{}-e{}-n{}-k{}-r{}-l{}-rho{}-lin{}-g{}-b{}.rgw",
+        "s{seed}-t{}-e{}-n{}-k{}-r{}-l{}-rho{}-lin{}-cv{}-g{}-b{}.rgw",
         p.tectonics.res,
         p.erosion.res,
         p.erosion.steps,
@@ -46,6 +49,7 @@ pub fn world(seed: u64) -> World {
         p.erosion.lithology_scale_km,
         p.erosion.rho8 as u8,
         p.erosion.linear_mean_m,
+        p.erosion.scale_by_convergence_rate as u8,
         rg_pipeline::file::WORLD_SCHEMA,
         build_stamp()
     ));
