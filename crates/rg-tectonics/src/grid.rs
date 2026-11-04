@@ -337,6 +337,51 @@ impl Grid {
         owner
     }
 
+    /// Multi-source growth restricted to `allowed` nodes (R3). Each seed `(node, label)` spreads
+    /// its label at a step cost of `edge length * mean cost`. When `same` is given, a step from
+    /// `a` to `b` is only taken if `same[a] == same[b]`, so fronts can't cross those borders
+    /// (used to keep oceanic plates from crossing a closing seaway's axis). Nodes never reached
+    /// keep `u16::MAX`. Unlike [`Grid::grow_regions`], blocked nodes are hard walls, not costs.
+    pub fn grow_labelled(&self, seeds: &[(u32, u16)], allowed: &[bool], cost: &[f32], same: Option<&[u16]>) -> Vec<u16> {
+        let mut owner = vec![u16::MAX; self.n];
+        let mut best = vec![f32::INFINITY; self.n];
+        if seeds.is_empty() {
+            return owner;
+        }
+        let cost_min = cost.iter().copied().fold(f32::INFINITY, f32::min).max(1e-3);
+        let cost_max = cost.iter().copied().fold(0.0, f32::max).max(cost_min);
+        let mut done = Bits::new(self.n);
+        let mut queue = BucketQueue::new(2.0 * self.min_edge * cost_min, self.max_edge * cost_max);
+        for &(s, k) in seeds {
+            if allowed[s as usize] && best[s as usize] > 0.0 {
+                best[s as usize] = 0.0;
+                owner[s as usize] = k;
+                queue.push(0.0, s);
+            }
+        }
+        while let Some(a) = queue.pop() {
+            let a = a as usize;
+            if done.test_and_set(a) {
+                continue;
+            }
+            for &b in self.neighbors(a) {
+                let b = b as usize;
+                if !allowed[b] || same.is_some_and(|s| s[a] != s[b]) {
+                    continue;
+                }
+                let edge_len = (self.dir[b] - self.dir[a]).length() as f32;
+                let nd = best[a] + edge_len * 0.5 * (cost[a] + cost[b]);
+                if nd < best[b] {
+                    best[b] = nd;
+                    owner[b] = owner[a];
+                    done.clear(b);
+                    queue.push(nd, b as u32);
+                }
+            }
+        }
+        owner
+    }
+
     /// For every node, the nearest of `sources` and the true great-circle distance to it.
     ///
     /// A plain graph shortest-path would measure distance along grid lines and be up to ~8% off

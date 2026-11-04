@@ -36,6 +36,7 @@ impl Rng {
     }
 
     /// Standard normal (Box-Muller).
+    #[allow(dead_code)] // kept for future streams
     pub fn gauss(&mut self) -> f64 {
         let u1 = self.f64().max(1e-12);
         let u2 = self.f64();

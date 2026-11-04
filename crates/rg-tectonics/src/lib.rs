@@ -18,9 +18,11 @@
 //! maps. It uses threads only on native targets (see `util::par_map`),
 //! where they change the speed but never the result, so it runs the same on wasm.
 
+pub mod coast;
 mod crust;
+pub mod fit;
 pub mod grid;
-mod plates;
+pub mod plates;
 mod relief;
 mod rng;
 pub mod util;
@@ -48,6 +50,9 @@ pub struct TectonicsParams {
     pub mountain_scale: f32,
     /// Multiplier on fine terrain noise.
     pub roughness: f32,
+    /// Target share of continental coast length that is active (trench + cordillera or arc).
+    /// Earth: ~0.23 (Bradley 2008; design doc). 0 = every seaway opening ("all passive").
+    pub active_share: f32,
 }
 
 impl Default for TectonicsParams {
@@ -61,6 +66,7 @@ impl Default for TectonicsParams {
             continent_count_hint: 5,
             mountain_scale: 1.0,
             roughness: 1.0,
+            active_share: 0.25,
         }
     }
 }
@@ -100,6 +106,13 @@ pub struct TectonicSnapshot {
     pub sea_level_offset_m: f32,
     /// Achieved share of the sphere's area above sea level.
     pub land_fraction: f32,
+    /// Coast class per sample near coasts: 0 none, 1 passive, 2 active (`coast::margin`).
+    /// R3; absent in worlds saved before schema 5.
+    pub margin: Option<CubeField<u8>>,
+    /// Clamped convergence rate at convergent boundary samples, mm/yr (0 elsewhere). R3: the
+    /// rate the relief used, committed so erosion's uplift reads the same one (absent in old
+    /// worlds; uplift then falls back to the plates' rotations).
+    pub convergence_mm_yr: Option<CubeField<f32>>,
     /// Continental dynamic topography to build during erosion (m), if generated in this run.
     /// Not stored in world files: only erosion uses it, and its result is committed.
     pub dynamic_topo_m: Option<CubeField<f32>>,
@@ -120,11 +133,25 @@ pub fn land_fraction_of(height: &CubeField<f32>) -> f32 {
 
 /// Build a tectonic snapshot.
 pub fn generate(p: &TectonicsParams) -> TectonicSnapshot {
+    generate_with_model(p).0
+}
+
+/// [`generate`], plus the plate model and the fit statistics (for probes and tests).
+pub fn generate_with_model(p: &TectonicsParams) -> (TectonicSnapshot, plates::PlateModel, fit::FitStats) {
     let p = &TectonicsParams { res: p.res.max(8), ..p.clone() };
     let grid = grid::Grid::new(p.res);
-    let crust = crust::build(&grid, p);
-    let pm = plates::build(&grid, p, &crust);
+    let tm = std::time::Instant::now();
+    let lap = |what: &str| if std::env::var_os("RG_TIMING").is_some() { eprintln!("  {what}: {} ms", tm.elapsed().as_millis()) };
+    let mut crust = crust::build(&grid, p);
+    lap("crust");
+    // R3.1a: classify the coasts on the fixed grid, then fit plates and motion to them.
+    let cls = coast::Classification::build(p);
+    lap("classification");
+    let (pm, stats) = fit::build(&grid, p, &crust, &cls);
+    lap("fit");
+    crust.activity = fit::activity(&grid, &cls);
     let composed = relief::compose(&grid, p, &crust, &pm);
+    lap("relief");
 
     // Sea level: the offset at which `land_fraction` of the area is above water.
     let target = p.land_fraction.clamp(0.0, 1.0) as f64;
@@ -138,6 +165,8 @@ pub fn generate(p: &TectonicsParams) -> TectonicSnapshot {
         plate_id: CubeField::new(p.res),
         crust: CubeField::new(p.res),
         boundary: CubeField::new(p.res),
+        margin: Some(CubeField::new(p.res)),
+        convergence_mm_yr: Some(CubeField::new(p.res)),
         plates: pm.plates.clone(),
         sea_level_offset_m: offset,
         land_fraction: achieved,
@@ -150,11 +179,17 @@ pub fn generate(p: &TectonicsParams) -> TectonicSnapshot {
         snap.plate_id.data[s] = pm.plate_of[a];
         snap.crust.data[s] = crust.cont[a] as u8;
         snap.boundary.data[s] = pm.boundary[a];
+        if let Some(f) = snap.margin.as_mut() {
+            f.data[s] = pm.margin[a];
+        }
+        if let Some(f) = snap.convergence_mm_yr.as_mut() {
+            f.data[s] = pm.convergence[a];
+        }
         if let Some(f) = snap.dynamic_topo_m.as_mut() {
             f.data[s] = composed.dyn_topo[a];
         }
     }
-    snap
+    (snap, pm, stats)
 }
 
 #[cfg(test)]
@@ -303,6 +338,43 @@ mod tests {
             assert!(slot.is_nan() || *slot == h);
             *slot = h;
         }
+    }
+
+    /// R3: every discrete coast decision comes from the fixed classification grid, so it
+    /// can't differ between Normal and Ultra (`refined_world_keeps_the_canonical_shape`
+    /// depends on it).
+    #[test]
+    fn classification_is_resolution_independent() {
+        let a = coast::Classification::build(&TectonicsParams { res: 64, ..Default::default() });
+        let b = coast::Classification::build(&TectonicsParams { res: 640, ..Default::default() });
+        assert_eq!(a.coast_margin, b.coast_margin);
+        let classes = |c: &coast::Classification| c.seaways.iter().map(|s| (s.a, s.b, s.class, s.active_side)).collect::<Vec<_>>();
+        assert_eq!(classes(&a), classes(&b));
+        // The active share lands near the target (whole seaways are taken, so not exact).
+        assert!((a.active_share - 0.25).abs() < 0.1, "active share {}", a.active_share);
+    }
+
+    #[test]
+    fn all_passive_has_no_active_margin() {
+        let s = generate(&TectonicsParams { res: 64, active_share: 0.0, ..Default::default() });
+        let m = s.margin.as_ref().unwrap();
+        assert!(!m.data.contains(&coast::margin::ACTIVE));
+        assert!(m.data.contains(&coast::margin::PASSIVE));
+    }
+
+    #[test]
+    fn active_coasts_get_trenches_and_convergence() {
+        let (s, pm, st) = generate_with_model(&TectonicsParams { res: 96, ..Default::default() });
+        assert!(s.margin.as_ref().unwrap().data.contains(&coast::margin::ACTIVE));
+        let sub = pm.bnodes.iter().filter(|b| b.kind == plates::Kind::Subduction).count();
+        assert!(sub > 20, "only {sub} subduction nodes");
+        // Every convergent boundary node carries its committed (clamped) rate.
+        for b in &pm.bnodes {
+            if matches!(b.kind, plates::Kind::Subduction | plates::Kind::Collision) {
+                assert!(pm.convergence[b.node as usize] >= 10.0);
+            }
+        }
+        assert!(st.rms_residual_mm_yr.is_finite() && st.wrong_sign_share < 0.4, "{st:?}");
     }
 
     #[test]
