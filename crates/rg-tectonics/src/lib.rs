@@ -414,9 +414,9 @@ mod tests {
         let g = grid::Grid::new(64);
         let value = crust::continentalness(&g, &p);
         let cover = mask::land_cover(&g, &p, &value);
-        for a in 0..g.n {
+        for (a, &c) in cover.iter().enumerate() {
             let h = s.height_m.data[g.node_sample[a] as usize];
-            assert_eq!(cover[a] > 0.5, h > 0.0, "node {a}: cover {} h {h}", cover[a]);
+            assert_eq!(c > 0.5, h > 0.0, "node {a}: cover {c} h {h}");
             assert!(h >= 1.0 || h <= -1.0, "node {a}: h {h}");
         }
         assert!((s.land_fraction - 0.29).abs() < 0.02, "land fraction {}", s.land_fraction);

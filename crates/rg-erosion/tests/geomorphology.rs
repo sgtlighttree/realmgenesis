@@ -50,5 +50,8 @@ fn hypsometry_is_earth_like() {
     // Target (s02): ice-free land smoothed to ~20-50 km cells, mean ≈ 660 m, median ≈ 380 m
     // (see src/hypsometry.rs). The lower bound was 700 for the superseded ETOPO1-with-ice curve.
     assert!((600.0..1000.0).contains(&mean), "mean land {mean}");
-    assert!((330.0..560.0).contains(&median), "median land {median}");
+    // Lower bound 330 → 300 in s05 (R3): fitted plates make ~75% of coasts passive, with
+    // wider low coastal plains; seed 3's median fell to 318 m (mean still in band). Matt's
+    // s04 OK on updating R3-affected tests; flagged in the s05 log.
+    assert!((300.0..560.0).contains(&median), "median land {median}");
 }

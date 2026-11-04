@@ -582,8 +582,8 @@ pub fn build(grid: &Grid, p: &Params, crust: &Crust, cls: &Classification) -> (P
 
     let mut area = vec![0.0f64; k];
     let mut cont_area = vec![0.0f64; k];
-    for a in 0..cg.n {
-        let pl = cplate[a] as usize;
+    for (a, &pl) in cplate.iter().enumerate() {
+        let pl = pl as usize;
         area[pl] += cg.weight[a] as f64;
         if cls.crust.cont[a] {
             cont_area[pl] += cg.weight[a] as f64;

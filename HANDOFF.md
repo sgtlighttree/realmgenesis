@@ -29,6 +29,7 @@ R1 un-grid/coherence (done differently) → R2 raster renderer (done) → **R3 c
   - the Voronoi-like web of ridges between continents (every opening seaway has one): fine, or too geometric?
   - plate count vs the slider;
   - try an import (UI: Coasts → Imported mask, path field) and the brush.
+- `RG_LAYER` renumbered: 4 = Coast margins, Köppen moved to 5 (and the rest shifted by one).
 - Next after feedback: R3 polish from that feedback, then **R3b** (open-ocean fabric on R3's ridges).
 
 ## s04 (2026-11-04, local): R3 design (done)

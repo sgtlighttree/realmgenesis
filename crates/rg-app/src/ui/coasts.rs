@@ -168,14 +168,12 @@ pub fn coasts_section(app: &mut RealmApp, ui: &mut egui::Ui) {
 /// true when it consumed the drag.
 pub fn paint(app: &mut RealmApp, dragging_primary: bool, released: bool, at: Option<(f64, f64)>) -> bool {
     let Some(op) = app.coasts.brush else { return false };
-    if dragging_primary {
-        if let Some((lat, lon)) = at {
-            let d = DVec3::new(lat.cos() * lon.cos(), lat.cos() * lon.sin(), lat.sin());
-            // Keep points ~a fifth of the brush apart.
-            let min_rad = app.coasts.brush_km * 0.2 * 1000.0 / app.params.tectonics.radius_m;
-            if app.coasts.drawing.last().is_none_or(|q| q.dot(d).clamp(-1.0, 1.0).acos() > min_rad) {
-                app.coasts.drawing.push(d);
-            }
+    if dragging_primary && let Some((lat, lon)) = at {
+        let d = DVec3::new(lat.cos() * lon.cos(), lat.cos() * lon.sin(), lat.sin());
+        // Keep points ~a fifth of the brush apart.
+        let min_rad = app.coasts.brush_km * 0.2 * 1000.0 / app.params.tectonics.radius_m;
+        if app.coasts.drawing.last().is_none_or(|q| q.dot(d).clamp(-1.0, 1.0).acos() > min_rad) {
+            app.coasts.drawing.push(d);
         }
     }
     if released && !app.coasts.drawing.is_empty() {

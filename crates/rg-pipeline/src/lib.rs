@@ -514,5 +514,29 @@ mod coherence_tests {
         }
         assert!(checked > 0);
     }
+
+    /// The same gate through the refine path (High/XH/Ultra = canonical + refine): the
+    /// refined surface's sign must still be the fine mask's (advisor, s05).
+    #[test]
+    fn strict_coasts_survive_refine() {
+        let mut params = WorldParams::default();
+        params.tectonics.res = 96;
+        params.erosion.canonical_res = 48;
+        params.erosion.steps = 8;
+        params.tectonics.conditioning.strict = true;
+        params.tectonics.conditioning.islands = false;
+        let snap = rg_tectonics::generate(&params.tectonics);
+        let cover = snap.land_cover.as_ref().unwrap();
+        let w = crate::generate(&params);
+        let hm = &w.tectonics.height_m;
+        assert!(hm.res > params.erosion.canonical_res, "refine path taken");
+        let mut miss = 0;
+        for (idx, _, _, _, d) in hm.iter_samples() {
+            if (cover.sample(d) > 0.5) != (hm.data[idx] > 0.0) {
+                miss += 1;
+            }
+        }
+        assert_eq!(miss, 0, "{miss} samples off the mask");
+    }
 }
 
