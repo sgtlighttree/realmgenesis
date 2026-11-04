@@ -8,7 +8,13 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 - Proposed direction (**not yet approved**): `docs/design/v2-direction-s03.md`. In short: keep Rust; native-first; R1 un-grid macro routing (jitter/MFD + position-keyed roughness) → R2 raster-displacement renderer (zoom floor 20 km) → R3 coastline-conditioning design → R4 regional bake → R5 exports.
 - Fresh-context review: **go with changes**, all adopted. Revised order: R2 raster renderer on today's macro (+ river overlay, coverage-based zoom floor) → R3 coastline design → R1 jitter-only experiment → R4 → R5.
 - Matt approved (s03): go on R2; Q9 = in-house (FOSS Gaea alternative); native-first CLAUDE.md edits done; `node_modules/` → Trash, `target/` cleaned (40 GB free). `spike/` + `heightmap-1.*` → `~/.Trash/realmgenesis-s02-leftovers-20261104/` (Matt). Spike PNGs also in `~/RealmGenesis/spike/`.
-- **Now: R2 raster renderer design** (`docs/design/raster-renderer.md`), then review, then build.
+- **R2 built** (`3b819c0`, clippy clean, workspace tests not yet run): macro-only display (CPU bicubic heights per vertex) plus per-pixel lighting from a baked gradient texture, detail toggle gone, level cap, zoom-floor slider (default 32 px per texel). Design + review: `docs/design/raster-renderer.md` (the "revised design" section at the end).
+- **Next:**
+  1. Matt looks at the app (seed 1 Normal, then Ultra) and tunes the zoom floor. Screenshots: iTerm2 now has Screen Recording (needs a restart), so `screencapture -x` should work.
+  2. Run `cargo test --workspace --release -j 6 -- --test-threads=2`.
+  3. Check the 12 cube edges and the poles for lighting seams.
+  4. Delete `detail_net`/gully code after Matt signs off.
+  5. Then R3 (coastline-conditioning design).
 
 ## Previous: project-wide review brief (s02 wrap-up, 2026-11-04)
 
