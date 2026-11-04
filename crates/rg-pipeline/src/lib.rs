@@ -374,6 +374,9 @@ mod progress_tests {
     fn tiny() -> WorldParams {
         let mut p = WorldParams::default();
         p.tectonics.res = 32;
+        // A tiny world is coarser than Normal, so it would be a seed scanner (no erosion,
+        // s04). These tests are about erosion progress: erode it directly.
+        p.erosion.canonical_res = 0;
         p
     }
 
