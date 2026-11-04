@@ -45,3 +45,9 @@ All points adopted; detail in `docs/design/v2-direction-s03.md` → "Fresh-conte
 - **Native-first:** CLAUDE.md "Code rules" and "Preview loop" updated; HANDOFF settled decisions updated (native-first, Rust stays, product line, zoom floor).
 - **Disk:** `node_modules/` (V1 leftovers) moved to `~/.Trash/node_modules-realmgenesis-v1-20261104`; `cargo clean` freed 1.9 GB (`target/probe-cache` worlds included; they rebuild on the next probe run). Free space now **40 GB**.
 - Side note (side agent, agrees with the s02/s03 finding): raster rendering alone won't fix the griddy planform. That's R1's job. Saved `.rgworld` files store committed fields, so an old seed-1 save should still load after R1 (unverified; schema permitting), but regenerating seed 1 won't reproduce it.
+
+## R2 design (raster renderer)
+
+- Draft: `docs/design/raster-renderer.md`. The key finding from reading the code: the quadtree, camera-relative instances, skirts, geomorph and exaggeration already exist (`rg-render/src/terrain.rs`, `rg-terrain/src/tile.rs`), so R2 only changes **where heights come from**: a baked 6×2049² `DisplayRaster` (R32F height + Rg16F gradient) on the GPU instead of per-vertex CPU sampling.
+- **Expectation flag for Matt:** at the same data, R2 looks about like today's macro-only Ultra (which he already called "pretty decent" in s02). Its payoff is no stalls, per-pixel normals at every zoom, and the plumbing for R4/R5. Visible *detail* needs R1/R4.
+- Fresh-context review: pending.
