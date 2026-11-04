@@ -17,6 +17,7 @@
 
 pub mod detail_net;
 pub mod erosion_filter;
+pub mod gradient;
 pub mod network;
 pub mod tile;
 
