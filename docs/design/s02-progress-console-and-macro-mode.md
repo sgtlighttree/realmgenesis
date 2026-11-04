@@ -1,6 +1,6 @@
 # s02: background generation with a live progress console, and macro-only terrain
 
-Status: **proposed** (2026-11-04, s02). Matt chose "A now, B next" (see the s02 log): ship a macro-only look and a bigger monolithic basemap now, then design the regional "Gaea mode" (ROADMAP-V2's regional DEMs). He also asked for "an actively updating progress counter (not just a bar) so I know Something Is Being Done And The App Isn't Frozen. A bit like the System Console in V1."
+Status: **accepted with changes** (2026-11-04, s02; fresh-context review: "go, with changes", see §5). Matt chose "A now, B next" (see the s02 log): ship a macro-only look and a bigger monolithic basemap now, then design the regional "Gaea mode" (ROADMAP-V2's regional DEMs). He also asked for "an actively updating progress counter (not just a bar) so I know Something Is Being Done And The App Isn't Frozen. A bit like the System Console in V1."
 
 ## 1. Problem
 
@@ -55,3 +55,18 @@ Status: **proposed** (2026-11-04, s02). Matt chose "A now, B next" (see the s02 
 - The `World` crosses threads: it must be `Send` (fields are `Vec`s and `CubeField`s; check at compile time).
 - Two worlds in memory briefly (old displayed, new arriving): peak RAM roughly doubles at the swap. At 2048 that matters; the memory measurement should include it.
 - `after_world_changed` stays on the UI thread: the equirect bake at 4096-wide is the main hitch (~40 ms measured at Normal; more at high res).
+
+## 5. Review (fresh-context agent, 2026-11-04): go, with changes. Adopted:
+
+1. **Macro-only seam:** one `macro_only` flag on `TerrainSampler`, checked at the top of `network_patch` (tiles call it directly, `tile.rs:87`), `levels` and `levels_with_slope`. Gating `levels()` alone would miss tiles, and "no network" alone falls into the old gully + river-corridor path. In macro-only mode the pipeline skips building the network (and its field clones).
+2. **The core default stays Network:** `rg_pipeline::terrain_sampler` is unchanged, so tests and probes see today's surface; the app opts into Off through a new constructor.
+3. **One generation at a time is enforced in `apply`**, not just by greyed-out buttons (the G/R shortcuts bypass buttons).
+4. **Climate controls are disabled while generating** (otherwise RerunClimate hits the old world while the new one, with the old planet params, is on its way).
+5. **CPU:** tile submission pauses while generating; the generation thread runs at utility QoS on macOS. Threads it spawns (tectonics/bake scoped pools) inherit the class (macOS QoS propagation; to verify).
+6. **`World: Send`:** a compile-time assertion.
+7. Progress callback `&dyn Fn` is called only from the orchestrating thread (the solver step loop); nothing inside `thread::scope` calls it.
+8. wasm keeps the synchronous `busy` path; `std::thread::spawn` is behind `cfg(not(wasm32))`.
+- **Faceting risk (to check, not fix yet):** macro-only tiles are piecewise-linear (`sample_drained`) with central-difference normals, so up close they may look low-poly with creases along the macro grid. Matt checks up close before Off stays the default; smoother normals in Off would be a `tile.rs` follow-up.
+- **Console kept, but minimal:** status line + a collapsible panel of the last ~100 lines (Matt asked for the V1 console explicitly; the reviewer thought a 200-line panel was too much for a first step).
+- **Unmetered phases:** tectonics and the post-solve part of erosion report no sub-steps; the clock-driven spinner and elapsed time cover them.
+- Overstated: the bake is capped at 4096 wide (`layer_size`), so it doesn't grow past res 1024.
