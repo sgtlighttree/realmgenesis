@@ -111,6 +111,15 @@ fn assert_world_is_send() {
     is_send::<World>();
 }
 
+/// True when a world is coarser than the canonical resolution: a **seed scanner**
+/// (coastlines, plates, biomes, climate; no erosion). Erosion there would be its own,
+/// different solve and wouldn't match Normal (s04, Matt: Draft as a seed scanner).
+/// Coastlines and plates already match at every resolution (s03).
+pub fn is_seed_scanner(params: &WorldParams) -> bool {
+    let canon = params.erosion.canonical_res;
+    canon > 0 && params.tectonics.res < canon
+}
+
 /// Generate a world: tectonics → fluvial erosion → tier A climate.
 pub fn generate(params: &WorldParams) -> World {
     generate_with_progress(params, &|_| true).expect("generation without a cancelling callback always finishes")
@@ -132,6 +141,7 @@ pub fn generate_with_progress(params: &WorldParams, on: &dyn Fn(Progress) -> boo
     if params.erosion.enabled && canon > 0 && params.tectonics.res > canon {
         return generate_refined(params, canon, on);
     }
+    let erode_now = params.erosion.enabled && !is_seed_scanner(&params);
 
     let t0 = web_time::Instant::now();
     if !stage(Stage::Tectonics) {
@@ -141,7 +151,7 @@ pub fn generate_with_progress(params: &WorldParams, on: &dyn Fn(Progress) -> boo
     let tectonics_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     let t1 = web_time::Instant::now();
-    let hydrology = if params.erosion.enabled {
+    let hydrology = if erode_now {
         // The "mountains" setting scales the target hypsometry (Earth = 1.0).
         let mut ep = params.erosion.clone();
         ep.hypsometry_scale = params.tectonics.mountain_scale as f64 * params.erosion.hypsometry_scale;
@@ -413,6 +423,22 @@ mod coherence_tests {
         p.tectonics.res = res;
         p.erosion.canonical_res = canonical_res;
         generate(&p)
+    }
+
+    #[test]
+    fn coarser_than_canonical_is_a_seed_scanner_with_the_same_coast() {
+        // 128/96, not 64/48: at ~200 km cells the coastal band alone is ~6% of samples.
+        let canon = world(128, 128);
+        let scan = world(96, 128);
+        assert!(scan.hydrology.is_none(), "a scanner world doesn't erode");
+        let (hc, hs) = (&canon.tectonics.height_m, &scan.tectonics.height_m);
+        let (mut same, mut total) = (0usize, 0usize);
+        for (k, _, _, _, d) in hs.iter_samples() {
+            total += 1;
+            same += ((hs.data[k] > 0.0) == (hc.sample(d) > 0.0)) as usize;
+        }
+        let share = same as f64 / total as f64;
+        assert!(share > 0.95, "land/sea agreement {share:.3}");
     }
 
     #[test]

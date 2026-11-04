@@ -325,6 +325,15 @@ fn detail_picker(ui: &mut egui::Ui, res: &mut u32, radius_m: f64) {
         .color(if heavy { egui::Color32::from_rgb(222, 170, 80) } else { theme::MUTED }),
     )
     .on_hover_text("Estimated peak memory while generating. Above ~2 GB, close other heavy apps first.");
+    // Coarser than the canonical (Normal) world: no erosion, so it can't disagree with
+    // Normal (s04). Matches `rg_pipeline::is_seed_scanner` with the default canonical res.
+    if *res < rg_pipeline::WorldParams::default().erosion.canonical_res {
+        ui.label(
+            egui::RichText::new("Seed scanner: coastlines, plates, biomes, climate. Mountains are carved from Normal up.")
+                .small()
+                .color(theme::MUTED),
+        );
+    }
 }
 
 /// Rough generation time, fitted to the app on Matt's M1 Air (background thread at utility

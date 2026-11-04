@@ -16,9 +16,9 @@ R1 un-grid/coherence (done differently) → R2 raster renderer (done) → **R3 c
   - Leftovers:
     - faint ladder gullies in places;
     - fine-res max 7.7 km vs canonical 5.0 (sub-cell tectonic peaks);
-    - Draft (192) is still its own preview, not coherent (ask Matt);
+    - Draft and coarse Custom are now a **seed scanner** (no erosion; Matt). Coastlines and plates match Normal;
     - R4 should reuse `refine`.
-  - **Waiting on Matt's look in the app** (Normal vs Ultra, seed 1). Then R3.1a.
+  - **Matt confirmed in the app** (N → H → XH → U behave as expected). **Next: R3.1a.**
 - **Design v2 done:** advisor plus a fresh review ("go with changes", all adopted). **Waiting on Matt:** approval, plus the 7 open questions at the end of the doc.
 - Build order once approved:
   - **R3.1a:** plausibility pass on procedural continents. Seaways → classes → fitted plates → solved motion; polarity prescribed; uplift reads a committed `convergence_mm_yr`. The sea-level bisection stays.
