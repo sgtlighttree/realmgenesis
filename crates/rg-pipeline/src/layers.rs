@@ -18,6 +18,7 @@ pub enum Layer {
     Satellite,
     Elevation,
     Plates,
+    Margins,
     Koppen,
     TempAnnual,
     TempJanuary,
@@ -26,10 +27,11 @@ pub enum Layer {
 }
 
 impl Layer {
-    pub const ALL: [Layer; 8] = [
+    pub const ALL: [Layer; 9] = [
         Layer::Satellite,
         Layer::Elevation,
         Layer::Plates,
+        Layer::Margins,
         Layer::Koppen,
         Layer::TempAnnual,
         Layer::TempJanuary,
@@ -42,6 +44,7 @@ impl Layer {
             Layer::Satellite => "Satellite",
             Layer::Elevation => "Elevation",
             Layer::Plates => "Tectonic plates",
+            Layer::Margins => "Coast margins",
             Layer::Koppen => "Köppen climate",
             Layer::TempAnnual => "Temperature · year",
             Layer::TempJanuary => "Temperature · January",
@@ -106,6 +109,7 @@ impl Equirect {
                 let rgb: Rgb = match layer {
                     Layer::Elevation => palette::elevation(hf),
                     Layer::Plates => plates_color(world, lat, lon, hf),
+                    Layer::Margins => margins_color(world, lat, lon, hf),
                     _ => {
                         let s = ClimateSample::at_with_noise(world, lat, lon, hf, self.polar[i]);
                         match layer {
@@ -121,7 +125,7 @@ impl Equirect {
                             Layer::TempJanuary => palette::temperature(s.t[0]),
                             Layer::TempJuly => palette::temperature(s.t[6]),
                             Layer::PrecipAnnual => palette::precipitation(s.p.iter().sum()),
-                            Layer::Elevation | Layer::Plates => unreachable!(),
+                            Layer::Elevation | Layer::Plates | Layer::Margins => unreachable!(),
                         }
                     }
                 };
@@ -403,6 +407,30 @@ fn plates_color(world: &World, lat: f64, lon: f64, h: f32) -> Rgb {
         1 => [214, 52, 52],  // convergent
         2 => [56, 120, 230], // divergent
         3 => [60, 190, 90],  // transform
+        _ => c,
+    }
+}
+
+/// Margin colours (R3): active coasts (trench + cordillera or arc) and passive ones (wide
+/// shelf, sediment wedge).
+pub const MARGIN_ACTIVE: Rgb = [222, 84, 52];
+pub const MARGIN_PASSIVE: Rgb = [70, 170, 190];
+
+/// Coast margins over a grey relief; plate boundaries drawn as in the plates layer. Worlds
+/// saved before schema 5 have no margin field and show only the relief and boundaries.
+fn margins_color(world: &World, lat: f64, lon: f64, h: f32) -> Rgb {
+    let d = dir(lat, lon);
+    let t = &world.tectonics;
+    let g = if h >= 0.0 { 150.0 + 70.0 * (h / 4000.0).clamp(0.0, 1.0) } else { 40.0 + 50.0 * (1.0 + h / 6000.0).clamp(0.0, 1.0) };
+    let base: Rgb = [g as u8, g as u8, g as u8];
+    let c = match t.margin.as_ref().map(|m| m.nearest(d)) {
+        Some(2) => palette::mix(base, MARGIN_ACTIVE, 0.6),
+        Some(1) => palette::mix(base, MARGIN_PASSIVE, 0.6),
+        _ => base,
+    };
+    match t.boundary.nearest(d) {
+        1 => [150, 20, 20],
+        2 => [30, 70, 170],
         _ => c,
     }
 }

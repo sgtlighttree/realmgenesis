@@ -64,6 +64,15 @@ pub fn legend(layer: Layer) -> Legend {
             ];
             Legend::Swatches { title: "Satellite", items }
         }
+        Layer::Margins => Legend::Swatches {
+            title: "Coast margins",
+            items: vec![
+                (layers::MARGIN_ACTIVE, "Active: trench, cordillera or island arc".to_string()),
+                (layers::MARGIN_PASSIVE, "Passive: wide shelf, no trench".to_string()),
+                ([150, 20, 20], "Convergent boundary".to_string()),
+                ([30, 70, 170], "Divergent boundary (ridge, rift)".to_string()),
+            ],
+        },
         Layer::Plates => {
             Legend::Caption("Plate colours are arbitrary. Boundaries: red convergent, blue divergent, green transform.")
         }

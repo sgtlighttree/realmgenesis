@@ -111,6 +111,19 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
             t.land_fraction = land / 100.0;
         }
         ui.add(egui::Slider::new(&mut t.plate_count, 4..=30).text("plates"));
+        ui.horizontal(|ui| {
+            let mut act = t.active_share * 100.0;
+            if ui
+                .add(egui::Slider::new(&mut act, 0.0..=60.0).text("active coasts %").integer())
+                .on_hover_text("Share of continental coast that is active: a trench offshore and a cordillera or island arc (Andes, Japan). The rest is passive: a wide shelf, no trench (Atlantic). Earth: about 23%.")
+                .changed()
+            {
+                t.active_share = act / 100.0;
+            }
+            if ui.small_button("All passive").on_hover_text("A young, rifting world: every ocean is opening.").clicked() {
+                t.active_share = 0.0;
+            }
+        });
         ui.add(egui::Slider::new(&mut t.continent_count_hint, 1..=12).text("continents"));
         ui.add(egui::Slider::new(&mut t.mountain_scale, 0.3..=2.0).text("mountains"));
         ui.add(egui::Slider::new(&mut t.roughness, 0.3..=2.0).text("roughness"));
