@@ -2,7 +2,14 @@
 
 The current state, for the next session. History lives in `docs/session-logs/`. The newest log is the detail behind this file. **What to do next: `ROADMAP.md`.**
 
-## NEXT SESSION: project-wide review (s02 wrap-up, 2026-11-04)
+## s03 (2026-11-04): review in progress
+
+- Matt answered the 12 questions: `docs/session-logs/2026-11-04-s03-project-review.md`.
+- Proposed direction (**not yet approved**): `docs/design/v2-direction-s03.md`. In short: keep Rust; native-first; R1 un-grid macro routing (jitter/MFD + position-keyed roughness) → R2 raster-displacement renderer (zoom floor 20 km) → R3 coastline-conditioning design → R4 regional bake → R5 exports.
+- Fresh-context review of the direction: running; verdict goes in the s03 log.
+- Pending Matt: Q9 reading, CLAUDE.md rule changes for native-first, what to do with untracked `node_modules/` (372 MB, looks like V1), `spike/`, `heightmap-1.*`.
+
+## Previous: project-wide review brief (s02 wrap-up, 2026-11-04)
 
 Matt wasn't satisfied with how terrain *detail* turned out ("the base maps plus the approach to geometry make decent terrains anyway. It's the extra details that we're running into problems"). He expected **raster displacement maps** for geometry. The next session is a **broad review of the whole project** before any further building.
 - Start by reading the "Wrap-up" section at the end of `docs/session-logs/2026-11-03-s02-local-m1.md`: **12 grilling questions** (answers pending; ask Matt for them first), the B / M0 spike results, and the raster-displacement discussion.
