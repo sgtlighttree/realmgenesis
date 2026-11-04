@@ -2,6 +2,13 @@
 
 The current state, for the next session. History lives in `docs/session-logs/`. The newest log is the detail behind this file. **What to do next: `ROADMAP.md`.**
 
+## NEXT SESSION: project-wide review (s02 wrap-up, 2026-11-04)
+
+Matt wasn't satisfied with how terrain *detail* turned out ("the base maps plus the approach to geometry make decent terrains anyway. It's the extra details that we're running into problems"). He expected **raster displacement maps** for geometry. The next session is a **broad review of the whole project** before any further building.
+- Start by reading the "Wrap-up" section at the end of `docs/session-logs/2026-11-03-s02-local-m1.md`: **12 grilling questions** (answers pending; ask Matt for them first), the B / M0 spike results, and the raster-displacement discussion.
+- Context to weigh: `ROADMAP-V2.md` on `main` (Oct 7, raster-first paradigm from tcotg, Python + TS plan) vs what s01 built (Rust + wgpu, procedural per-tile detail); `docs/design/regional-detail.md`; `docs/design/s02-progress-console-and-macro-mode.md`.
+- Get a fresh-context reviewer's verdict on whatever direction comes out (project rule).
+
 ## Local session quickstart (s01 wrap-up)
 
 - Branch `claude/peaceful-brahmagupta-rkl4y0` is the whole of v2. It's an **orphan history**, so it shares no commits with `main` (V1, TypeScript). Don't PR it into `main`; check it out directly:
@@ -148,5 +155,8 @@ Post-MVP: LOD tile streaming, tier B climate, sculpting, the vector layer, erosi
 6. A file dialog (`rfd`) instead of the fixed folder; saving on the web.
 
 ## Open questions for Matt
+
+- **The 12 review questions** at the end of `docs/session-logs/2026-11-03-s02-local-m1.md` (s02).
+- Resolution coherence: key the erosion's initial roughness/Rho8 to position (agreed "after M0"; changes every generated world).
 
 - Paste one `mediasheet-for-obs` session log so the log style can match. It isn't in the public repo.
