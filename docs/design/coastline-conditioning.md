@@ -1,6 +1,6 @@
 # R3: coastline conditioning and the plausibility pass (design, s04)
 
-Status: **approved by Matt (s04)**, design v2 (fresh review: *go with changes*, all adopted, marked "review").
+Status: **built in s05** (R3.1a, R3.1b, R3.2 PNG + SVG, R3.3 MVP; deviations and gate results in `docs/session-logs/2026-11-05-s05-r3-build.md`). Approved by Matt (s04), design v2 (fresh review: *go with changes*, all adopted, marked "review").
 
 Matt's answers to the open questions (s04, 17:00):
 1. **PNG first, SVG next, GeoJSON later.** This changes the R3.2 order.

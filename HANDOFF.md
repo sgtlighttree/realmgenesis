@@ -4,9 +4,34 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 
 ## Roadmap at a glance (s03)
 
-R1 un-grid/coherence (done differently) → R2 raster renderer (done) → **R3 coastline conditioning + plate plausibility pass + coastal bathymetry (next)** → R3b open-ocean seafloor → R4 regional bakes → R5 exports → alive world. Table with definitions: `ROADMAP.md` top. Matt: land terrain "largely satisfied"; active coasts: automatic + repaintable ("both").
+R1 un-grid/coherence (done differently) → R2 raster renderer (done) → **R3 coastline conditioning + plate plausibility pass + coastal bathymetry (built s05; Matt's feedback next)** → R3b open-ocean seafloor → R4 regional bakes → R5 exports → alive world. Table with definitions: `ROADMAP.md` top. Matt: land terrain "largely satisfied"; active coasts: automatic + repaintable ("both").
 
-## s04 (2026-11-04, local): R3 design in progress
+## s05 (2026-11-05, local): R3 built, waiting on Matt's feedback
+
+- Log: `docs/session-logs/2026-11-05-s05-r3-build.md` (plan, advisor verdicts, gate numbers, deviations, test edits).
+- **R3.1a plausibility pass** (`coast.rs`, `fit.rs`):
+  - seaways classified on a **fixed res-128 grid** (opening / closing / one-sided, steered by "active coasts %", default 25%, with an "All passive" button);
+  - plates fitted to the classes, kinds and polarity prescribed, Euler vectors from least squares;
+  - uplift reads the committed `convergence_mm_yr`;
+  - shelves follow the class;
+  - new "Coast margins" layer.
+
+  Coherence 320/640: r 0.997, same plate 99.9%. Bathymetry mean 3,734 m ✓. Ultra tectonics 7.2 s (+35%). The trench-near-active-coast gate measures 0.77 (target 0.90): the misses are small basins and segment ends; main margins all have trenches (log).
+- **R3.1b strict coasts** (`mask.rs`): coasts drawn first, heights conform, erosion's ocean comes from the mask. Tests cover the exact sign match.
+- **R3.2 import:**
+  - PNG and SVG (in-house SVG subset), as a whole-world map or a regional patch (azimuthal equidistant: centre, km/px, rotation);
+  - procedural continents outside a patch, kept 800 km away;
+  - schema 5 stores the source file and the placement.
+- **R3.3 brush (MVP):** paint land, sea, active or passive on the globe; Generate applies. No live preview yet.
+- **Every procedural world changed** (new plates). `plate_count` is now a target: seed 1 gives 23 plates.
+- **Ask Matt (feedback before the next item):**
+  - does the active/passive split read right in the app (Coast margins layer)?
+  - the Voronoi-like web of ridges between continents (every opening seaway has one): fine, or too geometric?
+  - plate count vs the slider;
+  - try an import (UI: Coasts → Imported mask, path field) and the brush.
+- Next after feedback: R3 polish from that feedback, then **R3b** (open-ocean fabric on R3's ridges).
+
+## s04 (2026-11-04, local): R3 design (done)
 
 - Log: `docs/session-logs/2026-11-04-s04-r3-design.md`. Deliverable: `docs/design/coastline-conditioning.md` + fresh review. No code until Matt approves.
 - **Resolution coherence: BUILT (s04, `c2c2609`)**: "Ultra basically upscales Normal" (Matt). Design: `docs/design/canonical-refine.md`.
