@@ -21,6 +21,13 @@
 //! - `RG_REG_ANCHOR` (0): 1 = after each level, replace everything coarser than a macro
 //!   cell with the macro's own shape (h += blur(macro − h)), keeping only the window's
 //!   fine detail, so the macro stays the authority (no drift, no edge step).
+//! - `RG_REG_ANCHOR_TARGET` ("drained"): "smooth" anchors to the bicubic macro instead of
+//!   the drained bilinear (the anchor is a low-pass, so it needn't be drained).
+//! - `RG_REG_ANCHOR_CELLS` (0.5): anchor box half-width in macro cells (3 passes); larger
+//!   leaves the cascade free to reroute valleys below that scale.
+//! - `RG_REG_JITTER` (0): position-keyed node jitter, fraction of the spacing (edge ring
+//!   unjittered); > 0 also turns the regional Rho8 off (index-hashed, redundant then).
+//! - `RG_REG_UPLIFT_L0` (= RG_REG_UPLIFT): uplift multiplier for level 0 only.
 //! - `RG_REG_EDGE_BAND` (0.03125): with anchoring, fade the detail to the macro across this
 //!   fraction of the window at each edge (smoothstep), so the window has no seam.
 //! - the world's usual `RG_RES` etc. (cached in `target/probe-cache/`).
@@ -76,8 +83,24 @@ impl Window {
 /// An 8-connected raster `Grid` over the window. Neighbour lists are sorted (row-major
 /// order), which `diagonal_mask` relies on. Only `dir`, `n`, `weight` and the adjacency
 /// are used by the solver; the cube-sample maps stay empty.
-fn regional_grid(w: &Window, n: usize) -> Grid {
-    let dir: Vec<DVec3> = (0..n * n).map(|k| w.dir(n, k % n, k / n)).collect();
+fn regional_grid(w: &Window, n: usize, jitter: f64, seed: u64) -> Grid {
+    let dir: Vec<DVec3> = (0..n * n)
+        .map(|k| {
+            let (i, j) = (k % n, k / n);
+            if jitter <= 0.0 || i == 0 || j == 0 || i == n - 1 || j == n - 1 {
+                return w.dir(n, i, j);
+            }
+            // Position-keyed offset of up to ±jitter cells in u and v (Cordonnier et al.
+            // 2016 use irregular grids for the same reason: no 8-direction bias).
+            let (li, lj) = w.lattice(n, i, j);
+            let key = ((li as u64) << 32) ^ (lj as u64 & 0xFFFF_FFFF) ^ ((n as u64) << 52);
+            let du = 2.0 * w.h_uv / (n - 1) as f64;
+            let ju = (hash01(seed ^ 0x0011_7E12, key) - 0.5) * 2.0 * jitter * du;
+            let jv = (hash01(seed ^ 0x0022_7E12, key) - 0.5) * 2.0 * jitter * du;
+            let t = |k: usize| -1.0 + 2.0 * k as f64 / (n - 1) as f64;
+            w.face.uv_to_dir(w.u0 + w.h_uv * t(i) + ju, w.v0 + w.h_uv * t(j) + jv)
+        })
+        .collect();
     let weight: Vec<f32> = (0..n * n)
         .map(|k| {
             let (i, j) = (k % n, k / n);
@@ -188,6 +211,10 @@ fn main() {
     let uplift_mult: f64 = common::env("RG_REG_UPLIFT").unwrap_or(1.0);
     let anchor = common::env::<u32>("RG_REG_ANCHOR").unwrap_or(0) == 1;
     let edge_band: f64 = common::env("RG_REG_EDGE_BAND").unwrap_or(0.03125);
+    let anchor_smooth = std::env::var("RG_REG_ANCHOR_TARGET").is_ok_and(|v| v == "smooth");
+    let anchor_cells: f64 = common::env("RG_REG_ANCHOR_CELLS").unwrap_or(0.5);
+    let jitter: f64 = common::env("RG_REG_JITTER").unwrap_or(0.0);
+    let uplift_l0: f64 = common::env("RG_REG_UPLIFT_L0").unwrap_or(uplift_mult);
     assert!(steps.len() >= levels && dts.len() >= levels, "RG_REG_STEPS / RG_REG_DT_MYR need one entry per level");
 
     let w = common::world(seed);
@@ -226,9 +253,11 @@ fn main() {
     for level in 0..levels {
         let t_level = Instant::now();
         let n = (1usize << (level + 9)) + 1;
-        let grid = regional_grid(&win, n);
+        let grid = regional_grid(&win, n, jitter, seed);
         let sp = 2.0 * half_m / (n - 1) as f64;
         let macro_h: Vec<f64> = grid.dir.iter().map(|&d| hm.sample_drained(d)).collect();
+        let anchor_h: Vec<f64> =
+            if anchor_smooth { grid.dir.iter().map(|&d| smooth_macro(hm, d)).collect() } else { macro_h.clone() };
         // Sea is fixed from the macro, and so is the edge ring (base level, outlets).
         let edge = |k: usize| {
             let (i, j) = (k % n, k / n);
@@ -266,7 +295,10 @@ fn main() {
         let uplift: Vec<f64> = grid
             .dir
             .iter()
-            .map(|&d| hy.uplift_mm_yr.as_ref().map_or(0.0, |u| u.sample(d) as f64) * 1e-3 * uplift_mult)
+            .map(|&d| {
+                let mult = if level == 0 { uplift_l0 } else { uplift_mult };
+                hy.uplift_mm_yr.as_ref().map_or(0.0, |u| u.sample(d) as f64) * 1e-3 * mult
+            })
             .collect();
         let k_field = vec![k_eff; n * n];
         let cell_area: Vec<f64> = grid.weight.iter().map(|&wt| wt as f64 * 4.0 * std::f64::consts::PI * r * r).collect();
@@ -299,6 +331,9 @@ fn main() {
         }
 
         let mut ep = w.params.erosion.clone();
+        if jitter > 0.0 {
+            ep.rho8 = false;
+        }
         ep.steps = 1;
         ep.duration_myr = dts[level];
         let mut lowered = 0;
@@ -317,8 +352,8 @@ fn main() {
         if anchor {
             // Low-pass anchoring: blur the difference to the macro at about one macro cell
             // (three box passes ≈ Gaussian) and add it back, on the free nodes only.
-            let radius = ((hm.spacing_rad() * r / sp) * 0.5).round().max(1.0) as usize;
-            let mut diff: Vec<f64> = (0..n * n).map(|k| if fixed[k] { 0.0 } else { macro_h[k] - h[k] }).collect();
+            let radius = ((hm.spacing_rad() * r / sp) * anchor_cells).round().max(1.0) as usize;
+            let mut diff: Vec<f64> = (0..n * n).map(|k| if fixed[k] { 0.0 } else { anchor_h[k] - h[k] }).collect();
             for _ in 0..3 {
                 diff = box_blur(&diff, n, radius);
             }
@@ -385,6 +420,7 @@ fn main() {
         .map(|k| (h[k] - macro_h[k]).abs())
         .collect();
     let max_h = h.iter().cloned().fold(f64::MIN, f64::max);
+    eprintln!("griddiness G8 (8-fold aspect, 0 = none): spike {:.3}, smooth macro {:.3}", g8(h, n, sp), g8(&smooth_h, n, sp));
     eprintln!(
         "final: land slopes mean {:.1}°, p50 {:.1}, p90 {:.1}, p99 {:.1} (at {sp:.0} m); depressions {dep_pct:.2}% (mean {dep_mean:.1} m); edge band |Δ| mean {:.0} m; max {max_h:.0} m (macro max {:.0}); total {:.1} s",
         deg.iter().sum::<f64>() / deg.len().max(1) as f64,
@@ -401,6 +437,29 @@ fn main() {
     write_png(&format!("{prefix}.png"), n, &hillshade(h, n, sp, shade_ex, Some((&last_area, river_min_m2))));
     write_png(&format!("{prefix}_macro.png"), n, &hillshade(&smooth_h, n, sp, shade_ex, None));
     eprintln!("wrote {prefix}.png and {prefix}_macro.png");
+}
+
+/// Grid bias: the 8-fold component of the gradient-aspect distribution, weighted by
+/// gradient magnitude, |Σ w·e^{i8θ}| / Σ w, over land. The raster's axes are the cube
+/// grid's, so 0 means no preference for axis or diagonal directions (a real DEM ≈ 0).
+fn g8(h: &[f64], n: usize, sp: f64) -> f64 {
+    let (mut re, mut im, mut wsum) = (0.0, 0.0, 0.0);
+    for j in 1..n - 1 {
+        for i in 1..n - 1 {
+            let k = j * n + i;
+            if h[k] <= 0.0 {
+                continue;
+            }
+            let gx = (h[k + 1] - h[k - 1]) / (2.0 * sp);
+            let gy = (h[k + n] - h[k - n]) / (2.0 * sp);
+            let w = gx.hypot(gy);
+            let th = gy.atan2(gx);
+            re += w * (8.0 * th).cos();
+            im += w * (8.0 * th).sin();
+            wsum += w;
+        }
+    }
+    re.hypot(im) / wsum.max(1e-12)
 }
 
 /// Separable box blur of an n×n raster with half-width `rad` (edges clamped).
