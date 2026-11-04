@@ -72,15 +72,14 @@ Classifying each coast segment independently with noise gives short active/passi
    - **Closing** (Pacific): both rims active, with oceanic plates in between.
    - **One-sided** (Mediterranean, Caribbean; the default when `D` is under ~300 km): one rim active and the other passive, so the passive side's plate dives under the active side's.
 
-   The odds of "closing" rise with `D` (wide oceans are Pacific-like). One per-world knob, **active share** (default 0.3 of continental coast length; see the Earth numbers below), steers the dice. The rolls are made per seaway, so they stay put across resolutions.
+   The odds of "closing" rise with `D` (wide oceans are Pacific-like). One per-world knob, **active share** (default 0.25 of continental coast length; see the Earth numbers below), steers the dice. The rolls are made per seaway, so they stay put across resolutions.
 4. **Segments:** a seaway's coast is cut into segments of at least ~1,000 km. Within a closing seaway, a segment may roll passive (default 15%; e.g. a rifted microcontinent), so long rims aren't uniform.
 5. **Painted overrides** (`Active`/`Passive` strokes) win over the rolls. They re-split segments at the stroke ends; the minimum length doesn't apply to painted runs.
 
-Earth guide (for the default share; **verify before quoting**):
-- modern passive margins total ~105,000 km (Bradley 2008, *Earth-Science Reviews*);
-- subduction zones total ~55,000 km (Lallemand et al. 2005), a large part of it intra-oceanic.
-
-Active continental coast is therefore roughly 25–35% of continental-margin length.
+Earth guide (s04 fact-check):
+- **Verified** (Bradley 2008, *Earth-Science Reviews* 91, p. 1–26): "The present-day passive margins have an aggregate length of 105,000 km, even longer than the spreading ridges (65,000 km) or the convergent plate boundaries (53,000 km)."
+- **Unverified (search snippet only):** intra-oceanic systems are "some 40% of the subduction margins" (Leat & Larter 2003).
+- Together: continental active margins come to ~32,000 km, which is **~0.23** of continental-margin length. Default active share: **0.25**.
 
 Output: a per-node `margin` field (0 none, 1 passive, 2 active). It is stored (schema 5) and drawn as a new **Margins** layer with a legend.
 
@@ -145,7 +144,7 @@ Wrong-sign samples are counted and printed by the probe; target < 10% of prescri
 ## 5. Relief on the fitted boundaries
 
 `relief.rs` mostly runs unchanged: the profiles key on distance to boundary nodes of each `Kind`. Changes:
-- **Subduction geometry follows the coast.** With the boundary at the trench offset, the trench lies ~120–150 km offshore, and the cordillera (170 km from the boundary) lands ~50 km inland. Andes check: crest ~150–250 km from the trench axis.
+- **Subduction geometry follows the coast.** With the boundary at the trench offset, the trench lies ~120–150 km offshore, and the cordillera (170 km from the boundary) lands ~50 km inland. The trench axis sits 30 km seaward of the boundary (`relief.rs`), so trench to crest is ~200 km. Andes check: the nearest volcanoes are ~240 km from the trench in southern Peru (search snippet, unverified).
 - **Passive-margin escarpments** (new, on a share of passive segments, default 30%: southern Africa, the Western Ghats, eastern Australia, southeast Brazil): a seaward-facing escarpment 50–200 km inland, 600–1,500 m of plateau behind it, and a low coastal plain. These are high-elevation passive margins; most passive margins are low.
 - **Seafloor age** keeps the GDH1 law and the Parsons area–age calibration. Opening seaways put the ridge on the medial axis, so the oldest floor lies at the passive coasts (Atlantic pattern). The sediment wedge stays tied to `edge_m`.
 - **Interior old belts** (noise) stay; dormant sutures add to them.
@@ -162,8 +161,10 @@ Wrong-sign samples are counted and printed by the probe; target < 10% of prescri
 ## 7. Coastal bathymetry
 
 `finish` swaps the `activity` noise for the `margin` class:
-- **passive:** shelf 80–200 km (mean ~80 km on Earth; `margin_w` varies it), slope, then the rise with the existing sediment wedge;
-- **active:** shelf 10–30 km, steep slope into the trench;
+- **passive:** shelf mean ~88 km (`margin_w` varies it, ~40–250 km), slope, then the rise with the existing sediment wedge;
+- **active:** shelf mean ~31 km, steep slope into the trench.
+
+Both means are from Harris et al. 2014, *Marine Geology* 352, verified via the abstract: "continental shelf width of passive margins (88 km) is nearly three times that of active margins (31 km)".
 - **volcanic islands:** apron only.
 
 Mid-ocean ridges come from step 3. Open-ocean fabric (transforms, fracture zones, abyssal hills) is R3b.
@@ -236,4 +237,4 @@ Unverified until a test says so (log: "n=0"):
 4. Procedural coastlines change again (and every world with them). OK?
 5. Land below sea level in imports (Dead Sea, Caspian): **not in R3.2** (land ≥ 1 m), later with "ocean from the mask"?
 6. OK to update the tests and goldens listed above once R3.1's gates pass?
-7. Default active share **0.3**, and closing seaways get oceanic plates between active rims. Does the Pacific/Atlantic split read right for fantasy worlds, or should "all passive" (a young, rifting world) be a one-click preset?
+7. Default active share **0.25**, and closing seaways get oceanic plates between active rims. Does the Pacific/Atlantic split read right for fantasy worlds, or should "all passive" (a young, rifting world) be a one-click preset?
