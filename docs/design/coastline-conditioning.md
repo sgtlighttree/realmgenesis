@@ -1,6 +1,15 @@
 # R3: coastline conditioning and the plausibility pass (design, s04)
 
-Status: **draft v2** (fresh review: *go with changes*, all adopted, marked "review"). Awaiting Matt's approval. No code yet.
+Status: **approved by Matt (s04)**, design v2 (fresh review: *go with changes*, all adopted, marked "review").
+
+Matt's answers to the open questions (s04, 17:00):
+1. **PNG first, SVG next, GeoJSON later.** This changes the R3.2 order.
+2. Outside an imported patch: **procedural continents and other landmass types, kept a distance away** (default).
+3. Islands beyond 100 km of drawn coasts: **yes** ("so it doesn't feel too lonely").
+4. Procedural worlds changing: OK.
+5. All land stays **≥ 1 m above sea level**.
+6. Updating the affected tests and goldens: OK ("project is in flux").
+7. Active share 0.25, plus an **"all passive" preset**: yes.
 Log: `docs/session-logs/2026-11-04-s04-r3-design.md`. Roadmap row: `ROADMAP.md` → R3.
 
 ## Goal
@@ -239,10 +248,10 @@ R3.1 is split so that "did plausibility improve" is judged apart from "do coasts
   - Gate: the plausibility and no-regression gates, plus Matt's look in the app.
 - **R3.1b, strict conformance.** The mask carried in the snapshot, ocean from the mask in erosion, the coast-survival gate, and the lake-bed check.
 - **R3.2, import, placement, schema 5.**
-  - PNG first (world equirect and patch), then GeoJSON.
+  - PNG first (world equirect and patch), then SVG (Matt, s04), GeoJSON later.
   - UI: source picker, placement fields (centre, km/px, rotation), the strict / islands option.
 - **R3.3, editing.** The brush on the globe (needs ray picking against the terrain, an M1c item), land/sea and active/passive strokes, regenerate.
-- **Deferred:** SVG, polygon rotation, passive-margin escarpments.
+- **Deferred:** GeoJSON, polygon rotation, passive-margin escarpments.
 - Then **R3b**, open-ocean fabric, on R3's ridges and obliquity.
 
 ## Rejected alternatives
