@@ -54,3 +54,12 @@ All points adopted; detail in `docs/design/v2-direction-s03.md` → "Fresh-conte
 - **R2 review: go with changes.** Adopted a simpler design: heights stay per-vertex on the CPU but come from the `DisplayRaster` (cheap Catmull-Rom), plus a fragment-only baked gradient texture for per-pixel normals, plus one surface for tiles, camera and hover, plus a level cap at L6 and the zoom floor on `distance_m` using the raster texel.
   - **Rejected:** vertex-shader displacement for now. It needs the bind-group changes, a skirt-parity workaround, a corrected (odd, odd) diagonal geomorph, and a min/max pyramid for the culling/split errors, all for no visible gain at a max level of 6.
 - Matt: "clear them" → `spike/` and `heightmap-1.*` moved to `~/.Trash/realmgenesis-s02-leftovers-20261104/`.
+- ✓ R2 step 1: `rg-terrain/src/gradient.rs` (`bake_gradient`, `gradient_res` = 2× macro res within 512..2048). Tests pass: analytic field < 2% error, face-edge twins agree. Gotcha: the cargo registry cache was empty again (0 B; Mole?), re-fetched 21 MB.
+- ✓ R2 app wiring `3b819c0`:
+  - face uv per vertex and an Rg16Float gradient array in `fs_tile`;
+  - normals bake job (`rg-app/src/normals.rs`; flat lighting until it lands);
+  - detail toggle removed, river overlay fade removed;
+  - level cap = ceil(log2(2·res/64));
+  - zoom floor on `distance_m` (slider "zoom floor", default 32 px per texel).
+- **Measured (n=1, seed 1 Normal, M1 on AC):** world 3.8 s, **normals bake 0.2 s** at 640 per face. Build at `-j 6` from a clean target: 1 m 38 s.
+- `screencapture` fails from this terminal ("could not create image from display"; probably no Screen Recording permission). Matt checks the look.
