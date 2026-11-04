@@ -7,10 +7,12 @@ use crate::commands::Command;
 
 pub fn handle(app: &mut RealmApp, c: Command, rs: &egui_wgpu::RenderState) {
     let result = run(app, &c, rs);
-    app.status = match result {
+    let msg = match result {
         Ok(msg) => msg,
         Err(e) => format!("⚠ {e}"),
     };
+    app.log(msg.clone());
+    app.status = msg;
 }
 
 #[cfg(target_arch = "wasm32")]

@@ -197,8 +197,7 @@ mod native {
                 std::thread::Builder::new()
                     .name(format!("tile-worker-{i}"))
                     .spawn(move || {
-                        #[cfg(target_os = "macos")]
-                        lower_priority();
+                        crate::qos::lower_priority();
                         loop {
                             // Hold the lock only while taking a job, not while working.
                             let job = rx.lock().ok().and_then(|r| r.recv().ok());
@@ -239,17 +238,6 @@ mod native {
 
         pub fn finished(&self) -> Vec<Done> {
             self.results.try_iter().collect()
-        }
-    }
-
-    /// Run the calling thread at "utility" QoS, so macOS schedules the UI and other apps
-    /// ahead of tile work (Apple's class for long-running work the user isn't waiting on).
-    #[cfg(target_os = "macos")]
-    fn lower_priority() {
-        // SAFETY: only changes the calling thread's scheduling class; plain-value arguments.
-        // A failure just leaves the default QoS, so the result is ignored.
-        unsafe {
-            libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_UTILITY, 0);
         }
     }
 }

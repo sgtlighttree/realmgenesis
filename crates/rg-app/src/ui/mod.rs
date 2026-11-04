@@ -21,6 +21,15 @@ pub fn draw(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) 
             });
     }
     egui::Panel::bottom("status").show(ui, |ui| status_bar(app, ui));
+    if app.console_open {
+        egui::Panel::bottom("console").resizable(true).default_size(150.0).show(ui, |ui| {
+            egui::ScrollArea::vertical().stick_to_bottom(true).auto_shrink([false, false]).show(ui, |ui| {
+                for line in app.console.lines() {
+                    ui.label(egui::RichText::new(line).monospace().small());
+                }
+            });
+        });
+    }
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE.fill(theme::BG))
         .show(ui, |ui| viewport(app, ui, rs));
@@ -75,61 +84,66 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
 
     // ---------------------------------------------------------------- world
     section(ui, "World");
-    let mut random = false;
-    ui.horizontal(|ui| {
-        ui.label("Seed");
-        ui.add(egui::DragValue::new(&mut app.params.tectonics.seed).range(0..=999_999));
-        random = ui.button("Random").on_hover_text("New random seed (R)").clicked();
+    let busy = app.generating();
+    ui.add_enabled_ui(!busy, |ui| {
+        let mut random = false;
+        ui.horizontal(|ui| {
+            ui.label("Seed");
+            ui.add(egui::DragValue::new(&mut app.params.tectonics.seed).range(0..=999_999));
+            random = ui.button("Random").on_hover_text("New random seed (R)").clicked();
+        });
+        if random {
+            app.push(Command::RandomizeSeed);
+        }
+        let t = &mut app.params.tectonics;
+        let mut radius_km = t.radius_m / 1000.0;
+        if ui.add(egui::Slider::new(&mut radius_km, 1500.0..=12000.0).text("radius km").integer()).changed() {
+            t.radius_m = radius_km * 1000.0;
+        }
+        let mut land = t.land_fraction * 100.0;
+        if ui.add(egui::Slider::new(&mut land, 5.0..=70.0).text("land %").integer()).changed() {
+            t.land_fraction = land / 100.0;
+        }
+        ui.add(egui::Slider::new(&mut t.plate_count, 4..=30).text("plates"));
+        ui.add(egui::Slider::new(&mut t.continent_count_hint, 1..=12).text("continents"));
+        ui.add(egui::Slider::new(&mut t.mountain_scale, 0.3..=2.0).text("mountains"));
+        ui.add(egui::Slider::new(&mut t.roughness, 0.3..=2.0).text("roughness"));
+        detail_picker(ui, &mut t.res, t.radius_m);
+        // ---------------------------------------------------------------- erosion
+        let e = &mut app.params.erosion;
+        ui.checkbox(&mut e.enabled, "River erosion")
+            .on_hover_text("Stream-power erosion (Braun & Willett 2013): rivers carve valleys and drainage networks into the tectonic relief.");
+        ui.add_enabled_ui(e.enabled, |ui| {
+            ui.add(egui::Slider::new(&mut e.duration_myr, 1.0..=60.0).logarithmic(true).text("maturity Myr"))
+                .on_hover_text("Simulated time. Short: young, sharp ranges with shallow valleys. Long: mature, deeply dissected relief.");
+            ui.add(egui::Slider::new(&mut e.uplift_exponent, 0.3..=2.0).text("uplift focus"))
+                .on_hover_text("How tightly uplift is concentrated in the main mountain belts. Low: broad uplands. High: narrow, isolated ranges.");
+            ui.add(egui::Slider::new(&mut e.river_min_area_km2, 2_000.0..=200_000.0).logarithmic(true).text("river km²"))
+                .on_hover_text("Smallest drainage area drawn as a river.");
+        });
+        let generate = egui::Button::new(egui::RichText::new("Generate world").strong())
+            .fill(theme::ACCENT.linear_multiply(0.45));
+        if ui.add_sized([ui.available_width(), 30.0], generate).on_hover_text("G").clicked() {
+            app.push(Command::Regenerate);
+        }
     });
-    if random {
-        app.push(Command::RandomizeSeed);
-    }
-    let t = &mut app.params.tectonics;
-    let mut radius_km = t.radius_m / 1000.0;
-    if ui.add(egui::Slider::new(&mut radius_km, 1500.0..=12000.0).text("radius km").integer()).changed() {
-        t.radius_m = radius_km * 1000.0;
-    }
-    let mut land = t.land_fraction * 100.0;
-    if ui.add(egui::Slider::new(&mut land, 5.0..=70.0).text("land %").integer()).changed() {
-        t.land_fraction = land / 100.0;
-    }
-    ui.add(egui::Slider::new(&mut t.plate_count, 4..=30).text("plates"));
-    ui.add(egui::Slider::new(&mut t.continent_count_hint, 1..=12).text("continents"));
-    ui.add(egui::Slider::new(&mut t.mountain_scale, 0.3..=2.0).text("mountains"));
-    ui.add(egui::Slider::new(&mut t.roughness, 0.3..=2.0).text("roughness"));
-    detail_picker(ui, &mut t.res, t.radius_m);
-    // ---------------------------------------------------------------- erosion
-    let e = &mut app.params.erosion;
-    ui.checkbox(&mut e.enabled, "River erosion")
-        .on_hover_text("Stream-power erosion (Braun & Willett 2013): rivers carve valleys and drainage networks into the tectonic relief.");
-    ui.add_enabled_ui(e.enabled, |ui| {
-        ui.add(egui::Slider::new(&mut e.duration_myr, 1.0..=60.0).logarithmic(true).text("maturity Myr"))
-            .on_hover_text("Simulated time. Short: young, sharp ranges with shallow valleys. Long: mature, deeply dissected relief.");
-        ui.add(egui::Slider::new(&mut e.uplift_exponent, 0.3..=2.0).text("uplift focus"))
-            .on_hover_text("How tightly uplift is concentrated in the main mountain belts. Low: broad uplands. High: narrow, isolated ranges.");
-        ui.add(egui::Slider::new(&mut e.river_min_area_km2, 2_000.0..=200_000.0).logarithmic(true).text("river km²"))
-            .on_hover_text("Smallest drainage area drawn as a river.");
-    });
-    let generate = egui::Button::new(egui::RichText::new("Generate world").strong())
-        .fill(theme::ACCENT.linear_multiply(0.45));
-    if ui.add_sized([ui.available_width(), 30.0], generate).on_hover_text("G").clicked() {
-        app.push(Command::Regenerate);
-    }
 
     // ---------------------------------------------------------------- climate
     section(ui, "Planet & climate");
-    let p = &mut app.params.planet;
     let mut climate_changed = false;
-    climate_changed |= ui.add(egui::Slider::new(&mut p.axial_tilt_deg, 0.0..=60.0).text("axial tilt °")).drag_stopped();
-    climate_changed |= ui.add(egui::Slider::new(&mut p.rotation_hours, 6.0..=96.0).text("day length h")).drag_stopped();
-    climate_changed |= ui.add(egui::Slider::new(&mut p.solar_constant_rel, 0.7..=1.3).text("sunlight ×")).drag_stopped();
-    climate_changed |=
-        ui.add(egui::Slider::new(&mut p.global_temp_offset_c, -15.0..=15.0).text("temp offset °C")).drag_stopped();
-    climate_changed |= ui.add(egui::Slider::new(&mut p.global_precip_mult, 0.3..=2.5).text("rainfall ×")).drag_stopped();
-    let rerun = ui.add_enabled(app.world.is_some(), egui::Button::new("Re-run climate"));
-    if rerun.clicked() || (climate_changed && app.world.is_some()) {
-        app.push(Command::RerunClimate);
-    }
+    ui.add_enabled_ui(!busy, |ui| {
+        let p = &mut app.params.planet;
+        climate_changed |= ui.add(egui::Slider::new(&mut p.axial_tilt_deg, 0.0..=60.0).text("axial tilt °")).drag_stopped();
+        climate_changed |= ui.add(egui::Slider::new(&mut p.rotation_hours, 6.0..=96.0).text("day length h")).drag_stopped();
+        climate_changed |= ui.add(egui::Slider::new(&mut p.solar_constant_rel, 0.7..=1.3).text("sunlight ×")).drag_stopped();
+        climate_changed |=
+            ui.add(egui::Slider::new(&mut p.global_temp_offset_c, -15.0..=15.0).text("temp offset °C")).drag_stopped();
+        climate_changed |= ui.add(egui::Slider::new(&mut p.global_precip_mult, 0.3..=2.5).text("rainfall ×")).drag_stopped();
+        let rerun = ui.add_enabled(app.world.is_some(), egui::Button::new("Re-run climate"));
+        if rerun.clicked() || (climate_changed && app.world.is_some()) {
+            app.push(Command::RerunClimate);
+        }
+    });
     ui.label(egui::RichText::new("Tier A (rule-based). The physics solver comes later.").small().color(theme::MUTED));
 
     // ---------------------------------------------------------------- view
@@ -156,6 +170,14 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
     ui.add(egui::Slider::new(&mut app.display.exaggeration, 1.0..=60.0).text("relief × (orbit)"))
         .on_hover_text("Vertical exaggeration seen from orbit. It fades to 1.5× as you zoom in to the ground.");
     ui.add(egui::Slider::new(&mut app.style.map_exaggeration, 1.0..=40.0).text("map hillshade"));
+    let mut on = app.detail_streamed;
+    if ui
+        .checkbox(&mut on, "Streamed detail (experimental)")
+        .on_hover_text("Adds the drained detail network as you zoom. Off shows the macro surface only, which looks cleaner from orbit for now.")
+        .changed()
+    {
+        app.push(Command::ToggleStreamedDetail);
+    }
     if ui.button("Reset view").clicked() {
         app.push(Command::ResetCamera);
     }
@@ -166,9 +188,11 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
         if ui.button("Save").on_hover_text("~/RealmGenesis/world-<seed>.rgworld").clicked() {
             app.push(Command::SaveWorld);
         }
-        if ui.button("Load latest").clicked() {
-            app.push(Command::LoadWorld);
-        }
+        ui.add_enabled_ui(!busy, |ui| {
+            if ui.button("Load latest").clicked() {
+                app.push(Command::LoadWorld);
+            }
+        });
         if ui.button("Export heightmap").on_hover_text("16-bit PNG + JSON sidecar, 4096×2048").clicked() {
             app.push(Command::ExportHeightmap);
         }
@@ -298,15 +322,26 @@ fn fmt_seconds(s: f64) -> String {
     if s < 10.0 { format!("{s:.1} s") } else { format!("{s:.0} s") }
 }
 
-fn status_bar(app: &RealmApp, ui: &mut egui::Ui) {
+fn status_bar(app: &mut RealmApp, ui: &mut egui::Ui) {
+    let activity = app.activity(crate::app::now_s());
+    let mut toggle_console = false;
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(&app.status).small());
+        match &activity {
+            Some(a) => ui.label(egui::RichText::new(a).monospace().small().color(theme::ACCENT)),
+            None => ui.label(egui::RichText::new(&app.status).small()),
+        };
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.selectable_label(app.console_open, "Console").on_hover_text("Show what the app is doing (log)").clicked() {
+                toggle_console = true;
+            }
             if let Some(h) = &app.hover {
                 ui.monospace(h);
             }
         });
     });
+    if toggle_console {
+        app.push(Command::ToggleConsole);
+    }
 }
 
 fn viewport(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) {
@@ -390,6 +425,13 @@ fn viewport(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) 
         let r = egui::Rect::from_center_size(rect.center(), egui::vec2(260.0, 48.0));
         ui.painter().rect_filled(r, 6.0, theme::PANEL.gamma_multiply(0.92));
         ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, msg, egui::FontId::proportional(15.0), theme::TEXT);
+    }
+    if app.world.is_none()
+        && let Some(a) = app.activity(crate::app::now_s())
+    {
+        let r = egui::Rect::from_center_size(rect.center(), egui::vec2(420.0, 48.0));
+        ui.painter().rect_filled(r, 6.0, theme::PANEL.gamma_multiply(0.92));
+        ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, a, egui::FontId::monospace(14.0), theme::ACCENT);
     }
     // Repaint for real input only: hovering alone used to keep a 60 fps loop running.
     let input_moving = response.hovered()

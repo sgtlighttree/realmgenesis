@@ -1,4 +1,6 @@
 use crate::commands::Command;
+use crate::console::Console;
+use crate::worldgen::{GenJob, Poll};
 use crate::ui;
 use rg_pipeline::{Equirect, Layer, World, WorldParams};
 use crate::tiles::TileFeeder;
@@ -147,6 +149,14 @@ pub struct RealmApp {
     /// Whether the controls sidebar is shown. `None` until the first frame, when it
     /// defaults to hidden on narrow (phone-sized) screens.
     pub show_panel: Option<bool>,
+    /// What the app has been doing (the status-bar console).
+    pub console: Console,
+    pub console_open: bool,
+    /// Streamed terrain detail (the drained detail network). Off = macro surface only, the
+    /// s02 default (the network draws artifacts from orbit). Display setting, not stored.
+    pub detail_streamed: bool,
+    /// World generation running on a background thread (native only; see `worldgen.rs`).
+    gen_job: Option<GenJob>,
     renderer: Option<PlanetRenderer>,
     feeder: TileFeeder,
     /// Terrain sampler for the current world (camera clearance, hover heights).
@@ -177,6 +187,10 @@ impl RealmApp {
             streaming: false,
             settling: false,
             show_panel: None,
+            console: Console::new(),
+            console_open: false,
+            detail_streamed: false,
+            gen_job: None,
             renderer: None,
             feeder: TileFeeder::new(),
             terrain: None,
@@ -248,28 +262,78 @@ impl RealmApp {
         self.feeder.paused()
     }
 
+    /// Add a line to the console (and stderr natively).
+    pub fn log(&mut self, msg: impl Into<String>) {
+        self.console.log(now_s(), msg);
+    }
+
+    /// True while a world is being generated in the background (native).
+    pub fn generating(&self) -> bool {
+        self.gen_job.is_some()
+    }
+
+    /// A live one-line description of ongoing work for the status bar, or `None` when idle.
+    /// The spinner frame and elapsed time come from the clock, so the line visibly ticks even
+    /// inside a long step.
+    pub fn activity(&self, now_s: f64) -> Option<String> {
+        const SPIN: [char; 4] = ['|', '/', '-', '\\'];
+        let frame = SPIN[((now_s * 8.0) as usize) % SPIN.len()];
+        if let Some(job) = &self.gen_job {
+            let what = match job.latest {
+                Some(p) if p.steps > 0 => format!("{} step {}/{}", p.stage.label(), p.step, p.steps),
+                Some(p) => p.stage.label().to_string(),
+                None => "starting".to_string(),
+            };
+            return Some(format!("{frame} Generating world · {what} · {:.1} s", now_s - job.started_s));
+        }
+        if self.view == ViewMode::Globe && self.stats.tiles_in_flight > 0 {
+            return Some(format!(
+                "{frame} Streaming terrain · loading {} · {} drawn",
+                self.stats.tiles_in_flight, self.stats.tiles_drawn
+            ));
+        }
+        None
+    }
+
     pub fn push(&mut self, c: Command) {
         self.pending.push(c);
     }
 
     fn apply(&mut self, c: Command, rs: &egui_wgpu::RenderState) {
         match c {
+            // Enforced here, not only by disabled buttons: the G/R shortcuts bypass buttons.
+            Command::Regenerate | Command::RandomizeSeed | Command::RerunClimate | Command::LoadWorld
+                if self.generating() =>
+            {
+                self.log("Busy generating a world; that will have to wait until it's done.");
+            }
+            Command::Regenerate | Command::RandomizeSeed => self.start_generation(c),
             // Slow commands: show the busy message this frame, run next frame.
-            Command::Regenerate | Command::RandomizeSeed | Command::RerunClimate if self.busy.is_none() => {
-                self.busy = Some(match c {
-                    Command::RerunClimate => "Simulating climate…",
-                    _ => "Generating world…",
-                });
+            Command::RerunClimate if self.busy.is_none() => {
+                self.busy = Some("Simulating climate…");
                 self.deferred.push(c);
             }
-            Command::Regenerate | Command::RandomizeSeed | Command::RerunClimate => self.deferred.push(c),
+            Command::RerunClimate => self.deferred.push(c),
             Command::SetLayer(l) => {
                 self.layer = l;
                 self.bake_layer(rs);
             }
             Command::SetView(v) => self.view = v,
             Command::TogglePanel => self.show_panel = Some(!self.show_panel.unwrap_or(true)),
-            Command::ToggleTileStreaming => self.feeder.set_paused(!self.feeder.paused()),
+            Command::ToggleTileStreaming => {
+                self.feeder.set_paused(!self.feeder.paused());
+                self.log(if self.feeder.paused() { "Background rendering stopped." } else { "Background rendering resumed." });
+            }
+            Command::ToggleStreamedDetail => {
+                self.detail_streamed = !self.detail_streamed;
+                self.log(if self.detail_streamed {
+                    "Streamed detail on (experimental drained network)."
+                } else {
+                    "Streamed detail off: macro surface only."
+                });
+                self.start_tiles(rs);
+            }
+            Command::ToggleConsole => self.console_open = !self.console_open,
             Command::ResetCamera => {
                 self.camera = EarthCamera::new(self.camera.radius_m);
                 self.map = MapView::default();
@@ -280,12 +344,65 @@ impl RealmApp {
         }
     }
 
+    /// Start generating a world from the current parameters. Native: on a background thread,
+    /// with progress in the status bar (`poll_generation` picks the result up). Web: no
+    /// threads, so the old path (busy message this frame, generate next frame).
+    fn start_generation(&mut self, c: Command) {
+        if matches!(c, Command::RandomizeSeed) {
+            self.params.tectonics.seed = random_seed();
+        }
+        let (seed, res) = (self.params.tectonics.seed, self.params.tectonics.res);
+        #[cfg(not(target_arch = "wasm32"))]
+        match GenJob::spawn(self.params.clone(), now_s()) {
+            Ok(job) => {
+                self.log(format!("Generating world: seed {seed}, {res} cells per face"));
+                self.gen_job = Some(job);
+            }
+            Err(e) => self.log(format!("⚠ Couldn't start generation: {e}")),
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.log(format!("Generating world: seed {seed}, {res} cells per face"));
+            if self.busy.is_none() {
+                self.busy = Some("Generating world…");
+            }
+            self.deferred.push(Command::Regenerate);
+        }
+    }
+
+    /// Pick up progress and the finished world from the background job (native).
+    fn poll_generation(&mut self, rs: &egui_wgpu::RenderState, ctx: &egui::Context) {
+        let Some(job) = self.gen_job.as_mut() else { return };
+        let (stages, state) = job.poll();
+        let started = job.started_s;
+        for p in stages {
+            self.log(format!("  {} (+{:.1} s)", p.stage.label(), now_s() - started));
+        }
+        match state {
+            // Tick the status line at 10 Hz, not 60: nothing else changes meanwhile.
+            Poll::Working => ctx.request_repaint_after(std::time::Duration::from_millis(100)),
+            Poll::Done(world) => {
+                self.gen_job = None;
+                let t = world.timings.clone();
+                self.world = Some(*world);
+                self.after_world_changed(rs, true);
+                self.log(format!(
+                    "World ready in {:.1} s (tectonics {:.0} ms, erosion {:.0} ms, climate {:.0} ms)",
+                    now_s() - started,
+                    t.tectonics_ms,
+                    t.erosion_ms,
+                    t.climate_ms
+                ));
+            }
+            Poll::Failed => {
+                self.gen_job = None;
+                self.log("⚠ World generation failed (its thread stopped). The previous world is still shown.");
+            }
+        }
+    }
+
     fn run_deferred(&mut self, c: Command, rs: &egui_wgpu::RenderState) {
         match c {
-            Command::RandomizeSeed => {
-                self.params.tectonics.seed = random_seed();
-                self.regenerate(rs);
-            }
             Command::Regenerate => self.regenerate(rs),
             Command::RerunClimate => {
                 if let Some(w) = self.world.as_mut() {
@@ -335,7 +452,11 @@ impl RealmApp {
     fn start_tiles(&mut self, rs: &egui_wgpu::RenderState) {
         let Some(world) = self.world.as_ref() else { return };
         let radius = world.params.tectonics.radius_m;
-        let sampler = rg_pipeline::terrain_sampler(world);
+        let sampler = if self.detail_streamed {
+            rg_pipeline::terrain_sampler(world)
+        } else {
+            rg_pipeline::terrain_sampler_macro(world)
+        };
         if (self.camera.radius_m - radius).abs() > 1.0 {
             let scale = radius / self.camera.radius_m;
             self.camera.radius_m = radius;
@@ -421,13 +542,18 @@ impl RealmApp {
                 max_level: 14,
                 now_s: now,
             });
-            self.feeder.update(&sel.wanted, &mut r.tiles, &rs.device, now);
+            // While a new world is generating, the old one's tiles wait (CPU for generation).
+            let generating = self.gen_job.is_some();
+            if !generating {
+                self.feeder.update(&sel.wanted, &mut r.tiles, &rs.device, now);
+            }
             self.stats.tiles_drawn = sel.drawn;
             self.stats.tiles_resident = r.tiles.len();
             self.stats.tiles_in_flight = self.feeder.in_flight();
             // While stopped, wanted tiles never arrive: repainting for them would keep a
             // 60 fps loop running, so only morph-ins of resident tiles count then.
-            let loading = !self.feeder.paused() && (!sel.wanted.is_empty() || self.feeder.in_flight() > 0);
+            let loading =
+                !generating && !self.feeder.paused() && (!sel.wanted.is_empty() || self.feeder.in_flight() > 0);
             self.streaming = sel.animating || loading;
             #[cfg(not(target_arch = "wasm32"))]
             if std::env::var_os("RG_LOG_TILES").is_some() && self.stats.log_due(now) {
@@ -491,6 +617,7 @@ impl eframe::App for RealmApp {
             ui.label("RealmGenesis needs a GPU (wgpu) renderer.");
             return;
         };
+        self.poll_generation(&rs, ui.ctx());
         // Deferred (slow) commands queued last frame run now, after their busy message
         // has been painted once.
         let deferred = std::mem::take(&mut self.deferred);

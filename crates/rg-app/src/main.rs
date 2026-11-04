@@ -2,7 +2,10 @@
 
 mod app;
 mod commands;
+mod console;
 mod files;
+mod worldgen;
+mod qos;
 mod tiles;
 mod ui;
 
