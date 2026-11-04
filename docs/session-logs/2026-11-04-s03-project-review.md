@@ -73,3 +73,4 @@ All points adopted; detail in `docs/design/v2-direction-s03.md` → "Fresh-conte
     2. The gullies line up with the face grid axes. The spot is on the NegX face, where the grid's v axis runs ≈ north. That's the lattice-bound Rho8 planform, which is R1's target.
 - **The resolution dependence is still there** (expected: R2 doesn't touch generation). Fix = position-keyed roughness/Rho8 (parked since s02), folded into R1.
 - Cube edges (for the seam check): PosX is centred on lon 0 (lat = asin z, lon = atan2(y, x)). So the edges are the meridians **lon ±45° and ±135° between ~35°S and ~35°N**, plus a square around each pole whose corners sit at **lat ±35.3°, lon ±45°/±135°**.
+- ✓ **Workspace tests pass after R2** (all suites ok; 142 s wall at `-j 6 --test-threads=2` on AC, with Matt's app open; peak RSS 4.0 GB per `/usr/bin/time -l`, n=1). Pending Matt: R1 before R3? Delete the detail-network code?
