@@ -130,8 +130,6 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
                 .on_hover_text("How smoothly uplift blends between boundary stretches that close at different speeds. 0: terraced \"floors\" with straight escarpments between them. Higher: natural ramps.");
             ui.add(egui::Slider::new(&mut e.plateau_runoff_mm, 0.0..=300.0).text("plateau dryness mm"))
                 .on_hover_text("How dry the ground must be for its undrained hollows to hold up a plateau (runoff below this, mm/yr). 0: dry interiors erode like everywhere else. Higher: more and wider plateaus behind escarpments.");
-            ui.add(egui::Slider::new(&mut e.node_jitter, 0.0..=0.4).text("drainage jitter"))
-                .on_hover_text("R1 experiment: nudges the erosion grid's points off the lattice so rivers and ridges aren't limited to 8 directions (removes straight, parallel gullies). 0 = the regular grid. About 20% slower erosion.");
             ui.add(egui::Slider::new(&mut e.river_min_area_km2, 2_000.0..=200_000.0).logarithmic(true).text("river km²"))
                 .on_hover_text("Smallest drainage area drawn as a river.");
         });

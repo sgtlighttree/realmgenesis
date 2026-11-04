@@ -181,3 +181,13 @@ Spot: seed 1 Ultra, 50°S 165°E, 2800 km box, `field_maps` (n=1 each).
 - **Knob adopted:** `plateau_runoff_mm`. Open lakes with local runoff below N mm/yr are held (dry interiors stay plateaus, cf. Altiplano/Iran). Default 30 (to calibrate); old files load as 1e9 (every open lake held = pre-s03).
 - Also: Ultra erosion runs at ~25–28 s again when nothing else is running. The 58–88 s readings earlier were contention (Matt's app, agents' builds).
 - **Calibration (seed 1 Ultra, whole map, n=1):** 0 → almost no floors; 30 → a few; 100 → a fair number; 1e9 → the pre-s03 abundance. **Default 60 mm/yr**; UI slider "plateau dryness mm" (0–300). Probe env `RG_PLATEAU`, app env too. `field_maps` panel 6 now shows drainage area (log) instead of crust; it works with erosion off.
+
+## Decisions (Matt, s03 ~13:50)
+
+- **Continents first, plates fitted** (Matt agrees): keeps import/draw/edit of coastlines possible. Plate/coast consistency comes from a **plausibility pass** in R3: classify coasts active/passive, put boundaries (trench, arc, mountains) on active coasts, and give passive ones shelves and rift geometry. Rejected for now: plates-first (can't import coasts) and a full history simulation (Cortial et al. 2019 style; "Gaea/Terragen parity someday"). Open question: how active coasts get chosen (automatic vs painted on an imported coastline).
+- **Drainage jitter: off, slider removed.**
+  - Matt's A/B (seed 1 High, 0 vs 0.4): no visible gain at 22 km cells, plus a side effect: a rash of blocky lakes on the dry high plateau (20–30°N).
+  - Likely cause (unconfirmed): jitter leaves more small hollows on dry flats, which plateau dryness 60 holds; 0.4 is also the fold-over limit of the jitter.
+  - Matt's "no more straight lines" was at jitter 0: the straight features were the uplift Voronoi steps, not the drainage lattice.
+  - The param and code stay for R4 regional bakes (150–300 m), where lattice-bound rivers would show.
+- The legend renders (Matt's screenshots: "Elevation (m)" bottom-left).
