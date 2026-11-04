@@ -16,7 +16,11 @@ use serde_json::json;
 /// Older files load; their macro is now read with the drained interpolant too (streamed
 /// detail is not under the contract yet: `DETAIL_GENERATOR_VERSION` = 0).
 /// 4 (s01): `hydrology.uplift_mm_yr` (optional chunk; older files load without it).
-pub const WORLD_SCHEMA: u32 = 4;
+/// 5 (s05, R3): `tectonics.active_share`, a `conditioning` header (absent = procedural),
+/// optional chunks `tectonics.margin` (u8) and `tectonics.convergence_mm_yr` (f32, read by
+/// erosion's uplift). Older files load without them (no Margins layer; uplift falls back to
+/// the plates' rotations).
+pub const WORLD_SCHEMA: u32 = 5;
 
 pub fn to_file(w: &World) -> WorldFile {
     let t = &w.params.tectonics;
@@ -27,7 +31,7 @@ pub fn to_file(w: &World) -> WorldFile {
         .iter()
         .map(|pl| json!({"pole": [pl.euler_pole.x, pl.euler_pole.y, pl.euler_pole.z], "omega": pl.omega, "continental": pl.continental}))
         .collect();
-    let header = json!({
+    let mut header = json!({
         "app": "RealmGenesis",
         "schema": WORLD_SCHEMA,
         "face_warp": rg_geo::cube::FACE_WARP_ID,
@@ -35,6 +39,7 @@ pub fn to_file(w: &World) -> WorldFile {
             "seed": t.seed, "res": t.res, "radius_m": t.radius_m, "plate_count": t.plate_count,
             "land_fraction": t.land_fraction, "continent_count_hint": t.continent_count_hint,
             "mountain_scale": t.mountain_scale, "roughness": t.roughness,
+            "active_share": t.active_share,
         },
         "planet": {
             "axial_tilt_deg": p.axial_tilt_deg, "rotation_hours": p.rotation_hours,
@@ -86,6 +91,8 @@ pub fn to_file(w: &World) -> WorldFile {
             "height_scale": w.hydrology.as_ref().and_then(|h| h.height_scale),
         },
     });
+    // R3: how the coasts were made (R3.2 adds imports; absent in older files = procedural).
+    header["conditioning"] = json!({"mode": "procedural"});
     let c = &w.climate;
     let mut hydro_chunks = Vec::new();
     if let Some(h) = &w.hydrology {
@@ -111,14 +118,18 @@ pub fn to_file(w: &World) -> WorldFile {
             Chunk::u16s("tectonics.plate_id", &w.tectonics.plate_id.data),
             Chunk::u8s("tectonics.crust", &w.tectonics.crust.data),
             Chunk::u8s("tectonics.boundary", &w.tectonics.boundary.data),
+        ]
+        .into_iter()
+        .chain(w.tectonics.margin.as_ref().map(|m| Chunk::u8s("tectonics.margin", &m.data)))
+        .chain(w.tectonics.convergence_mm_yr.as_ref().map(|c| Chunk::f32s("tectonics.convergence_mm_yr", &c.data)))
+        .chain([
             Chunk::f32s("climate.heights", &w.climate_heights.data),
             Chunk::f32s("climate.temp_c", &flat(&c.temp_c)),
             Chunk::f32s("climate.precip_mm", &flat(&c.precip_mm)),
             Chunk::f32s("climate.wind_u", &flat(&c.wind_u)),
             Chunk::f32s("climate.wind_v", &flat(&c.wind_v)),
             Chunk::u8s("climate.koppen", &c.koppen.data),
-        ]
-        .into_iter()
+        ])
         .chain(hydro_chunks)
         .collect(),
     }
@@ -141,6 +152,8 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
         continent_count_hint: num(th, "continent_count_hint")? as u32,
         mountain_scale: num(th, "mountain_scale")? as f32,
         roughness: num(th, "roughness")? as f32,
+        // Schema < 5 predates R3; regenerating such a world uses today's default.
+        active_share: th["active_share"].as_f64().unwrap_or(0.25) as f32,
     };
     let ph = &h["planet"];
     let planet = PlanetParams {
@@ -183,6 +196,15 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
         plate_id: CubeField { res, data: plate_data },
         crust: cube_u8("tectonics.crust")?,
         boundary: cube_u8("tectonics.boundary")?,
+        margin: if f.chunk("tectonics.margin").is_some() { Some(cube_u8("tectonics.margin")?) } else { None },
+        convergence_mm_yr: match f.chunk("tectonics.convergence_mm_yr") {
+            Some(c) => {
+                let data = c.as_f32s().ok_or("tectonics.convergence_mm_yr: wrong type")?;
+                check_len("tectonics.convergence_mm_yr", data.len(), 6 * (res as usize + 1).pow(2))?;
+                Some(CubeField { res, data })
+            }
+            None => None,
+        },
         plates,
         sea_level_offset_m: num(sh, "sea_level_offset_m")? as f32,
         land_fraction: num(sh, "land_fraction")? as f32,
@@ -335,6 +357,7 @@ mod tests {
         params.erosion.res = 40;
         params.erosion.steps = 5;
         params.erosion.belt_width_km = 300.0;
+        params.erosion.canonical_res = 0; // not a seed scanner: erode this tiny world (s04)
         let w = crate::generate(&params);
         assert_eq!(w.tectonics.height_m.res, 40);
         assert_eq!(w.tectonics.plate_id.res, 24);

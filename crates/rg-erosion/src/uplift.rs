@@ -98,6 +98,16 @@ fn from_boundaries(grid: &Grid, snap: &TectonicSnapshot, radius_m: f64, ocean: &
         }
         let node = node_of(dir);
         is_seed[node] = true;
+        // R3: the committed (clamped) rate the relief was built from, when the world has one.
+        // Recomputing from the poles would give a wrong-sign sample a mountain belt in the
+        // relief but no uplift here (design §4).
+        if let Some(conv) = &snap.convergence_mm_yr {
+            if conv.res == res && conv.data[idx] > 0.0 {
+                rate_sum[node] += conv.data[idx] as f64 * 1.0e3; // mm/yr -> m/Myr, the unit below
+                rate_cnt[node] += 1;
+                continue;
+            }
+        }
         // Convergence speed from the plates' rigid rotations, using an in-face neighbour that
         // belongs to the other plate to get the direction across the border.
         let pa = snap.plate_id.data[idx] as usize;

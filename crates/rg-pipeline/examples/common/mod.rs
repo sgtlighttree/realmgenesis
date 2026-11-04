@@ -59,6 +59,9 @@ pub fn world(seed: u64) -> World {
     if let Some(v) = env("RG_CONV_SMOOTH") {
         p.erosion.convergence_smoothing_km = v;
     }
+    if let Some(v) = env("RG_ACTIVE_SHARE") {
+        p.tectonics.active_share = v;
+    }
     if let Some(v) = env("RG_CANON") {
         p.erosion.canonical_res = v;
     }
@@ -70,7 +73,9 @@ pub fn world(seed: u64) -> World {
     }
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/probe-cache");
     let path = dir.join(format!(
-        "s{seed}-t{}-c{}-rf{}x{}-e{}-n{}-k{}-r{}-l{}-rho{}-lin{}-cv{}-cs{}-j{}-rw{}-en{}-dur{}-lk{}-pp{}-g{}-b{}.rgw",
+        // `r3`: the generator changed (s05, fitted plates); older entries don't match.
+        "r3-as{}-s{seed}-t{}-c{}-rf{}x{}-e{}-n{}-k{}-r{}-l{}-rho{}-lin{}-cv{}-cs{}-j{}-rw{}-en{}-dur{}-lk{}-pp{}-g{}-b{}.rgw",
+        p.tectonics.active_share,
         p.tectonics.res,
         p.erosion.canonical_res,
         p.erosion.refine_myr,
