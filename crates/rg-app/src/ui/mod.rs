@@ -179,6 +179,8 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
     ui.checkbox(&mut app.display.keep_relief, "Keep relief when zooming in")
         .on_hover_text("Use the same exaggeration at every distance instead of fading to 1.5× near the ground.");
     ui.add(egui::Slider::new(&mut app.style.map_exaggeration, 1.0..=40.0).text("map hillshade"));
+    ui.checkbox(&mut app.style.graticule, "Lat/lon grid")
+        .on_hover_text("Latitude and longitude lines with degree labels. The spacing adapts to the zoom.");
     ui.add(
         egui::Slider::new(&mut app.display.max_px_per_texel, 4.0..=512.0)
             .logarithmic(true)
@@ -414,6 +416,9 @@ fn viewport(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) 
             egui::Color32::WHITE,
         );
     }
+    if app.style.graticule {
+        graticule_labels(app, ui, rect, size_px);
+    }
     // Sidebar toggle, top-left of the viewport. Added after the viewport's drag area so
     // it wins the click.
     let open = app.show_panel.unwrap_or(true);
@@ -448,6 +453,34 @@ fn viewport(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) 
         && ui.input(|i| i.pointer.is_moving() || i.smooth_scroll_delta != egui::Vec2::ZERO || i.zoom_delta() != 1.0);
     if response.dragged() || input_moving || touching || app.settling || app.busy.is_some() || app.streaming {
         ui.ctx().request_repaint();
+    }
+}
+
+/// Degree labels for the lat/lon grid, drawn over the planet image. `size_px` is the planet
+/// texture's size, which the lines' spacing was chosen for.
+fn graticule_labels(app: &RealmApp, ui: &egui::Ui, rect: egui::Rect, size_px: [u32; 2]) {
+    use rg_render::graticule::{LabelKind, labels};
+    let painter = ui.painter().with_clip_rect(rect);
+    let font = egui::FontId::proportional(11.0);
+    let text_color = egui::Color32::from_white_alpha(225);
+    let shadow = egui::Color32::from_black_alpha(190);
+    // Labels whose anchor is within this many points of an earlier one are skipped.
+    let min_gap = 34.0;
+    let mut placed: Vec<egui::Pos2> = Vec::new();
+    for l in labels(app.view, &app.camera, &app.map, size_px) {
+        let at = egui::pos2(rect.left() + l.fx as f32 * rect.width(), rect.top() + l.fy as f32 * rect.height());
+        if placed.iter().any(|p| p.distance(at) < min_gap) {
+            continue;
+        }
+        placed.push(at);
+        let (pos, align) = match (app.view, l.kind) {
+            (ViewMode::Map, LabelKind::Parallel) => (egui::pos2(rect.left() + 5.0, at.y - 1.0), egui::Align2::LEFT_BOTTOM),
+            (ViewMode::Map, LabelKind::Meridian) => (egui::pos2(at.x + 3.0, rect.bottom() - 4.0), egui::Align2::LEFT_BOTTOM),
+            (_, LabelKind::Parallel) => (at + egui::vec2(4.0, -2.0), egui::Align2::LEFT_BOTTOM),
+            (_, LabelKind::Meridian) => (at + egui::vec2(3.0, 3.0), egui::Align2::LEFT_TOP),
+        };
+        painter.text(pos + egui::vec2(1.0, 1.0), align, &l.text, font.clone(), shadow);
+        painter.text(pos, align, &l.text, font.clone(), text_color);
     }
 }
 

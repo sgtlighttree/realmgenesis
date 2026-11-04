@@ -10,7 +10,7 @@ struct Globals {
     eye: vec4<f32>,      // xyz camera position (globe)
     params: vec4<f32>,   // x: relief shading strength, y: ocean specular on/off, z: radius m, w: exaggeration (globe) / hillshade exaggeration (map)
     map: vec4<f32>,      // x: centre lon (rad), y: centre lat (rad), z: view width (rad of lon), w: aspect (w/h)
-    lod: vec4<f32>,      // x: px per radian, y: cell px where tiles show their parent surface, z: morph range px
+    lod: vec4<f32>,      // x: px per radian, y: cell px where tiles show their parent surface, z: morph range px, w: lat/lon grid spacing in degrees (0 = off)
     river: vec4<f32>,    // xyz: river tint (linear) over the coverage stored in the layer's alpha, w: viewport width px
 };
 
@@ -76,6 +76,40 @@ fn height_at(uv: vec2<f32>) -> f32 {
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
+// ---------------------------------------------------------------- lat/lon grid
+//
+// Anti-aliased ~1 px lines every `g.lod.w` degrees; `graticule` returns how far to mix
+// towards white. It uses fwidth, so call it from uniform control flow (before any early
+// return). The spacing always divides 360, so longitude wrap-around lands on a line.
+fn grid_line(x: f32, n_wrap: f32) -> vec2<f32> {
+    // x is in grid steps. Returns (line coverage 0..1, 1 if this is the zero line).
+    // fwidth(x) spikes where atan2 wraps at the antimeridian; fract(x) stays continuous
+    // there, so the smaller of the two is the true screen-space rate.
+    let fw = max(min(fwidth(x), fwidth(fract(x))), 1e-6);
+    let d = abs(fract(x + 0.5) - 0.5);
+    var cover = clamp(1.5 - d / fw, 0.0, 1.0);
+    // Lines closer than ~3 px just look like a tint: fade them out.
+    cover = cover * (1.0 - smoothstep(0.2, 0.4, fw));
+    let k = round(x);
+    let zero = select(0.0, 1.0, k - n_wrap * round(k / n_wrap) == 0.0);
+    return vec2<f32>(cover, zero);
+}
+
+fn graticule(lon: f32, lat: f32) -> f32 {
+    let step = g.lod.w;
+    if (step <= 0.0) {
+        return 0.0;
+    }
+    let deg = 180.0 / PI;
+    let lon_line = grid_line(lon * deg / step, 360.0 / step);
+    let lat_line = grid_line(lat * deg / step, 1.0e9);
+    // Meridians converge on the poles: fade them out rather than smear.
+    let pole_fade = 1.0 - smoothstep(82.0, 87.0, abs(lat) * deg);
+    let lon_a = lon_line.x * pole_fade * mix(0.35, 0.6, lon_line.y);
+    let lat_a = lat_line.x * mix(0.35, 0.6, lat_line.y);
+    return max(lon_a, lat_a);
+}
+
 // ---------------------------------------------------------------- globe (streamed tiles)
 //
 // Camera-relative: g.view_proj has the eye at the origin, and each tile instance carries
@@ -133,6 +167,7 @@ fn fs_tile(i: TileOut) -> @location(0) vec4<f32> {
     let up = normalize(i.up);
     let lon = atan2(up.y, up.x);
     let lat = asin(clamp(up.z, -1.0, 1.0));
+    let grid = graticule(lon, lat);
     var base = albedo(lon, lat);
     let normal = surface_normal(up, i.st, i.face, g.params.w);
     // Steep slopes show bare rock whatever the biome (the biome layer is ~km-scale).
@@ -169,6 +204,7 @@ fn fs_tile(i: TileOut) -> @location(0) vec4<f32> {
     let near_ground = 1.0 - smoothstep(0.004 * g.params.z, 0.03 * g.params.z, altitude);
     let haze = (1.0 - exp(-dist / (g.params.z * 0.02))) * near_ground;
     lit = mix(lit, sky, clamp(haze, 0.0, 1.0) * 0.6);
+    lit = mix(lit, vec3<f32>(1.0), grid);
     return vec4<f32>(lit, 1.0);
 }
 
@@ -195,6 +231,7 @@ fn fs_map(i: MapOut) -> @location(0) vec4<f32> {
     let height = width / g.map.w;
     let lon = g.map.x + i.ndc.x * 0.5 * width;
     let lat = g.map.y + i.ndc.y * 0.5 * height;
+    let grid = graticule(lon, lat);
     if (abs(lat) > PI * 0.5) {
         return vec4<f32>(0.055, 0.067, 0.078, 1.0);
     }
@@ -217,5 +254,6 @@ fn fs_map(i: MapOut) -> @location(0) vec4<f32> {
         let shade = dot(n, light) / light.z; // 1.0 on flat ground
         c = c * mix(1.0, clamp(shade, 0.35, 1.6), g.params.x);
     }
+    c = mix(c, vec3<f32>(1.0), grid);
     return vec4<f32>(c, 1.0);
 }

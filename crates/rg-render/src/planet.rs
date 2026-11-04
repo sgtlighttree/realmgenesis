@@ -90,6 +90,8 @@ pub struct RenderStyle {
     pub map_exaggeration: f32,
     /// River tint (sRGB 0–255) applied over the river coverage in the layer's alpha.
     pub river_rgb: [u8; 3],
+    /// Latitude/longitude grid (the degree labels are drawn by the UI).
+    pub graticule: bool,
 }
 
 impl Default for RenderStyle {
@@ -101,6 +103,7 @@ impl Default for RenderStyle {
             radius_m: 6_371_000.0,
             map_exaggeration: 12.0,
             river_rgb: [46, 96, 132],
+            graticule: true,
         }
     }
 }
@@ -115,6 +118,7 @@ struct Globals {
     map: [f32; 4],
     /// Globe LOD: x = pixels per radian, y = cell size (px) at which a tile shows its
     /// parent's surface (morph 0), z = morph range (px). See `vs_tile`.
+    /// w = lat/lon grid spacing in degrees (0 = off).
     lod: [f32; 4],
     /// xyz: river tint (linear), w: viewport width (px).
     river: [f32; 4],
@@ -503,7 +507,7 @@ impl PlanetRenderer {
                 (t.size[1] as f64 / (2.0 * (0.5 * cam.fov_y).tan())) as f32,
                 (self.max_cell_px * 0.5) as f32,
                 (self.max_cell_px * 0.35) as f32,
-                0.0,
+                if style.graticule { crate::graticule::step_deg(mode, cam, map, t.size) as f32 } else { 0.0 },
             ],
             river: {
                 let lin = |c: u8| (c as f32 / 255.0).powf(2.2);

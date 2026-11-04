@@ -5,6 +5,7 @@
 
 pub mod camera;
 pub mod earth_camera;
+pub mod graticule;
 pub mod mesh;
 pub mod planet;
 pub mod terrain;
