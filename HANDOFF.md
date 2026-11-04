@@ -6,7 +6,7 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 
 - Matt answered the 12 questions: `docs/session-logs/2026-11-04-s03-project-review.md`.
 - Proposed direction (**not yet approved**): `docs/design/v2-direction-s03.md`. In short: keep Rust; native-first; R1 un-grid macro routing (jitter/MFD + position-keyed roughness) → R2 raster-displacement renderer (zoom floor 20 km) → R3 coastline-conditioning design → R4 regional bake → R5 exports.
-- Fresh-context review of the direction: running; verdict goes in the s03 log.
+- Fresh-context review: **go with changes**, all adopted. Revised order: R2 raster renderer on today's macro (+ river overlay, coverage-based zoom floor) → R3 coastline design → R1 jitter-only experiment → R4 → R5.
 - Pending Matt: Q9 reading, CLAUDE.md rule changes for native-first, what to do with untracked `node_modules/` (372 MB, looks like V1), `spike/`, `heightmap-1.*`.
 
 ## Previous: project-wide review brief (s02 wrap-up, 2026-11-04)

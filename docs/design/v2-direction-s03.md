@@ -69,3 +69,34 @@ R1 → R2 → R3 design → R4 → R5.
 - Q9 reading: in-house regional detail, external tools as export consumers only?
 - R1: jitter alone, MFD alone, or both? (Decide from R1 PNGs.)
 - R3: option (a) or (b), and the input formats (SVG/GeoJSON/PNG mask) to support first.
+
+## Fresh-context review (s03): go with changes (adopted)
+
+Reviewer read the code; I adopted all of these. They replace the sections above where they conflict.
+
+- **Correction: the macro is already Rho8, not plain D8** (`solver.rs:121` `rho8: true`, applied at `:785`). Rho8 randomises the choice but still among the 8 lattice neighbours, so the planform stays lattice-bound. Jitter may help less than assumed, so R1 starts as a **jitter-only experiment**.
+- **MFD is not cheap.** `Network` (`solver.rs:742–856`) is a single-receiver tree that stream power, lakes, `flow_dir`, rivers and `accumulate` all use. MFD is parked.
+- **Jitter goes in the erosion grid only** (`solver.rs:545`), never the shared `Grid::new`, because tectonics uses that and coasts would move. The jittered grid also needs:
+  - recomputed `weight` (else ±30% area noise);
+  - `min_edge`/`max_edge` taken after jitter;
+  - the hash keyed on the integer `node_sample` (not on `dir`, which depends on libm);
+  - a check of the 8 valence-3 cube corners.
+- **Resampling covers every field `to_field` writes** (`solver.rs:681–710`): height, drainage, lake depth, uplift, `flow_dir`. The fine Priority-Flood at `:703` needs rethinking too.
+- **The raster must bake `sample_drained`** (`rg-geo/src/field.rs:121`). Plain GPU bilinear loses valley connectivity and pits the macro. Normals need cross-face aprons.
+- **Store heights as R16 textures with manual bilinear** (vertex-texture float32 filtering needs a wgpu feature).
+- **The zoom floor depends on bake coverage, not a flat 20 km.**
+  - A 5 km texel at 20 km altitude is about 300 px.
+  - Floor rule: one texel spans at most ~8 px. That gives **~800 km over unbaked land** and **~25 km over 150 m baked regions** (45° FOV, 1080p).
+  - Alternative: synthetic detail on unbaked land, to be decided by eye.
+- **Rivers need their own layer** once the detail network goes, since nothing else draws rivers under 5 km. A vector/overlay river layer also feeds the SVG export.
+- **Schema:** region rasters need a new `rg-world` chunk (footprint + transform), and imported masks must be stored too (ARCHITECTURE §5).
+- **Goldens:** there are no tectonic or erosion goldens, only the `terrain_realism` bounds and the lattice goldens. Re-baseline these when jitter lands.
+- **Memory:** a native solve at 2048 peaks at ~4 GB and a region bake at ~2.7 GB. Never run both at once. The six R16 faces at 2049² are ~50 MB.
+
+### Revised order
+
+1. **R2: raster renderer on today's macro**, with drained interpolation baked in and a river overlay. Reason: it doesn't depend on jitter, and a 3D view settles whether the macro alone already reads as "decent terrain" (Matt, s02).
+2. **R3: coastline-conditioning design** (doc only), before any R1 code. Option (b) feeds `tectonic_h` (`solver.rs:~552`), which decides where jitter can live.
+3. **R1: jitter-only experiment** in the erosion grid, with full-field resampling. Judged by Matt from PNGs and the 3D view.
+4. **R4: regional bake.** It reuses R2's override path.
+5. **R5: exports.**
