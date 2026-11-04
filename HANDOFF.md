@@ -9,6 +9,13 @@ R1 un-grid/coherence (done differently) → R2 raster renderer (done) → **R3 c
 ## s04 (2026-11-04, local): R3 design in progress
 
 - Log: `docs/session-logs/2026-11-04-s04-r3-design.md`. Deliverable: `docs/design/coastline-conditioning.md` + fresh review. No code until Matt approves.
+- **Design v2 done:** advisor plus a fresh review ("go with changes", all adopted). **Waiting on Matt:** approval, plus the 7 open questions at the end of the doc.
+- Build order once approved:
+  - **R3.1a:** plausibility pass on procedural continents. Seaways → classes → fitted plates → solved motion; polarity prescribed; uplift reads a committed `convergence_mm_yr`. The sea-level bisection stays.
+  - **R3.1b:** strict coasts, with ocean from the mask on the erosion grid.
+  - **R3.2:** import (PNG, then GeoJSON).
+  - **R3.3:** the brush.
+- Earth figures (s04 fact-check): passive margins 105,000 km and convergent 53,000 km (Bradley 2008, verified); shelf 88 km passive vs 31 km active (Harris et al. 2014, verified); default active share 0.25.
 
 ## s03 (2026-11-04): review and build
 
