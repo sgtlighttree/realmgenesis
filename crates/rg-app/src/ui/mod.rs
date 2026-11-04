@@ -254,10 +254,12 @@ const DETAIL_MAX_RES: u32 = 2048;
 #[cfg(target_arch = "wasm32")]
 const DETAIL_MAX_RES: u32 = 1024;
 
-/// Estimated peak memory for generation, GB: measured 1.04 GB at res 1024 (s01),
-/// scaling with the point count (res²).
+/// Estimated peak memory for generation, GB, scaling with the point count (res²). Fitted
+/// to the app's peak RSS on Matt's M1 at res 2002 (4.6 GB, s02, n=1; swap also grew by
+/// ~4.4 GB there, so ~2048 is this machine's practical ceiling). s01's container: 1.04 GB at
+/// 1024.
 fn estimate_peak_gb(res: u32) -> f64 {
-    1.04 * (res as f64 / 1024.0).powi(2)
+    1.2 * (res as f64 / 1024.0).powi(2)
 }
 
 /// Size of one grid cell in km for a given resolution and planet radius.
@@ -312,11 +314,12 @@ fn detail_picker(ui: &mut egui::Ui, res: &mut u32, radius_m: f64) {
     .on_hover_text("Estimated peak memory while generating. Above ~2 GB, close other heavy apps first.");
 }
 
-/// Rough generation time (tectonics + climate), fitted to release-build timings on a
-/// 4-core x86 machine: about 16 µs per cell of `res²`, near-linear in the point count.
-/// The web build is single-threaded, so it's several times slower.
+/// Rough generation time, fitted to the app on Matt's M1 Air (background thread at utility
+/// QoS, s02, n=1 each): 3.0 s at 320, 40.5 s at 1024, 276 s at 2002. Grows faster than the
+/// point count (memory pressure at high res), so the exponent is ~2.3. The web build is
+/// single-threaded, so it's several times slower.
 fn estimate_generate_s(res: u32) -> f64 {
-    let native = 1.6e-5 * (res as f64).powi(2) + 0.2;
+    let native = 3.0 * (res as f64 / 320.0).powf(2.3);
     if cfg!(target_arch = "wasm32") { native * 3.0 } else { native }
 }
 
