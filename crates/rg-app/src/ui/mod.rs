@@ -188,6 +188,7 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
     ui.add(egui::Slider::new(&mut app.style.map_exaggeration, 1.0..=40.0).text("map hillshade"));
     ui.checkbox(&mut app.style.graticule, "Lat/lon grid")
         .on_hover_text("Latitude and longitude lines with degree labels. The spacing adapts to the zoom.");
+    ui.checkbox(&mut app.display.legend, "Legend").on_hover_text("Colour key for the active layer, bottom-left of the view.");
     ui.add(
         egui::Slider::new(&mut app.display.max_px_per_texel, 4.0..=512.0)
             .logarithmic(true)
@@ -426,6 +427,9 @@ fn viewport(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) 
     if app.style.graticule {
         graticule_labels(app, ui, rect, size_px);
     }
+    if app.display.legend {
+        legend_panel(app.layer, ui, rect);
+    }
     // Sidebar toggle, top-left of the viewport. Added after the viewport's drag area so
     // it wins the click.
     let open = app.show_panel.unwrap_or(true);
@@ -517,5 +521,76 @@ fn stop_tiles_button(app: &mut RealmApp, ui: &mut egui::Ui, rect: egui::Rect) {
     let button = egui::Button::new(egui::RichText::new(label).strong().color(egui::Color32::WHITE)).fill(fill);
     if ui.put(r, button).on_hover_text(tip).clicked() {
         app.push(Command::ToggleTileStreaming);
+    }
+}
+
+/// Colour key for the active layer: a compact translucent panel, bottom-left of the view.
+fn legend_panel(layer: Layer, ui: &egui::Ui, rect: egui::Rect) {
+    use rg_pipeline::legend::{Legend, legend};
+    let painter = ui.painter().with_clip_rect(rect);
+    let font = egui::FontId::proportional(11.0);
+    let title_font = egui::FontId::proportional(12.0);
+    let pad = 8.0;
+    let line = 15.0;
+    let rgb = |c: [u8; 3]| egui::Color32::from_rgb(c[0], c[1], c[2]);
+    let measure = |text: &str, f: &egui::FontId| {
+        painter.layout_no_wrap(text.to_string(), f.clone(), theme::TEXT).size()
+    };
+    let draw_panel = |size: egui::Vec2| {
+        let r = egui::Rect::from_min_size(egui::pos2(rect.left() + 8.0, rect.bottom() - 8.0 - size.y), size);
+        painter.rect_filled(r, 6.0, theme::PANEL.gamma_multiply(0.82));
+        r
+    };
+    match legend(layer) {
+        Legend::Ramp { title, unit, min, max, ticks, colour_at } => {
+            let (bar_w, bar_h) = (14.0, 190.0);
+            let labels: Vec<String> = ticks.iter().map(|t| format!("{t:.0}")).collect();
+            let label_w = labels.iter().map(|l| measure(l, &font).x).fold(0.0, f32::max);
+            let title_text = format!("{title} ({unit})");
+            let w = (bar_w + 6.0 + label_w).max(measure(&title_text, &title_font).x) + 2.0 * pad;
+            let r = draw_panel(egui::vec2(w, bar_h + line + 2.0 * pad + 4.0));
+            painter.text(r.min + egui::vec2(pad, pad), egui::Align2::LEFT_TOP, &title_text, title_font.clone(), theme::TEXT);
+            let bar_top = r.top() + pad + line + 4.0;
+            let steps = bar_h as usize;
+            let y_of = |v: f32| bar_top + (1.0 - (v - min) / (max - min)) * bar_h;
+            for i in 0..steps {
+                let v = max - (i as f32 + 0.5) / steps as f32 * (max - min);
+                let y = bar_top + i as f32;
+                let bar = egui::Rect::from_min_size(egui::pos2(r.left() + pad, y), egui::vec2(bar_w, 1.0));
+                painter.rect_filled(bar, 0.0, rgb(colour_at(v)));
+            }
+            for (t, text) in ticks.iter().zip(&labels) {
+                let y = y_of(*t);
+                let x = r.left() + pad + bar_w;
+                painter.line_segment([egui::pos2(x - 3.0, y), egui::pos2(x + 2.0, y)], (1.0, theme::TEXT));
+                painter.text(egui::pos2(x + 5.0, y), egui::Align2::LEFT_CENTER, text, font.clone(), theme::TEXT);
+            }
+        }
+        Legend::Swatches { title, items } => {
+            // Two columns when the list is long.
+            let cols = if items.len() > 16 { 2 } else { 1 };
+            let rows = items.len().div_ceil(cols);
+            let col_w: Vec<f32> =
+                items.chunks(rows).map(|c| c.iter().map(|(_, l)| measure(l, &font).x).fold(0.0, f32::max) + 20.0).collect();
+            let w = (col_w.iter().sum::<f32>() + 8.0 * (cols as f32 - 1.0)).max(measure(title, &title_font).x) + 2.0 * pad;
+            let r = draw_panel(egui::vec2(w, line * (rows as f32 + 1.0) + 2.0 * pad + 2.0));
+            painter.text(r.min + egui::vec2(pad, pad), egui::Align2::LEFT_TOP, title, title_font.clone(), theme::TEXT);
+            let mut x = r.left() + pad;
+            for (chunk, cw) in items.chunks(rows).zip(&col_w) {
+                for (n, (c, text)) in chunk.iter().enumerate() {
+                    let y = r.top() + pad + line + 2.0 + n as f32 * line;
+                    let sw = egui::Rect::from_min_size(egui::pos2(x, y + 2.0), egui::vec2(12.0, 11.0));
+                    painter.rect_filled(sw, 2.0, rgb(*c));
+                    painter.rect_stroke(sw, 2.0, (1.0, egui::Color32::from_white_alpha(60)), egui::StrokeKind::Inside);
+                    painter.text(egui::pos2(x + 17.0, y + line / 2.0), egui::Align2::LEFT_CENTER, text, font.clone(), theme::TEXT);
+                }
+                x += cw + 8.0;
+            }
+        }
+        Legend::Caption(text) => {
+            let galley = painter.layout(text.to_string(), font.clone(), theme::TEXT, 230.0);
+            let r = draw_panel(galley.size() + egui::vec2(2.0 * pad, 2.0 * pad));
+            painter.galley(r.min + egui::vec2(pad, pad), galley, theme::TEXT);
+        }
     }
 }

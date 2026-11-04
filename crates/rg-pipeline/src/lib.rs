@@ -7,6 +7,7 @@
 pub mod export;
 pub mod file;
 pub mod layers;
+pub mod legend;
 mod palette;
 
 use rg_climate::{ClimateFields, ClimateInput, LatLonGrid, PlanetParams};
@@ -15,6 +16,7 @@ use rg_geo::CubeField;
 use rg_tectonics::{TectonicSnapshot, TectonicsParams};
 
 pub use layers::{Equirect, Layer};
+pub use legend::Legend;
 
 /// Everything the user sets before generating.
 #[derive(Clone, Debug, Default)]

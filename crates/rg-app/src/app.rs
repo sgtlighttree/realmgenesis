@@ -31,6 +31,8 @@ pub struct DisplayParams {
     /// the camera stops descending (s03; the data is finite, so infinite zoom only shows
     /// blur). Higher = closer.
     pub max_px_per_texel: f64,
+    /// Show the colour legend for the active layer.
+    pub legend: bool,
 }
 
 impl DisplayParams {
@@ -57,7 +59,7 @@ impl Default for DisplayParams {
         // 35: Matt's pick on the M1 (s02); 20 made network valleys read as flat grooves.
         // 32 px per texel: ~1300 km above an Ultra world on a 1600 px tall view (s03 start
         // value; Matt tunes it).
-        Self { exaggeration: 35.0, keep_relief: false, max_px_per_texel: 32.0 }
+        Self { exaggeration: 35.0, keep_relief: false, max_px_per_texel: 32.0, legend: true }
     }
 }
 

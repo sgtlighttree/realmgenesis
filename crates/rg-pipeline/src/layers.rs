@@ -109,7 +109,7 @@ impl Equirect {
                             Layer::Satellite => satellite(&s, hf, lat),
                             Layer::Koppen => {
                                 if hf < 0.0 {
-                                    if s.sea_ice() { [214, 222, 230] } else { [196, 210, 222] }
+                                    if s.sea_ice() { KOPPEN_SEA_ICE } else { KOPPEN_OCEAN }
                                 } else {
                                     s.koppen(lat).color()
                                 }
@@ -314,6 +314,31 @@ impl ClimateSample {
     }
 }
 
+/// Köppen map colours for open water (sea ice and ice-free).
+pub const KOPPEN_SEA_ICE: Rgb = [214, 222, 230];
+pub const KOPPEN_OCEAN: Rgb = [196, 210, 222];
+
+/// Base land colour of the satellite layer for a Köppen class, before the rainfall tint,
+/// rock and snow are applied. The legend reads this too.
+pub fn satellite_base(k: Koppen) -> Rgb {
+    use Koppen::*;
+    match k {
+        Af | Am => [34, 74, 32],
+        Aw => [104, 112, 58],
+        BWh => [206, 174, 124],
+        BWk => [170, 150, 116],
+        BSh => [158, 140, 88],
+        BSk => [140, 132, 92],
+        Csa | Csb | Csc => [112, 116, 70],
+        Cfa | Cwa => [62, 96, 44],
+        Cfb | Cfc | Cwb | Cwc => [58, 94, 48],
+        Dfa | Dfb | Dsa | Dsb | Dwa | Dwb => [54, 84, 44],
+        Dfc | Dfd | Dsc | Dsd | Dwc | Dwd => [40, 62, 40],
+        ET => [124, 120, 100],
+        EF => [236, 240, 246],
+    }
+}
+
 /// Satellite-like albedo: biome colour from the downscaled Köppen class, nudged by
 /// rainfall, with snow, ice and bare rock.
 fn satellite(s: &ClimateSample, h: f32, lat: f64) -> Rgb {
@@ -332,23 +357,8 @@ fn satellite(s: &ClimateSample, h: f32, lat: f64) -> Rgb {
     let mean_t = s.t.iter().sum::<f32>() / 12.0;
     // Snow patches get half the fine noise the sea ice gets.
     let snow_fine = 0.5 * s.ice_fine;
-    use Koppen::*;
     let k = s.koppen(lat);
-    let base: Rgb = match k {
-        Af | Am => [34, 74, 32],
-        Aw => [104, 112, 58],
-        BWh => [206, 174, 124],
-        BWk => [170, 150, 116],
-        BSh => [158, 140, 88],
-        BSk => [140, 132, 92],
-        Csa | Csb | Csc => [112, 116, 70],
-        Cfa | Cwa => [62, 96, 44],
-        Cfb | Cfc | Cwb | Cwc => [58, 94, 48],
-        Dfa | Dfb | Dsa | Dsb | Dwa | Dwb => [54, 84, 44],
-        Dfc | Dfd | Dsc | Dsd | Dwc | Dwd => [40, 62, 40],
-        ET => [124, 120, 100],
-        EF => [236, 240, 246],
-    };
+    let base = satellite_base(k);
     // Wetter = greener within a class; dry edges fade towards the steppe tone.
     let wet = ((annual_p - 400.0) / 1600.0).clamp(-1.0, 1.0);
     let mut c = if wet < 0.0 { palette::mix(base, [150, 136, 96], -wet * 0.35) } else { palette::mix(base, [36, 72, 34], wet * 0.25) };
@@ -357,7 +367,7 @@ fn satellite(s: &ClimateSample, h: f32, lat: f64) -> Rgb {
         c = palette::mix(c, [120, 112, 106], ((h - 2200.0) / 1200.0).clamp(0.0, 0.8));
     }
     // Snow cover where the year is cold enough.
-    if !matches!(k, EF) {
+    if !matches!(k, Koppen::EF) {
         let snow = ((-(mean_t + snow_fine) - 4.0) / 10.0)
             .clamp(0.0, 0.85)
             .max(((-(warmest + snow_fine) + 1.5) / 4.0).clamp(0.0, 1.0));
