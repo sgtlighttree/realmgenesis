@@ -108,12 +108,13 @@ fn assert_world_is_send() {
 
 /// Generate a world: tectonics → fluvial erosion → tier A climate.
 pub fn generate(params: &WorldParams) -> World {
-    generate_with_progress(params, &|_| {})
+    generate_with_progress(params, &|_| true).expect("generation without a cancelling callback always finishes")
 }
 
 /// As [`generate`], calling `on` at the start of each stage and each erosion step, on this
-/// thread. Tectonics and the post-solve part of erosion have no sub-steps.
-pub fn generate_with_progress(params: &WorldParams, on: &dyn Fn(Progress)) -> World {
+/// thread. If `on` returns false, generation stops at that checkpoint and returns `None`
+/// (cancelled). Tectonics and the post-solve part of erosion have no checkpoints inside.
+pub fn generate_with_progress(params: &WorldParams, on: &dyn Fn(Progress) -> bool) -> Option<World> {
     let stage = |stage: Stage| on(Progress { stage, step: 0, steps: 0 });
     let mut params = params.clone();
     // One radius for everything; erosion's random streams follow the world seed.
@@ -121,19 +122,23 @@ pub fn generate_with_progress(params: &WorldParams, on: &dyn Fn(Progress)) -> Wo
     params.erosion.seed = params.tectonics.seed;
 
     let t0 = web_time::Instant::now();
-    stage(Stage::Tectonics);
+    if !stage(Stage::Tectonics) {
+        return None;
+    }
     let mut tectonics = rg_tectonics::generate(&params.tectonics);
     let tectonics_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     let t1 = web_time::Instant::now();
-    let hydrology = params.erosion.enabled.then(|| {
+    let hydrology = if params.erosion.enabled {
         // The "mountains" setting scales the target hypsometry (Earth = 1.0).
         let mut ep = params.erosion.clone();
         ep.hypsometry_scale = params.tectonics.mountain_scale as f64 * params.erosion.hypsometry_scale;
         // Climate feeds erosion: a first tier-A pass on the tectonic surface gives annual
         // precipitation; rivers carve with precipitation-weighted drainage (a discharge
         // proxy), so rain shadows and deserts erode less. Climate is rerun on the result.
-        stage(Stage::ClimatePre);
+        if !stage(Stage::ClimatePre) {
+            return None;
+        }
         let (_, climate0, _) = run_climate(&params.planet, &tectonics);
         let wb = water_balance(&params.planet, &climate0, &tectonics.height_m);
         let mean = wb.mean_land_runoff_mm.max(1.0) as f32;
@@ -141,11 +146,13 @@ pub fn generate_with_progress(params: &WorldParams, on: &dyn Fn(Progress)) -> Wo
         // Lakes and closed basins from the water balance: open-water net evaporation ≈ PET − P.
         let net_evap = CubeField { res: wb.pet_mm.res, data: wb.pet_mm.data.iter().zip(&wb.precip_mm.data).map(|(e, p)| e - p).collect() };
         let lakes = ep.lakes.then_some((&wb.runoff_mm, &net_evap));
-        stage(Stage::Erosion);
+        if !stage(Stage::Erosion) {
+            return None;
+        }
         let on_step = |step, steps| on(Progress { stage: Stage::Erosion, step, steps });
-        let r = rg_erosion::erode_climate_with_progress(&tectonics, params.tectonics.radius_m, &ep, Some(&runoff), lakes, &on_step);
+        let r = rg_erosion::erode_climate_with_progress(&tectonics, params.tectonics.radius_m, &ep, Some(&runoff), lakes, &on_step)?;
         tectonics.height_m = r.height_m;
-        Hydrology {
+        Some(Hydrology {
             drainage_km2: r.drainage_km2,
             flow_dir: r.flow_dir,
             lake_depth_m: r.lake_depth_m,
@@ -153,20 +160,24 @@ pub fn generate_with_progress(params: &WorldParams, on: &dyn Fn(Progress)) -> Wo
             height_scale: r.height_scale,
             rivers: r.rivers,
             stats: r.stats,
-        }
-    });
+        })
+    } else {
+        None
+    };
     let erosion_ms = t1.elapsed().as_secs_f64() * 1000.0;
 
-    stage(Stage::Climate);
+    if !stage(Stage::Climate) {
+        return None;
+    }
     let (climate_heights, climate, climate_ms) = run_climate(&params.planet, &tectonics);
-    World {
+    Some(World {
         params,
         tectonics,
         hydrology,
         climate_heights,
         climate,
         timings: Timings { tectonics_ms, erosion_ms, climate_ms },
-    }
+    })
 }
 
 /// The macro-only sampler for a world: the drained macro surface, no streamed detail
@@ -280,4 +291,44 @@ fn run_climate(planet: &PlanetParams, t: &TectonicSnapshot) -> (LatLonGrid<f32>,
     let heights = LatLonGrid::from_cube_field(&t.height_m, CLIMATE_W, CLIMATE_H);
     let climate = rg_climate::tier_a(planet, &ClimateInput { height_m: heights.clone() });
     (heights, climate, t0.elapsed().as_secs_f64() * 1000.0)
+}
+
+#[cfg(test)]
+mod progress_tests {
+    use super::*;
+
+    fn tiny() -> WorldParams {
+        let mut p = WorldParams::default();
+        p.tectonics.res = 32;
+        p
+    }
+
+    #[test]
+    fn cancelling_at_an_erosion_step_stops_generation() {
+        let seen = std::cell::RefCell::new(Vec::new());
+        let world = generate_with_progress(&tiny(), &|p| {
+            seen.borrow_mut().push(p.stage);
+            // Stop at the second erosion step.
+            !(p.stage == Stage::Erosion && p.step == 2)
+        });
+        assert!(world.is_none(), "cancelled generation must not return a world");
+        let seen = seen.into_inner();
+        assert_eq!(seen.first(), Some(&Stage::Tectonics));
+        assert!(!seen.contains(&Stage::Climate), "stopped before the final climate pass");
+    }
+
+    #[test]
+    fn progress_reports_every_erosion_step() {
+        let steps = std::cell::RefCell::new(Vec::new());
+        let world = generate_with_progress(&tiny(), &|p| {
+            if p.stage == Stage::Erosion && p.steps > 0 {
+                steps.borrow_mut().push((p.step, p.steps));
+            }
+            true
+        });
+        assert!(world.is_some());
+        let steps = steps.into_inner();
+        let n = steps.last().map(|s| s.1).unwrap_or(0);
+        assert!(n > 0 && steps.len() == n as usize, "{steps:?}");
+    }
 }

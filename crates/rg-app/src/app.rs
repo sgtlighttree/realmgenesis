@@ -289,7 +289,11 @@ impl RealmApp {
                 Some(p) => p.stage.label().to_string(),
                 None => "starting".to_string(),
             };
-            return Some(format!("{frame} Generating world · {what} · {:.1} s", now_s - job.started_s));
+            let elapsed = now_s - job.started_s;
+            if job.cancelling() {
+                return Some(format!("{frame} Cancelling · finishing {what} · {elapsed:.1} s"));
+            }
+            return Some(format!("{frame} Generating world · {what} · {elapsed:.1} s · Esc to cancel"));
         }
         if self.view == ViewMode::Globe && self.stats.tiles_in_flight > 0 {
             return Some(format!(
@@ -339,6 +343,12 @@ impl RealmApp {
                 self.start_tiles(rs);
             }
             Command::ToggleConsole => self.console_open = !self.console_open,
+            Command::CancelGeneration => {
+                if let Some(job) = self.gen_job.as_ref().filter(|j| !j.cancelling()) {
+                    job.cancel();
+                    self.log("Cancelling: generation stops at the next step.");
+                }
+            }
             Command::ResetCamera => {
                 self.camera = EarthCamera::new(self.camera.radius_m);
                 self.map = MapView::default();
@@ -398,6 +408,10 @@ impl RealmApp {
                     t.erosion_ms,
                     t.climate_ms
                 ));
+            }
+            Poll::Cancelled => {
+                self.gen_job = None;
+                self.log(format!("Generation cancelled after {:.1} s. The previous world is still shown.", now_s() - started));
             }
             Poll::Failed => {
                 self.gen_job = None;

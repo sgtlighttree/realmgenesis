@@ -3,16 +3,21 @@
 //! `app.rs`. (This module compiles everywhere; only the native code calls `spawn`.)
 
 use rg_pipeline::{Progress, World, WorldParams};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
+use std::sync::Arc;
 
 enum Msg {
     Progress(Progress),
     Done(Box<World>),
+    Cancelled,
 }
 
 pub enum Poll {
     Working,
     Done(Box<World>),
+    /// Stopped at a checkpoint after `cancel` (Esc).
+    Cancelled,
     /// The thread ended without a world (it panicked).
     Failed,
 }
@@ -23,23 +28,42 @@ pub struct GenJob {
     pub started_s: f64,
     /// The latest progress report; `None` until the thread reports in.
     pub latest: Option<Progress>,
+    /// Set by `cancel`; the thread checks it at every stage and erosion step.
+    stop: Arc<AtomicBool>,
 }
 
 impl GenJob {
     pub fn spawn(params: WorldParams, now_s: f64) -> Result<Self, String> {
         let (tx, rx) = channel();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_flag = Arc::clone(&stop);
         std::thread::Builder::new()
             .name("world-gen".into())
             .spawn(move || {
                 crate::qos::lower_priority();
+                // Report progress; returning false asks generation to stop (cancel).
                 let report = |p| {
                     let _ = tx.send(Msg::Progress(p));
+                    !stop_flag.load(Ordering::Relaxed)
                 };
-                let world = rg_pipeline::generate_with_progress(&params, &report);
-                let _ = tx.send(Msg::Done(Box::new(world)));
+                let msg = match rg_pipeline::generate_with_progress(&params, &report) {
+                    Some(world) => Msg::Done(Box::new(world)),
+                    None => Msg::Cancelled,
+                };
+                let _ = tx.send(msg);
             })
             .map_err(|e| e.to_string())?;
-        Ok(Self { rx, started_s: now_s, latest: None })
+        Ok(Self { rx, started_s: now_s, latest: None, stop })
+    }
+
+    /// Ask the thread to stop at its next checkpoint (stage or erosion step). The UI shows
+    /// "cancelling" until it reports back.
+    pub fn cancel(&self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+
+    pub fn cancelling(&self) -> bool {
+        self.stop.load(Ordering::Relaxed)
     }
 
     /// Take every message waiting. Returns the stage changes seen (for the console) and
@@ -55,6 +79,7 @@ impl GenJob {
                     self.latest = Some(p);
                 }
                 Ok(Msg::Done(world)) => return (stage_changes, Poll::Done(world)),
+                Ok(Msg::Cancelled) => return (stage_changes, Poll::Cancelled),
                 Err(TryRecvError::Empty) => return (stage_changes, Poll::Working),
                 Err(TryRecvError::Disconnected) => return (stage_changes, Poll::Failed),
             }

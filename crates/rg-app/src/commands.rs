@@ -26,6 +26,9 @@ pub enum Command {
     ToggleStreamedDetail,
     /// Show or hide the console panel above the status bar.
     ToggleConsole,
+    /// Stop the world generation in progress (Esc). It stops at the next checkpoint; the
+    /// previous world stays.
+    CancelGeneration,
     /// Save the world file (native only for now).
     SaveWorld,
     /// Load the most recent world file.

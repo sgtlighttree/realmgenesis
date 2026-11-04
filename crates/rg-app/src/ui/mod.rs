@@ -48,6 +48,9 @@ fn shortcuts(app: &mut RealmApp, ui: &mut egui::Ui) {
         if i.key_pressed(egui::Key::R) {
             v.push(Command::RandomizeSeed);
         }
+        if i.key_pressed(egui::Key::Escape) {
+            v.push(Command::CancelGeneration);
+        }
         if i.key_pressed(egui::Key::H) {
             v.push(Command::TogglePanel);
         }
@@ -233,7 +236,7 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
     ui.add_space(4.0);
     ui.label(
         egui::RichText::new(
-            "G generate · R random · H panel · M map/globe · 1–8 layers · drag to move · scroll to zoom · \
+            "G generate · Esc cancel · R random · H panel · M map/globe · 1–8 layers · drag to move · scroll to zoom · \
              right-drag (or Shift+drag, or two fingers) to tilt and turn",
         )
             .small()

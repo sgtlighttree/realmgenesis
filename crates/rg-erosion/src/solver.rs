@@ -386,10 +386,13 @@ pub fn solve_full(
     lake_in: Option<&LakeInputs>,
     p: &ErosionParams,
 ) -> Solved {
-    solve_full_with_progress(grid, radius_m, h, ocean, uplift_m_yr, k, runoff, elevation_limit_m, lake_in, p, &|_, _| {})
+    solve_full_with_progress(grid, radius_m, h, ocean, uplift_m_yr, k, runoff, elevation_limit_m, lake_in, p, &|_, _| true)
+        .expect("a solve without a cancelling callback always finishes")
 }
 
 /// As [`solve_full`], calling `on_step(k, n)` as implicit step k of n (1-based) starts.
+/// If it returns false the solve stops there and returns `None` (cancelled; `h` is left
+/// part-way). Called on this thread only.
 /// Called on this thread only (progress for the app's console, s02).
 #[allow(clippy::too_many_arguments)]
 pub fn solve_full_with_progress(
@@ -403,8 +406,8 @@ pub fn solve_full_with_progress(
     elevation_limit_m: Option<f64>,
     lake_in: Option<&LakeInputs>,
     p: &ErosionParams,
-    on_step: &dyn Fn(u32, u32),
-) -> Solved {
+    on_step: &dyn Fn(u32, u32) -> bool,
+) -> Option<Solved> {
     let n = grid.n;
     let cell_area: Vec<f64> = grid.weight.iter().map(|w| *w as f64 * 4.0 * std::f64::consts::PI * radius_m * radius_m).collect();
     let wet_area: Vec<f64> = match runoff {
@@ -420,7 +423,9 @@ pub fn solve_full_with_progress(
     let mut length = vec![0.0f64; n];
     let mut lakes_now: Option<crate::lakes::Lakes> = None;
     for step in 0..steps {
-        on_step(step + 1, steps);
+        if !on_step(step + 1, steps) {
+            return None;
+        }
         // Base level: the ocean, plus lake water surfaces when lakes are on. With lakes the
         // rock is never filled (no "sediment from nowhere"); routing uses a filled copy with
         // closed lakes as outlets, so all water reaches the sea or a closed lake.
@@ -493,7 +498,7 @@ pub fn solve_full_with_progress(
             budget.add(implicit_step_varying(&col, h, |i| k[i], p.m, dt));
         }
     }
-    Solved { net, budget, filled_steps, lakes: lakes_now }
+    Some(Solved { net, budget, filled_steps, lakes: lakes_now })
 }
 
 /// Erode the tectonic snapshot. Deterministic: same input, same output, on any thread count.
@@ -521,19 +526,20 @@ pub fn erode_climate(
     runoff: Option<&CubeField<f32>>,
     lakes: Option<(&CubeField<f32>, &CubeField<f32>)>,
 ) -> ErosionResult {
-    erode_climate_with_progress(tectonic, radius_m, p, runoff, lakes, &|_, _| {})
+    erode_climate_with_progress(tectonic, radius_m, p, runoff, lakes, &|_, _| true)
+        .expect("erosion without a cancelling callback always finishes")
 }
 
-/// As [`erode_climate`], reporting solver steps through `on_step(k, n)` (see
-/// [`solve_full_with_progress`]).
+/// As [`erode_climate`], reporting solver steps through `on_step(k, n)`; `None` if it
+/// returned false (cancelled; see [`solve_full_with_progress`]).
 pub fn erode_climate_with_progress(
     tectonic: &TectonicSnapshot,
     radius_m: f64,
     p: &ErosionParams,
     runoff: Option<&CubeField<f32>>,
     lakes: Option<(&CubeField<f32>, &CubeField<f32>)>,
-    on_step: &dyn Fn(u32, u32),
-) -> ErosionResult {
+    on_step: &dyn Fn(u32, u32) -> bool,
+) -> Option<ErosionResult> {
     let tectonic_h = &tectonic.height_m;
     let res = if p.res > 0 { p.res.max(16) } else { tectonic_h.res.min(p.max_res.max(16)) };
     let grid = Grid::new(res);
@@ -577,7 +583,7 @@ pub fn erode_climate_with_progress(
     let mut budget = MassBudget::default();
     if p.enabled && !land_h.is_empty() {
         let lim = (p.elevation_limit_m > 0.0).then_some(p.elevation_limit_m);
-        let solved = solve_full_with_progress(&grid, radius_m, &mut h, &ocean, &uplift, &k_field, runoff_w.as_deref(), lim, lake_in.as_ref(), p, on_step);
+        let solved = solve_full_with_progress(&grid, radius_m, &mut h, &ocean, &uplift, &k_field, runoff_w.as_deref(), lim, lake_in.as_ref(), p, on_step)?;
         net = solved.net;
         budget = solved.budget;
         filled_steps = solved.filled_steps;
@@ -730,7 +736,7 @@ pub fn erode_climate_with_progress(
         })
         .collect();
 
-    ErosionResult { height_m, drainage_km2, flow_dir, lake_depth_m, uplift_mm_yr, height_scale, rivers, stats }
+    Some(ErosionResult { height_m, drainage_km2, flow_dir, lake_depth_m, uplift_mm_yr, height_scale, rivers, stats })
 }
 
 /// The drainage network: receivers, the topological stack and drainage areas.
