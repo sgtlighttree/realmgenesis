@@ -87,3 +87,30 @@ Built and working, kept as is:
 - A gradient/height mismatch at face edges (lighting seam): the 3D-difference bake should prevent it; check the 12 edges visually.
 - Pole frame: check the poles visually.
 - Display S = 2048 vs Ultra's 1024 macro: double bicubic smoothing, harmless.
+
+## Fresh-context review (s03): go with changes. Revised design (supersedes the sections above where they conflict)
+
+Reviewer findings (verified file:line in its report):
+- The warp mapping is fine: `CubeField` indexes the warped u (`field.rs:77`), and `uv_bounds` (`cube.rs:106`) subdivides the same u. At S = 2048, tile vertices land on texels for L ≤ 5 and on half-texels at L6. **"cell ≤ texel/2" caps the level at 6** (today `max_level` is 14, `app.rs:561`). The texel size varies up to ~1.7× toward the face corners.
+- The GPU-displacement plan had several problems:
+  - the bind-group visibility and dimension changes (`planet.rs:150`);
+  - skirt vertices break the `vertex_index` parity;
+  - **the geomorph rule was wrong** for (odd, odd) vertices: those sit on the a–d diagonal (`tile.rs:205`), so their parent is the mean of (i−1, j−1) and (i+1, j+1);
+  - `max_height_m` / `parent_error_m` / `child_error_m` (culling, horizon, skirt, split) had no replacement without a min/max pyramid.
+- Camera clearance and the target height (`app.rs:518–547`) and hover (`describe`) must read the same surface as the display.
+- The zoom floor must clamp `EarthCamera::distance_m` (eye–target; `earth_camera.rs:35/112`), not altitude. Measuring the texel from the macro cell would floor Normal at ~5000 km, which effectively kills zoom.
+
+**Revised (simpler) design, adopted:**
+1. **Heights stay per-vertex on the CPU, sampled from the `DisplayRaster`.** CPU Catmull-Rom on the raster copy (16 reads per vertex, ~70k reads per tile, well under 1 ms) replaces the detail network's 56–240 ms. Unchanged and correct as is: the existing `TileData` (heights, parent heights with the a–d rule, the three error fields, skirts), the vertex format, the vertex shader, culling and geomorph. The diff shrinks to the sampler plus the fragment normals. The vertex shader can take over later (with a min/max pyramid) if a future region resolution needs it.
+2. **Per-pixel normals from the baked gradient texture:**
+   - a `Rg16Float` `texture_2d_array`, 6 layers of (S+1)², **fragment-only**, with a new clamp sampler and normalised uv `(x + 0.5) / (S + 1)`;
+   - the vertex gets a face uv (+ the face layer per instance);
+   - this is the visible gain over today: full raster lighting detail at every LOD, including coarse orbit tiles.
+3. **One surface everywhere:** tiles, camera clearance/target height and hover all read `DisplayRaster::height(dir)` (the same Catmull-Rom + drained coast sign).
+4. **Level cap** = the deepest level whose cell exceeds texel/2 (L6 at S = 2048).
+5. **Zoom floor:**
+   - clamp `distance_m` to ≥ raster texel × (viewport_h / (2·tan(fov/2))) / M;
+   - the texel is the **raster texel**, never the macro cell, so Normal isn't floored at orbit, it just looks softer;
+   - M is a slider, default 8.
+6. **Web:** a 2049² texture exceeds WebGL2's 2048 limit. The native and WebGPU builds are fine. The web build is optional now (native-first).
+7. Height textures: none needed on the GPU for now. Memory = ~100 MB gradient array + ~100 MB CPU height copy.
