@@ -180,9 +180,16 @@ impl TerrainSampler {
         (c, depth * c)
     }
 
-    /// Macro (committed) height at a unit direction, metres above sea level.
+    /// Macro (committed) height at a unit direction, metres above sea level. Drained
+    /// (bilinear with valleys carved) normally; in macro-only mode a smooth bicubic for
+    /// display, with the coastline kept exactly where the drained surface puts it.
     pub fn macro_height(&self, dir: DVec3) -> f64 {
-        self.macro_h.sample_drained(dir)
+        let drained = self.macro_h.sample_drained(dir);
+        if !self.macro_only {
+            return drained;
+        }
+        let smooth = self.macro_h.sample_smooth(dir);
+        if (smooth > 0.0) == (drained > 0.0) { smooth } else { drained }
     }
 
     /// Full height (metres above sea level) at `dir`, keeping only detail octaves with a

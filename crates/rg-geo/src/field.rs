@@ -132,6 +132,30 @@ impl CubeField<f32> {
         drained_interp(a, b, c, d, fx, fy)
     }
 
+    /// Smooth (C¹) sample for display: Catmull-Rom bicubic over the 4×4 neighbourhood. It
+    /// passes through every sample. Indices are clamped at face edges (one-sided there, so a
+    /// faint crease can remain along the 12 cube edges).
+    ///
+    /// Not drained (valleys can rise slightly mid-cell, and it can overshoot a little), so
+    /// never use it for routing or as the detail network's cap. It's for the macro-only
+    /// display, where bilinear facets and creases showed at high relief (s02).
+    pub fn sample_smooth(&self, dir: DVec3) -> f64 {
+        let (face, u, v) = CubeFace::from_dir(dir);
+        let r = self.res as f64;
+        let x = ((u + 1.0) * 0.5 * r).clamp(0.0, r);
+        let y = ((v + 1.0) * 0.5 * r).clamp(0.0, r);
+        let last = self.res as i64;
+        let (i0, j0) = ((x.floor() as i64).min(last - 1), (y.floor() as i64).min(last - 1));
+        let (fx, fy) = (x - i0 as f64, y - j0 as f64);
+        let at = |i: i64, j: i64| self.data[self.index(face, i.clamp(0, last) as u32, j.clamp(0, last) as u32)] as f64;
+        // Catmull-Rom through p1 (t = 0) and p2 (t = 1), with p0 and p3 as the outer points.
+        let cr = |p0: f64, p1: f64, p2: f64, p3: f64, t: f64| {
+            p1 + 0.5 * t * (p2 - p0 + t * (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3 + t * (3.0 * (p1 - p2) + p3 - p0)))
+        };
+        let row = |j: i64| cr(at(i0 - 1, j), at(i0, j), at(i0 + 1, j), at(i0 + 2, j), fx);
+        cr(row(j0 - 1), row(j0), row(j0 + 1), row(j0 + 2), fy)
+    }
+
     /// Piecewise-linear sample on two triangles per cell, split along the diagonal through
     /// the cell's lowest corner: provably drained for a pit-free field (every axis edge is
     /// a triangle edge, and a lower diagonal neighbour is the cell's unique minimum, so its
@@ -225,6 +249,19 @@ mod tests {
             let d = d.normalize();
             assert!((f.sample(d) - d.z as f32).abs() < 0.01);
         }
+    }
+
+    #[test]
+    fn smooth_sample_passes_through_samples_and_tracks_smooth_fields() {
+        let f = CubeField::<f32>::from_fn(32, |d| (d.x * 3000.0 + d.y * d.z * 2000.0) as f32);
+        for (k, face, i, j, d) in f.iter_samples() {
+            if face == CubeFace::ALL[2] && (2..30).contains(&i) && (2..30).contains(&j) {
+                assert!((f.sample_smooth(d) - f.data[k] as f64).abs() < 1e-2, "misses sample ({i}, {j})");
+            }
+        }
+        let g = CubeField::<f32>::from_fn(32, |d| (d.z * 1000.0) as f32);
+        let d = DVec3::new(0.21, 0.13, 0.97).normalize();
+        assert!((g.sample_smooth(d) - d.z * 1000.0).abs() < 1.0);
     }
 
     #[test]
