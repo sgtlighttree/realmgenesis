@@ -192,3 +192,4 @@ Spot: seed 1 Ultra, 50°S 165°E, 2800 km box, `field_maps` (n=1 each).
   - The param and code stay for R4 regional bakes (150–300 m), where lattice-bound rivers would show.
 - The legend renders (Matt's screenshots: "Elevation (m)" bottom-left).
 - Matt: active coasts **both** (automatic default, repaintable). Land terrain "largely satisfied". ROADMAP.md (stale since s01) now opens with the R1–R5 table; HANDOFF has a one-line roadmap.
+- **Bathymetry placement (Matt asked):** coastal bathymetry (shelves, trenches at active margins, ridges mirroring rifted coasts) goes **inside R3**, since it depends on the same plate boundaries. Open-ocean fabric (transforms, fracture zones, abyssal hills, seamounts, the s02 'blobs') becomes **R3b**, right after. Doing it before R3 would mean doing it twice.
