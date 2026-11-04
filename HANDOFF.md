@@ -9,6 +9,10 @@ R1 un-grid/coherence (done differently) → R2 raster renderer (done) → **R3 c
 ## s04 (2026-11-04, local): R3 design in progress
 
 - Log: `docs/session-logs/2026-11-04-s04-r3-design.md`. Deliverable: `docs/design/coastline-conditioning.md` + fresh review. No code until Matt approves.
+- **NOW FIRST (s04, Matt): resolution coherence**: "Ultra basically upscales Normal". Design: `docs/design/canonical-refine.md`.
+  - Normal is the canonical solve; higher presets are refined from it.
+  - Cause: erosion is resolution-dependent (stream power per cell, lakes multiply, global calibration).
+  - Evidence in the s04 log. Then R3.1a.
 - **Design v2 done:** advisor plus a fresh review ("go with changes", all adopted). **Waiting on Matt:** approval, plus the 7 open questions at the end of the doc.
 - Build order once approved:
   - **R3.1a:** plausibility pass on procedural continents. Seaways → classes → fitted plates → solved motion; polarity prescribed; uplift reads a committed `convergence_mm_yr`. The sea-level bisection stays.
