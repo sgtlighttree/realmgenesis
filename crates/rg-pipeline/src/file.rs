@@ -67,6 +67,7 @@ pub fn to_file(w: &World) -> WorldFile {
             "belt_width_km": w.params.erosion.belt_width_km,
             "oceanic_crust_uplift": w.params.erosion.oceanic_crust_uplift,
             "scale_by_convergence_rate": w.params.erosion.scale_by_convergence_rate,
+            "convergence_smoothing_km": w.params.erosion.convergence_smoothing_km,
             "rho8": w.params.erosion.rho8,
             "seed": w.params.erosion.seed,
             "linear_mean_m": w.params.erosion.linear_mean_m,
@@ -226,6 +227,8 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
             belt_width_km: eh["belt_width_km"].as_f64().unwrap_or(400.0),
             oceanic_crust_uplift: eh["oceanic_crust_uplift"].as_f64().unwrap_or(0.5),
             scale_by_convergence_rate: eh["scale_by_convergence_rate"].as_bool().unwrap_or(true),
+            // Files from before s03 had no smoothing.
+            convergence_smoothing_km: eh["convergence_smoothing_km"].as_f64().unwrap_or(0.0),
             rho8: eh["rho8"].as_bool().unwrap_or(false),
             seed: eh["seed"].as_u64().unwrap_or(0),
             linear_mean_m: eh["linear_mean_m"].as_f64().unwrap_or(0.0),

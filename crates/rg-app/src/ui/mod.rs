@@ -119,8 +119,12 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
         ui.add_enabled_ui(e.enabled, |ui| {
             ui.add(egui::Slider::new(&mut e.duration_myr, 1.0..=60.0).logarithmic(true).text("maturity Myr"))
                 .on_hover_text("Simulated time. Short: young, sharp ranges with shallow valleys. Long: mature, deeply dissected relief.");
-            ui.add(egui::Slider::new(&mut e.uplift_exponent, 0.3..=2.0).text("uplift focus"))
-                .on_hover_text("How tightly uplift is concentrated in the main mountain belts. Low: broad uplands. High: narrow, isolated ranges.");
+            // (s03: this used to be "uplift focus" = uplift_exponent, which only applies to the
+            // legacy elevation-based uplift, so it did nothing with tectonic uplift.)
+            ui.add(egui::Slider::new(&mut e.belt_width_km, 150.0..=800.0).text("belt width km"))
+                .on_hover_text("How far mountain-building uplift reaches from a converging plate boundary. Narrow: tight ranges along the boundaries. Wide: broad uplands.");
+            ui.add(egui::Slider::new(&mut e.convergence_smoothing_km, 0.0..=600.0).text("uplift blend km"))
+                .on_hover_text("How smoothly uplift blends between boundary stretches that close at different speeds. 0: terraced \"floors\" with straight escarpments between them. Higher: natural ramps.");
             ui.add(egui::Slider::new(&mut e.river_min_area_km2, 2_000.0..=200_000.0).logarithmic(true).text("river km²"))
                 .on_hover_text("Smallest drainage area drawn as a river.");
         });

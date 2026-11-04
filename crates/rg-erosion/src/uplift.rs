@@ -148,6 +148,11 @@ fn from_boundaries(grid: &Grid, snap: &TectonicSnapshot, radius_m: f64, ocean: &
     let l_belt = (p.belt_width_km * 1.0e3).max(1.0);
     let max_rad = ((6.0 * l_belt / radius_m).min(std::f64::consts::PI)) as f32;
     let near = grid.nearest_source(&seeds, max_rad);
+    // The closing-speed factor per node: its nearest seed's, then optionally blended between
+    // neighbouring boundary stretches (see `ErosionParams::convergence_smoothing_km`).
+    let nearest_factor: Vec<f64> =
+        (0..n).map(|i| if near.src[i] == u32::MAX { 1.0 } else { factor(near.src[i] as usize) }).collect();
+    let conv = smooth_on_sphere(grid, &nearest_factor, p.convergence_smoothing_km * 1.0e3, radius_m);
     let mm = 1.0e-3;
     Some(
         (0..n)
@@ -156,10 +161,91 @@ fn from_boundaries(grid: &Grid, snap: &TectonicSnapshot, radius_m: f64, ocean: &
                     return 0.0;
                 }
                 let d = near.dist_rad[i] as f64 * radius_m;
-                let belt = if near.src[i] == u32::MAX { 0.0 } else { (-d / l_belt).exp() * factor(near.src[i] as usize) };
+                let belt = if near.src[i] == u32::MAX { 0.0 } else { (-d / l_belt).exp() * conv[i] };
                 let w_crust = if snap.crust.nearest(grid.dir[i]) == 1 { 1.0 } else { p.oceanic_crust_uplift };
                 (p.uplift_base_mm_yr + p.uplift_max_mm_yr * belt * w_crust) * mm
             })
             .collect(),
     )
+}
+
+/// Gaussian-ish blur of a per-node field over `sigma_m` on the sphere (`sigma_m` ≤ 0 returns
+/// it unchanged). Done on a coarse grid whose cells are σ/2 wide, so the cost and the result
+/// don't depend on the world's resolution: average the field into the coarse cells (a box
+/// filter), run 6 neighbour-averaging passes (≈ 1.5·(σ/cell)² for a 3×3 kernel), then read it
+/// back bilinearly.
+pub(crate) fn smooth_on_sphere(grid: &Grid, values: &[f64], sigma_m: f64, radius_m: f64) -> Vec<f64> {
+    if sigma_m <= 0.0 {
+        return values.to_vec();
+    }
+    let cell_m = sigma_m * 0.5;
+    let res = ((std::f64::consts::FRAC_PI_2 * radius_m / cell_m).round() as u32).clamp(4, grid.res.max(4));
+    let coarse = Grid::new(res);
+    let probe = CubeField::<u8>::new(res);
+    let coarse_node = |d: DVec3| -> usize {
+        let (face, u, v) = CubeFace::from_dir(d);
+        let r = res as f64;
+        let i = ((u + 1.0) * 0.5 * r).round().clamp(0.0, r) as u32;
+        let j = ((v + 1.0) * 0.5 * r).round().clamp(0.0, r) as u32;
+        coarse.sample_node[probe.index(face, i, j)] as usize
+    };
+    // 1. Area-weighted average into the coarse cells.
+    let (mut sum, mut wsum) = (vec![0.0f64; coarse.n], vec![0.0f64; coarse.n]);
+    for i in 0..grid.n {
+        let c = coarse_node(grid.dir[i]);
+        let w = grid.weight[i] as f64;
+        sum[c] += values[i] * w;
+        wsum[c] += w;
+    }
+    let mut v: Vec<f64> = (0..coarse.n).map(|c| if wsum[c] > 0.0 { sum[c] / wsum[c] } else { 1.0 }).collect();
+    // 2. Neighbour averaging.
+    for _ in 0..6 {
+        v = (0..coarse.n)
+            .map(|a| {
+                let nb = coarse.neighbors(a);
+                (v[a] + nb.iter().map(|&b| v[b as usize]).sum::<f64>()) / (1 + nb.len()) as f64
+            })
+            .collect();
+    }
+    // 3. Back to the fine nodes, bilinearly.
+    let mut field = CubeField::<f32>::new(res);
+    for (k, s) in field.data.iter_mut().enumerate() {
+        *s = v[coarse.sample_node[k] as usize] as f32;
+    }
+    (0..grid.n).map(|i| field.sample(grid.dir[i]) as f64).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn smoothing_removes_a_step_and_keeps_the_mean() {
+        let r = 6_371_000.0;
+        let g = Grid::new(96);
+        // A hard step across the x = 0 plane.
+        let f: Vec<f64> = (0..g.n).map(|i| if g.dir[i].x > 0.0 { 2.0 } else { 0.5 }).collect();
+        let s = smooth_on_sphere(&g, &f, 300_000.0, r);
+        // Unchanged at sigma 0.
+        assert_eq!(smooth_on_sphere(&g, &f, 0.0, r), f);
+        // Far from the step: close to the original levels.
+        for i in 0..g.n {
+            if g.dir[i].x > 0.5 {
+                assert!((s[i] - 2.0).abs() < 0.05, "{}", s[i]);
+            }
+            if g.dir[i].x < -0.5 {
+                assert!((s[i] - 0.5).abs() < 0.05, "{}", s[i]);
+            }
+        }
+        // At the step: a ramp, not a jump. A Gaussian-smoothed step of 1.5 has a peak slope of
+        // 1.5 / (σ·√(2π)); over one ~104 km cell (res 96) that's ≈ 0.21, versus 1.5 raw.
+        let worst = (0..g.n)
+            .flat_map(|a| g.neighbors(a).iter().map(move |&b| (a, b as usize)))
+            .map(|(a, b)| (s[a] - s[b]).abs())
+            .fold(0.0f64, f64::max);
+        assert!(worst < 0.3, "largest neighbour jump {worst}");
+        // Area-weighted mean preserved within a few percent.
+        let mean = |v: &[f64]| (0..g.n).map(|i| v[i] * g.weight[i] as f64).sum::<f64>();
+        assert!((mean(&s) - mean(&f)).abs() < 0.03 * mean(&f));
+    }
 }

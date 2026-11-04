@@ -58,6 +58,12 @@ pub struct ErosionParams {
     pub oceanic_crust_uplift: f64,
     /// `Tectonic` source: scale belt uplift by the plates' closing speed (mean = 1).
     pub scale_by_convergence_rate: bool,
+    /// `Tectonic` source: how far (km, Gaussian σ) the closing-speed factor is blended
+    /// between neighbouring boundary stretches. 0 = each place takes the factor of its single
+    /// nearest boundary point, which steps the uplift along straight Voronoi lines and erodes
+    /// into flat "floors" with escarpments between them (s03; Matt: "interesting, not
+    /// natural"). Larger values ramp smoothly instead. Old world files load as 0.
+    pub convergence_smoothing_km: f64,
     /// Lithology: standard deviation of ln K across the planet (0 = uniform rock). Default 0.3:
     /// at 13–30 km cells rock strength is averaged over many units; 0.6 pushed basin
     /// hypsometry and Hack's exponent to the edge of Earth's range (s01 log). Rock
@@ -115,6 +121,7 @@ impl Default for ErosionParams {
             belt_width_km: 400.0,
             oceanic_crust_uplift: 0.5,
             scale_by_convergence_rate: true,
+            convergence_smoothing_km: 200.0,
             k_variability: 0.3,
             lithology_scale_km: 250.0,
             initial_roughness_m: 20.0,

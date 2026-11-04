@@ -88,3 +88,11 @@ All points adopted; detail in `docs/design/v2-direction-s03.md` → "Fresh-conte
   - Likely the same Voronoi uplift steps (unconfirmed globally).
   - The tall flat-topped ranges are probably the uplift taper to 0 at the 7 km strength cap (`elevation_limit_m`; unconfirmed).
 - **Plan:** smooth the convergence factor over a distance in km, exposed as a slider. At 0 it stays terraced (today's "floors"); higher values give natural ramps. Changes every world at non-zero values, so it goes in with R1.
+- ✓ **Uplift blend:** `ErosionParams::convergence_smoothing_km`.
+  - **Defaults:** 200 for new worlds; files saved before s03 load as 0, which reproduces their uplift.
+  - **How it works:** `uplift::smooth_on_sphere` averages the field on a coarse grid with σ/2 cells, runs 6 neighbour passes, then reads it back bilinearly. Cost and result don't depend on the world's resolution.
+  - **Unit test:** a step becomes a ramp and the mean is kept.
+  - **Same spot, n=1:** the straight edge is gone and the uplift ramps; max uplift in the box went 1.54 → 1.18 mm/yr (before hypsometric calibration).
+  - **UI:** "uplift blend km" (0–600).
+- **Found:** the "uplift focus" slider (`uplift_exponent`) only affects the legacy elevation uplift source, so it did nothing with the default tectonic source. Repurposed as **"belt width km"** (`belt_width_km`, 150–800). Matt's earlier sessions' tuning of "uplift focus" had no effect.
+- **Still to check:** whether the global "floors" go away at 200 (Matt's eye in the app), and whether the super-tall flat-topped ranges come from the 7 km `elevation_limit_m` taper (a candidate second slider).
