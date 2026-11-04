@@ -54,6 +54,7 @@
 pub mod hypsometry;
 pub mod lakes;
 mod jitter;
+pub mod refine;
 mod solver;
 pub mod stats;
 mod uplift;

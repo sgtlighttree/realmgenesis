@@ -92,7 +92,10 @@ impl Equirect {
     /// Bake one layer to RGBA8 sRGB bytes.
     pub fn bake(&self, world: &World, layer: Layer) -> Vec<u8> {
         let (w, h) = (self.width, self.height);
-        let lakes = world.hydrology.as_ref().map(|hy| visible_lakes(&hy.lake_depth_m, MIN_LAKE_NODES));
+        let lakes = world.hydrology.as_ref().map(|hy| {
+            let d = &hy.lake_depth_m;
+            visible_lakes(d, min_lake_nodes(d.res, world.params.tectonics.radius_m))
+        });
         let mut out = vec![0u8; (w * h * 4) as usize];
         par_rows(&mut out, w as usize * 4, |y, row| {
             let lat = lat_of_row(y as u32, h);
@@ -143,7 +146,16 @@ impl Equirect {
 /// Lakes smaller than this many macro nodes aren't drawn: single- and few-node pits left by
 /// the erosion solve read as speckle ("dotted lakes", Matt, s02). Display only: the
 /// committed `lake_depth_m` is unchanged.
-const MIN_LAKE_NODES: usize = 4;
+/// The floor is an **area** (s04): as a node count (4 before s04) the same lake was hidden
+/// at Normal and shown at Ultra, where it covers ~10× the nodes. 4 Normal cells ≈ 3,900 km².
+/// Shared with refinement, which turns lakes below it into playas.
+const MIN_LAKE_KM2: f64 = rg_erosion::refine::MIN_VISIBLE_LAKE_KM2;
+
+/// `MIN_LAKE_KM2` in nodes of a cube grid with `res` cells per face edge (mean cell size).
+fn min_lake_nodes(res: u32, radius_m: f64) -> usize {
+    let cell_km = std::f64::consts::FRAC_PI_2 * radius_m * 1e-3 / res.max(1) as f64;
+    (MIN_LAKE_KM2 / (cell_km * cell_km)).ceil().max(1.0) as usize
+}
 
 /// `depth` with every lake of fewer than `min_nodes` nodes set to 0. Lakes are flooded per
 /// cube face (4-neighbours), so a lake cut by a cube edge is judged per side.

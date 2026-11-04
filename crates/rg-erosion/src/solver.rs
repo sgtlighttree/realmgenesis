@@ -118,6 +118,15 @@ pub struct ErosionParams {
     /// so dryness is the knob. 0 = only closed lakes hold (no plateaus from open lakes);
     /// very large = every open lake holds (all worlds before s03: plateaus everywhere).
     pub plateau_runoff_mm: f64,
+    /// Erosion, lakes and calibration run at most at this resolution (the **canonical**
+    /// world, Normal). Finer worlds are refined from it (`refine.rs`) so they keep its
+    /// large-scale shape (s04, Matt: "Ultra basically upscales Normal"). 0 = off (solve at
+    /// full resolution, the pre-s04 behaviour).
+    pub canonical_res: u32,
+    /// Refinement: simulated incision time (Myr, no uplift) on the fine grid.
+    pub refine_myr: f64,
+    /// Refinement: implicit steps.
+    pub refine_steps: u32,
 }
 
 impl Default for ErosionParams {
@@ -152,6 +161,9 @@ impl Default for ErosionParams {
             lakes: true,
             // 60: between "toned down" and "present" (Matt, s03); 0 = no dry-interior plateaus.
             plateau_runoff_mm: 60.0,
+            canonical_res: 320,
+            refine_myr: 3.0,
+            refine_steps: 4,
         }
     }
 }
@@ -185,6 +197,9 @@ pub struct ErosionResult {
     pub height_scale: Option<f64>,
     pub rivers: Vec<RiverSegment>,
     pub stats: ErosionStats,
+    /// 1 where a closed (terminal) lake stands at the end, at the erosion grid's resolution.
+    /// Not committed; refinement uses it to keep closed basins closed.
+    pub closed_lake: CubeField<u8>,
 }
 
 // ---------------------------------------------------------------------------------------
@@ -193,7 +208,7 @@ pub struct ErosionResult {
 
 /// Per-node erodibility: `K · exp(σ · z)`, with z a smooth noise field of unit variance and
 /// correlation length `lithology_scale_km` (log-normal, as rock strength data are).
-fn lithology(grid: &Grid, radius_m: f64, p: &ErosionParams) -> Vec<f64> {
+pub(crate) fn lithology(grid: &Grid, radius_m: f64, p: &ErosionParams) -> Vec<f64> {
     if p.k_variability <= 0.0 {
         return vec![p.k; grid.n];
     }
@@ -341,7 +356,7 @@ pub fn implicit_step_varying(c: &Column, h: &mut [f64], k: impl Fn(usize) -> f64
 
 /// As [`implicit_step_varying`], with base-level nodes held at `base_h` (0 for the ocean,
 /// the water level for lakes) instead of 0, and base nodes uplifted but never eroded.
-fn implicit_step_based(c: &Column, h: &mut [f64], k: impl Fn(usize) -> f64, m: f64, dt: f64, base_h: &[f64]) -> MassBudget {
+pub(crate) fn implicit_step_based(c: &Column, h: &mut [f64], k: impl Fn(usize) -> f64, m: f64, dt: f64, base_h: &[f64]) -> MassBudget {
     let mut b = MassBudget::default();
     for &i in c.stack {
         let i = i as usize;
@@ -649,9 +664,11 @@ pub fn erode_climate_with_progress(
     };
     let mut endorheic_frac = 0.0;
     let mut lake_frac = 0.0;
+    let mut closed_nodes = vec![false; n];
     let mut lake: Vec<f64> = match &lake_in {
         Some(li) => {
             let lk = crate::lakes::compute(&grid, &h, &ocean, li.runoff_m_yr, li.net_evap_m_yr, &area_m2);
+            closed_nodes.clone_from(&lk.closed_lake);
             let sub: Vec<bool> = (0..n).map(|i| !ocean[i] && lk.level[i] > h[i]).collect();
             let sink: Vec<bool> = (0..n).map(|i| ocean[i] || lk.closed_lake[i]).collect();
             let base_h: Vec<f64> = (0..n).map(|i| if sub[i] { lk.level[i] } else { 0.0 }).collect();
@@ -814,7 +831,9 @@ pub fn erode_climate_with_progress(
         })
         .collect();
 
-    Some(ErosionResult { height_m, drainage_km2, flow_dir, lake_depth_m, uplift_mm_yr, height_scale, rivers, stats })
+    let closed_f = to_field(&closed_nodes.iter().map(|&c| c as u8 as f64).collect::<Vec<_>>());
+    let closed_lake = CubeField { res: closed_f.res, data: closed_f.data.iter().map(|&v| (v > 0.5) as u8).collect() };
+    Some(ErosionResult { height_m, drainage_km2, flow_dir, lake_depth_m, uplift_mm_yr, height_scale, rivers, stats, closed_lake })
 }
 
 /// The drainage network: receivers, the topological stack and drainage areas.

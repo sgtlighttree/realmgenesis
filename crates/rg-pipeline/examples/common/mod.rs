@@ -59,10 +59,22 @@ pub fn world(seed: u64) -> World {
     if let Some(v) = env("RG_CONV_SMOOTH") {
         p.erosion.convergence_smoothing_km = v;
     }
+    if let Some(v) = env("RG_CANON") {
+        p.erosion.canonical_res = v;
+    }
+    if let Some(v) = env("RG_REFINE_MYR") {
+        p.erosion.refine_myr = v;
+    }
+    if let Some(v) = env("RG_REFINE_STEPS") {
+        p.erosion.refine_steps = v;
+    }
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/probe-cache");
     let path = dir.join(format!(
-        "s{seed}-t{}-e{}-n{}-k{}-r{}-l{}-rho{}-lin{}-cv{}-cs{}-j{}-rw{}-en{}-dur{}-lk{}-pp{}-g{}-b{}.rgw",
+        "s{seed}-t{}-c{}-rf{}x{}-e{}-n{}-k{}-r{}-l{}-rho{}-lin{}-cv{}-cs{}-j{}-rw{}-en{}-dur{}-lk{}-pp{}-g{}-b{}.rgw",
         p.tectonics.res,
+        p.erosion.canonical_res,
+        p.erosion.refine_myr,
+        p.erosion.refine_steps,
         p.erosion.res,
         p.erosion.steps,
         p.erosion.k_variability,

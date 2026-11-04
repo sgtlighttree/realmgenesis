@@ -79,6 +79,8 @@ pub enum Stage {
     Erosion,
     /// Tier A climate on the eroded surface.
     Climate,
+    /// Detailing a finer world from the canonical one (`rg_erosion::refine`).
+    Refine,
 }
 
 impl Stage {
@@ -88,6 +90,7 @@ impl Stage {
             Stage::ClimatePre => "climate (pre-erosion)",
             Stage::Erosion => "erosion",
             Stage::Climate => "climate",
+            Stage::Refine => "refine (detail)",
         }
     }
 }
@@ -122,6 +125,13 @@ pub fn generate_with_progress(params: &WorldParams, on: &dyn Fn(Progress) -> boo
     // One radius for everything; erosion's random streams follow the world seed.
     params.planet.radius_m = params.tectonics.radius_m;
     params.erosion.seed = params.tectonics.seed;
+
+    // Finer than the canonical world (Normal): erode at the canonical resolution, then
+    // refine. The large-scale shape is then the same at every preset (s04).
+    let canon = params.erosion.canonical_res;
+    if params.erosion.enabled && canon > 0 && params.tectonics.res > canon {
+        return generate_refined(params, canon, on);
+    }
 
     let t0 = web_time::Instant::now();
     if !stage(Stage::Tectonics) {
@@ -180,6 +190,87 @@ pub fn generate_with_progress(params: &WorldParams, on: &dyn Fn(Progress) -> boo
         climate,
         timings: Timings { tectonics_ms, erosion_ms, climate_ms },
     })
+}
+
+/// Tectonics → climate pre-pass → erosion, the canonical way: the same steps (and bytes)
+/// as `generate_with_progress` for a world at this resolution. Returns the eroded snapshot,
+/// the erosion result and the relative runoff the solve used.
+fn erode_canonical(params: &WorldParams, tectonics: &TectonicSnapshot, on: &dyn Fn(Progress) -> bool) -> Option<(rg_erosion::ErosionResult, CubeField<f32>)> {
+    let stage = |stage: Stage| on(Progress { stage, step: 0, steps: 0 });
+    let mut ep = params.erosion.clone();
+    ep.hypsometry_scale = params.tectonics.mountain_scale as f64 * params.erosion.hypsometry_scale;
+    if !stage(Stage::ClimatePre) {
+        return None;
+    }
+    let (_, climate0, _) = run_climate(&params.planet, tectonics);
+    let wb = water_balance(&params.planet, &climate0, &tectonics.height_m);
+    let mean = wb.mean_land_runoff_mm.max(1.0) as f32;
+    let runoff = CubeField { res: wb.runoff_mm.res, data: wb.runoff_mm.data.iter().map(|v| v / mean).collect() };
+    let net_evap = CubeField { res: wb.pet_mm.res, data: wb.pet_mm.data.iter().zip(&wb.precip_mm.data).map(|(e, p)| e - p).collect() };
+    let lakes = ep.lakes.then_some((&wb.runoff_mm, &net_evap));
+    if !stage(Stage::Erosion) {
+        return None;
+    }
+    let on_step = |step, steps| on(Progress { stage: Stage::Erosion, step, steps });
+    let r = rg_erosion::erode_climate_with_progress(tectonics, params.tectonics.radius_m, &ep, Some(&runoff), lakes, &on_step)?;
+    Some((r, runoff))
+}
+
+/// A world finer than the canonical resolution: the canonical world (Normal) is generated
+/// and eroded exactly as at its own preset, then detailed onto the fine grid
+/// (`rg_erosion::refine`). See `docs/design/canonical-refine.md`.
+fn generate_refined(params: WorldParams, canon: u32, on: &dyn Fn(Progress) -> bool) -> Option<World> {
+    let stage = |stage: Stage| on(Progress { stage, step: 0, steps: 0 });
+    let t0 = web_time::Instant::now();
+    if !stage(Stage::Tectonics) {
+        return None;
+    }
+    let canon_tp = TectonicsParams { res: canon, ..params.tectonics.clone() };
+    let canon_tect = rg_tectonics::generate(&canon_tp);
+    let mut fine = rg_tectonics::generate(&params.tectonics);
+    let tectonics_ms = t0.elapsed().as_secs_f64() * 1000.0;
+
+    let t1 = web_time::Instant::now();
+    let canon_params = WorldParams { tectonics: canon_tp, ..params.clone() };
+    let (r, runoff) = erode_canonical(&canon_params, &canon_tect, on)?;
+    if !stage(Stage::Refine) {
+        return None;
+    }
+    let input = rg_erosion::refine::RefineInput {
+        canon_h: &r.height_m,
+        canon_t: &canon_tect.height_m,
+        canon_lake_m: &r.lake_depth_m,
+        canon_closed: &r.closed_lake,
+        fine_t: &fine.height_m,
+        height_scale: r.height_scale.unwrap_or(1.0),
+        runoff: Some(&runoff),
+    };
+    let mut ep = params.erosion.clone();
+    ep.hypsometry_scale = params.tectonics.mountain_scale as f64 * params.erosion.hypsometry_scale;
+    let refined = rg_erosion::refine::refine(&input, params.tectonics.radius_m, &ep);
+    fine.height_m = refined.height_m;
+    // Uplift is the canonical rate, sampled onto the hydrology grid.
+    let mut uplift = CubeField::<f32>::new(refined.drainage_km2.res);
+    let samples: Vec<_> = uplift.iter_samples().map(|(k, _, _, _, d)| (k, d)).collect();
+    for (k, d) in samples {
+        uplift.data[k] = r.uplift_mm_yr.sample(d);
+    }
+    let hydrology = Some(Hydrology {
+        drainage_km2: refined.drainage_km2,
+        flow_dir: refined.flow_dir,
+        lake_depth_m: refined.lake_depth_m,
+        uplift_mm_yr: Some(uplift),
+        height_scale: r.height_scale,
+        rivers: refined.rivers,
+        stats: r.stats,
+    });
+    let erosion_ms = t1.elapsed().as_secs_f64() * 1000.0;
+
+    if !stage(Stage::Climate) {
+        return None;
+    }
+    let (climate_heights, climate, climate_ms) = run_climate(&params.planet, &fine);
+    Some(World { params, tectonics: fine, hydrology, climate_heights, climate, timings: Timings { tectonics_ms, erosion_ms, climate_ms } })
 }
 
 /// The displayed terrain surface of a world (the committed macro heights, smoothly
@@ -303,5 +394,66 @@ mod progress_tests {
         let steps = steps.into_inner();
         let n = steps.last().map(|s| s.1).unwrap_or(0);
         assert!(n > 0 && steps.len() == n as usize, "{steps:?}");
+    }
+}
+
+/// Resolution coherence guard (s04, Matt: "permanently fix or avoid popping up again").
+/// A world finer than the canonical resolution must keep the canonical world's large-scale
+/// shape: averaged over each canonical cell it matches the canonical world, and it shares
+/// its height calibration. Before s04, erosion ran at full resolution and Ultra lost whole
+/// massifs that Normal had (seed 1: height factor 0.75 vs 0.57).
+#[cfg(test)]
+mod coherence_tests {
+    use super::*;
+    use glam::DVec3;
+
+    fn world(res: u32, canonical_res: u32) -> World {
+        let mut p = WorldParams::default();
+        p.tectonics.seed = 7;
+        p.tectonics.res = res;
+        p.erosion.canonical_res = canonical_res;
+        generate(&p)
+    }
+
+    #[test]
+    fn refined_world_keeps_the_canonical_shape() {
+        let canon = world(64, 64);
+        let fine = world(128, 64);
+        let (hc, hf) = (&canon.tectonics.height_m, &fine.tectonics.height_m);
+        assert_eq!(hf.res, 128);
+        let scale = |w: &World| w.hydrology.as_ref().and_then(|h| h.height_scale);
+        assert_eq!(scale(&canon), scale(&fine), "refinement must not recalibrate");
+
+        // Fine heights averaged over each canonical cell (5×5 points), on canonical land.
+        let cell = hc.spacing_rad();
+        let (mut xs, mut ys) = (Vec::new(), Vec::new());
+        for (k, _, _, _, d) in hc.iter_samples() {
+            if hc.data[k] <= 0.0 || hf.sample(d) <= 0.0 {
+                continue;
+            }
+            let east = DVec3::Z.cross(d).normalize_or(DVec3::X);
+            let north = d.cross(east);
+            let mean = (0..25)
+                .map(|q| {
+                    let (x, y) = ((q % 5) as f64 / 4.0 - 0.5, (q / 5) as f64 / 4.0 - 0.5);
+                    hf.sample_f64((d + (east * x + north * y) * cell).normalize())
+                })
+                .sum::<f64>()
+                / 25.0;
+            xs.push(hc.data[k] as f64);
+            ys.push(mean);
+        }
+        let n = xs.len() as f64;
+        let rms = (xs.iter().zip(&ys).map(|(a, b)| (a - b).powi(2)).sum::<f64>() / n).sqrt();
+        let q = |v: &mut Vec<f64>, f: f64| {
+            v.sort_by(f64::total_cmp);
+            v[((v.len() - 1) as f64 * f) as usize]
+        };
+        let (c50, f50) = (q(&mut xs.clone(), 0.5), q(&mut ys.clone(), 0.5));
+        let (c99, f99) = (q(&mut xs.clone(), 0.99), q(&mut ys.clone(), 0.99));
+        eprintln!("land cells {n} · rms {rms:.0} m · p50 {c50:.0}/{f50:.0} · p99 {c99:.0}/{f99:.0}");
+        assert!((f50 - c50).abs() <= 0.1 * c50.max(100.0), "p50 {c50:.0} vs {f50:.0}");
+        assert!((f99 - c99).abs() <= 0.1 * c99, "p99 {c99:.0} vs {f99:.0}");
+        assert!(rms <= 0.1 * c99, "rms {rms:.0} m vs p99 {c99:.0}");
     }
 }
