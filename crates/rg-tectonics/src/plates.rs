@@ -81,7 +81,8 @@ pub fn build(grid: &Grid, p: &Params, crust: &Crust) -> PlateModel {
     for region in 0..k {
         let mut best: Option<(f64, u32)> = None;
         for _ in 0..40 {
-            let c = rng.index(grid.n);
+            // A random place, not a random node index (resolution-independent; s03).
+            let c = grid.nearest_node(rng.unit_vec());
             let nearest = seeds
                 .iter()
                 .map(|&s| grid.dir[c].dot(grid.dir[s as usize]).clamp(-1.0, 1.0).acos())

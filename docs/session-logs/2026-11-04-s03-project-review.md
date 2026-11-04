@@ -124,3 +124,42 @@ All points adopted; detail in `docs/design/v2-direction-s03.md` → "Fresh-conte
   - Shots in `~/RealmGenesis/shots/s03-blend{0,200}-37n96w.png`.
   - At 60×, a fine diamond crosshatch shows in places (the lattice/Rho8 grain, R1's target) and the coast steps along macro cells (drained-interpolant sign; a coast SDF is the known fix, parked).
 - Perf note (n=1 each, unconfirmed cause): Ultra erosion took 58–63 s in this session's runs vs 28–32 s earlier. Matt's app instance may have been running concurrently. Normals bake at 2048: 12.6 s.
+
+## R1 spike (s03)
+
+- **Code** (`d…` spike commit, off by default):
+  - `rg-erosion/src/jitter.rs`: `node_jitter` moves erosion nodes ±x cells (face-edge ring fixed, keyed on the integer sample index, min/max edge recomputed, Rho8 off);
+  - every field written back is resampled by barycentric interpolation on the jittered triangles, then heights are Priority-Flood filled on the regular grid;
+  - `roughness_wavelength_km` = position-keyed fBm roughness;
+  - unit tests: resampling a smooth field < 5 m error; only interior nodes move.
+- **Look test (n=1, seed 1, 36.3°N 150.2°W, 1500 km, relief 35× kept, blend 200; screenshots via `RG_SHOT`):**
+  - **Ultra, jitter 0.35:** the straight, parallel NW–SE gully grain of the baseline (Matt's "oddly straight ranges" spot) is mostly gone; ridges and valleys curve and branch; rivers wander.
+  - Adding roughness λ 150 km changes little at Ultra.
+  - Normal is too coarse at this zoom to judge.
+- **Cost (Ultra, n=1):** erosion 60.6 s → 74.0 s (+22%); peak RSS 2.71 → 3.03 GB.
+- Gotcha: zsh doesn't word-split `$v` in `shot $v`, so the first batch ran six default worlds. Use `${=v}` or separate args.
+
+## Resolution coherence: root cause found and fixed (s03)
+
+- New probe `examples/probe_res_coherence.rs <seed> <res_a> <res_b>`. Over A's land it reports:
+  - height r (B averaged over A's cell);
+  - river overlap (A rivers ≥ 20,000 km² that have a B river ≥ half the area within one A cell);
+  - same-plate share;
+  - convergent-boundary match.
+  - Probe env `RG_EROSION=0` turns erosion off.
+- **Before (seed 1, n=1 each):**
+  - full pipeline 320 vs 640: **height r 0.38**, rms 923 m, rivers 41%;
+  - jitter or position-keyed roughness barely moved it (0.37–0.38; rivers 41–45%);
+  - **tectonics alone (erosion off): r 0.25 (320/640), 0.19 (640/1024); same plate 7.7%, convergent boundaries 1.1%.**
+- **Refuted (s02 hypothesis):** "the resolution dependence comes from index-hashed erosion roughness/Rho8". Not the main cause; roughness keyed to position changes nothing measurable.
+- **Root cause:**
+  - `plates.rs:84` picked plate seeds as `rng.index(grid.n)`, a random node *number*, which lands elsewhere at every resolution;
+  - the same in `relief.rs` hotspot chains.
+  - Coastlines matched because the continents come from position-keyed noise, but plates (so mountain belts, uplift and everything after) moved.
+- **Fix:** `Grid::nearest_node(rng.unit_vec())` (random place → nearest node); `Rng::index` is unused now and annotated.
+- **After (n=1):**
+  - **tectonics r 0.98 / 0.99**, same plate 99.7%, convergent boundaries 97%;
+  - **full pipeline 320 vs 640: height r 0.93 (rms 332 m), rivers 52%; with jitter 0.35: rivers 59%;**
+  - roughness λ 150/50: 58–59% (no effect).
+- **Consequence:** every regenerated world changes, seed 1 Ultra included. Saved `.rgworld` files load unchanged (committed fields).
+- Remaining river incoherence (~41–48%) is erosion's own resolution dependence (stream power's intrinsic dependence and index-keyed Rho8/jitter); unconfirmed which dominates.

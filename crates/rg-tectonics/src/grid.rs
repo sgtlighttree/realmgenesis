@@ -204,6 +204,20 @@ impl Grid {
         std::f64::consts::FRAC_PI_2 / self.res as f64
     }
 
+    /// The node nearest a unit direction.
+    ///
+    /// Use this (with a random *direction*) to pick random places: a random node *index*
+    /// lands somewhere else at every resolution, which made plates and mountain ranges move
+    /// when the resolution changed (s03, `probe_res_coherence`).
+    pub fn nearest_node(&self, dir: DVec3) -> usize {
+        let (face, u, v) = CubeFace::from_dir(dir);
+        let r = self.res as f64;
+        let i = ((u + 1.0) * 0.5 * r).round().clamp(0.0, r) as usize;
+        let j = ((v + 1.0) * 0.5 * r).round().clamp(0.0, r) as usize;
+        let per_edge = (self.res + 1) as usize;
+        self.sample_node[face as usize * per_edge * per_edge + j * per_edge + i] as usize
+    }
+
     /// Decode a node's representative sample into (face, i, j).
     pub fn node_face_ij(&self, node: usize) -> (CubeFace, u32, u32) {
         let per_edge = (self.res + 1) as usize;

@@ -28,7 +28,7 @@ pub(crate) fn jitter_grid(grid: &mut Grid, amount: f64, seed: u64) -> Vec<[f64; 
     let res = grid.res;
     let n_edge = (res + 1) as usize;
     let mut offsets = vec![[0.0f64; 2]; grid.n];
-    for node in 0..grid.n {
+    for (node, offset) in offsets.iter_mut().enumerate() {
         let k = grid.node_sample[node] as usize;
         let (face, i, j) = sample_ijk(k, n_edge);
         if i == 0 || j == 0 || i == res || j == res {
@@ -36,7 +36,7 @@ pub(crate) fn jitter_grid(grid: &mut Grid, amount: f64, seed: u64) -> Vec<[f64; 
         }
         let ou = (unit_hash(seed ^ 0x0011_7E12, k as u64) - 0.5) * 2.0 * amount;
         let ov = (unit_hash(seed ^ 0x0022_7E12, k as u64) - 0.5) * 2.0 * amount;
-        offsets[node] = [ou, ov];
+        *offset = [ou, ov];
         grid.dir[node] = face.uv_to_dir(cell_to_uv(i as f64 + ou, res), cell_to_uv(j as f64 + ov, res));
     }
     // Edge-length range, radians of arc, for the bucket queues.

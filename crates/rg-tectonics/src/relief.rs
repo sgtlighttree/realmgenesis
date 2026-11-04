@@ -117,12 +117,13 @@ fn hotspot_chains(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Ve
     let mut out = Vec::new();
     for _ in 0..chains {
         // Pick an oceanic spot (a few tries; give up quietly otherwise).
-        let mut node = rng.index(grid.n);
+        // Random places, not node indices, so hotspots don't move with resolution (s03).
+        let mut node = grid.nearest_node(rng.unit_vec());
         for _ in 0..30 {
             if !crust.cont[node] && crust.edge_m[node] < -400_000.0 {
                 break;
             }
-            node = rng.index(grid.n);
+            node = grid.nearest_node(rng.unit_vec());
         }
         if crust.cont[node] {
             continue;

@@ -51,6 +51,7 @@ impl Rng {
     }
 
     /// A uniform index in 0..n.
+    #[allow(dead_code)] // (s03: picking random node indices made worlds resolution-dependent; use Grid::nearest_node(rng.unit_vec()))
     pub fn index(&mut self, n: usize) -> usize {
         ((self.f64() * n as f64) as usize).min(n - 1)
     }
