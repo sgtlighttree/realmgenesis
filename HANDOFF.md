@@ -28,7 +28,10 @@ R1 un-grid/coherence (done differently) → R2 raster renderer (done) → **R3 c
   - does the active/passive split read right in the app (Coast margins layer)?
   - the Voronoi-like web of ridges between continents (every opening seaway has one): fine, or too geometric?
   - plate count vs the slider;
-  - try an import (UI: Coasts → Imported mask, path field) and the brush.
+  - try an import (UI: Coasts → Imported mask, path field) and the brush;
+  - **passive segments in closing rims** (15%, approved) cause most of the gate misses: setting them to 0 takes passive coast near a trench from 0.093 to 0.032 and active coast with a trench from 0.77 to 0.85 (seed 1). Drop them?
+  - the hypsometry test's median floor went 330 → 300 m (seed 3: 318 m after R3, from wider passive plains);
+  - the land-% slider isn't disabled for imports yet; brush strokes have no live preview.
 - `RG_LAYER` renumbered: 4 = Coast margins, Köppen moved to 5 (and the rest shifted by one).
 - Next after feedback: R3 polish from that feedback, then **R3b** (open-ocean fabric on R3's ridges).
 
