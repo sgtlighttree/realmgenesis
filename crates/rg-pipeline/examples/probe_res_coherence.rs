@@ -7,6 +7,9 @@
 //! - **height r**: correlation of A's height with B's height averaged over A's cell;
 //! - **river overlap**: of A's river cells (drainage ≥ 20,000 km²), the share where B has a
 //!   river of at least half that area within one A cell. 1.0 = same rivers in the same places.
+//! - **land height distribution** of each world (p50/p90/p99/max, lake share), so a shift in
+//!   relief between resolutions shows even where r is high. `RG_BOX=lat0,lat1,lon0,lon1`
+//!   (degrees) restricts these stats to a box (s04: Matt's Normal-vs-Ultra massif).
 #[path = "common/mod.rs"]
 mod common;
 use glam::DVec3;
@@ -90,6 +93,38 @@ fn main() {
         "  same plate id {:.1}% · convergent boundary cells of A matched in B {:.1}% ({conv_hit}/{conv_a})",
         100.0 * same_plate as f64 / xs.len().max(1) as f64,
         100.0 * conv_hit as f64 / conv_a.max(1) as f64
+    );
+    distribution(&format!("res {ra}"), &wa);
+    distribution(&format!("res {rb}"), &wb);
+}
+
+/// Land-height percentiles and lake share of one world, inside `RG_BOX` if set.
+fn distribution(label: &str, w: &rg_pipeline::World) {
+    let bx: Option<Vec<f64>> = std::env::var("RG_BOX").ok().filter(|v| !v.trim().is_empty()).map(|v| v.split(',').map(|x| x.trim().parse().unwrap()).collect());
+    let h = &w.tectonics.height_m;
+    let lakes = w.hydrology.as_ref().map(|x| &x.lake_depth_m);
+    let (mut land, mut lake_n) = (Vec::new(), 0usize);
+    for (k, _, _, _, d) in h.iter_samples() {
+        if let Some(b) = &bx {
+            let lat = d.z.asin().to_degrees();
+            let lon = d.y.atan2(d.x).to_degrees();
+            if lat < b[0] || lat > b[1] || lon < b[2] || lon > b[3] {
+                continue;
+            }
+        }
+        let v = h.data[k] as f64;
+        if v > 0.0 {
+            land.push(v);
+            if lakes.is_some_and(|l| l.sample(d) > 0.0) {
+                lake_n += 1;
+            }
+        }
+    }
+    land.sort_by(f64::total_cmp);
+    let q = |f: f64| land.get(((land.len().max(1) - 1) as f64 * f) as usize).copied().unwrap_or(0.0);
+    println!(
+        "  {label}: land n {} · p50 {:.0} · p90 {:.0} · p99 {:.0} · max {:.0} m · lakes {:.2}%",
+        land.len(), q(0.5), q(0.9), q(0.99), q(1.0), 100.0 * lake_n as f64 / land.len().max(1) as f64
     );
 }
 
