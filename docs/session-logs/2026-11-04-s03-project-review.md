@@ -164,3 +164,20 @@ All points adopted; detail in `docs/design/v2-direction-s03.md` → "Fresh-conte
 - **Consequence:** every regenerated world changes, seed 1 Ultra included. Saved `.rgworld` files load unchanged (committed fields).
 - Remaining river incoherence (~41–48%) is erosion's own resolution dependence (stream power's intrinsic dependence and index-keyed Rho8/jitter); unconfirmed which dominates.
 - **Found:** `~/RealmGenesis` (the app's save/export/screenshot folder, `files.rs::folder`) is the repo itself on macOS's case-insensitive filesystem. That's why `heightmap-1.*` and `spike/` showed up untracked. App output patterns are now in `.gitignore`. Proposed to Matt: move the app folder (e.g. `~/Documents/RealmGenesis`).
+
+## Plateaus ("floors") investigation (s03, Matt: "toned down, need a way to tune how often they appear; flat areas are noisy")
+
+Spot: seed 1 Ultra, 50°S 165°E, 2800 km box, `field_maps` (n=1 each).
+- **Pre-erosion** (`RG_EROSION=0`): the tectonic surface has no plateaus or escarpments, just rolling interior with fine noise. So erosion makes them.
+- Plateau = the original surface, standing above eroded basins behind sharp escarpments. Plateau-only speckle of tiny lakes (lake-depth panel).
+- **Refuted:**
+  1. "Small closed basins block drainage": a min-closed-basin knob (spill if catchment < X km²) changed nothing at 5k or 50k km². Reverted.
+  2. "Fronts haven't had time": maturity 120 Myr leaves the fronts in place, and the plateau gets noisier.
+- Drainage area panel: plateau and lowland are one integrated dendritic network. Not disconnected.
+- **Confirmed: `RG_LAKES=0` removes plateaus, escarpments and speckle entirely** (erosion 8.5 s vs ~28 s).
+- **Root cause:** in `solve_full_with_progress`, every lake node (`sub`: level > bed), *open* lakes included, was a fixed base level; its bed "rises with the rock but never erodes", and upstream land graded to it. The noisy, dip-riddled dry interior became lakes and was carried up as plateaus.
+- **Fix:** only closed lakes, plus open lakes in dry ground (below), hold a base level; other open lakes route and erode normally. Seed 3 Normal: endorheic 2.4 → 2.0%; closed lakes 0.15 → 0.12%; open lakes 0.30% → ~0. Real closed basins survive.
+- **Refuted as a knob:** scaling the open-lake erosion rate (plateau_persistence). Even ×0.001 drains them; plateaus are all-or-nothing per lake.
+- **Knob adopted:** `plateau_runoff_mm`. Open lakes with local runoff below N mm/yr are held (dry interiors stay plateaus, cf. Altiplano/Iran). Default 30 (to calibrate); old files load as 1e9 (every open lake held = pre-s03).
+- Also: Ultra erosion runs at ~25–28 s again when nothing else is running. The 58–88 s readings earlier were contention (Matt's app, agents' builds).
+- **Calibration (seed 1 Ultra, whole map, n=1):** 0 → almost no floors; 30 → a few; 100 → a fair number; 1e9 → the pre-s03 abundance. **Default 60 mm/yr**; UI slider "plateau dryness mm" (0–300). Probe env `RG_PLATEAU`, app env too. `field_maps` panel 6 now shows drainage area (log) instead of crust; it works with erosion off.

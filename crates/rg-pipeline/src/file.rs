@@ -78,6 +78,7 @@ pub fn to_file(w: &World) -> WorldFile {
             "initial_roughness_m": w.params.erosion.initial_roughness_m,
             "roughness_wavelength_km": w.params.erosion.roughness_wavelength_km,
             "node_jitter": w.params.erosion.node_jitter,
+            "plateau_runoff_mm": w.params.erosion.plateau_runoff_mm,
             "hydrology_res": w.hydrology.as_ref().map(|h| h.drainage_km2.res),
             "height_scale": w.hydrology.as_ref().and_then(|h| h.height_scale),
         },
@@ -241,6 +242,8 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
             initial_roughness_m: eh["initial_roughness_m"].as_f64().unwrap_or(0.0),
             roughness_wavelength_km: eh["roughness_wavelength_km"].as_f64().unwrap_or(0.0),
             node_jitter: eh["node_jitter"].as_f64().unwrap_or(0.0),
+            // Files from before s03 were made with every open lake held.
+            plateau_runoff_mm: eh["plateau_runoff_mm"].as_f64().unwrap_or(1.0e9),
         }
     } else {
         rg_erosion::ErosionParams { enabled: false, ..Default::default() }

@@ -110,6 +110,14 @@ pub struct ErosionParams {
     pub elevation_limit_m: f64,
     /// Lakes and closed (endorheic) basins from the water balance (needs climate inputs).
     pub lakes: bool,
+    /// Open lakes (full to their pass, water flowing on) whose local runoff is below this
+    /// (mm/yr) hold their level like closed lakes; wetter ones drain as their outlet cuts
+    /// down. A held lake's ground rises with uplift but never erodes, and the land around
+    /// grades to it, so dry interiors stay up as plateaus behind escarpments. It's
+    /// all-or-nothing per lake (s03: scaling their erosion rate by even 0.001 drained them),
+    /// so dryness is the knob. 0 = only closed lakes hold (no plateaus from open lakes);
+    /// very large = every open lake holds (all worlds before s03: plateaus everywhere).
+    pub plateau_runoff_mm: f64,
 }
 
 impl Default for ErosionParams {
@@ -142,6 +150,8 @@ impl Default for ErosionParams {
             linear_mean_m: 656.0,
             elevation_limit_m: 7000.0,
             lakes: true,
+            // 60: between "toned down" and "present" (Matt, s03); 0 = no dry-interior plateaus.
+            plateau_runoff_mm: 60.0,
         }
     }
 }
@@ -452,10 +462,21 @@ pub fn solve_full_with_progress(
                 let lk = crate::lakes::compute(grid, h, ocean, li.runoff_m_yr, li.net_evap_m_yr, &cell_area);
                 let sub: Vec<bool> = (0..n).map(|i| !ocean[i] && lk.level[i] > h[i]).collect();
                 let sink: Vec<bool> = (0..n).map(|i| ocean[i] || lk.closed_lake[i]).collect();
-                let base: Vec<bool> = (0..n).map(|i| ocean[i] || sub[i]).collect();
-                let base_h: Vec<f64> = (0..n).map(|i| if sub[i] { lk.level[i] } else { 0.0 }).collect();
+                // Only *closed* lakes hold a base level. Open lakes (full to their pass, water
+                // flowing on) used to as well: their beds rose with uplift but never eroded,
+                // and the land around graded to them, so dry, dip-riddled interiors were
+                // carried up as noisy plateaus behind escarpments (s03, Matt: "floors").
+                // Real open lakes drain as their outlet cuts down, so their nodes erode now.
+                // Open lakes in dry ground (runoff below `plateau_runoff_mm`) are held too:
+                // drainage there is too weak to integrate, so the interior stays a plateau.
+                let dry = p.plateau_runoff_mm * 1e-3;
+                let held: Vec<bool> =
+                    (0..n).map(|i| sub[i] && (lk.closed_lake[i] || li.runoff_m_yr[i] < dry)).collect();
+                let base: Vec<bool> = (0..n).map(|i| ocean[i] || held[i]).collect();
+                let base_h: Vec<f64> = (0..n).map(|i| if held[i] { lk.level[i] } else { 0.0 }).collect();
+                let level_h: Vec<f64> = (0..n).map(|i| if sub[i] { lk.level[i] } else { 0.0 }).collect();
                 let mut f: Vec<f64> = (0..n).map(|i| if sub[i] { lk.level[i] } else { h[i] }).collect();
-                priority_flood_fill_to(grid, &mut f, &sink, Some(&base_h));
+                priority_flood_fill_to(grid, &mut f, &sink, Some(&level_h));
                 lakes_now = Some(lk);
                 (sink, base, base_h, Some(f))
             }

@@ -41,6 +41,15 @@ pub fn world(seed: u64) -> World {
     if let Some(v) = env::<u8>("RG_EROSION") {
         p.erosion.enabled = v != 0;
     }
+    if let Some(v) = env("RG_PLATEAU") {
+        p.erosion.plateau_runoff_mm = v;
+    }
+    if let Some(v) = env::<u8>("RG_LAKES") {
+        p.erosion.lakes = v != 0;
+    }
+    if let Some(v) = env("RG_MATURITY") {
+        p.erosion.duration_myr = v;
+    }
     if let Some(v) = env("RG_JITTER") {
         p.erosion.node_jitter = v;
     }
@@ -52,7 +61,7 @@ pub fn world(seed: u64) -> World {
     }
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/probe-cache");
     let path = dir.join(format!(
-        "s{seed}-t{}-e{}-n{}-k{}-r{}-l{}-rho{}-lin{}-cv{}-cs{}-j{}-rw{}-en{}-g{}-b{}.rgw",
+        "s{seed}-t{}-e{}-n{}-k{}-r{}-l{}-rho{}-lin{}-cv{}-cs{}-j{}-rw{}-en{}-dur{}-lk{}-pp{}-g{}-b{}.rgw",
         p.tectonics.res,
         p.erosion.res,
         p.erosion.steps,
@@ -66,6 +75,9 @@ pub fn world(seed: u64) -> World {
         p.erosion.node_jitter,
         p.erosion.roughness_wavelength_km,
         p.erosion.enabled as u8,
+        p.erosion.duration_myr,
+        p.erosion.lakes as u8,
+        p.erosion.plateau_runoff_mm,
         rg_pipeline::file::WORLD_SCHEMA,
         build_stamp()
     ));

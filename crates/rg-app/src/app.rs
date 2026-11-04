@@ -267,6 +267,12 @@ impl RealmApp {
             if var("RG_KEEP_RELIEF").is_some() {
                 self.display.keep_relief = true;
             }
+            if let Some(v) = var("RG_PLATEAU").and_then(|v| v.parse().ok()) {
+                self.params.erosion.plateau_runoff_mm = v;
+            }
+            if let Some(v) = var("RG_MATURITY").and_then(|v| v.parse().ok()) {
+                self.params.erosion.duration_myr = v;
+            }
             if let Some(v) = var("RG_JITTER").and_then(|v| v.parse().ok()) {
                 self.params.erosion.node_jitter = v;
             }

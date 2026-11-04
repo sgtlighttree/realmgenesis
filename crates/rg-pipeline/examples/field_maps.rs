@@ -2,7 +2,7 @@
 //! app (s03: a stair-stepped escarpment). Writes one PNG of 3 × 2 panels:
 //!
 //! | hillshade (displayed surface) | uplift (mm/yr)    | relative runoff (erosion's) |
-//! | lake depth (m)                | plate id + bounds | crust type                  |
+//! | lake depth (m)                | plate id + bounds | drainage area (log km²)     |
 //!
 //! `cargo run -p rg-pipeline --release --example field_maps -- <seed> <lat> <lon> <half_km> <out.png>`
 //! Same `RG_*` overrides and cache as the other probes (`RG_RES=1024` = the app's Ultra).
@@ -24,7 +24,8 @@ fn main() {
     let w = common::world(seed);
     let r = w.params.tectonics.radius_m;
     let t = &w.tectonics;
-    let hy = w.hydrology.as_ref().expect("erosion on");
+    // Erosion off (RG_EROSION=0): uplift and lake panels stay blank.
+    let hy = w.hydrology.as_ref();
     let sampler = rg_pipeline::terrain_sampler(&w);
     eprintln!("computing runoff (reruns tier A climate on the tectonic surface)");
     let runoff = rg_pipeline::relative_runoff_for_probe(&w.params.planet, t);
@@ -49,9 +50,9 @@ fn main() {
         for i in (0..PANEL).step_by(4) {
             let d = at(i, j);
             let vals = [
-                hy.uplift_mm_yr.as_ref().map_or(0.0, |u| nearest(u, d) as f64),
+                hy.and_then(|h| h.uplift_mm_yr.as_ref()).map_or(0.0, |u| nearest(u, d) as f64),
                 nearest(&runoff, d) as f64,
-                nearest(&hy.lake_depth_m, d) as f64,
+                hy.map_or(0.0, |h| nearest(&h.lake_depth_m, d) as f64),
             ];
             for (rg, v) in ranges.iter_mut().zip(vals) {
                 *rg = (rg.0.min(v), rg.1.max(v));
@@ -82,10 +83,10 @@ fn main() {
             };
             put(0, i, j, c.map(|v| (v * (0.35 + 0.85 * shade)).min(255.0) as u8));
             // 1–3: scalar fields on a ramp.
-            let up = hy.uplift_mm_yr.as_ref().map_or(0.0, |u| nearest(u, d) as f64);
+            let up = hy.and_then(|h| h.uplift_mm_yr.as_ref()).map_or(0.0, |u| nearest(u, d) as f64);
             put(1, i, j, ramp(up, ranges[0]));
             put(2, i, j, ramp(nearest(&runoff, d) as f64, ranges[1]));
-            put(3, i, j, ramp(nearest(&hy.lake_depth_m, d) as f64, ranges[2]));
+            put(3, i, j, ramp(hy.map_or(0.0, |h| nearest(&h.lake_depth_m, d) as f64), ranges[2]));
             // 4: plate id as a hashed colour, boundaries dark.
             let pid = nearest(&t.plate_id, d) as u64;
             let mut c = hash_color(pid);
@@ -93,8 +94,9 @@ fn main() {
                 c = c.map(|v| v / 3);
             }
             put(4, i, j, c);
-            // 5: crust type as a hashed colour.
-            put(5, i, j, hash_color(1000 + nearest(&t.crust, d) as u64));
+            // 5: drainage area, log scale 10..10⁶ km² (black = no data / erosion off).
+            let area = hy.map_or(0.0, |h| nearest(&h.drainage_km2, d) as f64);
+            put(5, i, j, if area > 0.0 { ramp(area.log10(), (1.0, 6.0)) } else { [0, 0, 0] });
         }
     }
     let file = std::fs::File::create(out).unwrap();
