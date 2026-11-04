@@ -93,7 +93,7 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
    - camera height queries no longer build 240 ms detail patches on the UI thread mid-drag (macro height above 10 km clearance; one quantised cut-off below);
    - tile workers: half the cores (≤ 4), utility QoS on macOS, unwanted tiles skipped;
    - no repaint on mere hover.
-   **Still open:** world generation (launch, G, R) runs synchronously on the UI thread on every core for seconds (M1b `Job` stepping). On the web the button pauses the in-frame tile generation. **Rebuild the app before testing:** the s02 drag fix was corrected after the last release build. See ROADMAP → Engineering.
+   **Still open:** world generation (launch, G, R) runs synchronously on the UI thread on every core for seconds (M1b `Job` stepping). On the web the button pauses the in-frame tile generation. See ROADMAP → Engineering.
 1. **Leaky lake rims:** neighbour-basin wedges cross the macro divide below a closed lake's level; water stands as a wall on part of the footprint edge. Fix idea: partition wedges by terminal sink inside closed catchments, with a continuous rim (needs design; min/max compositions can make pits).
 2. **Endorheic 4.5% vs ~20%:** Thornthwaite underestimates arid PET; no sediment infill; 1° climate.
 3. **Mountains too gentle and θ low:** relief-limited channel heads, effective uplift; no glacial/threshold landscapes as steep as Taiwan/Himalaya.
