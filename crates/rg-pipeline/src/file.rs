@@ -92,7 +92,7 @@ pub fn to_file(w: &World) -> WorldFile {
         },
     });
     // R3: how the coasts were made (R3.2 adds imports; absent in older files = procedural).
-    header["conditioning"] = json!({"mode": "procedural"});
+    header["conditioning"] = crate::import::conditioning_header(&t.conditioning);
     let c = &w.climate;
     let mut hydro_chunks = Vec::new();
     if let Some(h) = &w.hydrology {
@@ -121,6 +121,7 @@ pub fn to_file(w: &World) -> WorldFile {
         ]
         .into_iter()
         .chain(w.tectonics.margin.as_ref().map(|m| Chunk::u8s("tectonics.margin", &m.data)))
+        .chain(crate::import::source_chunk(&t.conditioning))
         .chain(w.tectonics.convergence_mm_yr.as_ref().map(|c| Chunk::f32s("tectonics.convergence_mm_yr", &c.data)))
         .chain([
             Chunk::f32s("climate.heights", &w.climate_heights.data),
@@ -154,6 +155,7 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
         roughness: num(th, "roughness")? as f32,
         // Schema < 5 predates R3; regenerating such a world uses today's default.
         active_share: th["active_share"].as_f64().unwrap_or(0.25) as f32,
+        conditioning: crate::import::conditioning_from_file(&h["conditioning"], f)?,
     };
     let ph = &h["planet"];
     let planet = PlanetParams {
@@ -197,6 +199,7 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
         crust: cube_u8("tectonics.crust")?,
         boundary: cube_u8("tectonics.boundary")?,
         margin: if f.chunk("tectonics.margin").is_some() { Some(cube_u8("tectonics.margin")?) } else { None },
+        land_cover: None,
         convergence_mm_yr: match f.chunk("tectonics.convergence_mm_yr") {
             Some(c) => {
                 let data = c.as_f32s().ok_or("tectonics.convergence_mm_yr: wrong type")?;

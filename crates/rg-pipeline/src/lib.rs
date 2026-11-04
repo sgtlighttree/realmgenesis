@@ -6,9 +6,11 @@
 
 pub mod export;
 pub mod file;
+pub mod import;
 pub mod layers;
 pub mod legend;
 mod palette;
+pub mod svg;
 
 use rg_climate::{ClimateFields, ClimateInput, LatLonGrid, PlanetParams};
 use rg_erosion::{ErosionParams, ErosionStats, RiverSegment};
@@ -485,4 +487,30 @@ mod coherence_tests {
         assert!((f99 - c99).abs() <= 0.1 * c99, "p99 {c99:.0} vs {f99:.0}");
         assert!(rms <= 0.1 * c99, "rms {rms:.0} m vs p99 {c99:.0}");
     }
+
+    /// R3.1b gate 1 (erosion half): with strict coasts, erosion's ocean is the mask at its
+    /// own nodes, so the eroded surface's sign matches the mask everywhere, and no lake bed
+    /// or valley drops to sea level on land.
+    #[test]
+    fn strict_coasts_survive_erosion() {
+        let mut params = WorldParams::default();
+        params.tectonics.res = 48;
+        params.erosion.canonical_res = 0;
+        params.erosion.steps = 8;
+        params.tectonics.conditioning.strict = true;
+        params.tectonics.conditioning.islands = false;
+        let snap = rg_tectonics::generate(&params.tectonics);
+        let cover = snap.land_cover.as_ref().unwrap();
+        let w = crate::generate(&params);
+        let hm = &w.tectonics.height_m;
+        let mut checked = 0;
+        for (idx, _, _, _, d) in hm.iter_samples() {
+            let land = cover.sample(d) > 0.5;
+            let h = hm.data[idx];
+            assert_eq!(land, h > 0.0, "sample {idx}: mask land {land}, height {h}");
+            checked += 1;
+        }
+        assert!(checked > 0);
+    }
 }
+
