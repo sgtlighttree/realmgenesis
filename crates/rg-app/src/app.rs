@@ -43,7 +43,8 @@ fn smoothstep(a: f64, b: f64, x: f64) -> f64 {
 
 impl Default for DisplayParams {
     fn default() -> Self {
-        Self { exaggeration: 20.0 }
+        // 35: Matt's pick on the M1 (s02); 20 made network valleys read as flat grooves.
+        Self { exaggeration: 35.0 }
     }
 }
 
