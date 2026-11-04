@@ -9,10 +9,16 @@ R1 un-grid/coherence (done differently) → R2 raster renderer (done) → **R3 c
 ## s04 (2026-11-04, local): R3 design in progress
 
 - Log: `docs/session-logs/2026-11-04-s04-r3-design.md`. Deliverable: `docs/design/coastline-conditioning.md` + fresh review. No code until Matt approves.
-- **NOW FIRST (s04, Matt): resolution coherence**: "Ultra basically upscales Normal". Design: `docs/design/canonical-refine.md`.
-  - Normal is the canonical solve; higher presets are refined from it.
-  - Cause: erosion is resolution-dependent (stream power per cell, lakes multiply, global calibration).
-  - Evidence in the s04 log. Then R3.1a.
+- **Resolution coherence: BUILT (s04, `c2c2609`)**: "Ultra basically upscales Normal" (Matt). Design: `docs/design/canonical-refine.md`.
+  - Erosion, lakes and calibration run at `canonical_res` 320 (Normal). Finer presets go through `rg_erosion::refine` (`generate_refined` in rg-pipeline): up(H_canon) plus zero-mean sub-cell tectonic detail plus a 3 Myr, 4-step incision with no uplift. Canonical lakes are flooded inside their own cells; lakes under 3,900 km² become playas.
+  - **Normal byte-identical** (seed 1 hashes, `examples/world_hash`). Guard: `rg-pipeline` `coherence_tests` (64 → 128; fails under the old behaviour).
+  - Lake display floor is now an area (3,900 km²), not a node count.
+  - Leftovers:
+    - faint ladder gullies in places;
+    - fine-res max 7.7 km vs canonical 5.0 (sub-cell tectonic peaks);
+    - Draft (192) is still its own preview, not coherent (ask Matt);
+    - R4 should reuse `refine`.
+  - **Waiting on Matt's look in the app** (Normal vs Ultra, seed 1). Then R3.1a.
 - **Design v2 done:** advisor plus a fresh review ("go with changes", all adopted). **Waiting on Matt:** approval, plus the 7 open questions at the end of the doc.
 - Build order once approved:
   - **R3.1a:** plausibility pass on procedural continents. Seaways → classes → fitted plates → solved motion; polarity prescribed; uplift reads a committed `convergence_mm_yr`. The sea-level bisection stays.
