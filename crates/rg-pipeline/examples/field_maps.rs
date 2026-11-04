@@ -25,7 +25,7 @@ fn main() {
     let r = w.params.tectonics.radius_m;
     let t = &w.tectonics;
     let hy = w.hydrology.as_ref().expect("erosion on");
-    let sampler = rg_pipeline::terrain_sampler_macro(&w);
+    let sampler = rg_pipeline::terrain_sampler(&w);
     eprintln!("computing runoff (reruns tier A climate on the tectonic surface)");
     let runoff = rg_pipeline::relative_runoff_for_probe(&w.params.planet, t);
 

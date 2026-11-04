@@ -58,48 +58,9 @@ impl TileGenerator {
     /// Pure function of (sampler, id): safe to run on any thread.
     pub fn generate(&self, id: TileId) -> TileData {
         let r = self.sampler.radius_m;
-        let cell = self.cell_size_m(id.level);
-        // Band-limit: only octaves this tile can represent, ≥ 2 cells per wavelength (the
-        // Nyquist floor). At 2, a network valley is ~2 cells wide and draws as an angular
-        // zigzag from orbit (Matt, s02: "low def and angular"); RG_TILE_BAND_CELLS (native)
-        // tries wider bands without a rebuild. Any value keeps parent/child bands
-        // consistent, since a parent's cells are twice as big.
-        let min_wl = crate::tune("RG_TILE_BAND_CELLS", 2.0).max(2.0) * cell;
         let (u0, v0, u1, v1) = id.uv_bounds();
         let du = (u1 - u0) / TILE_CELLS as f64;
         let dv = (v1 - v0) / TILE_CELLS as f64;
-
-        // Sample an (N+2)² grid. The extra ring (apron) feeds the cell-centre error check
-        // below. Lighting comes from the baked gradient texture, not from these samples.
-        let m = N + 2;
-        // Heights on the (N+2)² grid (one apron ring for normals). The gully filter's slope
-        // comes from fixed 250 m finite differences inside `levels`, not from this grid, so
-        // every LOD level sees the same slope and a child's parent-level heights match the
-        // parent tile exactly (needed for seamless geomorphing).
-        let mut dirs = vec![DVec3::ZERO; m * m];
-        let mut lv = vec![crate::HeightLevels { macro_h: 0.0, h: 0.0, h_parent: 0.0, h_child: 0.0 }; m * m];
-        // With the drained detail network, one patch covers the whole tile (+ apron).
-        let patch = {
-            let c = id.face.uv_to_dir((u0 + u1) * 0.5, (v0 + v1) * 0.5);
-            let corner = id.face.uv_to_dir(u0 - du, v0 - dv);
-            let corner2 = id.face.uv_to_dir(u1 + du, v1 + dv);
-            let rad = (c - corner).length().max((c - corner2).length()) * r * 1.05;
-            self.sampler.network_patch(c, rad, min_wl)
-        };
-        for j in 0..m {
-            for i in 0..m {
-                let u = u0 + (i as f64 - 1.0) * du;
-                let v = v0 + (j as f64 - 1.0) * dv;
-                let dir = id.face.uv_to_dir(u, v);
-                let l = match &patch {
-                    Some(p) => self.sampler.levels_in_patch(p, dir),
-                    None => self.sampler.levels(dir, min_wl),
-                };
-                let k = j * m + i;
-                dirs[k] = dir;
-                lv[k] = l;
-            }
-        }
 
         let center_dir = id.face.uv_to_dir((u0 + u1) * 0.5, (v0 + v1) * 0.5);
         let center = center_dir * r;
@@ -118,29 +79,27 @@ impl TileGenerator {
         };
         for j in 0..N {
             for i in 0..N {
-                let k = (j + 1) * m + (i + 1);
-                let p = dirs[k] * r;
+                let (u, v) = (u0 + i as f64 * du, v0 + j as f64 * dv);
+                let dir = id.face.uv_to_dir(u, v);
+                let h = self.sampler.macro_height(dir);
+                let p = dir * r;
                 out.positions.push((p - center).as_vec3().to_array());
-                let s = (u0 + i as f64 * du + 1.0) * 0.5;
-                let t = (v0 + j as f64 * dv + 1.0) * 0.5;
-                out.face_uv.push([s as f32, t as f32, id.face as u8 as f32]);
-                out.heights.push(lv[k].h as f32);
-                out.parent_heights.push(lv[k].h_parent as f32);
+                // Where the vertex sits on its face (0..1), for the gradient texture lookup.
+                out.face_uv.push([((u + 1.0) * 0.5) as f32, ((v + 1.0) * 0.5) as f32, id.face as u8 as f32]);
+                out.heights.push(h as f32);
+                out.parent_heights.push(h as f32);
                 out.skirt.push(0.0);
                 out.patch_radius_m = out.patch_radius_m.max((p - center).length());
-                out.max_height_m = out.max_height_m.max(lv[k].h);
-                out.child_error_m = out.child_error_m.max((lv[k].h_child.max(0.0) - lv[k].h.max(0.0)).abs());
-                out.parent_error_m = out.parent_error_m.max((lv[k].h.max(0.0) - lv[k].h_parent.max(0.0)).abs());
+                out.max_height_m = out.max_height_m.max(h);
             }
         }
-        // Macro undersampling: a coarse tile's cells can be wider than the macro field's,
-        // so mountains between vertices get cut off. Compare the macro height at each cell
-        // centre with the average of its corners and fold that into the split error.
+        // Split error: the surface is smooth between vertices, so a tile is only as wrong as
+        // its triangles are flat. Compare the surface at each cell centre with the average of
+        // the cell's corners (this also catches peaks a coarse tile steps over).
+        let hv = |i: usize, j: usize| out.heights[j * N + i].max(0.0) as f64;
         for j in 0..N - 1 {
             for i in 0..N - 1 {
-                let k = (j + 1) * m + (i + 1);
-                let corners = [lv[k].macro_h, lv[k + 1].macro_h, lv[k + m].macro_h, lv[k + m + 1].macro_h];
-                let avg = corners.iter().map(|h| h.max(0.0)).sum::<f64>() / 4.0;
+                let avg = (hv(i, j) + hv(i + 1, j) + hv(i, j + 1) + hv(i + 1, j + 1)) / 4.0;
                 let mid = id.face.uv_to_dir(u0 + (i as f64 + 0.5) * du, v0 + (j as f64 + 0.5) * dv);
                 let e = (self.sampler.macro_height(mid).max(0.0) - avg).abs();
                 out.child_error_m = out.child_error_m.max(e);
@@ -162,6 +121,9 @@ impl TileGenerator {
                     _ => 0.5 * (at(i - 1, j - 1) + at(i + 1, j + 1)),
                 };
                 out.parent_heights[j * N + i] = v;
+                // How far this tile departs from its parent's mesh: sizes the skirt.
+                let gap = (out.heights[j * N + i].max(0.0) - v.max(0.0)).abs() as f64;
+                out.parent_error_m = out.parent_error_m.max(gap);
             }
         }
         // Skirt: copies of the border. The shader drops them below the surface by a
@@ -223,7 +185,7 @@ mod tests {
 
     fn generator() -> TileGenerator {
         let f = Arc::new(CubeField::from_fn(32, |d| (d.z * 3000.0) as f32));
-        TileGenerator { sampler: TerrainSampler::new(f, 6_371_000.0, 1) }
+        TileGenerator { sampler: TerrainSampler::new(f, 6_371_000.0) }
     }
 
     #[test]

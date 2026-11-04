@@ -96,3 +96,12 @@ All points adopted; detail in `docs/design/v2-direction-s03.md` → "Fresh-conte
   - **UI:** "uplift blend km" (0–600).
 - **Found:** the "uplift focus" slider (`uplift_exponent`) only affects the legacy elevation uplift source, so it did nothing with the default tectonic source. Repurposed as **"belt width km"** (`belt_width_km`, 150–800). Matt's earlier sessions' tuning of "uplift focus" had no effect.
 - **Still to check:** whether the global "floors" go away at 200 (Matt's eye in the app), and whether the super-tall flat-topped ranges come from the 7 km `elevation_limit_m` taper (a candidate second slider).
+- ✓ **Detail-network code deleted** (Matt: "go for it"). −2994 lines.
+  - **`rg-terrain`:** now only the displayed surface + tiles + gradient. Gone: `detail_net.rs`, `erosion_filter.rs`, `network.rs`, hills/gullies/corridors, and the rg-noise dependency. `TerrainSampler::new(field, radius)` (no seed); `macro_height` = bicubic with the drained coast sign.
+  - **`rg-pipeline`:** a single `terrain_sampler(world)`.
+  - **Removed probes** (they measured the detail surface only): `bench_tiles`, `probe_drainage`, `probe_grid`, `probe_line`, `probe_pits`, `probe_slope`, `probe_hypsometry`. **Removed test:** `tests/terrain_realism.rs`. It asserted 90 m slopes of the detail surface, which the 10–50 km macro surface can't have. Its realism role moves to R4 (regional bakes), scored with `probe_realism`'s metrics (kept, now on the macro surface).
+  - **`river_map`:** `RG_MAP_FULL` is gone.
+  - **App:** camera height queries use `macro_height` directly; `camera_query_cutoff_m` and its tests removed.
+  - **Tiles:** split error is now the bicubic-vs-flat-triangle gap at cell centres; skirt depth uses the parent-mesh gap (it was 0 in macro-only mode).
+  - **Measured (`bench_tile`, synthetic field, n=1):** ~1 ms per tile at L0–L6 (detail network: 56–240 ms).
+  - Clippy clean; workspace tests pass.

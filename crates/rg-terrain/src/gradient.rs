@@ -125,7 +125,7 @@ mod tests {
     fn gradient_matches_an_analytic_field() {
         let r = 6_371_000.0;
         let f = Arc::new(CubeField::from_fn(64, |d| (d.z * 3000.0) as f32));
-        let s = TerrainSampler::new(f, r, 1).with_macro_only();
+        let s = TerrainSampler::new(f, r);
         let g = bake_gradient(&s, 64);
         let mut worst: f64 = 0.0;
         for (k, _, _, _, dir) in g.iter_samples() {
@@ -145,7 +145,7 @@ mod tests {
     fn face_edge_twins_agree() {
         let r = 6_371_000.0;
         let f = Arc::new(CubeField::from_fn(32, |d| (d.x * 2000.0 + d.y * d.z * 4000.0) as f32));
-        let s = TerrainSampler::new(f, r, 1).with_macro_only();
+        let s = TerrainSampler::new(f, r);
         let g = bake_gradient(&s, 32);
         // Group samples by quantised direction; twins must have nearly equal gradients.
         let mut by_pos: std::collections::HashMap<[i64; 3], [f32; 2]> = Default::default();

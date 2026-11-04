@@ -7,5 +7,4 @@ publish.workspace = true
 
 [dependencies]
 rg-geo.workspace = true
-rg-noise.workspace = true
 glam.workspace = true

@@ -26,33 +26,10 @@ fn main() {
         let y = (la - lat0) * r;
         ((x + half) / m_per_px, (half - y) / m_per_px)
     };
-    // Hillshade of the macro surface (drained interpolant), or with RG_MAP_FULL=1 the final
-    // surface (macro + detail) and no river overlay.
-    let full = std::env::var("RG_MAP_FULL").is_ok();
-    let sampler = rg_pipeline::terrain_sampler(&w);
-    // Full mode with a network: evaluate through 8×8 sub-patches (far cheaper than per-point
-    // cached patches).
-    let cut = m_per_px.min(200.0);
-    let sub = 8usize;
-    let patches: Vec<Option<rg_terrain::detail_net::Patch>> = (0..sub * sub)
-        .map(|k| {
-            let (bx, by) = (k % sub, k / sub);
-            let bs = 2.0 * half / sub as f64;
-            let (x, y) = (-half + (bx as f64 + 0.5) * bs, half - (by as f64 + 0.5) * bs);
-            if full { sampler.network_patch(at(x, y), bs * 0.75 + 4.0 * m_per_px, cut) } else { None }
-        })
-        .collect();
-    let hgt = |d: DVec3| {
-        if !full {
-            return hm.sample_drained(d);
-        }
-        let (px_x, px_y) = to_px(d);
-        let (bx, by) = (((px_x / px as f64) * sub as f64).clamp(0.0, sub as f64 - 1.0) as usize, ((px_y / px as f64) * sub as f64).clamp(0.0, sub as f64 - 1.0) as usize);
-        match &patches[by * sub + bx] {
-            Some(p) => p.heights(d)[0],
-            None => sampler.height(d, cut).0,
-        }
-    };
+    // Hillshade of the macro surface (drained interpolant: what the rivers are routed on).
+    // (RG_MAP_FULL, the streamed-detail surface, went with the detail network in s03.)
+    let full = false;
+    let hgt = |d: DVec3| hm.sample_drained(d);
     let mut img = vec![0u8; px * px * 3];
     for j in 0..px {
         for i in 0..px {

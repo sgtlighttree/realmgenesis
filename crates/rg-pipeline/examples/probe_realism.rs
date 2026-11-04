@@ -1,10 +1,9 @@
-//! Realism scorecard for the **final** surface (macro + streamed detail), in several boxes:
+//! Realism scorecard for the displayed surface, in several boxes (s03: the macro surface;
+//! the streamed detail it was built for is gone, regional bakes will be scored next):
 //! `cargo run -p rg-pipeline --release --example probe_realism -- <seed> [half_km]`
 //!
-//! Env: `RG_RES` (tectonics res), `RG_EROSION_RES`, `RG_EROSION_STEPS`, plus the detail
-//! overrides `TerrainSampler` reads (`RG_HILL_SLOPE`, `RG_GULLY_STRENGTH`, ...).
-//! The generated world is cached in `target/probe-cache/`, so re-runs that only change detail
-//! settings skip generation.
+//! Env: `RG_RES` (tectonics res), `RG_EROSION_RES`, `RG_EROSION_STEPS` (see `common/mod.rs`).
+//! The generated world is cached in `target/probe-cache/`.
 //!
 //! Per box (three of the most rugged macro spots, one ordinary lowland):
 //! - **depressions:** Priority-Flood fill on a 250 m grid, box edges = outlets. Share of land
@@ -86,57 +85,10 @@ fn score(w: &World, s: &rg_terrain::TerrainSampler, lat0: f64, lon0: f64, half: 
     let cut: f64 = std::env::var("RG_PROBE_CUT").ok().and_then(|v| v.parse().ok()).unwrap_or(sp);
     let n = (2.0 * half / sp) as usize;
     let dir_at = |i: usize, j: usize| at(-half + i as f64 * sp, -half + j as f64 * sp);
-    // RG_PROBE_SURFACE=macro scores the bare macro surface (bilinear committed heights).
-    let mode = std::env::var("RG_PROBE_SURFACE").unwrap_or_default();
-    let macro_only = mode == "macro";
-    // RG_PROBE_SURFACE=gully: the old stateless detail (hills + gully filter), for comparison.
-    let gully = {
-        let mut g = s.clone();
-        g.net = None;
-        g
-    };
-    let s = if mode == "gully" { &gully } else { s };
-    // RG_PROBE_SURFACE=net: the drained detail network, through cached 5 km sub-patches
-    // (keyed by band-limit and block).
-    let dnet = (mode == "net").then(|| {
-        let hy = w.hydrology.as_ref().expect("erosion on");
-        let mn = rg_terrain::network::MacroNet::new(
-            std::sync::Arc::new(w.tectonics.height_m.clone()),
-            std::sync::Arc::new(hy.flow_dir.clone()),
-            std::sync::Arc::new(hy.drainage_km2.clone()),
-        )
-        .expect("hydrology at macro res");
-        let mn = match &hy.uplift_mm_yr {
-            Some(u) => mn.with_uplift(std::sync::Arc::new(u.clone())),
-            None => mn,
-        };
-        rg_terrain::detail_net::DetailNet::new(mn, w.params.tectonics.radius_m, w.params.tectonics.seed).with_erodibility(w.params.erosion.k / hy.height_scale.unwrap_or(1.0))
-    });
-    let patches: std::cell::RefCell<std::collections::HashMap<(i64, i64, u64), rg_terrain::detail_net::Patch>> = Default::default();
-    let rr = w.params.tectonics.radius_m;
-    let surf = |d: glam::DVec3, wl: f64| {
-        if macro_only {
-            return s.macro_height(d);
-        }
-        let Some(dn) = &dnet else { return s.height(d, wl).0 };
-        // Block of the local box frame (lat/lon offsets in m).
-        let (la, lo) = (d.z.asin(), d.y.atan2(d.x));
-        let (x, y) = ((lo - lon0) * rr * lat0.cos(), (la - lat0) * rr);
-        let bs = 5000.0;
-        let key = ((x / bs).floor() as i64, (y / bs).floor() as i64, wl.to_bits());
-        let mut ps = patches.borrow_mut();
-        // Bounded: fine patches are several MB each, and random slope samples touch hundreds.
-        if ps.len() >= 24 && !ps.contains_key(&key) {
-            ps.clear();
-        }
-        let patch = ps.entry(key).or_insert_with(|| {
-            let (cx, cy) = ((key.0 as f64 + 0.5) * bs, (key.1 as f64 + 0.5) * bs);
-            let (cla, clo) = (lat0 + cy / rr, lon0 + cx / (rr * lat0.cos()));
-            let c = glam::DVec3::new(cla.cos() * clo.cos(), cla.cos() * clo.sin(), cla.sin());
-            dn.patch(c, bs * 0.75, wl)
-        });
-        patch.heights(d)[0]
-    };
+    // The displayed surface (the macro, smoothly interpolated). The streamed detail network
+    // this probe was built to score was removed in s03; the metrics stay for regional
+    // bakes (R4), which will be scored the same way.
+    let surf = |d: glam::DVec3, _wl: f64| s.macro_height(d);
     let h: Vec<f64> = (0..n * n).map(|k| surf(dir_at(k % n, k / n), cut)).collect();
 
     // Priority-Flood fill with the box edge (and the sea) as outlet.

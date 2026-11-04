@@ -180,41 +180,12 @@ pub fn generate_with_progress(params: &WorldParams, on: &dyn Fn(Progress) -> boo
     })
 }
 
-/// The macro-only sampler for a world: the drained macro surface, no streamed detail
-/// (the app's "streamed detail: off", s02). Skips building the detail network.
-pub fn terrain_sampler_macro(world: &World) -> rg_terrain::TerrainSampler {
-    let height = std::sync::Arc::new(world.tectonics.height_m.clone());
-    rg_terrain::TerrainSampler::new(height, world.params.tectonics.radius_m, world.params.tectonics.seed).with_macro_only()
-}
-
-/// The streamed-detail sampler for a world (macro heights + river corridors). Use this
-/// everywhere (app, tests, probes) so they all see the same surface.
+/// The displayed terrain surface of a world (the committed macro heights, smoothly
+/// interpolated; `rg_terrain::TerrainSampler`). Use this everywhere (app, tests, probes) so
+/// they all see the same surface.
 pub fn terrain_sampler(world: &World) -> rg_terrain::TerrainSampler {
     let height = std::sync::Arc::new(world.tectonics.height_m.clone());
-    let s = rg_terrain::TerrainSampler::new(height.clone(), world.params.tectonics.radius_m, world.params.tectonics.seed);
-    let Some(h) = &world.hydrology else { return s };
-    let s = s.with_drainage(std::sync::Arc::new(h.drainage_km2.clone()));
-    // The drained detail network needs the hydrology at the macro resolution.
-    let mn = rg_terrain::network::MacroNet::new(
-        height,
-        std::sync::Arc::new(h.flow_dir.clone()),
-        std::sync::Arc::new(h.drainage_km2.clone()),
-    );
-    match mn {
-        Some(mn) => {
-            let mn = match &h.uplift_mm_yr {
-                Some(u) => mn.with_uplift(std::sync::Arc::new(u.clone())),
-                None => mn,
-            };
-            let mn = if world.params.erosion.lakes { mn.with_lakes(std::sync::Arc::new(h.lake_depth_m.clone())) } else { mn };
-            let net = rg_terrain::detail_net::DetailNet::new(mn, world.params.tectonics.radius_m, world.params.tectonics.seed)
-                // Linear calibration scales slopes by one factor: the committed surface's
-                // steepness is factor·U/K, i.e. an effective K of K/factor.
-                .with_erodibility(world.params.erosion.k / h.height_scale.unwrap_or(1.0));
-            s.with_network(net)
-        }
-        None => s,
-    }
+    rg_terrain::TerrainSampler::new(height, world.params.tectonics.radius_m)
 }
 
 /// Land water balance on a climate run: annual precipitation, potential evapotranspiration
