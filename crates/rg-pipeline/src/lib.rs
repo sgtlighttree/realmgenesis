@@ -67,14 +67,61 @@ pub struct World {
 pub const CLIMATE_W: u32 = 360;
 pub const CLIMATE_H: u32 = 180;
 
+/// A generation stage, for progress reporting (the app's status line and console, s02).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stage {
+    Tectonics,
+    /// Tier A climate on the tectonic surface (feeds erosion's runoff and lakes).
+    ClimatePre,
+    /// The erosion solve, reported per implicit step.
+    Erosion,
+    /// Tier A climate on the eroded surface.
+    Climate,
+}
+
+impl Stage {
+    pub fn label(self) -> &'static str {
+        match self {
+            Stage::Tectonics => "tectonics",
+            Stage::ClimatePre => "climate (pre-erosion)",
+            Stage::Erosion => "erosion",
+            Stage::Climate => "climate",
+        }
+    }
+}
+
+/// Where generation is: `step` of `steps` within `stage` (both 0 when the stage has no
+/// sub-steps).
+#[derive(Clone, Copy, Debug)]
+pub struct Progress {
+    pub stage: Stage,
+    pub step: u32,
+    pub steps: u32,
+}
+
+// The app moves a finished World from its generation thread to the UI thread (s02).
+#[allow(dead_code)]
+fn assert_world_is_send() {
+    fn is_send<T: Send>() {}
+    is_send::<World>();
+}
+
 /// Generate a world: tectonics → fluvial erosion → tier A climate.
 pub fn generate(params: &WorldParams) -> World {
+    generate_with_progress(params, &|_| {})
+}
+
+/// As [`generate`], calling `on` at the start of each stage and each erosion step, on this
+/// thread. Tectonics and the post-solve part of erosion have no sub-steps.
+pub fn generate_with_progress(params: &WorldParams, on: &dyn Fn(Progress)) -> World {
+    let stage = |stage: Stage| on(Progress { stage, step: 0, steps: 0 });
     let mut params = params.clone();
     // One radius for everything; erosion's random streams follow the world seed.
     params.planet.radius_m = params.tectonics.radius_m;
     params.erosion.seed = params.tectonics.seed;
 
     let t0 = web_time::Instant::now();
+    stage(Stage::Tectonics);
     let mut tectonics = rg_tectonics::generate(&params.tectonics);
     let tectonics_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
@@ -86,6 +133,7 @@ pub fn generate(params: &WorldParams) -> World {
         // Climate feeds erosion: a first tier-A pass on the tectonic surface gives annual
         // precipitation; rivers carve with precipitation-weighted drainage (a discharge
         // proxy), so rain shadows and deserts erode less. Climate is rerun on the result.
+        stage(Stage::ClimatePre);
         let (_, climate0, _) = run_climate(&params.planet, &tectonics);
         let wb = water_balance(&params.planet, &climate0, &tectonics.height_m);
         let mean = wb.mean_land_runoff_mm.max(1.0) as f32;
@@ -93,7 +141,9 @@ pub fn generate(params: &WorldParams) -> World {
         // Lakes and closed basins from the water balance: open-water net evaporation ≈ PET − P.
         let net_evap = CubeField { res: wb.pet_mm.res, data: wb.pet_mm.data.iter().zip(&wb.precip_mm.data).map(|(e, p)| e - p).collect() };
         let lakes = ep.lakes.then_some((&wb.runoff_mm, &net_evap));
-        let r = rg_erosion::erode_climate(&tectonics, params.tectonics.radius_m, &ep, Some(&runoff), lakes);
+        stage(Stage::Erosion);
+        let on_step = |step, steps| on(Progress { stage: Stage::Erosion, step, steps });
+        let r = rg_erosion::erode_climate_with_progress(&tectonics, params.tectonics.radius_m, &ep, Some(&runoff), lakes, &on_step);
         tectonics.height_m = r.height_m;
         Hydrology {
             drainage_km2: r.drainage_km2,
@@ -107,6 +157,7 @@ pub fn generate(params: &WorldParams) -> World {
     });
     let erosion_ms = t1.elapsed().as_secs_f64() * 1000.0;
 
+    stage(Stage::Climate);
     let (climate_heights, climate, climate_ms) = run_climate(&params.planet, &tectonics);
     World {
         params,

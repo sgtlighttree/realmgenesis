@@ -386,6 +386,25 @@ pub fn solve_full(
     lake_in: Option<&LakeInputs>,
     p: &ErosionParams,
 ) -> Solved {
+    solve_full_with_progress(grid, radius_m, h, ocean, uplift_m_yr, k, runoff, elevation_limit_m, lake_in, p, &|_, _| {})
+}
+
+/// As [`solve_full`], calling `on_step(k, n)` as implicit step k of n (1-based) starts.
+/// Called on this thread only (progress for the app's console, s02).
+#[allow(clippy::too_many_arguments)]
+pub fn solve_full_with_progress(
+    grid: &Grid,
+    radius_m: f64,
+    h: &mut [f64],
+    ocean: &[bool],
+    uplift_m_yr: &[f64],
+    k: &[f64],
+    runoff: Option<&[f64]>,
+    elevation_limit_m: Option<f64>,
+    lake_in: Option<&LakeInputs>,
+    p: &ErosionParams,
+    on_step: &dyn Fn(u32, u32),
+) -> Solved {
     let n = grid.n;
     let cell_area: Vec<f64> = grid.weight.iter().map(|w| *w as f64 * 4.0 * std::f64::consts::PI * radius_m * radius_m).collect();
     let wet_area: Vec<f64> = match runoff {
@@ -401,6 +420,7 @@ pub fn solve_full(
     let mut length = vec![0.0f64; n];
     let mut lakes_now: Option<crate::lakes::Lakes> = None;
     for step in 0..steps {
+        on_step(step + 1, steps);
         // Base level: the ocean, plus lake water surfaces when lakes are on. With lakes the
         // rock is never filled (no "sediment from nowhere"); routing uses a filled copy with
         // closed lakes as outlets, so all water reaches the sea or a closed lake.
@@ -501,6 +521,19 @@ pub fn erode_climate(
     runoff: Option<&CubeField<f32>>,
     lakes: Option<(&CubeField<f32>, &CubeField<f32>)>,
 ) -> ErosionResult {
+    erode_climate_with_progress(tectonic, radius_m, p, runoff, lakes, &|_, _| {})
+}
+
+/// As [`erode_climate`], reporting solver steps through `on_step(k, n)` (see
+/// [`solve_full_with_progress`]).
+pub fn erode_climate_with_progress(
+    tectonic: &TectonicSnapshot,
+    radius_m: f64,
+    p: &ErosionParams,
+    runoff: Option<&CubeField<f32>>,
+    lakes: Option<(&CubeField<f32>, &CubeField<f32>)>,
+    on_step: &dyn Fn(u32, u32),
+) -> ErosionResult {
     let tectonic_h = &tectonic.height_m;
     let res = if p.res > 0 { p.res.max(16) } else { tectonic_h.res.min(p.max_res.max(16)) };
     let grid = Grid::new(res);
@@ -544,7 +577,7 @@ pub fn erode_climate(
     let mut budget = MassBudget::default();
     if p.enabled && !land_h.is_empty() {
         let lim = (p.elevation_limit_m > 0.0).then_some(p.elevation_limit_m);
-        let solved = solve_full(&grid, radius_m, &mut h, &ocean, &uplift, &k_field, runoff_w.as_deref(), lim, lake_in.as_ref(), p);
+        let solved = solve_full_with_progress(&grid, radius_m, &mut h, &ocean, &uplift, &k_field, runoff_w.as_deref(), lim, lake_in.as_ref(), p, on_step);
         net = solved.net;
         budget = solved.budget;
         filled_steps = solved.filled_steps;
