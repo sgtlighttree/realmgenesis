@@ -92,6 +92,7 @@ impl Equirect {
     /// Bake one layer to RGBA8 sRGB bytes.
     pub fn bake(&self, world: &World, layer: Layer) -> Vec<u8> {
         let (w, h) = (self.width, self.height);
+        let lakes = world.hydrology.as_ref().map(|hy| visible_lakes(&hy.lake_depth_m, MIN_LAKE_NODES));
         let mut out = vec![0u8; (w * h * 4) as usize];
         par_rows(&mut out, w as usize * 4, |y, row| {
             let lat = lat_of_row(y as u32, h);
@@ -122,9 +123,9 @@ impl Equirect {
                     }
                 };
                 // Lakes: standing water in closed basins (from the erosion stage).
-                let rgb = match (&world.hydrology, layer) {
-                    (Some(hy), Layer::Satellite | Layer::Elevation | Layer::PrecipAnnual) if hf > 0.0 => {
-                        let depth = hy.lake_depth_m.sample(dir(lat, lon));
+                let rgb = match (&lakes, layer) {
+                    (Some(lk), Layer::Satellite | Layer::Elevation | Layer::PrecipAnnual) if hf > 0.0 => {
+                        let depth = lk.sample(dir(lat, lon));
                         if depth > 2.0 { lake_color(layer) } else { rgb }
                     }
                     _ => rgb,
@@ -137,6 +138,53 @@ impl Equirect {
         }
         out
     }
+}
+
+/// Lakes smaller than this many macro nodes aren't drawn: single- and few-node pits left by
+/// the erosion solve read as speckle ("dotted lakes", Matt, s02). Display only: the
+/// committed `lake_depth_m` is unchanged.
+const MIN_LAKE_NODES: usize = 4;
+
+/// `depth` with every lake of fewer than `min_nodes` nodes set to 0. Lakes are flooded per
+/// cube face (4-neighbours), so a lake cut by a cube edge is judged per side.
+fn visible_lakes(depth: &rg_geo::CubeField<f32>, min_nodes: usize) -> rg_geo::CubeField<f32> {
+    let mut out = depth.clone();
+    let n = depth.samples_per_edge() as i64;
+    let mut seen = vec![false; depth.data.len()];
+    let mut stack: Vec<(i64, i64)> = Vec::new();
+    let mut lake: Vec<usize> = Vec::new();
+    for face in rg_geo::CubeFace::ALL {
+        for j in 0..n {
+            for i in 0..n {
+                let k = depth.index(face, i as u32, j as u32);
+                if seen[k] || depth.data[k] <= 0.0 {
+                    continue;
+                }
+                seen[k] = true;
+                lake.clear();
+                stack.push((i, j));
+                while let Some((a, b)) = stack.pop() {
+                    lake.push(depth.index(face, a as u32, b as u32));
+                    for (x, y) in [(a + 1, b), (a - 1, b), (a, b + 1), (a, b - 1)] {
+                        if x < 0 || y < 0 || x >= n || y >= n {
+                            continue;
+                        }
+                        let kk = depth.index(face, x as u32, y as u32);
+                        if !seen[kk] && depth.data[kk] > 0.0 {
+                            seen[kk] = true;
+                            stack.push((x, y));
+                        }
+                    }
+                }
+                if lake.len() < min_nodes {
+                    for &kk in &lake {
+                        out.data[kk] = 0.0;
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Run `f(row_index, row)` over the rows of a row-major image (`row_len` items per row).
@@ -409,5 +457,28 @@ pub fn draw_rivers(img: &mut [u8], w: u32, h: u32, rivers: &[rg_erosion::RiverSe
                 img[k + 3] = img[k + 3].min(a as u8);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod lake_tests {
+    use super::visible_lakes;
+    use rg_geo::{CubeFace, CubeField};
+
+    #[test]
+    fn small_lakes_are_hidden_and_big_ones_kept() {
+        let mut f = CubeField::<f32>::from_fn(16, |_| 0.0);
+        let face = CubeFace::ALL[0];
+        let one = f.index(face, 2, 2);
+        f.data[one] = 30.0;
+        for j in 8..11 {
+            for i in 8..11 {
+                let k = f.index(face, i, j);
+                f.data[k] = 50.0;
+            }
+        }
+        let v = visible_lakes(&f, 4);
+        assert_eq!(v.data[one], 0.0, "a one-node pit is hidden");
+        assert_eq!(v.data[f.index(face, 9, 9)], 50.0, "a 9-node lake is kept");
     }
 }
