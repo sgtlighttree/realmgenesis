@@ -54,6 +54,9 @@ fn shortcuts(app: &mut RealmApp, ui: &mut egui::Ui) {
         if i.key_pressed(egui::Key::H) {
             v.push(Command::TogglePanel);
         }
+        if i.key_pressed(egui::Key::F12) {
+            v.push(Command::SaveScreenshot);
+        }
         if i.key_pressed(egui::Key::M) {
             v.push(Command::SetView(if view == ViewMode::Globe { ViewMode::Map } else { ViewMode::Globe }));
         }

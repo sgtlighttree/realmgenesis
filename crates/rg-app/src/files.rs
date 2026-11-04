@@ -70,3 +70,22 @@ fn folder() -> Result<std::path::PathBuf, String> {
         .ok_or("can't find the home folder")?;
     Ok(std::path::PathBuf::from(home).join("RealmGenesis"))
 }
+
+/// Where F12 screenshots go: `~/RealmGenesis/shots/shot-<unix seconds>.png`.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn shot_path() -> Result<std::path::PathBuf, String> {
+    let dir = folder()?.join("shots");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
+    let t = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).unwrap_or_default();
+    Ok(dir.join(format!("shot-{}.png", t.as_secs())))
+}
+
+/// Write 8-bit RGBA rows (sRGB) as a PNG.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn write_png_rgba(path: &std::path::Path, w: u32, h: u32, rgba: &[u8]) -> Result<(), String> {
+    let file = std::fs::File::create(path).map_err(|e| format!("can't create {}: {e}", path.display()))?;
+    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), w, h);
+    enc.set_color(png::ColorType::Rgba);
+    enc.set_depth(png::BitDepth::Eight);
+    enc.write_header().and_then(|mut wr| wr.write_image_data(rgba)).map_err(|e| e.to_string())
+}

@@ -32,4 +32,7 @@ pub enum Command {
     LoadWorld,
     /// Write a 16-bit equirectangular heightmap PNG.
     ExportHeightmap,
+    /// Save the planet view as a PNG in `~/RealmGenesis/shots/` (F12). Rendered by the app
+    /// itself, so it needs no screen-recording permission.
+    SaveScreenshot,
 }

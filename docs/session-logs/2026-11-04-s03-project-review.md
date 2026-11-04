@@ -113,3 +113,14 @@ All points adopted; detail in `docs/design/v2-direction-s03.md` → "Fresh-conte
 - **Fresh-context review of uplift blend + deletion + graticule: no blocking bugs.**
   - **Low:** below res ~100 the blend's σ comes out wider than asked (the coarse grid is capped at the world res). The doc comment is fixed.
   - **Cosmetic:** globe labels sit at sea level, so with exaggeration they drift off lines over high ground; skirts get grid lines too.
+- ✓ **In-app screenshots:**
+  - `PlanetRenderer::read_output` copies the resolved frame back from the GPU;
+  - **F12** saves to `~/RealmGenesis/shots/`;
+  - `RG_SHOT=<png>` waits for world + normals + tiles to settle, `RG_SHOT_EXIT=1` then quits;
+  - new envs `RG_EXAG`, `RG_KEEP_RELIEF`, `RG_CONV_SMOOTH`.
+  - **Why:** `screencapture` fails from this shell even after Matt granted iTerm2 Screen Recording ("could not create image from window"), and CuaDriver's capture returns nothing despite both TCC grants (probably Tahoe's per-capture consent; not pushed, it would pop a dialog). The app's own readback needs no permission.
+- **Verified by eye (n=1, seed 1 Ultra, 37.2°N 96.1°W, 600 km, relief 60× kept):**
+  - blend 0 shows the straight E–W escarpment Matt saw; blend 200 removes it.
+  - Shots in `~/RealmGenesis/shots/s03-blend{0,200}-37n96w.png`.
+  - At 60×, a fine diamond crosshatch shows in places (the lattice/Rho8 grain, R1's target) and the coast steps along macro cells (drained-interpolant sign; a coast SDF is the known fix, parked).
+- Perf note (n=1 each, unconfirmed cause): Ultra erosion took 58–63 s in this session's runs vs 28–32 s earlier. Matt's app instance may have been running concurrently. Normals bake at 2048: 12.6 s.

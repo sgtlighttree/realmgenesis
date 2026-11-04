@@ -173,6 +173,12 @@ pub struct RealmApp {
     surface_texel_m: f64,
     /// The zoom floor (camera distance, m) used last frame, for the HUD and settings.
     pub zoom_floor_m: f64,
+    /// A screenshot to save after the next render: (path, wait until the world, normals and
+    /// tiles have all settled). F12, or `RG_SHOT=<path>` at startup for scripted looks.
+    pending_shot: Option<(std::path::PathBuf, bool)>,
+    /// Quit after the scripted screenshot (`RG_SHOT_EXIT=1`).
+    exit_after_shot: bool,
+    close_requested: bool,
     /// World generation running on a background thread (native only; see `worldgen.rs`).
     gen_job: Option<GenJob>,
     renderer: Option<PlanetRenderer>,
@@ -212,6 +218,9 @@ impl RealmApp {
             max_tile_level: 4,
             surface_texel_m: 0.0,
             zoom_floor_m: 0.0,
+            pending_shot: None,
+            exit_after_shot: false,
+            close_requested: false,
             gen_job: None,
             renderer: None,
             feeder: TileFeeder::new(),
@@ -242,13 +251,28 @@ impl RealmApp {
 
     /// Native-only startup overrides for scripted screenshots and testing:
     /// `RG_SEED=<n>`, `RG_VIEW=globe|map`, `RG_LAYER=<1-8>`, `RG_RES=<cells per face>`,
-    /// camera: `RG_LAT`/`RG_LON`/`RG_HEADING`/`RG_TILT` (degrees), `RG_DIST` (metres).
+    /// camera: `RG_LAT`/`RG_LON`/`RG_HEADING`/`RG_TILT` (degrees), `RG_DIST` (metres);
+    /// `RG_EXAG=<×>` and `RG_KEEP_RELIEF=1` (relief); `RG_CONV_SMOOTH=<km>` (uplift blend); `RG_SHOT=<png>` saves the planet view once the
+    /// world, normals and tiles have settled, and `RG_SHOT_EXIT=1` then quits.
     fn apply_env_overrides(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let var = |k: &str| std::env::var(k).ok();
             if let Some(s) = var("RG_SEED").and_then(|v| v.parse().ok()) {
                 self.params.tectonics.seed = s;
+            }
+            if let Some(v) = var("RG_EXAG").and_then(|v| v.parse().ok()) {
+                self.display.exaggeration = v;
+            }
+            if var("RG_KEEP_RELIEF").is_some() {
+                self.display.keep_relief = true;
+            }
+            if let Some(v) = var("RG_CONV_SMOOTH").and_then(|v| v.parse().ok()) {
+                self.params.erosion.convergence_smoothing_km = v;
+            }
+            if let Some(p) = var("RG_SHOT") {
+                self.pending_shot = Some((p.into(), true));
+                self.exit_after_shot = var("RG_SHOT_EXIT").is_some();
             }
             if let Some(r) = var("RG_RES").and_then(|v| v.parse().ok()) {
                 self.params.tectonics.res = r;
@@ -360,6 +384,13 @@ impl RealmApp {
             Command::ResetCamera => {
                 self.camera = EarthCamera::new(self.camera.radius_m);
                 self.map = MapView::default();
+            }
+            Command::SaveScreenshot => {
+                #[cfg(not(target_arch = "wasm32"))]
+                match crate::files::shot_path() {
+                    Ok(p) => self.pending_shot = Some((p, false)),
+                    Err(e) => self.log(format!("⚠ {e}")),
+                }
             }
             Command::SaveWorld | Command::LoadWorld | Command::ExportHeightmap => {
                 crate::files::handle(self, c, rs);
@@ -643,6 +674,24 @@ impl RealmApp {
             self.streaming = false;
         }
         r.render(&rs.device, &rs.queue, self.view, &self.camera, clearance, exag, &self.map, &self.style);
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some((path, wait)) = self.pending_shot.clone() {
+            let settled = self.world.is_some() && self.gen_job.is_none() && self.normals_job.is_none() && !self.streaming;
+            if !wait || settled {
+                self.pending_shot = None;
+                let msg = match r.read_output(&rs.device, &rs.queue) {
+                    Some((w, h, rgba)) => match crate::files::write_png_rgba(&path, w, h, &rgba) {
+                        Ok(()) => format!("Screenshot saved: {}", path.display()),
+                        Err(e) => format!("⚠ screenshot: {e}"),
+                    },
+                    None => "⚠ screenshot: nothing rendered yet".into(),
+                };
+                eprintln!("{msg}");
+                // (`self.log` would borrow all of self while `r` holds the renderer.)
+                self.console.log(now_s(), msg);
+                self.close_requested = self.exit_after_shot;
+            }
+        }
         let view = r.output_view()?;
         let mut egui_r = rs.renderer.write();
         match self.texture_id {
@@ -717,6 +766,9 @@ impl eframe::App for RealmApp {
         let elevation = 40f64.to_radians();
         self.style.sun_dir = up * elevation.sin() + north_west * elevation.cos();
         ui::draw(self, ui, &rs);
+        if self.close_requested {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         let end = now_s();
         self.stats.frame_finished(end, ((end - frame_t0) * 1000.0) as f32);
     }

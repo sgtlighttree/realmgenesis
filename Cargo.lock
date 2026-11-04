@@ -2670,6 +2670,7 @@ dependencies = [
  "glam",
  "libc",
  "log",
+ "png",
  "rg-geo",
  "rg-noise",
  "rg-pipeline",

@@ -127,6 +127,7 @@ struct Globals {
 struct Targets {
     size: [u32; 2],
     msaa: wgpu::TextureView,
+    resolve: wgpu::Texture,
     resolve_view: wgpu::TextureView,
     depth: wgpu::TextureView,
 }
@@ -466,9 +467,53 @@ impl PlanetRenderer {
             size,
             msaa: msaa.create_view(&Default::default()),
             resolve_view: resolve.create_view(&Default::default()),
+            resolve,
             depth: depth.create_view(&Default::default()),
         });
         true
+    }
+
+    /// Read the last rendered frame back from the GPU: (width, height, RGBA8 sRGB rows).
+    /// Blocks until the GPU is done, so it's for screenshots, not per frame. The app's own
+    /// screenshot works without macOS screen-recording permission (s03).
+    pub fn read_output(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Option<(u32, u32, Vec<u8>)> {
+        let t = self.targets.as_ref()?;
+        let [w, h] = t.size;
+        // Rows in a texture-to-buffer copy must be padded to 256 bytes.
+        let row = w * 4;
+        let padded = row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("screenshot"),
+            size: (padded * h) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("screenshot") });
+        enc.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &t.resolve,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buf,
+                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(padded), rows_per_image: Some(h) },
+            },
+            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        );
+        queue.submit([enc.finish()]);
+        buf.map_async(wgpu::MapMode::Read, .., |_| {});
+        device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None }).ok()?;
+        let data = buf.get_mapped_range(..).ok()?;
+        let mut out = Vec::with_capacity((row * h) as usize);
+        for y in 0..h as usize {
+            let start = y * padded as usize;
+            out.extend_from_slice(&data[start..start + row as usize]);
+        }
+        drop(data);
+        buf.unmap();
+        Some((w, h, out))
     }
 
     pub fn output_view(&self) -> Option<&wgpu::TextureView> {
