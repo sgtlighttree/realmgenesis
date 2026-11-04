@@ -18,6 +18,9 @@ struct Globals {
 @group(0) @binding(1) var albedo_tex: texture_2d<f32>;
 @group(0) @binding(2) var albedo_smp: sampler;
 @group(0) @binding(3) var height_tex: texture_2d<f32>;
+// Displayed surface gradient per cube face, [dh/d east, dh/d north] (rg_terrain::gradient).
+@group(0) @binding(4) var grad_tex: texture_2d_array<f32>;
+@group(0) @binding(5) var grad_smp: sampler;
 
 const PI: f32 = 3.14159265358979;
 
@@ -25,18 +28,34 @@ fn lonlat_to_uv(lon: f32, lat: f32) -> vec2<f32> {
     return vec2<f32>(fract(lon / (2.0 * PI) + 0.5), clamp(0.5 - lat / PI, 0.0, 1.0));
 }
 
-// Layer colour with rivers tinted in. `texel_on_screen` = how many screen pixels one layer
-// texel spans: rivers are baked kilometres wide, so once a texel is magnified more than a
-// few times they fade out and the terrain (3D valleys, hillshade) shows the river instead.
-fn albedo(lon: f32, lat: f32, texel_on_screen: f32) -> vec3<f32> {
+// Layer colour with rivers tinted in (coverage in the layer's alpha). Rivers no longer fade
+// out when zoomed in: the drained detail network that used to carve them in 3D is gone
+// (R2, s03), so this overlay is the only place they show.
+fn albedo(lon: f32, lat: f32) -> vec3<f32> {
     let t = textureSampleLevel(albedo_tex, albedo_smp, lonlat_to_uv(lon, lat), 0.0);
-    let river = (1.0 - t.a) * (1.0 - smoothstep(2.0, 6.0, texel_on_screen));
-    return mix(t.rgb, g.river.xyz, river);
+    return mix(t.rgb, g.river.xyz, 1.0 - t.a);
 }
 
-// Size of one layer texel along the equator, metres.
-fn texel_m() -> f32 {
-    return g.params.z * 2.0 * PI / f32(textureDimensions(albedo_tex).x);
+// The local (east, north) frame, exactly as `rg_terrain::gradient::east_north` bakes it.
+fn east_of(up: vec3<f32>) -> vec3<f32> {
+    let e = cross(vec3<f32>(0.0, 0.0, 1.0), up);
+    let l = length(e);
+    if (l < 1e-6) {
+        return vec3<f32>(1.0, 0.0, 0.0);
+    }
+    return e / l;
+}
+
+// Surface normal from the baked gradient at face position (s, t) on `face`, with the
+// vertical exaggeration applied to the slope.
+fn surface_normal(up: vec3<f32>, st: vec2<f32>, face: u32, exag: f32) -> vec3<f32> {
+    let n = f32(textureDimensions(grad_tex).x);
+    // Corner-aligned samples: s = 0 is the centre of texel 0, s = 1 the centre of the last.
+    let tc = (st * (n - 1.0) + 0.5) / n;
+    let grad = textureSampleLevel(grad_tex, grad_smp, tc, face, 0.0).xy;
+    let east = east_of(up);
+    let north = cross(up, east);
+    return normalize(up - exag * (grad.x * east + grad.y * north));
 }
 
 fn height_at(uv: vec2<f32>) -> f32 {
@@ -67,7 +86,7 @@ fn height_at(uv: vec2<f32>) -> f32 {
 struct TileIn {
     @location(0) pos: vec3<f32>,
     @location(1) height_m: f32,
-    @location(2) normal: vec3<f32>,
+    @location(2) face_uv: vec3<f32>,
     @location(3) parent_height_m: f32,
     @location(4) skirt: f32,
     @location(5) offset: vec3<f32>,
@@ -80,8 +99,9 @@ struct TileOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) rel: vec3<f32>,
     @location(1) height_m: f32,
-    @location(2) normal: vec3<f32>,
+    @location(2) st: vec2<f32>,
     @location(3) up: vec3<f32>,
+    @location(4) @interpolate(flat) face: u32,
 };
 
 @vertex
@@ -102,10 +122,8 @@ fn vs_tile(v: TileIn) -> TileOut {
     o.rel = local + up * lift;
     o.clip = g.view_proj * vec4<f32>(o.rel, 1.0);
     o.height_m = h;
-    // Steepen the exaggeration-1 normal by the exaggeration.
-    let n = v.normal;
-    let along = dot(n, up);
-    o.normal = normalize(up * along + (n - up * along) * exag);
+    o.st = v.face_uv.xy;
+    o.face = u32(v.face_uv.z + 0.5);
     o.up = up;
     return o;
 }
@@ -115,12 +133,11 @@ fn fs_tile(i: TileOut) -> @location(0) vec4<f32> {
     let up = normalize(i.up);
     let lon = atan2(up.y, up.x);
     let lat = asin(clamp(up.z, -1.0, 1.0));
-    // Screen footprint of a pixel at this distance (m) → how magnified a texel is.
-    let px_m = max(length(i.rel), 1.0) / g.lod.x;
-    var base = albedo(lon, lat, texel_m() * cos(lat) / px_m);
+    var base = albedo(lon, lat);
+    let normal = surface_normal(up, i.st, i.face, g.params.w);
     // Steep slopes show bare rock whatever the biome (the biome layer is ~km-scale).
     if (i.height_m > 0.0) {
-        let slope = 1.0 - dot(normalize(i.normal), normalize(i.up));
+        let slope = 1.0 - dot(normal, up);
         let rock = smoothstep(0.12, 0.35, slope) * g.params.x;
         base = mix(base, vec3<f32>(0.20, 0.18, 0.16), rock * 0.7);
     }
@@ -130,7 +147,7 @@ fn fs_tile(i: TileOut) -> @location(0) vec4<f32> {
     let ocean = i.height_m < 0.0;
     var n = up;
     if (!ocean) {
-        n = normalize(mix(up, normalize(i.normal), g.params.x));
+        n = normalize(mix(up, normal, g.params.x));
     }
     // Wrapped diffuse keeps the day side readable; exposure lifts the sRGB-authored
     // palettes (which are dark in linear space) back to how they look on a flat map.
@@ -182,10 +199,7 @@ fn fs_map(i: MapOut) -> @location(0) vec4<f32> {
         return vec4<f32>(0.055, 0.067, 0.078, 1.0);
     }
     let uv = lonlat_to_uv(lon, lat);
-    // Map: radians of longitude per screen pixel = view width / viewport width (river.w).
-    let texel_rad = 2.0 * PI / f32(textureDimensions(albedo_tex).x);
-    let screen_px_rad = g.map.z / max(g.river.w, 1.0);
-    var c = albedo(lon, lat, texel_rad / screen_px_rad);
+    var c = albedo(lon, lat);
     // Hillshade from the height texture (land only), lit from the north-west as on
     // printed maps.
     let h = height_at(uv);

@@ -13,4 +13,4 @@ pub use camera::OrbitCamera;
 pub use earth_camera::EarthCamera;
 pub use mesh::{PlanetMesh, Vertex};
 pub use terrain::{SelectView, Selection, TileCache, TileInstance, TileUpload, TileVertex};
-pub use planet::{HeightImage, LayerImage, MapView, PlanetRenderer, RenderStyle, ViewMode};
+pub use planet::{GradientImage, HeightImage, LayerImage, MapView, PlanetRenderer, RenderStyle, ViewMode};

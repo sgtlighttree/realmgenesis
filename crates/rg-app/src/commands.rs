@@ -21,9 +21,6 @@ pub enum Command {
     /// Stop or resume background terrain-tile generation. Stopping also drops every
     /// queued tile, so the CPU goes quiet within one tile's time.
     ToggleTileStreaming,
-    /// Switch streamed terrain detail (the drained detail network) on or off. Off shows the
-    /// macro surface only (s02 default: the network draws artifacts from orbit).
-    ToggleStreamedDetail,
     /// Show or hide the console panel above the status bar.
     ToggleConsole,
     /// Stop the world generation in progress (Esc). It stops at the next checkpoint; the

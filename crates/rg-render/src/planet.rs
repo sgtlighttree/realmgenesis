@@ -23,6 +23,13 @@ pub struct LayerImage {
 
 /// An equirectangular height image in metres above sea level.
 #[derive(Clone, Debug)]
+/// The displayed surface's gradient on the cube faces (`rg_terrain::gradient`): six faces
+/// of `(res + 1)²` samples, face-major then row-major, each `[d h/d east, d h/d north]`.
+pub struct GradientImage {
+    pub res: u32,
+    pub data: Vec<[f32; 2]>,
+}
+
 pub struct HeightImage {
     pub width: u32,
     pub height: u32,
@@ -128,6 +135,9 @@ pub struct PlanetRenderer {
     sampler: wgpu::Sampler,
     albedo: wgpu::Texture,
     heights: wgpu::Texture,
+    /// Surface gradient per cube face (`Rg16Float`, 6 layers) for per-pixel lighting.
+    gradient: wgpu::Texture,
+    clamp_sampler: wgpu::Sampler,
     bind_group: wgpu::BindGroup,
     /// The streamed globe terrain.
     pub tiles: TileCache,
@@ -176,6 +186,22 @@ impl PlanetRenderer {
                     count: None,
                 },
                 tex_entry(3, wgpu::TextureSampleType::Float { filterable: false }),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
         let globals = device.create_buffer(&wgpu::BufferDescriptor {
@@ -188,6 +214,13 @@ impl PlanetRenderer {
             label: Some("layer"),
             address_mode_u: wgpu::AddressMode::Repeat,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        // Cube-face textures are corner-aligned and end exactly at the face edge: clamp.
+        let clamp_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("cube faces"),
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
@@ -249,7 +282,8 @@ impl PlanetRenderer {
         let map_pipeline = make_pipeline("map", "vs_map", "fs_map", &[], false, None);
 
         let (albedo, heights) = Self::make_textures(device, 1, 1, 1, 1);
-        let bind_group = Self::make_bind_group(device, &bgl, &globals, &albedo, &sampler, &heights);
+        let gradient = Self::make_gradient_texture(device, 1);
+        let bind_group = Self::make_bind_group(device, &bgl, &globals, &albedo, &sampler, &heights, &gradient, &clamp_sampler);
         let tiles = TileCache::new(device, tile_indices, tile_cells, tile_capacity);
         let mut r = Self {
             tile_pipeline,
@@ -259,6 +293,8 @@ impl PlanetRenderer {
             sampler,
             albedo,
             heights,
+            gradient,
+            clamp_sampler,
             bind_group,
             tiles,
             max_cell_px: 6.0,
@@ -266,7 +302,21 @@ impl PlanetRenderer {
         };
         r.set_layer(device, queue, &LayerImage { width: 1, height: 1, rgba: vec![40, 80, 120, 255] });
         r.set_heights(device, queue, &HeightImage { width: 1, height: 1, metres: vec![0.0] });
+        r.set_gradient(device, queue, &GradientImage { res: 1, data: vec![[0.0; 2]; 6 * 4] });
         r
+    }
+
+    fn make_gradient_texture(device: &wgpu::Device, res: u32) -> wgpu::Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("surface gradient"),
+            size: wgpu::Extent3d { width: res + 1, height: res + 1, depth_or_array_layers: 6 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rg16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        })
     }
 
     fn make_textures(device: &wgpu::Device, aw: u32, ah: u32, hw: u32, hh: u32) -> (wgpu::Texture, wgpu::Texture) {
@@ -288,6 +338,7 @@ impl PlanetRenderer {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn make_bind_group(
         device: &wgpu::Device,
         bgl: &wgpu::BindGroupLayout,
@@ -295,7 +346,13 @@ impl PlanetRenderer {
         albedo: &wgpu::Texture,
         sampler: &wgpu::Sampler,
         heights: &wgpu::Texture,
+        gradient: &wgpu::Texture,
+        clamp_sampler: &wgpu::Sampler,
     ) -> wgpu::BindGroup {
+        let gradient_view = gradient.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("planet"),
             layout: bgl,
@@ -310,13 +367,23 @@ impl PlanetRenderer {
                     binding: 3,
                     resource: wgpu::BindingResource::TextureView(&heights.create_view(&Default::default())),
                 },
+                wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(&gradient_view) },
+                wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::Sampler(clamp_sampler) },
             ],
         })
     }
 
     fn rebind(&mut self, device: &wgpu::Device) {
-        self.bind_group =
-            Self::make_bind_group(device, &self.bgl, &self.globals, &self.albedo, &self.sampler, &self.heights);
+        self.bind_group = Self::make_bind_group(
+            device,
+            &self.bgl,
+            &self.globals,
+            &self.albedo,
+            &self.sampler,
+            &self.heights,
+            &self.gradient,
+            &self.clamp_sampler,
+        );
     }
 
     /// Replace the layer (albedo) texture.
@@ -337,6 +404,30 @@ impl PlanetRenderer {
             self.rebind(device);
         }
         write_texture(queue, &self.heights, img.width, img.height, 4, bytemuck::cast_slice(&img.metres));
+    }
+
+    /// Replace the surface-gradient texture (per-pixel lighting on the globe). Stored as
+    /// half floats: ~3 significant digits, plenty for slopes.
+    pub fn set_gradient(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, img: &GradientImage) {
+        let n = img.res + 1;
+        assert_eq!(img.data.len(), (6 * n * n) as usize);
+        if self.gradient.width() != n {
+            self.gradient = Self::make_gradient_texture(device, img.res);
+            self.rebind(device);
+        }
+        let halves: Vec<u16> =
+            img.data.iter().flat_map(|g| g.map(|x| half::f16::from_f32(x).to_bits())).collect();
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.gradient,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            bytemuck::cast_slice(&halves),
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(n * 4), rows_per_image: Some(n) },
+            wgpu::Extent3d { width: n, height: n, depth_or_array_layers: 6 },
+        );
     }
 
     /// Ensure the offscreen targets match `size`. Returns true if they were recreated, in

@@ -175,14 +175,12 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
     ui.checkbox(&mut app.display.keep_relief, "Keep relief when zooming in")
         .on_hover_text("Use the same exaggeration at every distance instead of fading to 1.5× near the ground.");
     ui.add(egui::Slider::new(&mut app.style.map_exaggeration, 1.0..=40.0).text("map hillshade"));
-    let mut on = app.detail_streamed;
-    if ui
-        .checkbox(&mut on, "Streamed detail (experimental)")
-        .on_hover_text("Adds the drained detail network as you zoom. Off shows the macro surface only, which looks cleaner from orbit for now.")
-        .changed()
-    {
-        app.push(Command::ToggleStreamedDetail);
-    }
+    ui.add(
+        egui::Slider::new(&mut app.display.max_px_per_texel, 4.0..=512.0)
+            .logarithmic(true)
+            .text(format!("zoom floor ({:.0} km)", app.zoom_floor_m / 1000.0)),
+    )
+    .on_hover_text("How far you can zoom in: the screen pixels one texel of the stored terrain may cover. Higher goes closer (and blurrier).");
     if ui.button("Reset view").clicked() {
         app.push(Command::ResetCamera);
     }

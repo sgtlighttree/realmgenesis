@@ -4,7 +4,7 @@ use crate::worldgen::{GenJob, Poll};
 use crate::ui;
 use rg_pipeline::{Equirect, Layer, World, WorldParams};
 use crate::tiles::TileFeeder;
-use rg_render::{EarthCamera, HeightImage, LayerImage, MapView, PlanetRenderer, RenderStyle, SelectView, ViewMode};
+use rg_render::{EarthCamera, GradientImage, HeightImage, LayerImage, MapView, PlanetRenderer, RenderStyle, SelectView, ViewMode};
 use rg_terrain::{TerrainSampler, TileGenerator};
 
 /// Display resolution of baked layers: about 4 pixels per base-grid cell across the
@@ -27,6 +27,10 @@ pub struct DisplayParams {
     pub exaggeration: f64,
     /// Keep the orbit exaggeration all the way down instead of fading it (Matt, s02).
     pub keep_relief: bool,
+    /// Zoom floor: how many screen pixels one texel of the stored surface may span before
+    /// the camera stops descending (s03; the data is finite, so infinite zoom only shows
+    /// blur). Higher = closer.
+    pub max_px_per_texel: f64,
 }
 
 impl DisplayParams {
@@ -51,7 +55,9 @@ fn smoothstep(a: f64, b: f64, x: f64) -> f64 {
 impl Default for DisplayParams {
     fn default() -> Self {
         // 35: Matt's pick on the M1 (s02); 20 made network valleys read as flat grooves.
-        Self { exaggeration: 35.0, keep_relief: false }
+        // 32 px per texel: ~1300 km above an Ultra world on a 1600 px tall view (s03 start
+        // value; Matt tunes it).
+        Self { exaggeration: 35.0, keep_relief: false, max_px_per_texel: 32.0 }
     }
 }
 
@@ -157,9 +163,16 @@ pub struct RealmApp {
     /// What the app has been doing (the status-bar console).
     pub console: Console,
     pub console_open: bool,
-    /// Streamed terrain detail (the drained detail network). Off = macro surface only, the
-    /// s02 default (the network draws artifacts from orbit). Display setting, not stored.
-    pub detail_streamed: bool,
+    /// The surface-gradient bake in flight (per-pixel lighting; see `normals.rs`).
+    #[cfg(not(target_arch = "wasm32"))]
+    normals_job: Option<crate::normals::NormalsJob>,
+    /// Deepest tile level worth drawing: its cells are half a macro cell (finer would only
+    /// re-sample the same smooth surface; lighting comes from the gradient texture).
+    max_tile_level: u8,
+    /// Size of one texel of the stored surface (m), for the zoom floor. 0 = no world yet.
+    surface_texel_m: f64,
+    /// The zoom floor (camera distance, m) used last frame, for the HUD and settings.
+    pub zoom_floor_m: f64,
     /// World generation running on a background thread (native only; see `worldgen.rs`).
     gen_job: Option<GenJob>,
     renderer: Option<PlanetRenderer>,
@@ -194,7 +207,11 @@ impl RealmApp {
             show_panel: None,
             console: Console::new(),
             console_open: false,
-            detail_streamed: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            normals_job: None,
+            max_tile_level: 4,
+            surface_texel_m: 0.0,
+            zoom_floor_m: 0.0,
             gen_job: None,
             renderer: None,
             feeder: TileFeeder::new(),
@@ -333,15 +350,6 @@ impl RealmApp {
                 self.feeder.set_paused(!self.feeder.paused());
                 self.log(if self.feeder.paused() { "Background rendering stopped." } else { "Background rendering resumed." });
             }
-            Command::ToggleStreamedDetail => {
-                self.detail_streamed = !self.detail_streamed;
-                self.log(if self.detail_streamed {
-                    "Streamed detail on (experimental drained network)."
-                } else {
-                    "Streamed detail off: macro surface only."
-                });
-                self.start_tiles(rs);
-            }
             Command::ToggleConsole => self.console_open = !self.console_open,
             Command::CancelGeneration => {
                 if let Some(job) = self.gen_job.as_ref().filter(|j| !j.cancelling()) {
@@ -471,11 +479,14 @@ impl RealmApp {
     fn start_tiles(&mut self, rs: &egui_wgpu::RenderState) {
         let Some(world) = self.world.as_ref() else { return };
         let radius = world.params.tectonics.radius_m;
-        let sampler = if self.detail_streamed {
-            rg_pipeline::terrain_sampler(world)
-        } else {
-            rg_pipeline::terrain_sampler_macro(world)
-        };
+        // R2 (s03): the display is the committed macro surface (smooth bicubic), lit per
+        // pixel from the baked gradient. The streamed detail network is gone from the app.
+        let sampler = rg_pipeline::terrain_sampler_macro(world);
+        let macro_res = world.tectonics.height_m.res;
+        // Tile cells of half a macro cell: 64 · 2^L ≥ 2 · res.
+        self.max_tile_level = ((2.0 * macro_res as f64 / rg_terrain::TILE_CELLS as f64).log2().ceil().max(2.0)) as u8;
+        self.surface_texel_m =
+            std::f64::consts::FRAC_PI_2 * radius / rg_terrain::gradient::gradient_res(macro_res) as f64;
         if (self.camera.radius_m - radius).abs() > 1.0 {
             let scale = radius / self.camera.radius_m;
             self.camera.radius_m = radius;
@@ -484,7 +495,53 @@ impl RealmApp {
         if let Some(r) = self.renderer.as_mut() {
             self.feeder.set_world(TileGenerator { sampler: sampler.clone() }, &mut r.tiles, &rs.device, now_s());
         }
+        self.start_normals(rs, &sampler);
         self.terrain = Some(sampler);
+    }
+
+    /// Reset the lighting gradient to flat and bake the new world's (in the background
+    /// natively).
+    fn start_normals(&mut self, rs: &egui_wgpu::RenderState, sampler: &TerrainSampler) {
+        if let Some(r) = self.renderer.as_mut() {
+            r.set_gradient(&rs.device, &rs.queue, &GradientImage { res: 1, data: vec![[0.0; 2]; 24] });
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        match crate::normals::NormalsJob::spawn(sampler.clone()) {
+            Ok(job) => {
+                self.normals_job = Some(job);
+                self.log("  Baking surface normals…");
+            }
+            Err(e) => self.log(format!("⚠ Couldn't start the normals bake: {e}")),
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let img = crate::normals::bake(sampler);
+            if let Some(r) = self.renderer.as_mut() {
+                r.set_gradient(&rs.device, &rs.queue, &img);
+            }
+        }
+    }
+
+    /// Upload the gradient once its bake finishes (native).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn poll_normals(&mut self, rs: &egui_wgpu::RenderState, ctx: &egui::Context) {
+        use crate::normals::NormalsPoll;
+        let Some(job) = self.normals_job.as_ref() else { return };
+        match job.poll() {
+            NormalsPoll::Working => ctx.request_repaint_after(std::time::Duration::from_millis(100)),
+            NormalsPoll::Done(img, secs) => {
+                self.normals_job = None;
+                if let Some(r) = self.renderer.as_mut() {
+                    r.set_gradient(&rs.device, &rs.queue, &img);
+                }
+                self.log(format!("  Surface normals baked in {secs:.1} s ({} per face)", img.res));
+                ctx.request_repaint();
+            }
+            NormalsPoll::Failed => {
+                self.normals_job = None;
+                self.log("⚠ The normals bake stopped (its thread ended). Lighting stays flat.");
+            }
+        }
     }
 
     fn bake_layer(&mut self, rs: &egui_wgpu::RenderState) {
@@ -545,6 +602,16 @@ impl RealmApp {
             self.camera.distance_m += min_clear - clearance;
         }
         let clearance = (self.camera.eye().length() - radius - ground).max(1.0);
+        // Zoom floor: stop where one texel of the stored surface spans `max_px_per_texel`
+        // screen pixels (eye-to-target distance, so tilt doesn't change it).
+        if self.surface_texel_m > 0.0 {
+            let focal_px = size_px[1].max(1) as f64 / (2.0 * (0.5 * self.camera.fov_y).tan());
+            self.zoom_floor_m = self.surface_texel_m * focal_px / self.display.max_px_per_texel.max(1.0);
+            if self.camera.distance_m < self.zoom_floor_m {
+                self.camera.distance_m = self.zoom_floor_m;
+                self.camera.tilt = self.camera.tilt.min(self.camera.max_tilt());
+            }
+        }
         let r = self.renderer.as_mut()?;
         let recreated = r.resize(&rs.device, size_px);
         if self.view == ViewMode::Globe {
@@ -558,7 +625,7 @@ impl RealmApp {
                 fov_y: self.camera.fov_y,
                 tau_px: 2.0,
                 max_cell_px: r.max_cell_px,
-                max_level: 14,
+                max_level: self.max_tile_level,
                 now_s: now,
             });
             // While a new world is generating, the old one's tiles wait (CPU for generation).
@@ -637,6 +704,8 @@ impl eframe::App for RealmApp {
             return;
         };
         self.poll_generation(&rs, ui.ctx());
+        #[cfg(not(target_arch = "wasm32"))]
+        self.poll_normals(&rs, ui.ctx());
         // Deferred (slow) commands queued last frame run now, after their busy message
         // has been painted once.
         let deferred = std::mem::take(&mut self.deferred);

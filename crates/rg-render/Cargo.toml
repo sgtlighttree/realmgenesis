@@ -12,3 +12,5 @@ glam.workspace = true
 bytemuck.workspace = true
 wgpu.workspace = true
 log.workspace = true
+# f32 → f16 for the Rg16Float gradient texture (already in the tree via wgpu).
+half = "2.7"

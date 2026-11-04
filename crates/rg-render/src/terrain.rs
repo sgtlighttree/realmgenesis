@@ -24,7 +24,9 @@ use wgpu::util::DeviceExt;
 pub struct TileVertex {
     pub pos: [f32; 3],
     pub height_m: f32,
-    pub normal: [f32; 3],
+    /// (s, t, face): position on the cube face (0..1 each) and the face index, where the
+    /// fragment shader reads the baked surface gradient.
+    pub face_uv: [f32; 3],
     pub parent_height_m: f32,
     pub skirt: f32,
 }

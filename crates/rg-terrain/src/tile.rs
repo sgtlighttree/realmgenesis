@@ -22,8 +22,10 @@ pub struct TileData {
     pub center: DVec3,
     /// Sea-level sphere positions: 65² grid vertices (row-major, v then u), then the skirt.
     pub positions: Vec<[f32; 3]>,
-    /// Surface normals at exaggeration 1 (the shader steepens them by the exaggeration).
-    pub normals: Vec<[f32; 3]>,
+    /// Where each vertex sits on its cube face: (s, t) in 0..1 (the warped face uv mapped
+    /// from -1..1), plus the face index. The shader looks the surface gradient up there for
+    /// per-pixel lighting (`gradient.rs`).
+    pub face_uv: Vec<[f32; 3]>,
     /// Height above sea level (m, negative under the sea) at this tile's level.
     pub heights: Vec<f32>,
     /// The parent tile's *mesh* surface under each vertex (parent-level heights, linearly
@@ -67,15 +69,13 @@ impl TileGenerator {
         let du = (u1 - u0) / TILE_CELLS as f64;
         let dv = (v1 - v0) / TILE_CELLS as f64;
 
-        // Sample an (N+2)² grid. The extra ring (apron) gives normals central differences
-        // that match the neighbouring tile's, so lighting has no seams. Apron samples past
-        // a face edge use uv_to_dir's smooth extrapolation, fine for a normal estimate.
+        // Sample an (N+2)² grid. The extra ring (apron) feeds the cell-centre error check
+        // below. Lighting comes from the baked gradient texture, not from these samples.
         let m = N + 2;
         // Heights on the (N+2)² grid (one apron ring for normals). The gully filter's slope
         // comes from fixed 250 m finite differences inside `levels`, not from this grid, so
         // every LOD level sees the same slope and a child's parent-level heights match the
         // parent tile exactly (needed for seamless geomorphing).
-        let mut surf = vec![DVec3::ZERO; m * m]; // true (exaggeration 1) surface
         let mut dirs = vec![DVec3::ZERO; m * m];
         let mut lv = vec![crate::HeightLevels { macro_h: 0.0, h: 0.0, h_parent: 0.0, h_child: 0.0 }; m * m];
         // With the drained detail network, one patch covers the whole tile (+ apron).
@@ -96,7 +96,6 @@ impl TileGenerator {
                     None => self.sampler.levels(dir, min_wl),
                 };
                 let k = j * m + i;
-                surf[k] = dir * (r + l.h.max(0.0));
                 dirs[k] = dir;
                 lv[k] = l;
             }
@@ -108,7 +107,7 @@ impl TileGenerator {
             id,
             center,
             positions: Vec::with_capacity(TILE_VERTS),
-            normals: Vec::with_capacity(TILE_VERTS),
+            face_uv: Vec::with_capacity(TILE_VERTS),
             heights: Vec::with_capacity(TILE_VERTS),
             parent_heights: Vec::with_capacity(TILE_VERTS),
             skirt: Vec::with_capacity(TILE_VERTS),
@@ -120,12 +119,11 @@ impl TileGenerator {
         for j in 0..N {
             for i in 0..N {
                 let k = (j + 1) * m + (i + 1);
-                let tu = surf[k + 1] - surf[k - 1];
-                let tv = surf[k + m] - surf[k - m];
-                let n = if lv[k].h <= 0.0 { dirs[k] } else { tu.cross(tv).normalize_or(dirs[k]) };
                 let p = dirs[k] * r;
                 out.positions.push((p - center).as_vec3().to_array());
-                out.normals.push(n.as_vec3().to_array());
+                let s = (u0 + i as f64 * du + 1.0) * 0.5;
+                let t = (v0 + j as f64 * dv + 1.0) * 0.5;
+                out.face_uv.push([s as f32, t as f32, id.face as u8 as f32]);
                 out.heights.push(lv[k].h as f32);
                 out.parent_heights.push(lv[k].h_parent as f32);
                 out.skirt.push(0.0);
@@ -171,7 +169,7 @@ impl TileGenerator {
         for (i, j) in skirt_border() {
             let k = j * N + i;
             out.positions.push(out.positions[k]);
-            out.normals.push(out.normals[k]);
+            out.face_uv.push(out.face_uv[k]);
             out.heights.push(out.heights[k]);
             out.parent_heights.push(out.parent_heights[k]);
             out.skirt.push(1.0);

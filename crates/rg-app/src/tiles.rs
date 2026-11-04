@@ -19,7 +19,7 @@ pub fn to_upload(t: TileData) -> TileUpload {
         .map(|i| TileVertex {
             pos: t.positions[i],
             height_m: t.heights[i],
-            normal: t.normals[i],
+            face_uv: t.face_uv[i],
             parent_height_m: t.parent_heights[i],
             skirt: t.skirt[i],
         })
