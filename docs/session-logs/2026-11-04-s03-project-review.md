@@ -105,3 +105,11 @@ All points adopted; detail in `docs/design/v2-direction-s03.md` → "Fresh-conte
   - **Tiles:** split error is now the bicubic-vs-flat-triangle gap at cell centres; skirt depth uses the parent-mesh gap (it was 0 in macro-only mode).
   - **Measured (`bench_tile`, synthetic field, n=1):** ~1 ms per tile at L0–L6 (detail network: 56–240 ms).
   - Clippy clean; workspace tests pass.
+- ✓ **Lat/lon grid** (sonnet-medium, worktree → cherry-picked as `ef36072`'s copy):
+  - `rg-render/src/graticule.rs` (step picker, globe projection, labels; 5 tests);
+  - shader lines with adaptive 30/15/10/5/2/1° spacing;
+  - a "Lat/lon grid" checkbox, on by default.
+  - Gotcha: the agent's worktree started on a TS-era commit, and it reset to the branch itself.
+- **Fresh-context review of uplift blend + deletion + graticule: no blocking bugs.**
+  - **Low:** below res ~100 the blend's σ comes out wider than asked (the coarse grid is capped at the world res). The doc comment is fixed.
+  - **Cosmetic:** globe labels sit at sea level, so with exaggeration they drift off lines over high ground; skirts get grid lines too.

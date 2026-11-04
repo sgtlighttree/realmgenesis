@@ -173,7 +173,9 @@ fn from_boundaries(grid: &Grid, snap: &TectonicSnapshot, radius_m: f64, ocean: &
 /// it unchanged). Done on a coarse grid whose cells are σ/2 wide, so the cost and the result
 /// don't depend on the world's resolution: average the field into the coarse cells (a box
 /// filter), run 6 neighbour-averaging passes (≈ 1.5·(σ/cell)² for a 3×3 kernel), then read it
-/// back bilinearly.
+/// back bilinearly. The coarse grid can't be finer than the world's, so on worlds coarser
+/// than ~σ/2 per cell (res < ~100 at σ = 200 km) the blur comes out wider than σ (s03
+/// review: ~310 km at res 64).
 pub(crate) fn smooth_on_sphere(grid: &Grid, values: &[f64], sigma_m: f64, radius_m: f64) -> Vec<f64> {
     if sigma_m <= 0.0 {
         return values.to_vec();
