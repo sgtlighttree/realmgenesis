@@ -123,8 +123,9 @@ fn distribution(label: &str, w: &rg_pipeline::World) {
     land.sort_by(f64::total_cmp);
     let q = |f: f64| land.get(((land.len().max(1) - 1) as f64 * f) as usize).copied().unwrap_or(0.0);
     println!(
-        "  {label}: land n {} · p50 {:.0} · p90 {:.0} · p99 {:.0} · max {:.0} m · lakes {:.2}%",
-        land.len(), q(0.5), q(0.9), q(0.99), q(1.0), 100.0 * lake_n as f64 / land.len().max(1) as f64
+        "  {label}: land n {} · p50 {:.0} · p90 {:.0} · p99 {:.0} · max {:.0} m · lakes {:.2}% · height_scale {:.3}",
+        land.len(), q(0.5), q(0.9), q(0.99), q(1.0), 100.0 * lake_n as f64 / land.len().max(1) as f64,
+        w.hydrology.as_ref().and_then(|x| x.height_scale).unwrap_or(f64::NAN)
     );
 }
 
