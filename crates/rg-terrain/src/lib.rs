@@ -63,6 +63,10 @@ pub struct TerrainSampler {
     /// Patches of the network, shared by clones (tiles on worker threads, probes). Keyed by
     /// (block cell, cells per face, band-limit bits). Only a cache.
     patches: Arc<PatchCache>,
+    /// Macro only: no streamed detail of any kind (network, hills, gullies, river
+    /// corridors). Every query returns the drained macro height. The app's "streamed
+    /// detail: off" (s02); tests and probes keep the default (false).
+    pub macro_only: bool,
 }
 
 
@@ -88,7 +92,19 @@ impl TerrainSampler {
             floor_wavelength_m: 12.0,
             net: None,
             patches: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            macro_only: false,
         }
+    }
+
+    /// Switch off all streamed detail (see [`Self::macro_only`]).
+    pub fn with_macro_only(mut self) -> Self {
+        self.macro_only = true;
+        self
+    }
+
+    /// All four levels at the macro height (macro-only mode, and the open ocean).
+    fn flat_levels(m: f64) -> HeightLevels {
+        HeightLevels { macro_h: m, h: m, h_parent: m, h_child: m }
     }
 
     /// Use the drained detail network for everything above sea level.
@@ -100,6 +116,9 @@ impl TerrainSampler {
     /// A network patch covering the disc `radius_m` around `centre` at `min_wavelength_m`
     /// (`None` without a network). Tiles build one for their own footprint.
     pub fn network_patch(&self, centre: DVec3, radius_m: f64, min_wavelength_m: f64) -> Option<detail_net::Patch> {
+        if self.macro_only {
+            return None;
+        }
         let cutoff = min_wavelength_m.max(self.floor_wavelength_m);
         self.net.as_ref().map(|n| n.patch(centre, radius_m, cutoff))
     }
@@ -178,6 +197,9 @@ impl TerrainSampler {
     /// - `h_parent`: the parent level (≥ 2 × that), used to morph tiles in without popping,
     /// - `h_child`: the child level (≥ ½ × that), used to measure this tile's error.
     pub fn levels(&self, dir: DVec3, min_wavelength_m: f64) -> HeightLevels {
+        if self.macro_only {
+            return Self::flat_levels(self.macro_height(dir));
+        }
         if let Some(net) = &self.net {
             return self.net_levels(net, dir, min_wavelength_m);
         }
@@ -199,6 +221,9 @@ impl TerrainSampler {
     /// As [`Self::levels`], with the slope (3D tangent gradient, m/m) of the base surface
     /// supplied by the caller.
     pub fn levels_with_slope(&self, dir: DVec3, min_wavelength_m: f64, grad3: DVec3) -> HeightLevels {
+        if self.macro_only {
+            return Self::flat_levels(self.macro_height(dir));
+        }
         if let Some(net) = &self.net {
             return self.net_levels(net, dir, min_wavelength_m);
         }
@@ -421,6 +446,23 @@ mod tests {
     fn field() -> Arc<CubeField<f32>> {
         // Land in the +Z hemisphere rising to 3000 m, ocean in −Z.
         Arc::new(CubeField::from_fn(32, |d| (d.z * 4000.0) as f32))
+    }
+
+    #[test]
+    fn macro_only_returns_the_macro_height_at_every_band() {
+        let f = field();
+        let s = TerrainSampler::new(f.clone(), 6_371_000.0, 7).with_macro_only();
+        for i in 0..500 {
+            let t = i as f64 * 0.731;
+            let d = DVec3::new(t.cos(), t.sin(), (i as f64 * 0.004) - 1.0).normalize();
+            let m = s.macro_height(d);
+            for wl in [0.0, 40.0, 1000.0, 50_000.0] {
+                for l in [s.levels(d, wl), s.levels_with_slope(d, wl, DVec3::X * 0.3)] {
+                    assert_eq!([l.macro_h, l.h, l.h_parent, l.h_child], [m; 4], "detail at {d}, wl {wl}");
+                }
+            }
+            assert!(s.network_patch(d, 10_000.0, 40.0).is_none());
+        }
     }
 
     #[test]

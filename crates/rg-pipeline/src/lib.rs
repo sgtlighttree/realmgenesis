@@ -118,6 +118,13 @@ pub fn generate(params: &WorldParams) -> World {
     }
 }
 
+/// The macro-only sampler for a world: the drained macro surface, no streamed detail
+/// (the app's "streamed detail: off", s02). Skips building the detail network.
+pub fn terrain_sampler_macro(world: &World) -> rg_terrain::TerrainSampler {
+    let height = std::sync::Arc::new(world.tectonics.height_m.clone());
+    rg_terrain::TerrainSampler::new(height, world.params.tectonics.radius_m, world.params.tectonics.seed).with_macro_only()
+}
+
 /// The streamed-detail sampler for a world (macro heights + river corridors). Use this
 /// everywhere (app, tests, probes) so they all see the same surface.
 pub fn terrain_sampler(world: &World) -> rg_terrain::TerrainSampler {
