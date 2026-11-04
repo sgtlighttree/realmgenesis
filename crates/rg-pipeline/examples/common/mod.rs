@@ -98,6 +98,11 @@ pub fn world(seed: u64) -> World {
         w.timings.erosion_ms,
         w.tectonics.height_m.res
     );
+    // `RG_NO_CACHE` skips the write too: the key doesn't list every env override, so a
+    // world made with an unlisted one must never be cached under the plain key (s04).
+    if env::<u8>("RG_NO_CACHE").is_some() {
+        return w;
+    }
     let _ = std::fs::create_dir_all(&dir);
     let mut buf = Vec::new();
     rg_pipeline::file::to_file(&w).write_to(&mut buf).unwrap();
