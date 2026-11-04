@@ -191,3 +191,4 @@ Spot: seed 1 Ultra, 50°S 165°E, 2800 km box, `field_maps` (n=1 each).
   - Matt's "no more straight lines" was at jitter 0: the straight features were the uplift Voronoi steps, not the drainage lattice.
   - The param and code stay for R4 regional bakes (150–300 m), where lattice-bound rivers would show.
 - The legend renders (Matt's screenshots: "Elevation (m)" bottom-left).
+- Matt: active coasts **both** (automatic default, repaintable). Land terrain "largely satisfied". ROADMAP.md (stale since s01) now opens with the R1–R5 table; HANDOFF has a one-line roadmap.

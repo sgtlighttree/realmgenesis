@@ -2,7 +2,21 @@
 
 Current state and evidence: `HANDOFF.md`. Detail and history: `docs/session-logs/`. Terrain design: `docs/design/terrain-model.md` and `docs/design/drained-detail-network.md`.
 
-## Where terrain stands (end of s01)
+## Direction since s03 (2026-11-04): the R-sequence
+
+Decided in the s03 review (`docs/design/v2-direction-s03.md`; log `docs/session-logs/2026-11-04-s03-project-review.md`). Product: a fantasy-oriented, user-friendly FOSS alternative to Gaea; native-first; Rust stays.
+
+| | What | Status |
+|---|---|---|
+| **R1** | Un-grid the terrain: resolution coherence, no lattice-bound rivers | **Done differently.** The real cause of "different terrain per resolution" was plate seeds picked by node index (fixed: r 0.38 → 0.93). The straight escarpments were uplift Voronoi steps (fixed: "uplift blend"). Noisy plateaus came from open lakes never eroding (fixed: "plateau dryness"). Drainage jitter tested; off (code kept for R4). |
+| **R2** | Raster renderer: heights from the stored raster, per-pixel lighting, zoom floor | **Done.** The detail network was deleted. |
+| **R3** | **Coastline conditioning:** import (vector/raster), place/scale on the sphere, draw or edit coastlines, regenerate terrain that fits. Includes the **plausibility pass**: plates fitted to the continents, active coasts (boundary + trench + arc + mountains) vs passive coasts (shelf, rift shape). Active coasts are chosen automatically by default and can be repainted (Matt: "both"). | **Next:** design doc + fresh review, then build. |
+| **R4** | Regional bakes ("Gaea mode"): 150–300 m detail in chosen windows, own rivers inside, stored rasters | After R3. Reuses R2's raster path. |
+| **R5** | Exports: Blender (16-bit/EXR height + albedo), Illustrator (SVG coasts/rivers/borders), game-engine tiles | After R4 (the heightmap PNG export already exists). |
+
+Then the "alive world" layer (below). Matt, s03: "largely satisfied with land terrain."
+
+## Where terrain stood (end of s01; superseded where the table above says so)
 
 The terrain is physically grounded and checked against Earth by the same code that scores ours (`examples/earth_reference.rs`):
 - **Drainage:** closed depressions 0.00% on the final surface, by construction.
@@ -14,8 +28,8 @@ The terrain is physically grounded and checked against Earth by the same code th
 
 ## Next: terrain (choose one per session)
 
-1. **Lake rims + peaks** *(recommended next: visible artifacts, moderate effort)*
-   - Closed-lake rims leak: valleys of a neighbouring basin cut below the lake level across the macro divide, so water stands as a wall on part of the shore. Fix: inside closed catchments, only wedges draining to that lake count, with a continuous rim at catchment boundaries (beware: min/max compositions can create pits).
+1. **Peaks** (the lake-rim half of this item is obsolete: it was about the detail network, deleted in s03)
+   - ~~Closed-lake rims leak:~~ valleys of a neighbouring basin cut below the lake level across the macro divide, so water stands as a wall on part of the shore. Fix: inside closed catchments, only wedges draining to that lake count, with a continuous rim at catchment boundaries (beware: min/max compositions can create pits).
    - Peaks top out near 5 km (Earth 8.8). Real summits stand 2–3 km above smoothed plateau levels through deep valley and glacial incision.
 2. **Sediment & deltas** *(big scientific step, multi-session)*: transport-limited deposition (Yuan et al. 2019, implicit ξ–q). Alluvial plains, fans and deltas fed by the erosion flux, filled basins, and margin sediment tied to river mouths (today GlobSed's wedge is uniform).
 3. **Crustal isostasy** *(fixes "heights fitted" at its root, multi-session)*: crustal thickness from shortening with a 65–70 km cap, Airy isostasy, then flexure (Te 20–40 km). Rock uplift = thickening rate (replaces the exp(−d/L) belts and the 7 km elevation cap). Hypsometry stays a check only.

@@ -2,7 +2,11 @@
 
 The current state, for the next session. History lives in `docs/session-logs/`. The newest log is the detail behind this file. **What to do next: `ROADMAP.md`.**
 
-## s03 (2026-11-04): review in progress
+## Roadmap at a glance (s03)
+
+R1 un-grid/coherence (done differently) → R2 raster renderer (done) → **R3 coastline conditioning + plate plausibility pass (next)** → R4 regional bakes → R5 exports → alive world. Table with definitions: `ROADMAP.md` top. Matt: land terrain "largely satisfied"; active coasts: automatic + repaintable ("both").
+
+## s03 (2026-11-04): review and build
 
 - Matt answered the 12 questions: `docs/session-logs/2026-11-04-s03-project-review.md`.
 - Proposed direction (**not yet approved**): `docs/design/v2-direction-s03.md`. In short: keep Rust; native-first; R1 un-grid macro routing (jitter/MFD + position-keyed roughness) → R2 raster-displacement renderer (zoom floor 20 km) → R3 coastline-conditioning design → R4 regional bake → R5 exports.
