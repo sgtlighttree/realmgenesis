@@ -15,6 +15,9 @@ pub const ACCENT: Color32 = Color32::from_rgb(110, 186, 154);
 pub const DANGER: Color32 = Color32::from_rgb(196, 48, 48);
 
 pub fn apply(ctx: &egui::Context) {
+    // The palette above is dark-only. egui otherwise follows the OS appearance, and in
+    // macOS light mode this style never applied (s02: green status text on light grey).
+    ctx.set_theme(egui::Theme::Dark);
     let mut style = (*ctx.global_style()).clone();
     let v = &mut style.visuals;
     *v = egui::Visuals::dark();
