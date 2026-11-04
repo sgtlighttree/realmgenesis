@@ -1,6 +1,7 @@
 //! The egui front end. It reads `RealmApp` state and pushes `Command`s; it never runs
 //! generation itself.
 
+pub mod coasts;
 pub mod theme;
 
 use crate::app::RealmApp;
@@ -128,6 +129,7 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
         ui.add(egui::Slider::new(&mut t.mountain_scale, 0.3..=2.0).text("mountains"));
         ui.add(egui::Slider::new(&mut t.roughness, 0.3..=2.0).text("roughness"));
         detail_picker(ui, &mut t.res, t.radius_m);
+        coasts::coasts_section(app, ui);
         // ---------------------------------------------------------------- erosion
         let e = &mut app.params.erosion;
         ui.checkbox(&mut e.enabled, "River erosion")
@@ -390,7 +392,25 @@ fn viewport(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) 
     let aspect = (rect.width() / rect.height().max(1.0)) as f64;
     let multi = ui.input(|i| i.multi_touch());
     let touching = multi.is_some();
-    if let (ViewMode::Globe, Some(mt)) = (app.view, multi) {
+    // R3.3 brush: with a brush active, a primary drag paints instead of panning.
+    let lat_lon_at = |app: &RealmApp, p: egui::Pos2| -> Option<(f64, f64)> {
+        let fx = ((p.x - rect.left()) / rect.width()) as f64;
+        let fy = ((p.y - rect.top()) / rect.height()) as f64;
+        match app.view {
+            ViewMode::Globe => app.camera.pick(fx, fy, aspect),
+            ViewMode::Map => {
+                use std::f64::consts::{FRAC_PI_2, PI, TAU};
+                let (lon, lat) = app.map.lonlat_at(fx, fy, aspect);
+                (lat.abs() <= FRAC_PI_2).then(|| (lat, (lon + PI).rem_euclid(TAU) - PI))
+            }
+        }
+    };
+    let primary = response.dragged_by(egui::PointerButton::Primary) && !ui.input(|i| i.modifiers.shift);
+    let brush_at = response.interact_pointer_pos().and_then(|p| lat_lon_at(app, p));
+    let painting = coasts::paint(app, primary, response.drag_stopped(), brush_at);
+    if painting {
+        // The brush owns this drag.
+    } else if let (ViewMode::Globe, Some(mt)) = (app.view, multi) {
         // Two fingers: twist to turn, slide up/down to tilt (pinch zoom is handled below).
         app.camera.orbit(-mt.rotation_delta as f64, -mt.translation_delta.y as f64 * 0.005);
     } else if response.dragged() {

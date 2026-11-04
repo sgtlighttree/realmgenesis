@@ -11,6 +11,8 @@ pub mod layers;
 pub mod legend;
 mod palette;
 pub mod svg;
+/// The coast mask types (R3), re-exported for the app.
+pub use rg_tectonics::mask;
 
 use rg_climate::{ClimateFields, ClimateInput, LatLonGrid, PlanetParams};
 use rg_erosion::{ErosionParams, ErosionStats, RiverSegment};

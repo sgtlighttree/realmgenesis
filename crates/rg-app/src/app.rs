@@ -165,6 +165,8 @@ pub struct RealmApp {
     /// What the app has been doing (the status-bar console).
     pub console: Console,
     pub console_open: bool,
+    /// Coast source / import / brush UI state (R3).
+    pub coasts: crate::ui::coasts::CoastUi,
     /// The surface-gradient bake in flight (per-pixel lighting; see `normals.rs`).
     #[cfg(not(target_arch = "wasm32"))]
     normals_job: Option<crate::normals::NormalsJob>,
@@ -215,6 +217,7 @@ impl RealmApp {
             show_panel: None,
             console: Console::new(),
             console_open: false,
+            coasts: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             normals_job: None,
             max_tile_level: 4,
@@ -252,7 +255,7 @@ impl RealmApp {
     }
 
     /// Native-only startup overrides for scripted screenshots and testing:
-    /// `RG_SEED=<n>`, `RG_VIEW=globe|map`, `RG_LAYER=<1-8>`, `RG_RES=<cells per face>`,
+    /// `RG_SEED=<n>`, `RG_VIEW=globe|map`, `RG_LAYER=<1-9>`, `RG_RES=<cells per face>`,
     /// camera: `RG_LAT`/`RG_LON`/`RG_HEADING`/`RG_TILT` (degrees), `RG_DIST` (metres);
     /// `RG_EXAG=<×>` and `RG_KEEP_RELIEF=1` (relief); `RG_CONV_SMOOTH=<km>` (uplift blend); `RG_SHOT=<png>` saves the planet view once the
     /// world, normals and tiles have settled, and `RG_SHOT_EXIT=1` then quits.
@@ -290,6 +293,31 @@ impl RealmApp {
             }
             if let Some(r) = var("RG_RES").and_then(|v| v.parse().ok()) {
                 self.params.tectonics.res = r;
+            }
+            // R3: `RG_ACTIVE_SHARE=<0..1>`, `RG_STRICT=1`, `RG_MASK=<png|svg>` (whole world, or a
+            // patch with `RG_MASK_PATCH=lat,lon,km_per_px,rotation`).
+            if let Some(v) = var("RG_ACTIVE_SHARE").and_then(|v| v.parse().ok()) {
+                self.params.tectonics.active_share = v;
+            }
+            if var("RG_STRICT").is_some() {
+                self.params.tectonics.conditioning.strict = true;
+            }
+            if let Some(path) = var("RG_MASK") {
+                let place = match var("RG_MASK_PATCH").map(|v| v.split(',').filter_map(|x| x.trim().parse::<f64>().ok()).collect::<Vec<_>>()) {
+                    Some(v) if v.len() >= 3 => rg_pipeline::mask::Placement::Patch {
+                        center_deg: [v[0], v[1]],
+                        km_per_px: v[2],
+                        rotation_deg: v.get(3).copied().unwrap_or(0.0),
+                    },
+                    _ => rg_pipeline::mask::Placement::WorldEquirect,
+                };
+                match rg_pipeline::import::load_mask(std::path::Path::new(&path), place) {
+                    Ok(m) => {
+                        self.params.tectonics.conditioning.mask = Some(std::sync::Arc::new(m));
+                        self.params.tectonics.conditioning.strict = true;
+                    }
+                    Err(e) => eprintln!("RG_MASK: {e}"),
+                }
             }
             let deg = |k: &str| var(k).and_then(|v| v.parse::<f64>().ok()).map(f64::to_radians);
             if let Some(v) = deg("RG_LAT") {

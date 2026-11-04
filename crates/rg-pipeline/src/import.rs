@@ -225,4 +225,38 @@ mod tests {
         assert_eq!(cov[0], 1.0);
         assert_eq!(cov[7], 0.0);
     }
+
+    /// An imported world saves its mask source and placement, loads back to the same
+    /// conditioning, and re-saves byte-identically; the drawn coast is where the mask says.
+    #[test]
+    fn imported_world_round_trips() {
+        let svg = br#"<svg viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60"/></svg>"#.to_vec();
+        let place = Placement::Patch { center_deg: [20.0, 30.0], km_per_px: 40.0, rotation_deg: 15.0 };
+        let mask = mask_from_bytes(svg, "svg", place).unwrap();
+        let mut params = crate::WorldParams::default();
+        params.tectonics.res = 32;
+        params.erosion.enabled = false;
+        params.tectonics.conditioning.mask = Some(Arc::new(mask));
+        params.tectonics.conditioning.strict = true;
+        params.tectonics.conditioning.outside_procedural = false;
+        params.tectonics.conditioning.strokes.push(Stroke {
+            path: vec![rg_tectonics::mask::dir_of(-40.0, 100.0)],
+            radius_km: 500.0,
+            op: StrokeOp::Land,
+        });
+        let w = crate::generate(&params);
+        // Patch centre is land (inside the drawn square); the antipode is sea.
+        let at = |lat: f64, lon: f64| w.tectonics.height_m.sample(rg_tectonics::mask::dir_of(lat, lon));
+        assert!(at(20.0, 30.0) > 0.0);
+        assert!(at(-20.0, -150.0) < 0.0);
+        assert!(at(-40.0, 100.0) > 0.0, "painted land");
+        let mut a = Vec::new();
+        crate::file::to_file(&w).write_to(&mut a).unwrap();
+        let loaded = crate::file::from_file(&WorldFile::read_from(&a[..]).unwrap()).unwrap();
+        assert_eq!(loaded.params.tectonics.conditioning, w.params.tectonics.conditioning);
+        let mut b = Vec::new();
+        crate::file::to_file(&loaded).write_to(&mut b).unwrap();
+        assert!(a == b, "re-saved file differs");
+    }
 }
+
