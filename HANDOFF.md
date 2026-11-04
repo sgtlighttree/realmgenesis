@@ -16,11 +16,20 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
   - **uplift blend** slider: the "floors"/straight escarpments were Voronoi steps in the convergence-rate factor; default 200 km, 0 = old look;
   - "uplift focus" → **belt width** (the old slider did nothing);
   - in-app screenshots: F12, or `RG_SHOT=<png> RG_SHOT_EXIT=1` + `RG_EXAG`/`RG_KEEP_RELIEF`/camera envs. Use these instead of `screencapture`, which fails here.
+- **Resolution coherence fixed at the root:**
+  - `plates.rs`/`relief.rs` picked plate seeds and hotspots by random node *index*, so plates moved with resolution;
+  - now `Grid::nearest_node(rng.unit_vec())`;
+  - seed 1, 320 vs 640: height r 0.38 → 0.93, same plate 7.7% → 99.7% (`probe_res_coherence`);
+  - every regenerated world changed.
+- **R1 spike in the app:** "drainage jitter" slider (0–0.4, default 0).
+  - At 0.35: the straight parallel gully grain goes away (Ultra, n=1); river coherence across resolutions 52% → 59%;
+  - cost +22% erosion time, +0.3 GB at Ultra.
+  - Position-keyed roughness (`roughness_wavelength_km`) had no measurable effect; keep it 0 (candidate for removal).
+- **The app folder `~/RealmGenesis` is this repo** (case-insensitive macOS), so saves, exports and F12 shots land in the repo root (gitignored now). Proposed: move it to `~/Documents/RealmGenesis`.
 - **Next:**
-  1. Matt tries uplift blend (0 vs 200+) and belt width on his seeds.
-  2. **R1 spike:** position-keyed node jitter in the erosion grid only (+ position-keyed roughness/Rho8 for resolution coherence), with full-field resampling. Judge with `field_maps`/`river_map` + app screenshots at Normal and Ultra, same spot. Changes every world.
-  3. Then R3 design (coastline conditioning).
-  - Parked: tall flat-topped ranges (the `elevation_limit_m` 7 km taper? a candidate slider); coast staircase on macro cells (coast SDF); Ultra erosion 58–63 s this session vs ~30 s before (unconfirmed cause).
+  1. Matt A/Bs drainage jitter (0 vs 0.3–0.35) and uplift blend on his seeds. If jitter wins: make it the default (fresh review first: it changes every world).
+  2. R3 design (coastline conditioning).
+  - Parked: tall flat-topped ranges (`elevation_limit_m` taper?); coast staircase (coast SDF); erosion's remaining resolution dependence (rivers 59% overlap); Ultra erosion ~60 s now vs ~30 s in s02 (cause unknown; check with Matt's app closed).
 
 ## Previous: project-wide review brief (s02 wrap-up, 2026-11-04)
 
