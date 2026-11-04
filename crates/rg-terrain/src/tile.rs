@@ -57,8 +57,12 @@ impl TileGenerator {
     pub fn generate(&self, id: TileId) -> TileData {
         let r = self.sampler.radius_m;
         let cell = self.cell_size_m(id.level);
-        // Band-limit: only octaves this tile can represent (≥ 2 cells per wavelength).
-        let min_wl = 2.0 * cell;
+        // Band-limit: only octaves this tile can represent, ≥ 2 cells per wavelength (the
+        // Nyquist floor). At 2, a network valley is ~2 cells wide and draws as an angular
+        // zigzag from orbit (Matt, s02: "low def and angular"); RG_TILE_BAND_CELLS (native)
+        // tries wider bands without a rebuild. Any value keeps parent/child bands
+        // consistent, since a parent's cells are twice as big.
+        let min_wl = crate::tune("RG_TILE_BAND_CELLS", 2.0).max(2.0) * cell;
         let (u0, v0, u1, v1) = id.uv_bounds();
         let du = (u1 - u0) / TILE_CELLS as f64;
         let dv = (v1 - v0) / TILE_CELLS as f64;
