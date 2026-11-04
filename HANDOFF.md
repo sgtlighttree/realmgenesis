@@ -7,7 +7,7 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 - Matt answered the 12 questions: `docs/session-logs/2026-11-04-s03-project-review.md`.
 - Proposed direction (**not yet approved**): `docs/design/v2-direction-s03.md`. In short: keep Rust; native-first; R1 un-grid macro routing (jitter/MFD + position-keyed roughness) → R2 raster-displacement renderer (zoom floor 20 km) → R3 coastline-conditioning design → R4 regional bake → R5 exports.
 - Fresh-context review: **go with changes**, all adopted. Revised order: R2 raster renderer on today's macro (+ river overlay, coverage-based zoom floor) → R3 coastline design → R1 jitter-only experiment → R4 → R5.
-- Matt approved (s03): go on R2; Q9 = in-house (FOSS Gaea alternative); native-first CLAUDE.md edits done; `node_modules/` → Trash, `target/` cleaned (40 GB free). Still open: `spike/`, `heightmap-1.*`.
+- Matt approved (s03): go on R2; Q9 = in-house (FOSS Gaea alternative); native-first CLAUDE.md edits done; `node_modules/` → Trash, `target/` cleaned (40 GB free). `spike/` + `heightmap-1.*` → `~/.Trash/realmgenesis-s02-leftovers-20261104/` (Matt). Spike PNGs also in `~/RealmGenesis/spike/`.
 - **Now: R2 raster renderer design** (`docs/design/raster-renderer.md`), then review, then build.
 
 ## Previous: project-wide review brief (s02 wrap-up, 2026-11-04)
