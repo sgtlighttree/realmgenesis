@@ -28,11 +28,15 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 - **The app folder `~/RealmGenesis` is this repo** (case-insensitive macOS), so saves, exports and F12 shots land in the repo root (gitignored now). Proposed: move it to `~/Documents/RealmGenesis`.
 - **Plateaus fixed and tunable** (s03): open lakes used to be fixed, never-eroding base levels, which carried dry interiors up as noisy plateaus. Now only closed lakes, plus open lakes drier than the **"plateau dryness mm"** slider (default 60), hold.
 - **Legend** for each layer (bottom-left of the viewport, "Legend" checkbox; `rg-pipeline/src/legend.rs` holds the data, `ui/mod.rs` draws it). Unseen by me; Matt to check.
-- **Next:**
-  1. Matt checks plateau dryness (0–300), drainage jitter (0 vs 0.3–0.35), uplift blend, and the legend. If jitter wins → make it the default (fresh review first).
-  2. Matt's plate/coast question: plates are grown *after* continents (noise), with only a soft cost wall at margins, so many coasts are mid-plate. That's partly Earth-like (passive margins) and partly a snapshot simplification (no rifting history). Candidate: an exposed margin-alignment weight; it ties into R3 (coastline conditioning must fit plates to imported coasts anyway).
-  3. R3 design.
-  - Parked: tall flat-topped ranges (`elevation_limit_m` taper?); coast staircase (coast SDF); erosion's remaining resolution dependence (rivers ~59% overlap).
+- **Decided (s03):**
+  - **Continents first**, plates fitted to them by a plausibility pass (R3);
+  - drainage jitter off and its slider removed (code kept for R4).
+- **Next session: R3 design** (`docs/design/coastline-conditioning.md`, then a fresh review):
+  - coastline import (vector/raster), align/scale on the sphere, edit, regenerate;
+  - the plausibility pass: active vs passive coasts, boundaries + trench/arc/mountains on active coasts, shelf/rift geometry on passive ones;
+  - **open question for Matt:** pick active coasts automatically (ocean-facing, a share per seed) or paint them on an imported map?
+  - plate/coast alignment today: plates grown after the continents with only a soft margin wall (`plates.rs`, `crust.edge_m` cost).
+- Parked: tall flat-topped ranges (`elevation_limit_m` taper?); coast staircase (coast SDF); erosion's remaining resolution dependence (rivers ~59% overlap).
 
 ## Previous: project-wide review brief (s02 wrap-up, 2026-11-04)
 
