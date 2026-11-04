@@ -191,11 +191,10 @@ pub(crate) fn smooth_on_sphere(grid: &Grid, values: &[f64], sigma_m: f64, radius
     };
     // 1. Area-weighted average into the coarse cells.
     let (mut sum, mut wsum) = (vec![0.0f64; coarse.n], vec![0.0f64; coarse.n]);
-    for i in 0..grid.n {
-        let c = coarse_node(grid.dir[i]);
-        let w = grid.weight[i] as f64;
-        sum[c] += values[i] * w;
-        wsum[c] += w;
+    for ((dir, &w), &value) in grid.dir.iter().zip(&grid.weight).zip(values) {
+        let c = coarse_node(*dir);
+        sum[c] += value * w as f64;
+        wsum[c] += w as f64;
     }
     let mut v: Vec<f64> = (0..coarse.n).map(|c| if wsum[c] > 0.0 { sum[c] / wsum[c] } else { 1.0 }).collect();
     // 2. Neighbour averaging.
@@ -229,12 +228,12 @@ mod tests {
         // Unchanged at sigma 0.
         assert_eq!(smooth_on_sphere(&g, &f, 0.0, r), f);
         // Far from the step: close to the original levels.
-        for i in 0..g.n {
-            if g.dir[i].x > 0.5 {
-                assert!((s[i] - 2.0).abs() < 0.05, "{}", s[i]);
+        for (d, &v) in g.dir.iter().zip(&s) {
+            if d.x > 0.5 {
+                assert!((v - 2.0).abs() < 0.05, "{v}");
             }
-            if g.dir[i].x < -0.5 {
-                assert!((s[i] - 0.5).abs() < 0.05, "{}", s[i]);
+            if d.x < -0.5 {
+                assert!((v - 0.5).abs() < 0.05, "{v}");
             }
         }
         // At the step: a ramp, not a jump. A Gaussian-smoothed step of 1.5 has a peak slope of
