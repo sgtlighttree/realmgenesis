@@ -485,6 +485,15 @@ fn viewport(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) 
     if app.style.graticule {
         graticule_labels(app, ui, rect, size_px);
     }
+    // R3.3: strokes, the stroke in progress and the circle cursor while a brush is active.
+    if app.coasts.brush.is_some() {
+        let hover_ll = response.hover_pos().or(response.interact_pointer_pos()).and_then(|p| lat_lon_at(app, p));
+        if hover_ll.is_some() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+        }
+        coasts::overlay(app, ui, rect, aspect, hover_ll);
+    }
+    coasts::handle_drops(app, ui, rect);
     if app.display.legend {
         legend_panel(app.layer, ui, rect);
     }

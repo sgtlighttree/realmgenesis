@@ -27,6 +27,8 @@ png.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 env_logger = "0.11"
+# Native file dialog for importing coastline masks (R3.2).
+rfd = "0.17"
 
 # Tile workers lower their own scheduling class (QoS) on macOS; see tiles.rs.
 [target.'cfg(target_os = "macos")'.dependencies]
