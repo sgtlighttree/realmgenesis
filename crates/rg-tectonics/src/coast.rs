@@ -43,7 +43,9 @@ pub const OPEN_OCEAN_M: f64 = 3_000_000.0;
 /// Typical distance between segment cuts along a coast.
 pub const SEGMENT_SPACING_M: f64 = 1_500_000.0;
 /// Chance that a segment of a closing seaway's rim is passive (a rifted microcontinent).
-pub const PASSIVE_SEGMENT_P: f64 = 0.15;
+/// 0 since s06 (Matt): passive stretches inside closing rims caused most trench-gate misses
+/// and extra plates. The roll is kept so the knob stays available.
+pub const PASSIVE_SEGMENT_P: f64 = 0.0;
 
 /// Margin classes, per node.
 pub mod margin {
