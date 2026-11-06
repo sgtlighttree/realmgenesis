@@ -12,11 +12,9 @@ R1 un-grid/coherence (done differently) → R2 raster renderer (done) → **R3 c
 - **Decided (Matt):** passive segments in closing rims are now **0%**; the plate slider shows the achieved count; the hypsometry floor of 300 m is accepted.
 - Land % is disabled when an imported mask decides the land.
 - Gates (seeds 1–5): active coast with a trench 0.81–0.885 (gate 0.90); passive coast near a trench 0.03–0.12; plates 19–37.
-- **Still open for Matt (needs the app):**
-  - does the active/passive split read right (Coast margins layer)?
-  - the Voronoi-like ridge web: fine or too geometric?
-  - try an import and the brush;
-  - live brush preview (not built).
+- **Matt in the app:** plates "pretty natural"; the bunched microplates stand out but "could still be natural" (left as is). The brush worked but had no feedback, and import wasn't discoverable.
+- **Built:** brush bands plus a circle cursor (globe and map); an "Import coastline…" file dialog (`rfd`) plus drag-and-drop; `RG_SHOT_UI=1` for whole-window screenshots (the only way to check the UI here).
+- **Next:** Matt tries the import and the new brush feedback; then R3b (open-ocean fabric on R3's ridges).
 
 ## s05 (2026-11-05, local): R3 built, waiting on Matt's feedback
 
