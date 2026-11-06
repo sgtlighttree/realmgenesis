@@ -115,6 +115,20 @@ pub fn user_placement(m: &RasterMask) -> Placement {
     }
 }
 
+/// The inverse of [`user_placement`]: the placement to store on the mask for a placement in
+/// the user's units (an SVG patch's km per viewBox unit becomes km per raster pixel).
+pub fn raster_placement(m: &RasterMask, user: Placement) -> Placement {
+    match (user, m.source_kind.as_str()) {
+        (Placement::Patch { center_deg, km_per_px, rotation_deg }, "svg") => {
+            let text = std::str::from_utf8(&m.source).unwrap_or("");
+            let side = crate::svg::view_side(text).unwrap_or(1.0);
+            let scale = m.w.max(m.h) as f64 / side; // raster px per unit
+            Placement::Patch { center_deg, km_per_px: km_per_px / scale, rotation_deg }
+        }
+        (p, _) => p,
+    }
+}
+
 /// Load a mask file from disk; the format comes from the extension.
 pub fn load_mask(path: &std::path::Path, place: Placement) -> Result<RasterMask, String> {
     let kind = match path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref() {

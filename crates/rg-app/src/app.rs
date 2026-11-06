@@ -322,8 +322,14 @@ impl RealmApp {
                     },
                     _ => rg_pipeline::mask::Placement::WorldEquirect,
                 };
-                match rg_pipeline::import::load_mask(std::path::Path::new(&path), place) {
+                match rg_pipeline::import::load_mask(std::path::Path::new(&path), place.clone()) {
                     Ok(m) => {
+                        // Keep the coasts panel in step with the mask.
+                        let st = &mut self.coasts;
+                        st.file_name = std::path::Path::new(&path).file_name().map_or(path.clone(), |n| n.to_string_lossy().into_owned());
+                        if let rg_pipeline::mask::Placement::Patch { center_deg, km_per_px, rotation_deg } = place {
+                            (st.patch, st.lat, st.lon, st.km_per_px, st.rotation) = (true, center_deg[0], center_deg[1], km_per_px, rotation_deg);
+                        }
                         self.params.tectonics.conditioning.mask = Some(std::sync::Arc::new(m));
                         self.params.tectonics.conditioning.strict = true;
                     }

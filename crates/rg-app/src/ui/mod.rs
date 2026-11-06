@@ -425,7 +425,8 @@ fn viewport(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) 
     };
     let primary = response.dragged_by(egui::PointerButton::Primary) && !ui.input(|i| i.modifiers.shift);
     let brush_at = response.interact_pointer_pos().and_then(|p| lat_lon_at(app, p));
-    let painting = coasts::paint(app, primary, response.drag_stopped(), brush_at);
+    let placing = coasts::place_drag(app, primary, response.drag_stopped(), brush_at);
+    let painting = placing || coasts::paint(app, primary, response.drag_stopped(), brush_at);
     if painting {
         // The brush owns this drag.
     } else if let (ViewMode::Globe, Some(mt)) = (app.view, multi) {
@@ -443,7 +444,11 @@ fn viewport(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) 
         }
     }
     if response.hovered() {
-        let (scroll, zoom) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
+        let (mut scroll, zoom, alt) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta(), i.modifiers.alt));
+        // ⌥ + scroll scales an imported patch in "Move patch" mode instead of zooming.
+        if coasts::place_scroll(app, scroll, alt) {
+            scroll = 0.0;
+        }
         let mut factor = 1.0;
         if scroll != 0.0 {
             factor *= (-scroll as f64 * 0.0025).exp();
@@ -484,6 +489,11 @@ fn viewport(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) 
     }
     if app.style.graticule {
         graticule_labels(app, ui, rect, size_px);
+    }
+    // s06: the imported mask (tint + patch outline) before Generate.
+    coasts::mask_overlay(app, ui, rect, aspect);
+    if app.coasts.placing && response.hovered() {
+        ui.ctx().set_cursor_icon(if response.dragged() { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
     }
     // R3.3: strokes, the stroke in progress and the circle cursor while a brush is active.
     if app.coasts.brush.is_some() {
