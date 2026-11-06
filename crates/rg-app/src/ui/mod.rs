@@ -102,16 +102,34 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
         if random {
             app.push(Command::RandomizeSeed);
         }
+        // The achieved plate count can exceed the slider: every big landmass is its own plate.
+        let achieved_plates = app.world.as_ref().map(|w| w.tectonics.plates.len());
         let t = &mut app.params.tectonics;
         let mut radius_km = t.radius_m / 1000.0;
         if ui.add(egui::Slider::new(&mut radius_km, 1500.0..=12000.0).text("radius km").integer()).changed() {
             t.radius_m = radius_km * 1000.0;
         }
+        // An imported mask fixes the land itself; land % only matters for procedural
+        // continents (no mask, or outside a regional patch).
+        let land_used = match &t.conditioning.mask {
+            None => true,
+            Some(m) => t.conditioning.outside_procedural && matches!(m.place, rg_pipeline::mask::Placement::Patch { .. }),
+        };
         let mut land = t.land_fraction * 100.0;
-        if ui.add(egui::Slider::new(&mut land, 5.0..=70.0).text("land %").integer()).changed() {
+        let land_resp = ui.add_enabled(land_used, egui::Slider::new(&mut land, 5.0..=70.0).text("land %").integer());
+        if land_resp.changed() {
             t.land_fraction = land / 100.0;
         }
-        ui.add(egui::Slider::new(&mut t.plate_count, 4..=30).text("plates"));
+        if !land_used {
+            land_resp.on_disabled_hover_text("The imported mask sets the land. Land % applies only to procedural continents outside a regional patch.");
+        }
+        ui.horizontal(|ui| {
+            ui.add(egui::Slider::new(&mut t.plate_count, 4..=30).text("plates"))
+                .on_hover_text("A target. Each landmass over 200,000 km² is its own plate, so the result can be higher.");
+            if let Some(n) = achieved_plates {
+                ui.weak(format!("({n} made)"));
+            }
+        });
         ui.horizontal(|ui| {
             let mut act = t.active_share * 100.0;
             if ui
