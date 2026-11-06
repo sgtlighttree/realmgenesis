@@ -71,6 +71,32 @@ pub fn world(seed: u64) -> World {
     if let Some(v) = env("RG_REFINE_STEPS") {
         p.erosion.refine_steps = v;
     }
+    // An imported coast mask (`RG_MASK=<png|svg>`, optional `RG_MASK_PATCH=lat,lon,km_per_px[,rot]`,
+    // `RG_MASK_THRESHOLD`, `RG_MASK_INVERT=1`), as in the app. Not cached: the key can't see the file.
+    if let Ok(path) = std::env::var("RG_MASK") {
+        use rg_pipeline::mask::{Placement, MaskAdjust, DecodeOpts};
+        let v: Vec<f64> = std::env::var("RG_MASK_PATCH")
+            .map(|v| v.split(',').filter_map(|x| x.trim().parse().ok()).collect())
+            .unwrap_or_default();
+        let place = if v.len() >= 3 {
+            Placement::Patch { center_deg: [v[0], v[1]], km_per_px: v[2], rotation_deg: v.get(3).copied().unwrap_or(0.0) }
+        } else {
+            Placement::WorldEquirect
+        };
+        let adjust = MaskAdjust {
+            threshold: env("RG_MASK_THRESHOLD").unwrap_or(0.5),
+            invert: env::<u8>("RG_MASK_INVERT").is_some_and(|v| v != 0),
+        };
+        let p_path = std::path::Path::new(&path);
+        let kind = p_path.extension().and_then(|e| e.to_str()).unwrap_or("png").to_ascii_lowercase();
+        let bytes = std::fs::read(p_path).expect("RG_MASK: read");
+        let m = rg_pipeline::import::mask_from_bytes_with(bytes, &kind, place, DecodeOpts::default(), adjust).expect("RG_MASK");
+        eprintln!("mask {}x{} ({:?})", m.w, m.h, m.channel_used);
+        p.tectonics.conditioning.mask = Some(std::sync::Arc::new(m));
+        p.tectonics.conditioning.strict = true;
+        p.tectonics.conditioning.outside_procedural = env::<u8>("RG_MASK_OUTSIDE").is_none_or(|v| v != 0);
+        return generate(&p);
+    }
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/probe-cache");
     let path = dir.join(format!(
         // `r3`: the generator changed (s05, fitted plates); older entries don't match.
