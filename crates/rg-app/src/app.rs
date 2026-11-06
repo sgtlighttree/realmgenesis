@@ -182,6 +182,13 @@ pub struct RealmApp {
     pending_shot: Option<(std::path::PathBuf, bool)>,
     /// Quit after the scripted screenshot (`RG_SHOT_EXIT=1`).
     exit_after_shot: bool,
+    /// `RG_SHOT_UI=1`: the scripted screenshot is the whole window (panels, overlays and all)
+    /// instead of just the planet view. macOS blocks `screencapture` here, so this is how a
+    /// session checks the UI.
+    shot_ui: bool,
+    /// A whole-window screenshot to request this frame, and the flag its callback sets.
+    ui_shot_due: Option<std::path::PathBuf>,
+    ui_shot_done: std::sync::Arc<std::sync::atomic::AtomicBool>,
     close_requested: bool,
     /// World generation running on a background thread (native only; see `worldgen.rs`).
     gen_job: Option<GenJob>,
@@ -226,6 +233,9 @@ impl RealmApp {
             pending_shot: None,
             exit_after_shot: false,
             close_requested: false,
+            shot_ui: false,
+            ui_shot_due: None,
+            ui_shot_done: Default::default(),
             gen_job: None,
             renderer: None,
             feeder: TileFeeder::new(),
@@ -258,7 +268,7 @@ impl RealmApp {
     /// `RG_SEED=<n>`, `RG_VIEW=globe|map`, `RG_LAYER=<1-9>`, `RG_RES=<cells per face>`,
     /// camera: `RG_LAT`/`RG_LON`/`RG_HEADING`/`RG_TILT` (degrees), `RG_DIST` (metres);
     /// `RG_EXAG=<×>` and `RG_KEEP_RELIEF=1` (relief); `RG_CONV_SMOOTH=<km>` (uplift blend); `RG_SHOT=<png>` saves the planet view once the
-    /// world, normals and tiles have settled, and `RG_SHOT_EXIT=1` then quits.
+    /// world, normals and tiles have settled (`RG_SHOT_UI=1`: the whole window), and `RG_SHOT_EXIT=1` then quits.
     fn apply_env_overrides(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -290,6 +300,7 @@ impl RealmApp {
             if let Some(p) = var("RG_SHOT") {
                 self.pending_shot = Some((p.into(), true));
                 self.exit_after_shot = var("RG_SHOT_EXIT").is_some();
+                self.shot_ui = var("RG_SHOT_UI").is_some();
             }
             if let Some(r) = var("RG_RES").and_then(|v| v.parse().ok()) {
                 self.params.tectonics.res = r;
@@ -719,7 +730,10 @@ impl RealmApp {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some((path, wait)) = self.pending_shot.clone() {
             let settled = self.world.is_some() && self.gen_job.is_none() && self.normals_job.is_none() && !self.streaming;
-            if !wait || settled {
+            if (!wait || settled) && self.shot_ui {
+                self.pending_shot = None;
+                self.ui_shot_due = Some(path);
+            } else if !wait || settled {
                 self.pending_shot = None;
                 let msg = match r.read_output(&rs.device, &rs.queue) {
                     Some((w, h, rgba)) => match crate::files::write_png_rgba(&path, w, h, &rgba) {
@@ -808,6 +822,23 @@ impl eframe::App for RealmApp {
         let elevation = 40f64.to_radians();
         self.style.sun_dir = up * elevation.sin() + north_west * elevation.cos();
         ui::draw(self, ui, &rs);
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(path) = self.ui_shot_due.take() {
+            let (done, ctx) = (self.ui_shot_done.clone(), ui.ctx().clone());
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::ScreenshotCallback::new(move |img| {
+                let [w, h] = img.size;
+                match crate::files::write_png_rgba(&path, w as u32, h as u32, img.as_raw()) {
+                    Ok(()) => eprintln!("Window screenshot saved: {}", path.display()),
+                    Err(e) => eprintln!("⚠ window screenshot: {e}"),
+                }
+                done.store(true, std::sync::atomic::Ordering::Relaxed);
+                ctx.request_repaint();
+            })));
+            ui.ctx().request_repaint();
+        }
+        if self.ui_shot_done.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            self.close_requested = self.exit_after_shot;
+        }
         if self.close_requested {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
