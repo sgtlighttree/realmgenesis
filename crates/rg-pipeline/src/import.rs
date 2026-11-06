@@ -5,31 +5,39 @@
 //! with it, so the world file can store them (`conditioning.source`) and regenerate the world
 //! anywhere.
 
-use rg_tectonics::mask::{Conditioning, Placement, RasterMask, Stroke, StrokeOp};
+use rg_tectonics::mask::{Channel, Conditioning, DecodeOpts, MaskAdjust, Placement, RasterMask, Stroke, StrokeOp};
 use rg_world::WorldFile;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-/// Decode a PNG into coverage: the alpha channel if the image has a varying one (a
-/// transparent sea around opaque land), otherwise brightness (white land on black sea).
-pub fn coverage_from_png(bytes: &[u8]) -> Result<(Vec<f32>, u32, u32), String> {
+/// Decode a PNG into raw values 0..1: alpha or brightness, per `channel` (`Auto` = alpha if
+/// the image has a varying one, a transparent sea around opaque land, else brightness).
+/// Returns the values, the size and the channel actually used.
+pub fn coverage_from_png(bytes: &[u8], channel: Channel) -> Result<(Vec<f32>, u32, u32, Channel), String> {
     let mut dec = png::Decoder::new(std::io::Cursor::new(bytes));
     dec.set_transformations(png::Transformations::normalize_to_color8());
     let mut rd = dec.read_info().map_err(|e| format!("PNG: {e}"))?;
     let mut buf = vec![0u8; rd.output_buffer_size().ok_or("PNG: image too large")?];
     let info = rd.next_frame(&mut buf).map_err(|e| format!("PNG: {e}"))?;
     let (w, h) = (info.width, info.height);
+    if w == 0 || h == 0 {
+        return Err("PNG: empty image".into());
+    }
     let ch = info.color_type.samples();
     let px = &buf[..info.buffer_size()];
     let has_alpha = matches!(info.color_type, png::ColorType::GrayscaleAlpha | png::ColorType::Rgba);
-    let alpha_varies = has_alpha && {
-        let first = px[ch - 1];
-        px.chunks(ch).any(|p| p[ch - 1] != first)
+    let use_alpha = match channel {
+        Channel::Alpha => has_alpha,
+        Channel::Brightness => false,
+        Channel::Auto => has_alpha && {
+            let first = px[ch - 1];
+            px.chunks(ch).any(|p| p[ch - 1] != first)
+        },
     };
     let cov: Vec<f32> = px
         .chunks(ch)
         .map(|p| {
-            if alpha_varies {
+            if use_alpha {
                 p[ch - 1] as f32 / 255.0
             } else if ch >= 3 {
                 (0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32) / 255.0
@@ -38,23 +46,59 @@ pub fn coverage_from_png(bytes: &[u8]) -> Result<(Vec<f32>, u32, u32), String> {
             }
         })
         .collect();
-    if w == 0 || h == 0 {
-        return Err("PNG: empty image".into());
-    }
-    Ok((cov, w, h))
+    Ok((cov, w, h, if use_alpha { Channel::Alpha } else { Channel::Brightness }))
 }
 
-/// Build a mask from a file's bytes (`kind`: "png" or "svg").
+/// Keep the source-pixel rectangle `[x, y, w, h]` (clamped to the image).
+pub fn crop_raster(data: &[f32], w: u32, h: u32, rect: [u32; 4]) -> (Vec<f32>, u32, u32) {
+    let x0 = rect[0].min(w - 1);
+    let y0 = rect[1].min(h - 1);
+    let cw = rect[2].clamp(1, w - x0);
+    let ch = rect[3].clamp(1, h - y0);
+    let out = (y0..y0 + ch).flat_map(|y| (x0..x0 + cw).map(move |x| data[(y * w + x) as usize])).collect();
+    (out, cw, ch)
+}
+
+/// Build a mask from a file's bytes (`kind`: "png" or "svg") with the default land test.
 pub fn mask_from_bytes(bytes: Vec<u8>, kind: &str, place: Placement) -> Result<RasterMask, String> {
-    let (data, w, h, place) = match kind {
+    mask_from_bytes_with(bytes, kind, place, DecodeOpts::default(), MaskAdjust::default())
+}
+
+/// Build a mask from a file's bytes. `decode` (channel, crop) and `adjust` (threshold,
+/// invert) apply to PNGs; an SVG's fill is already a clean land/sea split.
+pub fn mask_from_bytes_with(
+    bytes: Vec<u8>,
+    kind: &str,
+    place: Placement,
+    decode: DecodeOpts,
+    adjust: MaskAdjust,
+) -> Result<RasterMask, String> {
+    let (data, w, h, place, used, decode, adjust) = match kind {
         "png" => {
-            let (d, w, h) = coverage_from_png(&bytes)?;
-            (d, w, h, place)
+            let (d, w, h, used) = coverage_from_png(&bytes, decode.channel)?;
+            let (d, w, h) = match decode.crop {
+                Some(rect) => crop_raster(&d, w, h, rect),
+                None => (d, w, h),
+            };
+            (d, w, h, place, used, decode, adjust)
         }
-        "svg" => crate::svg::coverage_from_svg(&bytes, &place)?,
+        "svg" => {
+            let (d, w, h, place) = crate::svg::coverage_from_svg(&bytes, &place)?;
+            (d, w, h, place, Channel::Brightness, DecodeOpts::default(), MaskAdjust::default())
+        }
         other => return Err(format!("unsupported mask format {other:?}")),
     };
-    Ok(RasterMask { data, w, h, place, source: bytes, source_kind: kind.to_string() })
+    Ok(RasterMask {
+        data: Arc::new(data),
+        w,
+        h,
+        place,
+        adjust,
+        decode,
+        channel_used: used,
+        source: Arc::new(bytes),
+        source_kind: kind.to_string(),
+    })
 }
 
 /// The placement as the user gave it (an SVG patch's raster scale converted back to km per
@@ -144,6 +188,18 @@ pub fn conditioning_header(c: &Conditioning) -> Value {
     if let Some(m) = &c.mask {
         v["placement"] = placement_json(&user_placement(m));
         v["source_kind"] = json!(m.source_kind);
+        // s06 land test and decode options; absent = defaults (older schema-5 files).
+        if m.adjust != MaskAdjust::default() {
+            v["adjust"] = json!({"threshold": m.adjust.threshold, "invert": m.adjust.invert});
+        }
+        if m.decode != DecodeOpts::default() {
+            let channel = match m.decode.channel {
+                Channel::Auto => "auto",
+                Channel::Brightness => "brightness",
+                Channel::Alpha => "alpha",
+            };
+            v["decode"] = json!({"channel": channel, "crop": m.decode.crop});
+        }
     }
     v
 }
@@ -184,7 +240,23 @@ pub fn conditioning_from_file(v: &Value, f: &WorldFile) -> Result<Conditioning, 
     let mask = if v["mode"].as_str() == Some("import") {
         let src = f.chunk("conditioning.source").ok_or("import world without its conditioning.source chunk")?;
         let kind = v["source_kind"].as_str().unwrap_or("png");
-        Some(Arc::new(mask_from_bytes(src.bytes.clone(), kind, placement_from(&v["placement"]))?))
+        let d = MaskAdjust::default();
+        let adjust = MaskAdjust {
+            threshold: v["adjust"]["threshold"].as_f64().map_or(d.threshold, |t| t as f32),
+            invert: v["adjust"]["invert"].as_bool().unwrap_or(d.invert),
+        };
+        let decode = DecodeOpts {
+            channel: match v["decode"]["channel"].as_str() {
+                Some("brightness") => Channel::Brightness,
+                Some("alpha") => Channel::Alpha,
+                _ => Channel::Auto,
+            },
+            crop: v["decode"]["crop"].as_array().and_then(|a| {
+                let n: Vec<u32> = a.iter().filter_map(|x| x.as_u64().map(|x| x as u32)).collect();
+                (n.len() == 4).then(|| [n[0], n[1], n[2], n[3]])
+            }),
+        };
+        Some(Arc::new(mask_from_bytes_with(src.bytes.clone(), kind, placement_from(&v["placement"]), decode, adjust)?))
     } else {
         None
     };
@@ -220,7 +292,8 @@ mod tests {
     #[test]
     fn png_decodes_to_coverage() {
         let bytes = test_png(8, 4, |x, _| x < 4);
-        let (cov, w, h) = coverage_from_png(&bytes).unwrap();
+        let (cov, w, h, used) = coverage_from_png(&bytes, Channel::Auto).unwrap();
+        assert_eq!(used, Channel::Brightness);
         assert_eq!((w, h), (8, 4));
         assert_eq!(cov[0], 1.0);
         assert_eq!(cov[7], 0.0);
@@ -258,5 +331,44 @@ mod tests {
         crate::file::to_file(&loaded).write_to(&mut b).unwrap();
         assert!(a == b, "re-saved file differs");
     }
-}
 
+    /// A greyscale PNG with a threshold, invert and crop: the options survive a save/load
+    /// and re-save byte-identically, and the land test follows them.
+    #[test]
+    fn adjusted_png_round_trips() {
+        // Dark-grey land (0.25) on light sea (0.75), left half land.
+        let bytes = {
+            let mut out = Vec::new();
+            let mut enc = png::Encoder::new(&mut out, 40, 20);
+            enc.set_color(png::ColorType::Grayscale);
+            enc.set_depth(png::BitDepth::Eight);
+            let mut wr = enc.write_header().unwrap();
+            let data: Vec<u8> = (0..20).flat_map(|_| (0..40u32).map(|x| if x < 20 { 64u8 } else { 191 })).collect();
+            wr.write_image_data(&data).unwrap();
+            drop(wr);
+            out
+        };
+        let decode = DecodeOpts { channel: Channel::Brightness, crop: Some([4, 2, 32, 16]) };
+        let adjust = MaskAdjust { threshold: 0.4, invert: true };
+        let place = Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 100.0, rotation_deg: 0.0 };
+        let mask = mask_from_bytes_with(bytes, "png", place, decode, adjust).unwrap();
+        assert_eq!((mask.w, mask.h), (32, 16));
+        // Inverted, dark grey is land; the left of the crop (x < 16) is land.
+        let r = 6.371e6;
+        assert!(mask.coverage(mask.dir_of_pixel(4.0, 8.0, r), r).unwrap() > 0.5);
+        assert!(mask.coverage(mask.dir_of_pixel(28.0, 8.0, r), r).unwrap() < 0.5);
+        let mut params = crate::WorldParams::default();
+        params.tectonics.res = 32;
+        params.erosion.enabled = false;
+        params.tectonics.conditioning.mask = Some(Arc::new(mask));
+        params.tectonics.conditioning.strict = true;
+        let w = crate::generate(&params);
+        let mut a = Vec::new();
+        crate::file::to_file(&w).write_to(&mut a).unwrap();
+        let loaded = crate::file::from_file(&WorldFile::read_from(&a[..]).unwrap()).unwrap();
+        assert_eq!(loaded.params.tectonics.conditioning, w.params.tectonics.conditioning);
+        let mut b = Vec::new();
+        crate::file::to_file(&loaded).write_to(&mut b).unwrap();
+        assert!(a == b, "re-saved file differs");
+    }
+}

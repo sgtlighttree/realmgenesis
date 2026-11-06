@@ -26,16 +26,72 @@ pub enum Placement {
     Patch { center_deg: [f64; 2], km_per_px: f64, rotation_deg: f64 },
 }
 
-/// A decoded coverage raster: 0 sea .. 1 land (0.5 = coast).
+/// Which channel of a PNG is the land signal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Channel {
+    /// Alpha if it varies across the image, otherwise brightness.
+    #[default]
+    Auto,
+    Brightness,
+    Alpha,
+}
+
+/// How the source file was turned into raw values (PNG only; stored so the world file
+/// rebuilds the same raster).
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct DecodeOpts {
+    pub channel: Channel,
+    /// Source-pixel rectangle `[x, y, w, h]` kept from the image; `None` = all of it.
+    pub crop: Option<[u32; 4]>,
+}
+
+/// The land test applied to the raw values (s06, Matt: greyscale coastline maps).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MaskAdjust {
+    /// Raw value that becomes the coast (0..1). Above it is land.
+    pub threshold: f32,
+    /// Swap land and sea (dark land on a light sea).
+    pub invert: bool,
+}
+
+impl Default for MaskAdjust {
+    fn default() -> Self {
+        Self { threshold: 0.5, invert: false }
+    }
+}
+
+impl MaskAdjust {
+    /// Coverage (0.5 = coast) from a raw, already-interpolated value. Shifting after the
+    /// bilinear step puts the coast exactly on the threshold contour. The UI preview calls
+    /// this too, so it can't drift from what Generate does.
+    pub fn apply(&self, raw: f32) -> f32 {
+        let v = if self.invert { 1.0 - raw } else { raw };
+        if self.threshold == 0.5 {
+            // Exactly the pre-s06 value, so older imported worlds stay byte-identical.
+            v
+        } else {
+            (v - self.threshold) + 0.5
+        }
+    }
+}
+
+/// A decoded raster: raw values 0..1 per pixel, turned into coverage (0 sea .. 1 land,
+/// 0.5 = coast) by `adjust`.
 #[derive(Clone, PartialEq)]
 pub struct RasterMask {
-    pub data: Vec<f32>,
+    /// Raw values. Behind an `Arc` so editing the placement or the land test (a cheap clone
+    /// of the mask) never copies the raster.
+    pub data: Arc<Vec<f32>>,
     pub w: u32,
     pub h: u32,
     pub place: Placement,
+    pub adjust: MaskAdjust,
+    pub decode: DecodeOpts,
+    /// The channel the decoder actually used (`Auto` resolved), for the UI.
+    pub channel_used: Channel,
     /// The original file (PNG/SVG bytes) and its kind, kept so the world file can store it
     /// and the world regenerates anywhere. Opaque to this crate.
-    pub source: Vec<u8>,
+    pub source: Arc<Vec<u8>>,
     pub source_kind: String,
 }
 
@@ -181,7 +237,31 @@ impl RasterMask {
         let (x0, y0) = (x0 as i64, y0 as i64);
         let top = at(x0, y0) * (1.0 - fx) + at(x0 + 1, y0) * fx;
         let bot = at(x0, y0 + 1) * (1.0 - fx) + at(x0 + 1, y0 + 1) * fx;
-        Some(top * (1.0 - fy) + bot * fy)
+        Some(self.adjust.apply(top * (1.0 - fy) + bot * fy))
+    }
+
+    /// The direction at fractional pixel `(px, py)`: the inverse of [`Self::pixel`].
+    pub fn dir_of_pixel(&self, px: f64, py: f64, radius_m: f64) -> DVec3 {
+        let (w, h) = (self.w as f64, self.h as f64);
+        match self.place {
+            Placement::WorldEquirect => {
+                let lon = (px + 0.5) / w * (2.0 * PI) - PI;
+                let lat = PI / 2.0 - (py + 0.5) / h * PI;
+                DVec3::new(lat.cos() * lon.cos(), lat.cos() * lon.sin(), lat.sin())
+            }
+            Placement::Patch { center_deg, km_per_px, rotation_deg } => {
+                let c = dir_of(center_deg[0], center_deg[1]);
+                let (sp, cp) = center_deg[0].to_radians().sin_cos();
+                let (sl, cl) = center_deg[1].to_radians().sin_cos();
+                let north = DVec3::new(-sp * cl, -sp * sl, cp);
+                let east = DVec3::new(-sl, cl, 0.0);
+                let x_km = (px + 0.5 - w * 0.5) * km_per_px;
+                let y_km = (h * 0.5 - py - 0.5) * km_per_px;
+                let theta = x_km.hypot(y_km) * 1000.0 / radius_m;
+                let az = x_km.atan2(y_km) + rotation_deg.to_radians();
+                c * theta.cos() + (north * az.cos() + east * az.sin()) * theta.sin()
+            }
+        }
     }
 }
 
@@ -235,23 +315,61 @@ pub fn land_cover(grid: &Grid, p: &Params, value: &[f32]) -> Vec<f32> {
 mod tests {
     use super::*;
 
+    fn test_mask(w: u32, h: u32, place: Placement) -> RasterMask {
+        RasterMask {
+            data: Arc::new(vec![0.0; (w * h) as usize]),
+            w,
+            h,
+            place,
+            adjust: MaskAdjust::default(),
+            decode: DecodeOpts::default(),
+            channel_used: Channel::Brightness,
+            source: Arc::new(vec![]),
+            source_kind: String::new(),
+        }
+    }
+
+    /// `pixel` and `dir_of_pixel` invert each other: the gate for dragging a patch.
+    #[test]
+    fn pixel_round_trips() {
+        let r = 6.371e6;
+        let places = [
+            Placement::WorldEquirect,
+            Placement::Patch { center_deg: [10.0, 20.0], km_per_px: 10.0, rotation_deg: 0.0 },
+            Placement::Patch { center_deg: [-35.0, 170.0], km_per_px: 25.0, rotation_deg: 37.0 },
+            Placement::Patch { center_deg: [88.0, -60.0], km_per_px: 15.0, rotation_deg: -120.0 },
+        ];
+        for place in places {
+            let m = test_mask(200, 100, place.clone());
+            for (px, py) in [(0.0, 0.0), (199.0, 99.0), (57.3, 12.8), (100.0, 50.0), (3.0, 97.0)] {
+                let d = m.dir_of_pixel(px, py, r);
+                assert!((d.length() - 1.0).abs() < 1e-9);
+                let (qx, qy) = m.pixel(d, r).unwrap();
+                assert!((qx - px).abs() < 1e-6 && (qy - py).abs() < 1e-6, "{place:?} ({px},{py}) -> ({qx},{qy})");
+            }
+        }
+    }
+
+    #[test]
+    fn adjust_threshold_and_invert() {
+        let a = MaskAdjust::default();
+        assert_eq!(a.apply(0.3), 0.3);
+        let a = MaskAdjust { threshold: 0.2, invert: false };
+        assert!((a.apply(0.2) - 0.5).abs() < 1e-6 && a.apply(0.3) > 0.5 && a.apply(0.1) < 0.5);
+        let a = MaskAdjust { threshold: 0.5, invert: true };
+        assert!(a.apply(0.9) < 0.5 && a.apply(0.1) > 0.5);
+    }
+
     #[test]
     fn equirect_maps_corners() {
-        let m = RasterMask { data: vec![0.0; 8], w: 4, h: 2, place: Placement::WorldEquirect, source: vec![], source_kind: String::new() };
+        let m = test_mask(4, 2, Placement::WorldEquirect);
         let (x, y) = m.pixel(dir_of(0.0, 0.0), 6.371e6).unwrap();
         assert!((x - 1.5).abs() < 1e-9 && (y - 0.5).abs() < 1e-9, "{x} {y}");
     }
 
     #[test]
     fn patch_centre_and_distance() {
-        let m = RasterMask {
-            data: vec![0.0; 100 * 100],
-            w: 100,
-            h: 100,
-            place: Placement::Patch { center_deg: [10.0, 20.0], km_per_px: 10.0, rotation_deg: 0.0 },
-            source: vec![],
-            source_kind: String::new(),
-        };
+        let m = test_mask(100, 100, Placement::Patch { center_deg: [10.0, 20.0], km_per_px: 10.0, rotation_deg: 0.0 });
         let r = 6.371e6;
         let (x, y) = m.pixel(dir_of(10.0, 20.0), r).unwrap();
         assert!((x - 49.5).abs() < 1e-6 && (y - 49.5).abs() < 1e-6);
