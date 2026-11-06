@@ -425,7 +425,16 @@ fn viewport(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) 
     };
     let primary = response.dragged_by(egui::PointerButton::Primary) && !ui.input(|i| i.modifiers.shift);
     let brush_at = response.interact_pointer_pos().and_then(|p| lat_lon_at(app, p));
-    let placing = coasts::place_drag(app, primary, response.drag_stopped(), brush_at);
+    let placing = coasts::place_drag(
+        app,
+        response.drag_started_by(egui::PointerButton::Primary),
+        primary,
+        response.drag_stopped(),
+        response.interact_pointer_pos(),
+        brush_at,
+        rect,
+        aspect,
+    );
     let painting = placing || coasts::paint(app, primary, response.drag_stopped(), brush_at);
     if painting {
         // The brush owns this drag.
@@ -491,9 +500,11 @@ fn viewport(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) 
         graticule_labels(app, ui, rect, size_px);
     }
     // s06: the imported mask (tint + patch outline) before Generate.
+    coasts::handle_keys(app, ui.ctx());
+    coasts::ensure_preview(app, ui.ctx());
     coasts::mask_overlay(app, ui, rect, aspect);
-    if app.coasts.placing && response.hovered() {
-        ui.ctx().set_cursor_icon(if response.dragged() { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
+    if response.hovered() || response.dragged() {
+        coasts::place_cursor(app, ui, rect, aspect, response.hover_pos(), response.dragged());
     }
     // R3.3: strokes, the stroke in progress and the circle cursor while a brush is active.
     if app.coasts.brush.is_some() {

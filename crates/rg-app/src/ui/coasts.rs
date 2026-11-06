@@ -47,6 +47,31 @@ pub struct CoastUi {
     tex: Option<(egui::TextureHandle, TexKey)>,
     /// A crop being dragged on the preview, in source pixels (start, current).
     crop_drag: Option<([f32; 2], [f32; 2])>,
+    /// What Esc restores while "Move patch" is on: the state before this import, or before
+    /// the mode was switched on.
+    place_undo: Option<PlaceUndo>,
+    /// The patch handle being dragged in the viewport.
+    handle: Option<Handle>,
+}
+
+/// The coasts state Esc goes back to.
+struct PlaceUndo {
+    mask: Option<Arc<RasterMask>>,
+    strict: bool,
+    file_name: String,
+    patch: bool,
+    lat: f64,
+    lon: f64,
+    km_per_px: f64,
+    rotation: f64,
+}
+
+/// The parts of a patch you can grab in the viewport.
+#[derive(Clone, Copy, PartialEq)]
+enum Handle {
+    Move,
+    Scale,
+    Rotate,
 }
 
 impl Default for CoastUi {
@@ -68,17 +93,51 @@ impl Default for CoastUi {
             thumb: None,
             tex: None,
             crop_drag: None,
+            place_undo: None,
+            handle: None,
         }
     }
 }
 
 impl CoastUi {
+    fn snapshot(&self, c: &Conditioning) -> PlaceUndo {
+        PlaceUndo {
+            mask: c.mask.clone(),
+            strict: c.strict,
+            file_name: self.file_name.clone(),
+            patch: self.patch,
+            lat: self.lat,
+            lon: self.lon,
+            km_per_px: self.km_per_px,
+            rotation: self.rotation,
+        }
+    }
+
+    fn restore(&mut self, c: &mut Conditioning, u: PlaceUndo) {
+        if !same_mask(&c.mask, &u.mask) {
+            self.thumb = None;
+            self.tex = None;
+        }
+        c.mask = u.mask;
+        c.strict = u.strict;
+        (self.file_name, self.patch, self.lat, self.lon, self.km_per_px, self.rotation) =
+            (u.file_name, u.patch, u.lat, u.lon, u.km_per_px, u.rotation);
+    }
+
     fn placement(&self) -> Placement {
         if self.patch {
             Placement::Patch { center_deg: [self.lat, self.lon], km_per_px: self.km_per_px, rotation_deg: self.rotation }
         } else {
             Placement::WorldEquirect
         }
+    }
+}
+
+fn same_mask(a: &Option<Arc<RasterMask>>, b: &Option<Arc<RasterMask>>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => Arc::ptr_eq(&a.data, &b.data) && a.source_kind == b.source_kind,
+        (None, None) => true,
+        _ => false,
     }
 }
 
@@ -220,21 +279,28 @@ fn mask_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui) {
         }
         ui.horizontal(|ui| {
             if ui
-                .selectable_label(st.placing, "✥ Move patch")
-                .on_hover_text("Drag the patch on the globe or map. ⌥ + scroll scales it. Right-drag still orbits.")
+                .selectable_label(st.placing, "Move patch")
+                .on_hover_text("Drag the patch on the globe or map: inside moves it, a corner scales it, the knob on top turns it. ⌥ + scroll also scales. Enter accepts, Esc cancels.")
                 .clicked()
             {
                 st.placing = !st.placing;
                 if st.placing {
                     st.brush = None;
                     st.show_mask = true;
+                    st.place_undo = Some(st.snapshot(c));
+                } else {
+                    st.place_undo = None;
                 }
             }
             let side = st.km_per_px * m.w.max(m.h) as f64;
             ui.label(egui::RichText::new(format!("{side:.0} km across")).small().color(super::theme::MUTED));
         });
         if st.placing {
-            ui.label(egui::RichText::new("Drag on the view to move · ⌥ scroll to scale").small().color(super::theme::MUTED));
+            ui.label(
+                egui::RichText::new("Drag inside to move · corners to scale · top knob to turn · Enter accepts · Esc cancels")
+                    .small()
+                    .color(super::theme::MUTED),
+            );
         }
     }
 
@@ -257,16 +323,9 @@ fn adjust_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui, m: &A
     if st.thumb.is_none() {
         st.thumb = make_thumb(m);
     }
+    let Some(tex) = preview_texture(st, m, ui.ctx()) else { return };
     let Some(th) = st.thumb.as_ref() else { return };
     let (src_w, src_h) = (th.src_w, th.src_h);
-    // Preview texture: raw grey with the land tinted green, rebuilt when the land test changes.
-    let key: TexKey = (m.adjust.threshold.to_bits(), m.adjust.invert, m.decode.crop, m.decode.channel);
-    if st.tex.as_ref().is_none_or(|(_, k)| *k != key) {
-        let img = thumb_image(th, &m.adjust);
-        let handle = ui.ctx().load_texture("coast-mask-preview", img, egui::TextureOptions::LINEAR);
-        st.tex = Some((handle, key));
-    }
-    let tex = st.tex.as_ref().map(|(t, _)| t.clone()).unwrap();
     let avail = ui.available_width().min(300.0);
     let size = egui::vec2(avail, avail * src_h as f32 / src_w.max(1) as f32).min(egui::vec2(avail, 220.0));
     let size = egui::vec2(size.y * src_w as f32 / src_h.max(1) as f32, size.y);
@@ -357,6 +416,30 @@ fn adjust_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui, m: &A
     }
 }
 
+/// The preview texture (raw grey, land tinted green), rebuilt when the land test changes.
+/// Shared by the panel thumbnail and the viewport overlay.
+fn preview_texture(st: &mut CoastUi, m: &RasterMask, ctx: &egui::Context) -> Option<egui::TextureHandle> {
+    if st.thumb.is_none() {
+        st.thumb = make_thumb(m);
+    }
+    let th = st.thumb.as_ref()?;
+    let key: TexKey = (m.adjust.threshold.to_bits(), m.adjust.invert, m.decode.crop, m.decode.channel);
+    if st.tex.as_ref().is_none_or(|(_, k)| *k != key) {
+        let img = thumb_image(th, &m.adjust);
+        st.tex = Some((ctx.load_texture("coast-mask-preview", img, egui::TextureOptions::LINEAR), key));
+    }
+    st.tex.as_ref().map(|(t, _)| t.clone())
+}
+
+/// Called by the viewport before drawing, so the overlay has its texture.
+pub fn ensure_preview(app: &mut RealmApp, ctx: &egui::Context) {
+    if let Some(m) = app.params.tectonics.conditioning.mask.clone()
+        && app.coasts.show_mask
+    {
+        preview_texture(&mut app.coasts, &m, ctx);
+    }
+}
+
 /// Downsample the whole source image (no crop) to at most 384 px, box-averaged so thin
 /// coasts survive.
 fn make_thumb(m: &RasterMask) -> Option<Thumb> {
@@ -392,7 +475,8 @@ fn thumb_image(th: &Thumb, adj: &MaskAdjust) -> egui::ColorImage {
         let px = if adj.apply(v) > 0.5 {
             [(g as u16 * 2 / 5 + 50) as u8, (g as u16 * 2 / 5 + 140) as u8, (g as u16 * 2 / 5 + 50) as u8, 255]
         } else {
-            [g / 2, g / 2, (g / 2).saturating_add(40), 255]
+            // Sea mostly see-through, so the overlay doesn't hide the globe under the patch.
+            [g / 2, g / 2, (g / 2).saturating_add(40), 70]
         };
         rgba.extend_from_slice(&px);
     }
@@ -420,29 +504,152 @@ fn apply_placement(c: &mut Conditioning, st: &CoastUi) {
     }
 }
 
-/// Viewport hook: in "Move patch" mode a primary drag moves the patch so the grabbed point
-/// follows the pointer (a rotation of the sphere, so it behaves at the poles too).
-pub fn place_drag(app: &mut RealmApp, dragging_primary: bool, released: bool, at: Option<(f64, f64)>) -> bool {
+/// Screen positions of the patch's handles: corners (scale), the knob above the top edge
+/// (rotate), and the patch centre.
+struct HandlePos {
+    corners: [Option<egui::Pos2>; 4],
+    knob: Option<egui::Pos2>,
+    knob_base: Option<egui::Pos2>,
+}
+
+fn handle_positions(app: &RealmApp, rect: egui::Rect, aspect: f64) -> Option<HandlePos> {
+    let m = app.params.tectonics.conditioning.mask.as_ref()?;
+    if !matches!(m.place, Placement::Patch { .. }) {
+        return None;
+    }
+    let r = app.params.tectonics.radius_m;
+    let project = projector(app, rect, aspect);
+    let (w, h) = (m.w as f64, m.h as f64);
+    let at = |x: f64, y: f64| project(m.dir_of_pixel(x, y, r));
+    Some(HandlePos {
+        corners: [at(-0.5, -0.5), at(w - 0.5, -0.5), at(w - 0.5, h - 0.5), at(-0.5, h - 0.5)],
+        knob: at(w * 0.5 - 0.5, -0.5 - 0.12 * h.max(w)),
+        knob_base: at(w * 0.5 - 0.5, -0.5),
+    })
+}
+
+/// Which handle (if any) is under screen point `p`.
+fn handle_at(hp: &HandlePos, p: egui::Pos2) -> Option<Handle> {
+    const GRAB: f32 = 12.0;
+    if hp.knob.is_some_and(|k| k.distance(p) < GRAB) {
+        return Some(Handle::Rotate);
+    }
+    if hp.corners.iter().flatten().any(|c| c.distance(p) < GRAB) {
+        return Some(Handle::Scale);
+    }
+    None
+}
+
+/// Viewport hook for "Move patch": drag inside to move (the grabbed point follows the
+/// pointer, a rotation of the sphere, so it behaves at the poles), a corner to scale, the
+/// knob to turn. Returns true when it used the drag.
+#[allow(clippy::too_many_arguments)]
+pub fn place_drag(
+    app: &mut RealmApp,
+    started: bool,
+    dragging_primary: bool,
+    released: bool,
+    pointer: Option<egui::Pos2>,
+    at: Option<(f64, f64)>,
+    rect: egui::Rect,
+    aspect: f64,
+) -> bool {
     if !app.coasts.placing || !app.coasts.patch || app.params.tectonics.conditioning.mask.is_none() {
         return false;
     }
+    if started {
+        let hp = handle_positions(app, rect, aspect);
+        app.coasts.handle = Some(pointer.zip(hp).and_then(|(p, hp)| handle_at(&hp, p)).unwrap_or(Handle::Move));
+        app.coasts.drag_prev = None;
+    }
     if dragging_primary && let Some((lat, lon)) = at {
         let d = rg_render::earth_camera::dir(lat, lon);
-        if let Some(prev) = app.coasts.drag_prev {
-            let q = DQuat::from_rotation_arc(prev, d);
-            let st = &mut app.coasts;
-            let c = q * rg_pipeline::mask::dir_of(st.lat, st.lon);
-            st.lat = c.z.clamp(-1.0, 1.0).asin().to_degrees();
-            st.lon = c.y.atan2(c.x).to_degrees();
-            apply_placement(&mut app.params.tectonics.conditioning, &app.coasts);
+        let r = app.params.tectonics.radius_m;
+        let st = &mut app.coasts;
+        let centre = rg_pipeline::mask::dir_of(st.lat, st.lon);
+        match st.handle.unwrap_or(Handle::Move) {
+            Handle::Move => {
+                if let Some(prev) = st.drag_prev {
+                    let c = DQuat::from_rotation_arc(prev, d) * centre;
+                    st.lat = c.z.clamp(-1.0, 1.0).asin().to_degrees();
+                    st.lon = c.y.atan2(c.x).to_degrees();
+                }
+                st.drag_prev = Some(d);
+            }
+            Handle::Scale => {
+                // The pointer's distance from the centre becomes the corner's distance.
+                if let Some(m) = app.params.tectonics.conditioning.mask.as_ref()
+                    && let Placement::Patch { km_per_px: raster_km, .. } = m.place
+                {
+                    let dist_km = centre.dot(d).clamp(-1.0, 1.0).acos() * r / 1000.0;
+                    let corner_px = (m.w as f64 * 0.5).hypot(m.h as f64 * 0.5);
+                    let f = dist_km / (corner_px * raster_km).max(1e-9);
+                    if f.is_finite() && f > 0.0 {
+                        st.km_per_px = (st.km_per_px * f).clamp(0.01, 500.0);
+                    }
+                }
+            }
+            Handle::Rotate => {
+                // Azimuth of the pointer around the centre; the knob sits at "up".
+                let (sp, cp) = st.lat.to_radians().sin_cos();
+                let (sl, cl) = st.lon.to_radians().sin_cos();
+                let north = DVec3::new(-sp * cl, -sp * sl, cp);
+                let east = DVec3::new(-sl, cl, 0.0);
+                let t = d - centre * centre.dot(d);
+                if t.length() > 1e-9 {
+                    st.rotation = t.dot(east).atan2(t.dot(north)).to_degrees();
+                }
+            }
         }
-        app.coasts.drag_prev = Some(d);
+        apply_placement(&mut app.params.tectonics.conditioning, &app.coasts);
     }
     if released {
         app.coasts.drag_prev = None;
-        app.coasts.msg = "Generate to apply".into();
+        app.coasts.handle = None;
+        app.coasts.msg = "Enter accepts, Esc cancels · Generate to apply".into();
     }
     dragging_primary || released
+}
+
+/// Keys while placing or painting: Esc cancels (restores the state before this import, or
+/// before "Move patch" was switched on; drops the brush), Enter accepts the placement.
+pub fn handle_keys(app: &mut RealmApp, ctx: &egui::Context) {
+    if ctx.egui_wants_keyboard_input() {
+        return; // typing in a field
+    }
+    let (esc, enter) = ctx.input(|i| (i.key_pressed(egui::Key::Escape), i.key_pressed(egui::Key::Enter)));
+    let st = &mut app.coasts;
+    if st.placing {
+        if esc {
+            if let Some(u) = st.place_undo.take() {
+                st.restore(&mut app.params.tectonics.conditioning, u);
+            }
+            st.placing = false;
+            st.handle = None;
+            st.msg = "Cancelled".into();
+        } else if enter {
+            st.placing = false;
+            st.place_undo = None;
+            st.msg = "Placed · Generate to apply".into();
+        }
+    } else if esc && st.brush.is_some() {
+        st.brush = None;
+        st.drawing.clear();
+    }
+}
+
+/// Cursor for the patch tool: resize over a corner, rotate-ish over the knob, grab inside.
+pub fn place_cursor(app: &RealmApp, ui: &egui::Ui, rect: egui::Rect, aspect: f64, hover: Option<egui::Pos2>, dragging: bool) {
+    if !app.coasts.placing {
+        return;
+    }
+    let icon = match (app.coasts.handle, hover.zip(handle_positions(app, rect, aspect)).and_then(|(p, hp)| handle_at(&hp, p))) {
+        (Some(Handle::Scale), _) | (None, Some(Handle::Scale)) => egui::CursorIcon::ResizeNwSe,
+        (Some(Handle::Rotate), _) | (None, Some(Handle::Rotate)) => egui::CursorIcon::Alias,
+        _ if dragging => egui::CursorIcon::Grabbing,
+        _ => egui::CursorIcon::Grab,
+    };
+    ui.ctx().set_cursor_icon(icon);
 }
 
 /// ⌥ + scroll in "Move patch" mode scales the patch. Returns true when it used the scroll.
@@ -481,6 +688,7 @@ pub fn paint(app: &mut RealmApp, dragging_primary: bool, released: bool, at: Opt
 /// A picked or dropped file: a 2:1 image is taken as a whole-world map, anything else as a
 /// ~3,000 km regional patch at the centre of the view (drag it into place).
 fn import_file(c: &mut Conditioning, st: &mut CoastUi, path: &std::path::Path, centre: (f64, f64)) {
+    let undo = st.snapshot(c);
     st.file_name = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
     st.thumb = None;
     st.tex = None;
@@ -503,6 +711,7 @@ fn import_file(c: &mut Conditioning, st: &mut CoastUi, path: &std::path::Path, c
     if (ratio - 2.0).abs() > 0.05 {
         st.patch = true;
         st.placing = true;
+        st.place_undo = Some(undo);
         st.brush = None;
         (st.lat, st.lon) = centre;
         st.rotation = 0.0;
@@ -720,8 +929,8 @@ fn projector(app: &RealmApp, rect: egui::Rect, aspect: f64) -> impl Fn(DVec3) ->
     }
 }
 
-/// The imported mask over the view, before Generate: land tinted green on a coarse grid
-/// (the same land test Generate uses), and a patch's outline.
+/// The imported image over the view, before Generate: the preview (grey, land green) warped
+/// onto the sphere as a textured grid, plus a patch's outline and handles in "Move patch".
 pub fn mask_overlay(app: &RealmApp, ui: &egui::Ui, rect: egui::Rect, aspect: f64) {
     let Some(m) = app.params.tectonics.conditioning.mask.as_ref() else { return };
     if !app.coasts.show_mask {
@@ -735,73 +944,91 @@ pub fn mask_overlay(app: &RealmApp, ui: &egui::Ui, rect: egui::Rect, aspect: f64
     let patch = matches!(m.place, Placement::Patch { .. });
     let (w, h) = (m.w as f64, m.h as f64);
     let (nx, ny) = if patch {
-        let n = 72.0;
+        let n = 64.0;
         if w >= h { (n as usize, ((n * h / w).round() as usize).max(2)) } else { (((n * w / h).round() as usize).max(2), n as usize) }
     } else {
-        (120, 60)
+        (128, 64)
     };
-    let corner = |i: usize, j: usize| m.dir_of_pixel(-0.5 + i as f64 * w / nx as f64, -0.5 + j as f64 * h / ny as f64, r_m);
-    let pts: Vec<Option<egui::Pos2>> = (0..=ny).flat_map(|j| (0..=nx).map(move |i| (i, j))).map(|(i, j)| project(corner(i, j))).collect();
+    // Texture coordinates: the mask is the cropped image; the preview is the whole file.
+    let (crop_x, crop_y) = m.decode.crop.map_or((0.0, 0.0), |c| (c[0] as f32, c[1] as f32));
+    let (src_w, src_h) = app.coasts.thumb.as_ref().map_or((m.w as f32, m.h as f32), |t| (t.src_w as f32, t.src_h as f32));
+    let grid = |i: usize, j: usize| (-0.5 + i as f64 * w / nx as f64, -0.5 + j as f64 * h / ny as f64);
+    let pts: Vec<Option<egui::Pos2>> = (0..=ny)
+        .flat_map(|j| (0..=nx).map(move |i| (i, j)))
+        .map(|(i, j)| {
+            let (x, y) = grid(i, j);
+            project(m.dir_of_pixel(x, y, r_m))
+        })
+        .collect();
     let at = |i: usize, j: usize| pts[j * (nx + 1) + i];
-    let land = egui::Color32::from_rgba_unmultiplied(110, 210, 90, 110);
-    let sea = egui::Color32::from_rgba_unmultiplied(40, 70, 140, 50);
-    let mut mesh = egui::Mesh::default();
-    for j in 0..ny {
-        for i in 0..nx {
-            let (Some(a), Some(b), Some(cc), Some(d)) = (at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1)) else { continue };
-            if !(ok(a, b) && ok(b, cc) && ok(cc, d) && ok(d, a)) {
-                continue;
+    if let Some((tex, _)) = app.coasts.tex.as_ref() {
+        let mut mesh = egui::Mesh::with_texture(tex.id());
+        let tint = egui::Color32::from_white_alpha(if app.coasts.placing { 200 } else { 150 });
+        for j in 0..ny {
+            for i in 0..nx {
+                let (Some(a), Some(b), Some(cc), Some(d)) = (at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1)) else { continue };
+                if !(ok(a, b) && ok(b, cc) && ok(cc, d) && ok(d, a)) {
+                    continue;
+                }
+                let k = mesh.vertices.len() as u32;
+                for (p, (ii, jj)) in [(a, (i, j)), (b, (i + 1, j)), (cc, (i + 1, j + 1)), (d, (i, j + 1))] {
+                    let (x, y) = grid(ii, jj);
+                    let uv = egui::pos2((crop_x + x as f32 + 0.5) / src_w, (crop_y + y as f32 + 0.5) / src_h);
+                    mesh.vertices.push(egui::epaint::Vertex { pos: p, uv, color: tint });
+                }
+                mesh.add_triangle(k, k + 1, k + 2);
+                mesh.add_triangle(k, k + 2, k + 3);
             }
-            let centre = m.dir_of_pixel(-0.5 + (i as f64 + 0.5) * w / nx as f64, -0.5 + (j as f64 + 0.5) * h / ny as f64, r_m);
-            let is_land = m.coverage(centre, r_m).is_some_and(|v| v > 0.5);
-            let col = if is_land {
-                land
-            } else if patch {
-                sea
-            } else {
-                continue;
-            };
-            let k = mesh.vertices.len() as u32;
-            for p in [a, b, cc, d] {
-                mesh.colored_vertex(p, col);
-            }
-            mesh.add_triangle(k, k + 1, k + 2);
-            mesh.add_triangle(k, k + 2, k + 3);
+        }
+        painter.add(egui::Shape::mesh(mesh));
+    }
+    if !patch {
+        return;
+    }
+    // Outline, densely sampled (edges are curves on the sphere).
+    let per_side = 48;
+    let mut ring = Vec::new();
+    for k in 0..per_side {
+        let t = k as f64 / per_side as f64;
+        ring.push((t * w - 0.5, -0.5));
+    }
+    for k in 0..per_side {
+        let t = k as f64 / per_side as f64;
+        ring.push((w - 0.5, t * h - 0.5));
+    }
+    for k in 0..per_side {
+        let t = k as f64 / per_side as f64;
+        ring.push(((1.0 - t) * w - 0.5, h - 0.5));
+    }
+    for k in 0..per_side {
+        let t = k as f64 / per_side as f64;
+        ring.push((-0.5, (1.0 - t) * h - 0.5));
+    }
+    let ring: Vec<Option<egui::Pos2>> = ring.iter().map(|&(x, y)| project(m.dir_of_pixel(x, y, r_m))).collect();
+    let col = if app.coasts.placing { egui::Color32::from_rgb(255, 220, 90) } else { egui::Color32::from_white_alpha(200) };
+    for k in 0..ring.len() {
+        if let (Some(p), Some(q)) = (ring[k], ring[(k + 1) % ring.len()])
+            && ok(p, q)
+        {
+            painter.line_segment([p, q], (1.5, col));
         }
     }
-    painter.add(egui::Shape::mesh(mesh));
-    if patch {
-        // Outline, densely sampled (edges are curves on the sphere).
-        let per_side = 48;
-        let mut ring = Vec::new();
-        for k in 0..per_side {
-            let t = k as f64 / per_side as f64;
-            ring.push((t * w - 0.5, -0.5));
+    if !app.coasts.placing {
+        return;
+    }
+    // Handles: square corners (scale) and a round knob on a stem (rotate).
+    if let Some(hp) = handle_positions(app, rect, aspect) {
+        let fill = egui::Color32::from_rgb(255, 220, 90);
+        let edge = egui::Color32::from_black_alpha(200);
+        for c in hp.corners.iter().flatten() {
+            let r = egui::Rect::from_center_size(*c, egui::vec2(11.0, 11.0));
+            painter.rect_filled(r, 1.0, fill);
+            painter.rect_stroke(r, 1.0, (1.5, edge), egui::StrokeKind::Outside);
         }
-        for k in 0..per_side {
-            let t = k as f64 / per_side as f64;
-            ring.push((w - 0.5, t * h - 0.5));
-        }
-        for k in 0..per_side {
-            let t = k as f64 / per_side as f64;
-            ring.push(((1.0 - t) * w - 0.5, h - 0.5));
-        }
-        for k in 0..per_side {
-            let t = k as f64 / per_side as f64;
-            ring.push((-0.5, (1.0 - t) * h - 0.5));
-        }
-        let ring: Vec<Option<egui::Pos2>> = ring.iter().map(|&(x, y)| project(m.dir_of_pixel(x, y, r_m))).collect();
-        let col = if app.coasts.placing { egui::Color32::from_rgb(255, 220, 90) } else { egui::Color32::from_white_alpha(200) };
-        for k in 0..ring.len() {
-            if let (Some(p), Some(q)) = (ring[k], ring[(k + 1) % ring.len()])
-                && ok(p, q)
-            {
-                painter.line_segment([p, q], (1.5, col));
-            }
-        }
-        // The top edge's midpoint gets a tick, so the rotation reads.
-        if let (Some(p), Some(q)) = (project(m.dir_of_pixel(w * 0.5 - 0.5, -0.5, r_m)), project(m.dir_of_pixel(w * 0.5 - 0.5, h * 0.06, r_m))) {
-            painter.line_segment([p, q], (2.0, col));
+        if let (Some(k), Some(base)) = (hp.knob, hp.knob_base) {
+            painter.line_segment([base, k], (1.5, col));
+            painter.circle_filled(k, 6.5, fill);
+            painter.circle_stroke(k, 6.5, (1.5, edge));
         }
     }
 }

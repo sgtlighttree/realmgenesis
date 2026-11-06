@@ -329,6 +329,8 @@ impl RealmApp {
                         st.file_name = std::path::Path::new(&path).file_name().map_or(path.clone(), |n| n.to_string_lossy().into_owned());
                         if let rg_pipeline::mask::Placement::Patch { center_deg, km_per_px, rotation_deg } = place {
                             (st.patch, st.lat, st.lon, st.km_per_px, st.rotation) = (true, center_deg[0], center_deg[1], km_per_px, rotation_deg);
+                            // `RG_PLACE=1`: start in "Move patch" (handles shown), for screenshots.
+                            st.placing = var("RG_PLACE").is_some();
                         }
                         self.params.tectonics.conditioning.mask = Some(std::sync::Arc::new(m));
                         self.params.tectonics.conditioning.strict = true;
