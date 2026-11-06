@@ -14,7 +14,9 @@ R1 un-grid/coherence (done differently) → R2 raster renderer (done) → **R3 c
 - Gates (seeds 1–5): active coast with a trench 0.81–0.885 (gate 0.90); passive coast near a trench 0.03–0.12; plates 19–37.
 - **Matt in the app:** plates "pretty natural"; the bunched microplates stand out but "could still be natural" (left as is). The brush worked but had no feedback, and import wasn't discoverable.
 - **Built:** brush bands plus a circle cursor (globe and map); an "Import coastline…" file dialog (`rfd`) plus drag-and-drop; `RG_SHOT_UI=1` for whole-window screenshots (the only way to check the UI here).
-- **Next:** Matt tries the import and the new brush feedback; then R3b (open-ocean fabric on R3's ridges).
+- **Import adjust + Move patch (built, `73d1ad3` + `79ade10`):** PNG preview, threshold, invert, channel, crop; drag/⌥-scroll placement with the mask tinted on the view. Not yet screenshot-verified (the screen was locked); check it first next time with `RG_MASK=<png> RG_MASK_PATCH=lat,lon,km,rot RG_SHOT=… RG_SHOT_UI=1 RG_SHOT_EXIT=1`, uncapped.
+- **Standing rules (Matt, s06):** after each app build, close every running `realmgenesis` and relaunch the new build in a background shell. When a build fails on a missing crate, check the Wi-Fi SSID: home or office means download; otherwise ask.
+- **Next:** Matt tries the import panel (his greyscale coastline), Move patch and the brush; then R3b (open-ocean fabric on R3's ridges).
 
 ## s05 (2026-11-05, local): R3 built, waiting on Matt's feedback
 
