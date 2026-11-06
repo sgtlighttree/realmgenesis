@@ -6,6 +6,18 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 
 R1 un-grid/coherence (done differently) → R2 raster renderer (done) → **R3 coastline conditioning + plate plausibility pass + coastal bathymetry (built s05; Matt's feedback next)** → R3b open-ocean seafloor → R4 regional bakes → R5 exports → alive world. Table with definitions: `ROADMAP.md` top. Matt: land terrain "largely satisfied"; active coasts: automatic + repaintable ("both").
 
+## s06 (2026-11-06, local): R3 feedback, round 1
+
+- Log: `docs/session-logs/2026-11-06-s06-r3-feedback.md`.
+- **Decided (Matt):** passive segments in closing rims are now **0%**; the plate slider shows the achieved count; the hypsometry floor of 300 m is accepted.
+- Land % is disabled when an imported mask decides the land.
+- Gates (seeds 1–5): active coast with a trench 0.81–0.885 (gate 0.90); passive coast near a trench 0.03–0.12; plates 19–37.
+- **Still open for Matt (needs the app):**
+  - does the active/passive split read right (Coast margins layer)?
+  - the Voronoi-like ridge web: fine or too geometric?
+  - try an import and the brush;
+  - live brush preview (not built).
+
 ## s05 (2026-11-05, local): R3 built, waiting on Matt's feedback
 
 - Log: `docs/session-logs/2026-11-05-s05-r3-build.md` (plan, advisor verdicts, gate numbers, deviations, test edits).
