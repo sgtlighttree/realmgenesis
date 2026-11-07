@@ -53,7 +53,8 @@ fn same_mask(a: &Arc<RasterMask>, b: &Arc<RasterMask>) -> bool {
             && a.adjust == b.adjust
             && a.decode == b.decode
             && a.enabled == b.enabled
-            && a.name == b.name)
+            && a.name == b.name
+            && a.elevation == b.elevation)
 }
 
 impl EditHistory {

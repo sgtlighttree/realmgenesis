@@ -756,13 +756,25 @@ pub fn handle_keys(app: &mut RealmApp, ctx: &egui::Context) {
 
 /// One undo (or redo) step of the coast edits.
 pub fn history_step(app: &mut RealmApp, redo: bool) {
+    let in_sync = |app: &RealmApp| {
+        app.coasts.history.generated.as_ref().is_some_and(|g| crate::history::same_edits(g, &app.params.tectonics.conditioning))
+    };
+    let was_in_sync = in_sync(app);
     let mut cur = app.coasts.current(&app.params.tectonics.conditioning);
     let moved = if redo { app.coasts.history.redo(&mut cur) } else { app.coasts.history.undo(&mut cur) };
     if moved {
         apply_snapshot(app, cur);
         app.coasts.move_mark = None;
         app.coasts.placing = false;
-        app.coasts.msg = if redo { "Redone" } else { "Undone" }.to_string() + " · Generate to apply";
+        // Stepping past a Generate (the world matched the edits, now it doesn't) takes the
+        // terrain back too (s07, Matt: "undo should be able to take back terrain"). Plain
+        // edit steps stay instant.
+        if was_in_sync && !in_sync(app) {
+            app.coasts.msg = if redo { "Redone" } else { "Undone" }.to_string() + " · regenerating";
+            app.push(crate::commands::Command::Regenerate);
+        } else {
+            app.coasts.msg = if redo { "Redone" } else { "Undone" }.to_string() + " · Generate to apply";
+        }
     }
 }
 
