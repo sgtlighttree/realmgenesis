@@ -180,7 +180,9 @@ pub fn coasts_section(app: &mut RealmApp, ui: &mut egui::Ui) {
                 c.outside_procedural = true;
             }
             1 => (c.strict, c.outside_procedural) = (true, true),
-            _ => (c.strict, c.outside_procedural) = (true, false),
+            // Blank means blank: no tectonic island chains either (Matt, s06). The checkbox
+            // below can bring them back.
+            _ => (c.strict, c.outside_procedural, c.islands) = (true, false, false),
         }
     }
     // Import is always one click away (Matt, s06: the combo box hid it). Each import is a

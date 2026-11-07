@@ -66,7 +66,15 @@ Placement, Move patch, crop, layers and undo all stay as they are.
 - Upscale coherence: the s04 guard (Normal vs XHigh, r ≥ 0.99, same coast) holds for an imported world.
 - V1 renders without terraces at XHigh (eyes, `river_map`).
 
-## Open questions for Matt
+## Matt's answers (s06, 2026-11-07)
+
+- **Q1 fidelity: Guided** by default.
+- **Q2 elevation:** the heightmap adjusts to the values set in the panel (max height, curve). There's no fixed meaning of white, so the panel's max height is the scale.
+- **Q3 V2 sea level:** the grey Matt pointed at is the coast step. In his screenshot it measures ≈ grey 62–71 at the shelf edge against ≈ 40 beyond it. The file's histogram has a dip at grey 48–64 (0.4% of pixels), the sea-level step. So **g_sea ≈ 60/255 ≈ 0.235**; confirm on the file. **V2 includes bathymetry** below that grey.
+- **Q4 sea floor: use the map's sub-sea greys when present**, else ours. (V1 has none; V2 has them.)
+- **Q5: regional patch by default.** Azgaar exports have no projection, so a heightmap is placed like a patch (azimuthal equidistant about its centre), never as a 2:1 world unless the user picks that.
+
+## Open questions (answered above, kept for the record)
 
 1. Default fidelity: **Guided** (real valleys, close to the drawing), or **Exact**?
 2. What max elevation did the Klerga maps mean? Azgaar's 100 is about 6–8 km in its own display, while ours defaults to 4 km.
