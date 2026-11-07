@@ -165,6 +165,8 @@ pub struct RealmApp {
     /// What the app has been doing (the status-bar console).
     pub console: Console,
     pub console_open: bool,
+    /// The parameters of the worlds generated this session, oldest first (s06).
+    pub world_history: Vec<rg_pipeline::WorldParams>,
     /// Coast source / import / brush UI state (R3).
     pub coasts: crate::ui::coasts::CoastUi,
     /// The surface-gradient bake in flight (per-pixel lighting; see `normals.rs`).
@@ -225,6 +227,7 @@ impl RealmApp {
             console: Console::new(),
             console_open: false,
             coasts: Default::default(),
+            world_history: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
             normals_job: None,
             max_tile_level: 4,
@@ -467,6 +470,12 @@ impl RealmApp {
             self.params.tectonics.seed = random_seed();
         }
         let (seed, res) = (self.params.tectonics.seed, self.params.tectonics.res);
+        // History (s06): what the world is generated from, and the list to go back to.
+        self.coasts.history.generated = Some(self.params.tectonics.conditioning.clone());
+        self.world_history.push(self.params.clone());
+        if self.world_history.len() > 30 {
+            self.world_history.remove(0);
+        }
         #[cfg(not(target_arch = "wasm32"))]
         match GenJob::spawn(self.params.clone(), now_s()) {
             Ok(job) => {
@@ -829,7 +838,11 @@ impl eframe::App for RealmApp {
         let north_west = (north - east).normalize();
         let elevation = 40f64.to_radians();
         self.style.sun_dir = up * elevation.sin() + north_west * elevation.cos();
+        // Coast edits made this frame (panel or viewport) become one undo entry per gesture.
+        let before = crate::history::Snapshot { cond: self.params.tectonics.conditioning.clone(), file_name: self.coasts.file_name.clone() };
         ui::draw(self, ui, &rs);
+        let pointer_down = ui.input(|i| i.pointer.any_down());
+        self.coasts.history.track(&before, &self.params.tectonics.conditioning, pointer_down);
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(path) = self.ui_shot_due.take() {
             let (done, ctx) = (self.ui_shot_done.clone(), ui.ctx().clone());

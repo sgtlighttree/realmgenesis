@@ -9,6 +9,7 @@ use crate::app::RealmApp;
 use glam::{DQuat, DVec3};
 use rg_pipeline::import;
 use rg_pipeline::mask::{Channel, Conditioning, DecodeOpts, MaskAdjust, Placement, RasterMask, Stroke, StrokeOp};
+use crate::history::{EditHistory, Snapshot};
 use std::sync::Arc;
 
 /// A small copy of the whole (uncropped) imported image, raw values, for the preview.
@@ -47,23 +48,15 @@ pub struct CoastUi {
     tex: Option<(egui::TextureHandle, TexKey)>,
     /// A crop being dragged on the preview, in source pixels (start, current).
     crop_drag: Option<([f32; 2], [f32; 2])>,
-    /// What Esc restores while "Move patch" is on: the state before this import, or before
-    /// the mode was switched on.
-    place_undo: Option<PlaceUndo>,
+    /// Undo/redo of the coast edits (s06).
+    pub history: EditHistory,
+    /// The history checkpoint Esc returns to while "Move patch" is on (taken at the import,
+    /// or when the mode was switched on).
+    move_mark: Option<usize>,
     /// The patch handle being dragged in the viewport.
     handle: Option<Handle>,
-}
-
-/// The coasts state Esc goes back to.
-struct PlaceUndo {
-    mask: Option<Arc<RasterMask>>,
-    strict: bool,
-    file_name: String,
-    patch: bool,
-    lat: f64,
-    lon: f64,
-    km_per_px: f64,
-    rotation: f64,
+    /// An undo (false) or redo (true) asked for by a panel button, run after the panel.
+    pub pending_step: Option<bool>,
 }
 
 /// The parts of a patch you can grab in the viewport.
@@ -93,35 +86,44 @@ impl Default for CoastUi {
             thumb: None,
             tex: None,
             crop_drag: None,
-            place_undo: None,
+            history: EditHistory::default(),
+            pending_step: None,
+            move_mark: None,
             handle: None,
         }
     }
 }
 
 impl CoastUi {
-    fn snapshot(&self, c: &Conditioning) -> PlaceUndo {
-        PlaceUndo {
-            mask: c.mask.clone(),
-            strict: c.strict,
-            file_name: self.file_name.clone(),
-            patch: self.patch,
-            lat: self.lat,
-            lon: self.lon,
-            km_per_px: self.km_per_px,
-            rotation: self.rotation,
-        }
-    }
-
-    fn restore(&mut self, c: &mut Conditioning, u: PlaceUndo) {
-        if !same_mask(&c.mask, &u.mask) {
+    /// The panel's placement fields and caches, read back from the mask after the edits
+    /// changed under them (undo, redo, cancel, restoring an older world).
+    fn sync_from_mask(&mut self, c: &Conditioning, old_mask: &Option<Arc<RasterMask>>) {
+        let same_raster = match (&c.mask, old_mask) {
+            (Some(a), Some(b)) => Arc::ptr_eq(&a.data, &b.data),
+            (None, None) => true,
+            _ => false,
+        };
+        if !same_raster {
             self.thumb = None;
             self.tex = None;
         }
-        c.mask = u.mask;
-        c.strict = u.strict;
-        (self.file_name, self.patch, self.lat, self.lon, self.km_per_px, self.rotation) =
-            (u.file_name, u.patch, u.lat, u.lon, u.km_per_px, u.rotation);
+        match &c.mask {
+            Some(m) => match import::user_placement(m) {
+                Placement::Patch { center_deg, km_per_px, rotation_deg } => {
+                    (self.patch, self.lat, self.lon, self.km_per_px, self.rotation) =
+                        (true, center_deg[0], center_deg[1], km_per_px, rotation_deg);
+                }
+                Placement::WorldEquirect => self.patch = false,
+            },
+            None => {
+                self.placing = false;
+                self.move_mark = None;
+            }
+        }
+    }
+
+    fn current(&self, c: &Conditioning) -> Snapshot {
+        Snapshot { cond: c.clone(), file_name: self.file_name.clone() }
     }
 
     fn placement(&self) -> Placement {
@@ -130,14 +132,6 @@ impl CoastUi {
         } else {
             Placement::WorldEquirect
         }
-    }
-}
-
-fn same_mask(a: &Option<Arc<RasterMask>>, b: &Option<Arc<RasterMask>>) -> bool {
-    match (a, b) {
-        (Some(a), Some(b)) => Arc::ptr_eq(&a.data, &b.data) && a.source_kind == b.source_kind,
-        (None, None) => true,
-        _ => false,
     }
 }
 
@@ -153,6 +147,7 @@ pub fn view_centre_deg(app: &RealmApp) -> (f64, f64) {
 
 pub fn coasts_section(app: &mut RealmApp, ui: &mut egui::Ui) {
     let centre = view_centre_deg(app);
+    let seed = app.params.tectonics.seed;
     let c = &mut app.params.tectonics.conditioning;
     let st = &mut app.coasts;
     let mut source = if c.mask.is_some() { 2 } else if c.strict { 1 } else { 0 };
@@ -223,17 +218,7 @@ pub fn coasts_section(app: &mut RealmApp, ui: &mut egui::Ui) {
         ui.add(egui::Slider::new(&mut st.brush_km, 20.0..=1500.0).logarithmic(true).text("brush km"));
         ui.label(egui::RichText::new("Drag on the globe to paint; right-drag still orbits. Generate to apply.").small().color(super::theme::MUTED));
     }
-    if !c.strokes.is_empty() {
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(format!("{} strokes", c.strokes.len())).small());
-            if ui.small_button("Undo").clicked() {
-                c.strokes.pop();
-            }
-            if ui.small_button("Clear").clicked() {
-                c.strokes.clear();
-            }
-        });
-    }
+    edits_list(c, st, ui, seed);
 }
 
 /// The imported mask: file, placement, and (PNG) the adjust panel.
@@ -287,9 +272,9 @@ fn mask_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui) {
                 if st.placing {
                     st.brush = None;
                     st.show_mask = true;
-                    st.place_undo = Some(st.snapshot(c));
+                    st.move_mark = Some(st.history.checkpoint(c, &st.file_name));
                 } else {
-                    st.place_undo = None;
+                    st.move_mark = None;
                 }
             }
             let side = st.km_per_px * m.w.max(m.h) as f64;
@@ -611,31 +596,69 @@ pub fn place_drag(
     dragging_primary || released
 }
 
-/// Keys while placing or painting: Esc cancels (restores the state before this import, or
-/// before "Move patch" was switched on; drops the brush), Enter accepts the placement.
+/// Keys: Cmd/Ctrl+Z undo, Cmd/Ctrl+Shift+Z redo (the coast edits). While placing, Esc
+/// cancels (back to the state before this import, or before "Move patch" was switched on)
+/// and Enter accepts. Esc also drops an active brush.
 pub fn handle_keys(app: &mut RealmApp, ctx: &egui::Context) {
     if ctx.egui_wants_keyboard_input() {
-        return; // typing in a field
+        return; // typing in a field (it has its own undo)
+    }
+    let (redo, undo) = ctx.input_mut(|i| {
+        let redo = i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z);
+        (redo, !redo && i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z))
+    });
+    if undo {
+        history_step(app, false);
+    } else if redo {
+        history_step(app, true);
     }
     let (esc, enter) = ctx.input(|i| (i.key_pressed(egui::Key::Escape), i.key_pressed(egui::Key::Enter)));
-    let st = &mut app.coasts;
-    if st.placing {
+    if app.coasts.placing {
         if esc {
-            if let Some(u) = st.place_undo.take() {
-                st.restore(&mut app.params.tectonics.conditioning, u);
+            if let Some(mark) = app.coasts.move_mark.take() {
+                let mut cur = app.coasts.current(&app.params.tectonics.conditioning);
+                app.coasts.history.cancel_to(mark, &mut cur);
+                apply_snapshot(app, cur);
             }
+            let st = &mut app.coasts;
             st.placing = false;
             st.handle = None;
             st.msg = "Cancelled".into();
         } else if enter {
+            let st = &mut app.coasts;
             st.placing = false;
-            st.place_undo = None;
+            st.move_mark = None;
             st.msg = "Placed · Generate to apply".into();
         }
-    } else if esc && st.brush.is_some() {
-        st.brush = None;
-        st.drawing.clear();
+    } else if esc && app.coasts.brush.is_some() {
+        app.coasts.brush = None;
+        app.coasts.drawing.clear();
     }
+}
+
+/// One undo (or redo) step of the coast edits.
+pub fn history_step(app: &mut RealmApp, redo: bool) {
+    let mut cur = app.coasts.current(&app.params.tectonics.conditioning);
+    let moved = if redo { app.coasts.history.redo(&mut cur) } else { app.coasts.history.undo(&mut cur) };
+    if moved {
+        apply_snapshot(app, cur);
+        app.coasts.move_mark = None;
+        app.coasts.placing = false;
+        app.coasts.msg = if redo { "Redone" } else { "Undone" }.to_string() + " · Generate to apply";
+    }
+}
+
+/// Put a snapshot's edits in place and bring the panel in step with them.
+fn apply_snapshot(app: &mut RealmApp, snap: Snapshot) {
+    let old = app.params.tectonics.conditioning.mask.clone();
+    app.params.tectonics.conditioning = snap.cond;
+    app.coasts.file_name = snap.file_name;
+    app.coasts.sync_from_mask(&app.params.tectonics.conditioning, &old);
+}
+
+/// After the whole params were replaced (restoring an older world): sync the panel.
+pub fn after_params_replaced(app: &mut RealmApp, old_mask: &Option<Arc<RasterMask>>) {
+    app.coasts.sync_from_mask(&app.params.tectonics.conditioning, old_mask);
 }
 
 /// Cursor for the patch tool: resize over a corner, rotate-ish over the knob, grab inside.
@@ -679,7 +702,9 @@ pub fn paint(app: &mut RealmApp, dragging_primary: bool, released: bool, at: Opt
         if matches!(op, StrokeOp::Land | StrokeOp::Sea) {
             c.strict = true;
         }
-        c.strokes.push(Stroke { path: std::mem::take(&mut app.coasts.drawing), radius_km: app.coasts.brush_km, op });
+        let mut st = Stroke::new(std::mem::take(&mut app.coasts.drawing), app.coasts.brush_km, op);
+        st.seed = Some(app.params.tectonics.seed); // strokes belong to their seed (Matt, s06)
+        c.strokes.push(st);
         app.status = format!("{} strokes; Generate to apply", c.strokes.len());
     }
     dragging_primary || released
@@ -688,7 +713,7 @@ pub fn paint(app: &mut RealmApp, dragging_primary: bool, released: bool, at: Opt
 /// A picked or dropped file: a 2:1 image is taken as a whole-world map, anything else as a
 /// ~3,000 km regional patch at the centre of the view (drag it into place).
 fn import_file(c: &mut Conditioning, st: &mut CoastUi, path: &std::path::Path, centre: (f64, f64)) {
-    let undo = st.snapshot(c);
+    let mark = st.history.checkpoint(c, &st.file_name);
     st.file_name = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
     st.thumb = None;
     st.tex = None;
@@ -711,7 +736,7 @@ fn import_file(c: &mut Conditioning, st: &mut CoastUi, path: &std::path::Path, c
     if (ratio - 2.0).abs() > 0.05 {
         st.patch = true;
         st.placing = true;
-        st.place_undo = Some(undo);
+        st.move_mark = Some(mark);
         st.brush = None;
         (st.lat, st.lon) = centre;
         st.rotation = 0.0;
@@ -878,7 +903,8 @@ pub fn overlay(app: &RealmApp, ui: &egui::Ui, rect: egui::Rect, aspect: f64, hov
             }
         }
     };
-    for st in &app.params.tectonics.conditioning.strokes {
+    let seed = app.params.tectonics.seed;
+    for st in app.params.tectonics.conditioning.strokes.iter().filter(|st| st.applies(seed)) {
         draw_band(&st.path, st.radius_km, st.op, false);
     }
     draw_band(&app.coasts.drawing, app.coasts.brush_km, op, true);
@@ -1030,5 +1056,55 @@ pub fn mask_overlay(app: &RealmApp, ui: &egui::Ui, rect: egui::Rect, aspect: f64
             painter.circle_filled(k, 6.5, fill);
             painter.circle_stroke(k, 6.5, (1.5, edge));
         }
+    }
+}
+
+/// The edits: undo/redo, then one row per stroke with an on/off toggle and delete. Strokes
+/// painted on another seed are listed greyed out (they only apply on their own seed).
+fn edits_list(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui, seed: u64) {
+    ui.horizontal(|ui| {
+        ui.label("edits");
+        if ui.add_enabled(st.history.can_undo(), egui::Button::new("Undo").small()).on_hover_text("⌘Z / Ctrl+Z").clicked() {
+            st.pending_step = Some(false);
+        }
+        if ui.add_enabled(st.history.can_redo(), egui::Button::new("Redo").small()).on_hover_text("⇧⌘Z / Ctrl+Shift+Z").clicked() {
+            st.pending_step = Some(true);
+        }
+        let here = c.strokes.iter().filter(|s| s.seed.is_none_or(|x| x == seed)).count();
+        if here > 0 && ui.small_button("Clear this seed").on_hover_text("Delete the strokes painted on this seed (undoable).").clicked() {
+            c.strokes.retain(|s| s.seed.is_some_and(|x| x != seed));
+        }
+    });
+    if c.strokes.is_empty() {
+        return;
+    }
+    let op_name = |op: StrokeOp| match op {
+        StrokeOp::Land => "land",
+        StrokeOp::Sea => "erase",
+        StrokeOp::Active => "active coast",
+        StrokeOp::Passive => "passive coast",
+    };
+    let mut delete = None;
+    egui::ScrollArea::vertical().max_height(140.0).id_salt("coast-edits").show(ui, |ui| {
+        for (i, s) in c.strokes.iter_mut().enumerate() {
+            let other_seed = s.seed.is_some_and(|x| x != seed);
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut s.enabled, "").on_hover_text("Apply this stroke (off keeps it, unapplied)");
+                let seed_txt = match s.seed {
+                    Some(x) if x != seed => format!(" · seed {x}"),
+                    Some(_) => String::new(),
+                    None => " · all seeds".into(),
+                };
+                let text = egui::RichText::new(format!("{} {} · {:.0} km{seed_txt}", i + 1, op_name(s.op), s.radius_km)).small();
+                ui.label(if other_seed || !s.enabled { text.color(super::theme::MUTED) } else { text })
+                    .on_hover_text(if other_seed { "Painted on another seed: it applies only there." } else { "" });
+                if ui.small_button("×").on_hover_text("Delete (undoable)").clicked() {
+                    delete = Some(i);
+                }
+            });
+        }
+    });
+    if let Some(i) = delete {
+        c.strokes.remove(i);
     }
 }

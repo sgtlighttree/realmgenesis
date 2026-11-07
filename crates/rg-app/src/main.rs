@@ -4,6 +4,7 @@ mod app;
 mod commands;
 mod console;
 mod files;
+mod history;
 mod normals;
 mod worldgen;
 mod qos;

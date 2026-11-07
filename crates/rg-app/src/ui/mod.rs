@@ -148,6 +148,9 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
         ui.add(egui::Slider::new(&mut t.roughness, 0.3..=2.0).text("roughness"));
         detail_picker(ui, &mut t.res, t.radius_m);
         coasts::coasts_section(app, ui);
+        if let Some(redo) = app.coasts.pending_step.take() {
+            coasts::history_step(app, redo);
+        }
         // ---------------------------------------------------------------- erosion
         let e = &mut app.params.erosion;
         ui.checkbox(&mut e.enabled, "River erosion")
@@ -166,11 +169,16 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
             ui.add(egui::Slider::new(&mut e.river_min_area_km2, 2_000.0..=200_000.0).logarithmic(true).text("river km²"))
                 .on_hover_text("Smallest drainage area drawn as a river.");
         });
-        let generate = egui::Button::new(egui::RichText::new("Generate world").strong())
-            .fill(theme::ACCENT.linear_multiply(0.45));
+        // The shown world no longer matches the edits (after an undo, a stroke, a toggle).
+        let stale = app.world.is_some()
+            && app.coasts.history.generated.as_ref().is_some_and(|g| !crate::history::same_edits(g, &app.params.tectonics.conditioning));
+        let label = if stale { "Generate world  (edits not applied yet)" } else { "Generate world" };
+        let generate = egui::Button::new(egui::RichText::new(label).strong())
+            .fill(if stale { theme::ACCENT.linear_multiply(0.85) } else { theme::ACCENT.linear_multiply(0.45) });
         if ui.add_sized([ui.available_width(), 30.0], generate).on_hover_text("G").clicked() {
             app.push(Command::Regenerate);
         }
+        world_history_ui(app, ui);
     });
 
     // ---------------------------------------------------------------- climate
@@ -680,5 +688,38 @@ fn legend_panel(layer: Layer, ui: &egui::Ui, rect: egui::Rect) {
             let r = draw_panel(galley.size() + egui::vec2(2.0 * pad, 2.0 * pad));
             painter.galley(r.min + egui::vec2(pad, pad), galley, theme::TEXT);
         }
+    }
+}
+
+/// The worlds generated this session (their parameters; going back regenerates, which is
+/// exact because generation is deterministic). Newest first.
+fn world_history_ui(app: &mut RealmApp, ui: &mut egui::Ui) {
+    if app.world_history.len() < 2 {
+        return;
+    }
+    let mut restore = None;
+    egui::CollapsingHeader::new(format!("World history ({})", app.world_history.len()))
+        .id_salt("world-history")
+        .show(ui, |ui| {
+            for (i, p) in app.world_history.iter().enumerate().rev() {
+                let c = &p.tectonics.conditioning;
+                let edits = c.strokes.iter().filter(|s| s.applies(p.tectonics.seed)).count() + c.mask.is_some() as usize;
+                let src = if c.mask.is_some() { "import" } else if c.strict { "strict" } else { "procedural" };
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!("seed {} · {} cells · {src} · {edits} edits", p.tectonics.seed, p.tectonics.res))
+                            .small(),
+                    );
+                    if ui.small_button("Restore").on_hover_text("Bring back these settings and edits, and regenerate").clicked() {
+                        restore = Some(i);
+                    }
+                });
+            }
+        });
+    if let Some(i) = restore {
+        let old_mask = app.params.tectonics.conditioning.mask.clone();
+        app.params = app.world_history[i].clone();
+        coasts::after_params_replaced(app, &old_mask);
+        app.push(Command::Regenerate);
     }
 }
