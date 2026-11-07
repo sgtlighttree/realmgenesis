@@ -197,9 +197,7 @@ pub fn layer_from_bytes(
                 (Some(_), Some(s)) => s.max(1),
                 (Some(_), None) => heightmap_step(&bytes, decode.crop)?,
             };
-            // A heightmap's greys are its brightness: Auto would pick a varying alpha (Klerga
-            // V1 has one, s07) and flatten every height. Alpha only if asked for.
-            let channel = if elevation.is_some() && decode.channel == Channel::Auto { Channel::Brightness } else { decode.channel };
+            let channel = effective_channel(elevation.is_some(), decode.channel);
             let (d, w, h, used) = raw_from_png(&bytes, channel, decode.crop, step)?;
             (d, w, h, place, used, decode, adjust, step)
         }
@@ -233,18 +231,37 @@ pub fn layer_from_bytes(
     Ok(m)
 }
 
+/// The channel a layer actually decodes. A heightmap's greys are its brightness: Auto would
+/// pick a varying alpha (Klerga V1 has one, s07) and flatten every height. Alpha only if
+/// asked for. The preview uses this too, so it shows what Generate reads.
+pub fn effective_channel(heightmap: bool, channel: Channel) -> Channel {
+    if heightmap && channel == Channel::Auto { Channel::Brightness } else { channel }
+}
+
 /// Does a heightmap's sea hold bathymetry? True when the greys below the coast spread over
 /// more than ~5 levels (p5..p95); a flat sea (Azgaar's 0) would otherwise turn into a cliff
-/// to the full depth at the coast (s07 advisor). Decided at import, stored per layer.
+/// to the full depth at the coast (s07 advisor). A 256-bin histogram, so the panel can
+/// re-evaluate it whenever the sea-level grey moves.
 pub fn has_bathymetry(m: &RasterMask) -> bool {
-    let thr = m.adjust.threshold;
-    let mut sea: Vec<f32> = m.data.iter().map(|&v| if m.adjust.invert { 1.0 - v } else { v }).filter(|&g| g <= thr).collect();
-    if sea.len() < 16 {
+    let mut hist = [0u64; 256];
+    for &v in m.data.iter() {
+        let g = if m.adjust.invert { 1.0 - v } else { v };
+        hist[(g.clamp(0.0, 1.0) * 255.0).round() as usize] += 1;
+    }
+    let top = (m.adjust.threshold.clamp(0.0, 1.0) * 255.0).floor() as usize;
+    let sea: u64 = hist[..=top].iter().sum();
+    if sea < 16 {
         return false;
     }
-    sea.sort_by(f32::total_cmp);
-    let q = |f: f64| sea[((sea.len() - 1) as f64 * f) as usize];
-    q(0.95) - q(0.05) > 5.0 / 255.0
+    let quantile = |f: f64| {
+        let want = (sea as f64 * f) as u64;
+        let mut acc = 0;
+        hist[..=top].iter().position(|&c| {
+            acc += c;
+            acc > want
+        }).unwrap_or(top)
+    };
+    quantile(0.95) - quantile(0.05) > 5
 }
 
 /// The placement as the user gave it (an SVG patch's raster scale converted back to km per
@@ -739,6 +756,9 @@ mod tests {
         assert!(has_bathymetry(&m), "a graded sea counts as bathymetry");
         let flat = layer_from_bytes(test_png(32, 16, |x, _| x > 20), "png", place.clone(), DecodeOpts::default(), adjust, Some(e), None).unwrap();
         assert!(!has_bathymetry(&flat), "a flat sea doesn't");
+        let mut moved = flat.clone();
+        moved.adjust.threshold = 0.6;
+        assert!(!has_bathymetry(&moved), "nor after the sea-level grey moves (land is grey 255)");
         let mut params = crate::WorldParams::default();
         params.tectonics.res = 32;
         params.erosion.enabled = false;
@@ -818,6 +838,17 @@ mod tests {
         assert!(bad * 50 <= n, "{bad}/{n} samples off by > 1% (worst {worst} m)");
         assert!(top > 4000.0, "heights not rescaled: top {top}");
         assert!(!hy.rivers.is_empty(), "rivers drain the import");
+        // Guided on the same map must move some pinned land (> 1%): the solve really runs
+        // when all land is pinned (s07: it was skipped, and the Exact checks passed vacuously).
+        let mut gm = (*params.tectonics.conditioning.masks[0]).clone();
+        gm.elevation.as_mut().unwrap().fidelity = Fidelity::Guided;
+        params.tectonics.conditioning.masks = vec![Arc::new(gm)];
+        let guided = crate::generate(&params);
+        let moved = (0..snap.height_m.data.len())
+            .filter(|&k| snap.height_m.data[k] > 0.0 && pin.data[k] >= 1.0)
+            .filter(|&k| (guided.tectonics.height_m.data[k] - snap.height_m.data[k]).abs() > 0.01 * 5000.0)
+            .count();
+        assert!(moved * 10 > n, "Guided moved only {moved}/{n} pinned samples");
     }
 
     /// A world saved with the s05 single-import layout (fields at the top of the block,

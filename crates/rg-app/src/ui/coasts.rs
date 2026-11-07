@@ -325,15 +325,15 @@ fn heightmap_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui, m:
             .on_hover_text("Greys are heights: above the sea-level grey is land, rising to the max height. Erosion keeps the drawn relief.");
     });
     if is_h != was {
-        let elevation = is_h.then(|| Elevation {
-            // Exact by default until Matt has judged Guided (s07); the map's sea floor if its
-            // sea has one.
-            fidelity: Fidelity::Exact,
-            sea_floor: import::has_bathymetry(m),
-            ..Default::default()
-        });
+        // Exact by default until Matt has judged Guided (s07).
+        let elevation = is_h.then(|| Elevation { fidelity: Fidelity::Exact, ..Default::default() });
         match import::layer_from_bytes((*m.source).clone(), &m.source_kind, st.placement(), m.decode.clone(), m.adjust, elevation, None) {
             Ok(mut new) => {
+                // The map's sea floor if its sea has one, judged on the heightmap's own greys.
+                let sea_floor = import::has_bathymetry(&new);
+                if let Some(e) = new.elevation.as_mut() {
+                    e.sea_floor = sea_floor;
+                }
                 new.enabled = m.enabled;
                 new.name = m.name.clone();
                 c.masks[st.sel] = Arc::new(new);
@@ -480,7 +480,13 @@ fn adjust_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui, m: &A
     if adj != m.adjust
         && let Some(mm) = sel_mask_mut(c, st)
     {
-        Arc::make_mut(mm).adjust = adj;
+        let mm = Arc::make_mut(mm);
+        mm.adjust = adj;
+        // A heightmap's "map's sea floor" default follows the sea-level grey (s07).
+        let sea_floor = mm.elevation.is_some() && import::has_bathymetry(mm);
+        if let Some(e) = mm.elevation.as_mut() {
+            e.sea_floor = sea_floor;
+        }
     }
 }
 
@@ -536,7 +542,8 @@ fn make_thumb(m: &RasterMask) -> Option<Thumb> {
     if m.source_kind == "png" {
         let (sw, sh) = import::png_size(&m.source).ok()?;
         let step = sw.max(sh).div_ceil(384).max(1);
-        let (raw, w, h, _) = import::raw_from_png(&m.source, m.decode.channel, None, step).ok()?;
+        let channel = import::effective_channel(m.elevation.is_some(), m.decode.channel);
+        let (raw, w, h, _) = import::raw_from_png(&m.source, channel, None, step).ok()?;
         Some(Thumb { raw, w: w as usize, h: h as usize, src_w: sw, src_h: sh })
     } else {
         Some(thumb_of(&m.data, m.w, m.h))

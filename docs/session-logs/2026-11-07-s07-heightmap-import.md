@@ -67,3 +67,11 @@ Continues HANDOFF → "a fresh-context review of `docs/design/heightmap-import.m
 - `TectonicSnapshot.guided` (1 where the deciding layer is Guided). Solver: U_inv smoothed over land (`smooth_on_sphere`, σ `GUIDED_SIGMA_KM` 100), floored at the base rate, mixed by guided·pin; λ = 1 (no tectonic uplift on pinned land, advisor 9); post-solve clamp ±max(10%, 30 m) of the import.
 - **V1 Guided (Normal):** r 0.9927, 70% of land moved by > 40 m, but it **looks nearly the same as Exact** and the rivers are still a straight lattice on the smooth domes. As the advisor predicted (10), the 10% clamp holds it to the drawing.
 - **Open (Matt's call, in the app):** widen the clamp (25–30%?), drop it and gate on r instead, or raise σ. New layers stay on Exact by default until Matt has judged Guided.
+
+## Final advisor pass (adopted)
+- **Preview channel:** `import::effective_channel` is shared by `layer_from_bytes` and `make_thumb`, so V1's preview shows brightness, not alpha (the sea-level grey slider was tuned against the wrong image).
+- **Sea-floor default:** judged on the new heightmap layer (not the coastline layer at threshold 0.5) and re-judged whenever the sea-level grey moves; `has_bathymetry` is now a 256-bin histogram (cheap enough to run live). Test: a flat sea stays false after the threshold moves.
+- **Regression guard:** `exact_heightmap_survives_erosion` also runs Guided and asserts > 10% of pinned land moved > 1% (it would have failed before the skipped-solve fix).
+- **Correction (refutes the earlier "rivers are a straight lattice"):** that was the probe overlay. `river_map` draws every node over 300 km², and a Normal cell is ~960 km², so every wet cell draws a segment (dense in the wet south). Guided by the numbers: r 0.993, 70% of land moved 40–400 m within the clamp, hard to see in a 31 km hillshade.
+- **V1 Exact at XHigh (640, capped):** r **0.9825** vs the import sampled at 640, 69% off by > 40 m; 85 s, 678 MB peak. Refine's no-uplift incision cuts dendritic valleys into the drawn ranges; shape and coast hold (eyes). So "the file's detail survives to XHigh" holds **roughly** (r 0.98), with the valleys being the refine's.
+- Skipped: a local full-suite rerun (the guard change is equivalent without pins; Guided sits behind `guided.is_some()`); check CI on the push instead. V2 and the map-sea-floor path are untested end to end.
