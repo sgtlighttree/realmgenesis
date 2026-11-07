@@ -360,7 +360,7 @@ impl Classification {
                 .strokes
                 .iter()
                 .rev()
-                .find(|st| matches!(st.op, StrokeOp::Active | StrokeOp::Passive) && st.weight(grid.dir[c], r) > 0.5)
+                .find(|st| st.applies(p.seed) && matches!(st.op, StrokeOp::Active | StrokeOp::Passive) && st.weight(grid.dir[c], r) > 0.5)
                 .map_or(m, |st| if st.op == StrokeOp::Active { margin::ACTIVE } else { margin::PASSIVE });
             node_margin[c] = m;
             if m == margin::ACTIVE {

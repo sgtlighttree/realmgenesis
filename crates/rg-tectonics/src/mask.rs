@@ -117,9 +117,24 @@ pub struct Stroke {
     pub path: Vec<DVec3>,
     pub radius_km: f64,
     pub op: StrokeOp,
+    /// The seed it was painted on: it applies only there (s06, Matt). `None` = every seed
+    /// (worlds saved before s06).
+    pub seed: Option<u64>,
+    /// Switched off in the edit list: kept (non-destructive) but not applied.
+    pub enabled: bool,
 }
 
 impl Stroke {
+    /// A stroke that applies on every seed (tests, old files).
+    pub fn new(path: Vec<DVec3>, radius_km: f64, op: StrokeOp) -> Self {
+        Self { path, radius_km, op, seed: None, enabled: true }
+    }
+
+    /// Does this stroke apply to a world with `seed`?
+    pub fn applies(&self, seed: u64) -> bool {
+        self.enabled && self.seed.is_none_or(|s| s == seed)
+    }
+
     /// Great-circle distance (radians) from `d` to the stroke's polyline.
     pub fn distance_rad(&self, d: DVec3) -> f64 {
         let mut best = PI;
@@ -289,7 +304,7 @@ pub fn land_cover(grid: &Grid, p: &Params, value: &[f32]) -> Vec<f32> {
                 .collect()
         }
     };
-    for st in &c.strokes {
+    for st in c.strokes.iter().filter(|st| st.applies(p.seed)) {
         if !matches!(st.op, StrokeOp::Land | StrokeOp::Sea) || st.path.is_empty() {
             continue;
         }
@@ -382,7 +397,7 @@ mod tests {
 
     #[test]
     fn stroke_distance() {
-        let s = Stroke { path: vec![dir_of(0.0, 0.0), dir_of(0.0, 10.0)], radius_km: 100.0, op: StrokeOp::Land };
+        let s = Stroke::new(vec![dir_of(0.0, 0.0), dir_of(0.0, 10.0)], 100.0, StrokeOp::Land);
         let d = s.distance_rad(dir_of(1.0, 5.0)).to_degrees();
         assert!((d - 1.0).abs() < 1e-6, "{d}");
         assert!(s.weight(dir_of(0.0, 5.0), 6.371e6) > 0.99);

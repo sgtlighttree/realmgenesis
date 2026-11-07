@@ -423,7 +423,7 @@ mod tests {
         assert!(s.land_cover.is_some());
         // Strokes paint land into the sea and sea into land.
         let sea_dir = (0..g.n).find(|&a| cover[a] < 0.5 && value[a] < value.iter().copied().fold(f32::MAX, f32::min) + 0.3).unwrap();
-        p.conditioning.strokes.push(mask::Stroke { path: vec![g.dir[sea_dir]], radius_km: 600.0, op: mask::StrokeOp::Land });
+        p.conditioning.strokes.push(mask::Stroke::new(vec![g.dir[sea_dir]], 600.0, mask::StrokeOp::Land));
         let s2 = generate(&p);
         assert!(s2.height_m.data[g.node_sample[sea_dir] as usize] > 0.0, "painted land stays land");
     }
@@ -451,7 +451,7 @@ mod tests {
         // An erase (sea) stroke over an island leaves open water.
         let island = (0..g.n).find(|&a| cover[a] < 0.5 && s.height_m.data[g.node_sample[a] as usize] > 0.0);
         let a = island.expect("the default seed has an oceanic island to erase");
-        p.conditioning.strokes.push(mask::Stroke { path: vec![g.dir[a]], radius_km: 300.0, op: mask::StrokeOp::Sea });
+        p.conditioning.strokes.push(mask::Stroke::new(vec![g.dir[a]], 300.0, mask::StrokeOp::Sea));
         let s2 = generate(&p);
         assert!(s2.height_m.data[g.node_sample[a] as usize] < 0.0, "erased island stays sea");
     }

@@ -183,11 +183,19 @@ pub fn conditioning_header(c: &Conditioning) -> Value {
         .strokes
         .iter()
         .map(|s| {
-            json!({
+            let mut j = json!({
                 "op": op_name(s.op),
                 "radius_km": s.radius_km,
                 "path": s.path.iter().map(|d| [d.x, d.y, d.z]).collect::<Vec<_>>(),
-            })
+            });
+            // s06: optional, absent = every seed / enabled (older files).
+            if let Some(seed) = s.seed {
+                j["seed"] = json!(seed);
+            }
+            if !s.enabled {
+                j["enabled"] = json!(false);
+            }
+            j
         })
         .collect();
     let mut v = json!({
@@ -246,7 +254,13 @@ pub fn conditioning_from_file(v: &Value, f: &WorldFile) -> Result<Conditioning, 
                         .iter()
                         .filter_map(|p| Some(glam::DVec3::new(p[0].as_f64()?, p[1].as_f64()?, p[2].as_f64()?)))
                         .collect();
-                    Some(Stroke { path, radius_km: s["radius_km"].as_f64().unwrap_or(100.0), op })
+                    Some(Stroke {
+                        path,
+                        radius_km: s["radius_km"].as_f64().unwrap_or(100.0),
+                        op,
+                        seed: s["seed"].as_u64(),
+                        enabled: s["enabled"].as_bool().unwrap_or(true),
+                    })
                 })
                 .collect()
         })
@@ -326,11 +340,14 @@ mod tests {
         params.tectonics.conditioning.mask = Some(Arc::new(mask));
         params.tectonics.conditioning.strict = true;
         params.tectonics.conditioning.outside_procedural = false;
-        params.tectonics.conditioning.strokes.push(Stroke {
-            path: vec![rg_tectonics::mask::dir_of(-40.0, 100.0)],
-            radius_km: 500.0,
-            op: StrokeOp::Land,
-        });
+        params.tectonics.conditioning.strokes.push(Stroke::new(vec![rg_tectonics::mask::dir_of(-40.0, 100.0)], 500.0, StrokeOp::Land));
+        // s06: a stroke from another seed and a disabled one round-trip too (and don't apply).
+        let mut other = Stroke::new(vec![rg_tectonics::mask::dir_of(-20.0, -150.0)], 800.0, StrokeOp::Land);
+        other.seed = Some(params.tectonics.seed + 1);
+        params.tectonics.conditioning.strokes.push(other);
+        let mut off = Stroke::new(vec![rg_tectonics::mask::dir_of(-20.0, -150.0)], 800.0, StrokeOp::Land);
+        off.enabled = false;
+        params.tectonics.conditioning.strokes.push(off);
         let w = crate::generate(&params);
         // Patch centre is land (inside the drawn square); the antipode is sea.
         let at = |lat: f64, lon: f64| w.tectonics.height_m.sample(rg_tectonics::mask::dir_of(lat, lon));

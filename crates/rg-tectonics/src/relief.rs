@@ -444,7 +444,7 @@ pub fn finish(grid: &Grid, p: &Params, crust: &Crust, c: &Composed, offset: f32,
     // used to stand up as a ring of "barrier islands" around every coast (s06, Matt).
     // Sea ("erase") strokes clear islands too: painted water stays open water.
     let erased = |a: usize| {
-        cond.strokes.iter().any(|st| st.op == crate::mask::StrokeOp::Sea && st.weight(grid.dir[a], r) > 0.0)
+        cond.strokes.iter().any(|st| st.applies(p.seed) && st.op == crate::mask::StrokeOp::Sea && st.weight(grid.dir[a], r) > 0.0)
     };
     let island = |a: usize, h: f32| -> bool {
         cond.islands
