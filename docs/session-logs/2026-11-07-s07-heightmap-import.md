@@ -58,3 +58,12 @@ Continues HANDOFF → "a fresh-context review of `docs/design/heightmap-import.m
 - **Bug found + fixed:** Klerga V1 has a varying alpha, so Auto picked alpha and every height came out flat. Heightmaps read brightness unless alpha is asked for explicitly.
 - **V1 Exact (headless `river_map`, patch 20N 10E, 0.5 km/px, sea grey 50, smooth 3, blank ocean):** step 2 → 3808², r **1.0000**, 0% off by > 1%, 525 MB peak. Shape kept exactly. Rivers are a **straight D8 lattice on the smooth domes** (expected for Exact on a smooth drawing; Guided should fix it). PNG: scratchpad `v1_exact_normal.png` (not kept).
 - App screenshot not possible: the screen was locked (`CGSSessionScreenIsLocked` true), and the `RG_SHOT` run idled at 0% CPU waiting for a frame.
+
+## Bug: the solve was skipped on blank-ocean heightmap worlds (found + fixed)
+- Step 4 changed `land_h` to free land only, and the solve's guard was `!land_h.is_empty()`, so with no free land (blank ocean) **erosion never ran**. Exact's r = 1.0000 and `exact_heightmap_survives_erosion` were passing vacuously. Found when Guided came out identical to Exact.
+- Fix: run when there's any land. **Re-verified with the solve running:** V1 Exact r 1.0000, 0% off by > 1%; `exact_heightmap_survives_erosion` and `inverted_uplift_holds_the_surface` pass. So the fixed point really holds in the full pipeline (lakes on).
+
+## Step 6 built: Guided v1
+- `TectonicSnapshot.guided` (1 where the deciding layer is Guided). Solver: U_inv smoothed over land (`smooth_on_sphere`, σ `GUIDED_SIGMA_KM` 100), floored at the base rate, mixed by guided·pin; λ = 1 (no tectonic uplift on pinned land, advisor 9); post-solve clamp ±max(10%, 30 m) of the import.
+- **V1 Guided (Normal):** r 0.9927, 70% of land moved by > 40 m, but it **looks nearly the same as Exact** and the rivers are still a straight lattice on the smooth domes. As the advisor predicted (10), the 10% clamp holds it to the drawing.
+- **Open (Matt's call, in the app):** widen the clamp (25–30%?), drop it and gate on r instead, or raise σ. New layers stay on Exact by default until Matt has judged Guided.

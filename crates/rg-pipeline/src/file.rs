@@ -213,6 +213,7 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
         land_fraction: num(sh, "land_fraction")? as f32,
         dynamic_topo_m: None,
         pin: None,
+        guided: None,
     };
     let ch = &h["climate"];
     let (cw, chh) = (num(ch, "width")? as u32, num(ch, "height")? as u32);

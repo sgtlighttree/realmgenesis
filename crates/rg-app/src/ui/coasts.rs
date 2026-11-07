@@ -326,7 +326,8 @@ fn heightmap_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui, m:
     });
     if is_h != was {
         let elevation = is_h.then(|| Elevation {
-            // Exact until Guided is built (s07); the map's sea floor if its sea has one.
+            // Exact by default until Matt has judged Guided (s07); the map's sea floor if its
+            // sea has one.
             fidelity: Fidelity::Exact,
             sea_floor: import::has_bathymetry(m),
             ..Default::default()
@@ -356,7 +357,7 @@ fn heightmap_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui, m:
         ui.label("fidelity");
         ui.radio_value(&mut e.fidelity, Fidelity::Exact, "exact").on_hover_text("Keep the drawn heights; rivers route over them.");
         ui.radio_value(&mut e.fidelity, Fidelity::Guided, "guided")
-            .on_hover_text("Erosion carves real valleys close to the drawing. Not built yet: behaves as Exact.");
+            .on_hover_text("Erosion reshapes the drawing within ±10% of each height (smoothed uplift, then clamped), so drainage is the solver's own.");
     });
     ui.checkbox(&mut e.sea_floor, "use the map's sea floor")
         .on_hover_text("Darker than the sea-level grey becomes depth. Off: the generator's shelves, slopes and trenches.");

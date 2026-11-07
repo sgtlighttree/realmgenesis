@@ -129,6 +129,8 @@ pub struct TectonicSnapshot {
     /// of calibration and inverts uplift from them. Derived from the conditioning (stored);
     /// an erosion input only, not stored in world files. `None` without heightmap layers.
     pub pin: Option<CubeField<f32>>,
+    /// 1 where that heightmap layer is Guided (s07), else 0. Same lifetime as `pin`.
+    pub guided: Option<CubeField<f32>>,
 }
 
 /// Area-weighted fraction of a height field above 0 (cube-sphere cells near face corners are
@@ -202,6 +204,7 @@ pub fn generate_with_model(p: &TectonicsParams) -> (TectonicSnapshot, plates::Pl
         // Static offset in the heights (see relief.rs); the rate mechanism is off.
         dynamic_topo_m: None,
         pin: imported.as_ref().map(|_| CubeField::new(p.res)),
+        guided: imported.as_ref().map(|_| CubeField::new(p.res)),
     };
     for (s, &node) in grid.sample_node.iter().enumerate() {
         let a = node as usize;
@@ -223,6 +226,9 @@ pub fn generate_with_model(p: &TectonicsParams) -> (TectonicSnapshot, plates::Pl
         }
         if let (Some(f), Some(im)) = (snap.pin.as_mut(), imported.as_ref()) {
             f.data[s] = im.pin[a];
+        }
+        if let (Some(f), Some(im)) = (snap.guided.as_mut(), imported.as_ref()) {
+            f.data[s] = im.guided[a];
         }
     }
     (snap, pm, stats)

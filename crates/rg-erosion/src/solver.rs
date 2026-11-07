@@ -557,6 +557,14 @@ pub fn solve_full_with_progress(
     Some(Solved { net, budget, filled_steps, lakes: lakes_now })
 }
 
+/// Guided heightmaps (s07): σ of the smoothing applied to the inverted uplift, km. About
+/// three canonical cells: drawn ranges (hundreds of km) hold, valleys are the solver's own.
+pub const GUIDED_SIGMA_KM: f64 = 100.0;
+/// Guided heightmaps: after the solve, land stays within this fraction of its imported
+/// height (or `GUIDED_TOLERANCE_MIN_M`, whichever is more).
+pub const GUIDED_TOLERANCE: f64 = 0.10;
+pub const GUIDED_TOLERANCE_MIN_M: f64 = 30.0;
+
 /// The elevation-limit factor on uplift, `1 − h/limit` (≥ 0), faded out by a heightmap pin
 /// weight (s07: pinned land keeps the uplift inverted for its own heights).
 fn taper(h: f64, limit: f64, pin: f64) -> f64 {
@@ -721,9 +729,25 @@ pub fn erode_climate_with_progress(
 
     // Uplift from tectonic process (or the elevation fallback).
     let (mut uplift, uplift_used) = uplift::compute(&grid, tectonic, radius_m, &h0, &ocean, p);
-    // Heightmap layers (s07): inverted uplift holds the import as a steady state.
+    // Heightmap layers (s07): inverted uplift holds the import as a steady state (Exact).
+    // Guided smooths it over land (σ `GUIDED_SIGMA_KM`, floored at the base rate), so the
+    // relief's large-scale pattern holds while the physics cuts its own valleys.
+    let guided: Option<Vec<f64>> = tectonic.guided.as_ref().map(|f| par_map(n, |i| f.sample(grid.dir[i]).clamp(0.0, 1.0) as f64));
+    let guided_at = |i: usize| guided.as_ref().map_or(0.0, |g| g[i]) * pin_at(i);
     if let Some(w) = &pin {
-        let (u_inv, _) = invert_uplift(&grid, radius_m, &h0, &ocean, &k_field, runoff_w.as_deref(), lake_in.as_ref(), p);
+        let (mut u_inv, _) = invert_uplift(&grid, radius_m, &h0, &ocean, &k_field, runoff_w.as_deref(), lake_in.as_ref(), p);
+        if (0..n).any(|i| guided_at(i) > 0.0) {
+            let land: Vec<f64> = (0..n).map(|i| if ocean[i] { 0.0 } else { 1.0 }).collect();
+            let u_land: Vec<f64> = (0..n).map(|i| u_inv[i] * land[i]).collect();
+            let sigma = GUIDED_SIGMA_KM * 1000.0;
+            let (su, sl) = (uplift::smooth_on_sphere(&grid, &u_land, sigma, radius_m), uplift::smooth_on_sphere(&grid, &land, sigma, radius_m));
+            let floor = p.uplift_base_mm_yr * 1e-3;
+            for i in (0..n).filter(|&i| !ocean[i]) {
+                let g = guided_at(i);
+                let smooth = (su[i] / sl[i].max(1e-9)).max(floor);
+                u_inv[i] += (smooth - u_inv[i]) * g;
+            }
+        }
         for i in 0..n {
             uplift[i] = w[i] * u_inv[i] + (1.0 - w[i]) * uplift[i];
         }
@@ -735,12 +759,24 @@ pub fn erode_climate_with_progress(
     net.rho8_seed = (p.rho8 && p.node_jitter <= 0.0).then_some(p.seed);
     let mut filled_steps = 0u32;
     let mut budget = MassBudget::default();
-    if p.enabled && !land_h.is_empty() {
+    // Any land at all (pinned heightmap land too; `land_h` holds free land only).
+    if p.enabled && ocean.iter().any(|&o| !o) {
         let lim = (p.elevation_limit_m > 0.0).then_some(p.elevation_limit_m);
         let solved = solve_full_with_progress(&grid, radius_m, &mut h, &ocean, &uplift, &k_field, runoff_w.as_deref(), lim, lake_in.as_ref(), p, pin.as_deref(), on_step)?;
         net = solved.net;
         budget = solved.budget;
         filled_steps = solved.filled_steps;
+    }
+    // Guided heightmap land stays near the drawing: within ±max(10%, 30 m) of the import.
+    if guided.is_some() {
+        for i in (0..n).filter(|&i| !ocean[i]) {
+            let g = guided_at(i);
+            if g > 0.0 {
+                let tol = (GUIDED_TOLERANCE * h0[i].abs()).max(GUIDED_TOLERANCE_MIN_M);
+                let clamped = h0[i] + (h[i] - h0[i]).clamp(-tol, tol);
+                h[i] += (clamped - h[i]) * g;
+            }
+        }
     }
     let start_land_m3: f64 = (0..n).filter(|&i| !ocean[i]).map(|i| h0[i] * area_m2[i]).sum();
     let end_land_m3: f64 = (0..n).filter(|&i| !ocean[i]).map(|i| h[i] * area_m2[i]).sum();

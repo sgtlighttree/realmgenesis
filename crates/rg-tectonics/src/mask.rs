@@ -482,6 +482,8 @@ pub struct Imported {
     /// Pin weight 0..1: how much the import decides this node (1 inside a heightmap layer,
     /// feathered to 0 at its patch edge). Erosion leaves pinned land out of calibration.
     pub pin: Vec<f32>,
+    /// 1 where the deciding layer is Guided (erosion may reshape it within limits), else 0.
+    pub guided: Vec<f32>,
 }
 
 /// Feather width at a heightmap patch's edge: 150 km, or a tenth of the patch's shorter
@@ -498,14 +500,14 @@ pub fn imported_heights(grid: &Grid, p: &Params) -> Option<Imported> {
     }
     let r = p.radius_m;
     let spacing_m = grid.spacing_rad() * r;
-    let per_node: Vec<(f32, f32)> = par_map(grid.n, |a| {
+    let per_node: Vec<(f32, f32, f32)> = par_map(grid.n, |a| {
         let d = grid.dir[a];
         let Some(m) = layers.iter().rev().find(|m| m.pixel(d, r).is_some()) else {
-            return (f32::NAN, 0.0);
+            return (f32::NAN, 0.0, 0.0);
         };
-        if m.elevation.is_none() {
-            return (f32::NAN, 0.0);
-        }
+        let Some(e) = m.elevation else {
+            return (f32::NAN, 0.0, 0.0);
+        };
         let pin = match m.place {
             Placement::WorldEquirect => 1.0,
             Placement::Patch { km_per_px, .. } => {
@@ -516,9 +518,14 @@ pub fn imported_heights(grid: &Grid, p: &Params) -> Option<Imported> {
                 (t * t * (3.0 - 2.0 * t)) as f32
             }
         };
-        (m.height_m(d, r, spacing_m).unwrap_or(f32::NAN), pin)
+        let guided = if e.fidelity == Fidelity::Guided { 1.0 } else { 0.0 };
+        (m.height_m(d, r, spacing_m).unwrap_or(f32::NAN), pin, guided)
     });
-    Some(Imported { h: per_node.iter().map(|v| v.0).collect(), pin: per_node.iter().map(|v| v.1).collect() })
+    Some(Imported {
+        h: per_node.iter().map(|v| v.0).collect(),
+        pin: per_node.iter().map(|v| v.1).collect(),
+        guided: per_node.iter().map(|v| v.2).collect(),
+    })
 }
 
 /// Land coverage per node, 0..1 (land = > 0.5), for strict mode. `value` is the procedural
