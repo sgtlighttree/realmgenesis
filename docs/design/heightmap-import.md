@@ -1,6 +1,6 @@
 # Heightmap import and "upscale" (draft, s06, 2026-11-07)
 
-Status: **draft, not reviewed, no code.** It still needs a fresh-context review and Matt's answers to the open questions at the end.
+Status: **reviewed (s07, go with changes, all adopted); see "Revised design (s07)" at the end, which supersedes the fidelity table and the Guided mechanism above.**
 
 ## Goal (Matt, s06)
 
@@ -81,3 +81,20 @@ Placement, Move patch, crop, layers and undo all stay as they are.
 3. V2's sea level: which grey is the coast? Or should it come from V1 or the Klerga coastline mask?
 4. Sea floor: always ours, or use the map's sub-sea greys when they exist?
 5. Is a heightmap always a whole continent or world, or do you also want small regional patches (which overlap R4)?
+
+## Revised design (s07, 2026-11-07, after the fresh review)
+
+Fresh-context review verdict: **go with changes**. Adopted:
+
+1. **Calibration would erase the import (blocker).** `finish` soft-limits land above 3,800 m; the solver p99-rescales land, then fits one mean factor (`linear_mean_m`) or quantile-maps it; uplift tapers with `elevation_limit_m`; refine scales detail by a global factor. Fix: a per-node **pin weight** w ∈ [0, 1] (1 inside the heightmap layer, feathered at the patch edge). Pinned land skips the soft limit, the p99/mean/quantile calibration (fitted on free land only) and the taper; refine uses scale 1 there.
+2. **Guided = inverted uplift**, not "U ∝ height". The 30 Myr solve reaches steady state (channel response ~0.1–0.3 Myr), so it forgets its initial surface. With n = 1 the implicit step's fixed point is `h − h_r = U·L / (K·A^m)`, so `U_inv = K_i·A_i^m·(h_i − h_r)/L_i` on the import's own filled network makes the import a steady state. One mechanism, two settings:
+   - **Exact:** U = U_inv, no erosion steps (routing, lakes and stats only).
+   - **Guided:** U_inv smoothed and clamped (≥ base rate, within [0.2, 5]× a local median), mixed with the tectonic U (λ ≈ 0.7), eroded from the import, then a post-solve clamp `h = import + clamp(h − import, ±max(10%·import, 30 m))`.
+   - **Loose:** deferred (it's today's mask import plus an initial surface).
+3. **Exact vs pits:** filled pits and playas are excluded from the 1% gate and reported separately; closed basins go through the lake model (bed kept).
+4. **Sea floor:** `depth = D_max·((g_sea − g)/g_sea)^γb` (D_max default 4,500 m), blended with R3's shelf/slope formula by the pin weight; keep the strict `≤ −1 m` and the soft [−200, −1] compression.
+5. **Determinism:** store params and the original bytes only (eroded heights are committed already). The downsample is a pure sequential function with a `downsample_ver` in the header. Heights sample a **mip pyramid** at the node spacing (point-bilinear on a 0.6 km/px raster aliases differently at Normal and Ultra and would break the s04 coherence guard). Coverage keeps sampling level 0, so existing coastline worlds stay byte-identical.
+6. **Memory:** decode the PNG row by row into a box accumulator (crop, then luma, then downsample to ≤ 4,096); the peak drops from ~500 MB to tens of MB for V2. The thumbnail comes from the downsampled raster, built off the UI thread. Both Klerga PNGs are **8-bit** (checked s07), so the "smooth" slider matters for both (4 km over ~200 greys ≈ 20 m steps). V1's 32-bit TIF is deferred.
+7. **Dropped gate:** "hypsometry within the existing bands" (the user sets `max_m`). Added Guided gates: rivers reach the sea, slope–area stats within the existing bands, r > 0.95.
+
+**Build order** (small commits, each with a test): (1) streaming decode + downsample + pyramid; (2) `Elevation` params on the layer + header round trip; (3) imported heights in `finish` with the pin weight and the sea-floor blend; (4) pinned calibration in the solver + refine; (5) Exact; (6) Guided; (7) feather, UI, presets.

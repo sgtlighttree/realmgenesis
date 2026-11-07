@@ -6,6 +6,12 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 
 R1 un-grid/coherence (done differently) → R2 raster renderer (done) → **R3 coastline conditioning + plate plausibility pass + coastal bathymetry (built s05; Matt's feedback next)** → R3b open-ocean seafloor → R4 regional bakes → R5 exports → alive world. Table with definitions: `ROADMAP.md` top. Matt: land terrain "largely satisfied"; active coasts: automatic + repaintable ("both").
 
+## s07 (2026-11-07, local): heightmap import
+
+- Log: `docs/session-logs/2026-11-07-s07-heightmap-import.md`.
+- Fresh review of `docs/design/heightmap-import.md`: **go with changes, all adopted** (doc section "Revised design (s07)"): a pin weight that skips calibration/soft limit/taper; Guided = **inverted uplift** (U = K·A^m·S makes the import a steady state); Exact = the same with no erosion steps; mip-pyramid height sampling; streaming PNG decode. Both Klerga PNGs are 8-bit.
+- **Building** in the doc's 7-step order. Progress: (none yet).
+
 ## s06 (2026-11-06, local): R3 feedback, round 1
 
 - Log: `docs/session-logs/2026-11-06-s06-r3-feedback.md`.
