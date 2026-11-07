@@ -335,7 +335,9 @@ impl RealmApp {
                             // `RG_PLACE=1`: start in "Move patch" (handles shown), for screenshots.
                             st.placing = var("RG_PLACE").is_some();
                         }
-                        self.params.tectonics.conditioning.mask = Some(std::sync::Arc::new(m));
+                        let mut m = m;
+                        m.name = st.file_name.clone();
+                        self.params.tectonics.conditioning.masks = vec![std::sync::Arc::new(m)];
                         self.params.tectonics.conditioning.strict = true;
                     }
                     Err(e) => eprintln!("RG_MASK: {e}"),

@@ -42,18 +42,18 @@ pub fn same_edits(a: &Conditioning, b: &Conditioning) -> bool {
         && a.islands == b.islands
         && a.islands_guard_km == b.islands_guard_km
         && a.strokes == b.strokes
-        && same_mask(&a.mask, &b.mask)
+        && a.masks.len() == b.masks.len()
+        && a.masks.iter().zip(&b.masks).all(|(a, b)| same_mask(a, b))
 }
 
-fn same_mask(a: &Option<Arc<RasterMask>>, b: &Option<Arc<RasterMask>>) -> bool {
-    match (a, b) {
-        (None, None) => true,
-        (Some(a), Some(b)) => {
-            Arc::ptr_eq(a, b)
-                || (Arc::ptr_eq(&a.data, &b.data) && a.place == b.place && a.adjust == b.adjust && a.decode == b.decode)
-        }
-        _ => false,
-    }
+fn same_mask(a: &Arc<RasterMask>, b: &Arc<RasterMask>) -> bool {
+    Arc::ptr_eq(a, b)
+        || (Arc::ptr_eq(&a.data, &b.data)
+            && a.place == b.place
+            && a.adjust == b.adjust
+            && a.decode == b.decode
+            && a.enabled == b.enabled
+            && a.name == b.name)
 }
 
 impl EditHistory {
@@ -134,7 +134,7 @@ impl EditHistory {
     fn raster_bytes(&self) -> usize {
         let mut seen: Vec<*const Vec<f32>> = Vec::new();
         let mut bytes = 0;
-        for m in self.undo.iter().chain(&self.redo).filter_map(|s| s.cond.mask.as_ref()) {
+        for m in self.undo.iter().chain(&self.redo).flat_map(|s| s.cond.masks.iter()) {
             let p = Arc::as_ptr(&m.data);
             if !seen.contains(&p) {
                 seen.push(p);

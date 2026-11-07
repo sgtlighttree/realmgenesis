@@ -111,10 +111,9 @@ fn controls(app: &mut RealmApp, ui: &mut egui::Ui) {
         }
         // An imported mask fixes the land itself; land % only matters for procedural
         // continents (no mask, or outside a regional patch).
-        let land_used = match &t.conditioning.mask {
-            None => true,
-            Some(m) => t.conditioning.outside_procedural && matches!(m.place, rg_pipeline::mask::Placement::Patch { .. }),
-        };
+        let cond = &t.conditioning;
+        let land_used = cond.outside_procedural
+            && !cond.masks.iter().any(|m| m.enabled && matches!(m.place, rg_pipeline::mask::Placement::WorldEquirect));
         let mut land = t.land_fraction * 100.0;
         let land_resp = ui.add_enabled(land_used, egui::Slider::new(&mut land, 5.0..=70.0).text("land %").integer());
         if land_resp.changed() {
@@ -703,8 +702,8 @@ fn world_history_ui(app: &mut RealmApp, ui: &mut egui::Ui) {
         .show(ui, |ui| {
             for (i, p) in app.world_history.iter().enumerate().rev() {
                 let c = &p.tectonics.conditioning;
-                let edits = c.strokes.iter().filter(|s| s.applies(p.tectonics.seed)).count() + c.mask.is_some() as usize;
-                let src = if c.mask.is_some() { "import" } else if c.strict { "strict" } else { "procedural" };
+                let edits = c.strokes.iter().filter(|s| s.applies(p.tectonics.seed)).count() + c.masks.len();
+                let src = if !c.masks.is_empty() { "import" } else if !c.outside_procedural { "blank" } else if c.strict { "strict" } else { "procedural" };
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new(format!("seed {} · {} cells · {src} · {edits} edits", p.tectonics.seed, p.tectonics.res))
@@ -717,9 +716,8 @@ fn world_history_ui(app: &mut RealmApp, ui: &mut egui::Ui) {
             }
         });
     if let Some(i) = restore {
-        let old_mask = app.params.tectonics.conditioning.mask.clone();
         app.params = app.world_history[i].clone();
-        coasts::after_params_replaced(app, &old_mask);
+        coasts::after_params_replaced(app);
         app.push(Command::Regenerate);
     }
 }

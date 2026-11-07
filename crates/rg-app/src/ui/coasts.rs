@@ -45,6 +45,10 @@ pub struct CoastUi {
     /// Draw the imported mask over the globe or map.
     pub show_mask: bool,
     thumb: Option<Thumb>,
+    /// Which raster the thumbnail was made from (its `Arc` pointer).
+    thumb_for: usize,
+    /// The import layer the panel and the patch tool work on.
+    pub sel: usize,
     tex: Option<(egui::TextureHandle, TexKey)>,
     /// A crop being dragged on the preview, in source pixels (start, current).
     crop_drag: Option<([f32; 2], [f32; 2])>,
@@ -84,6 +88,8 @@ impl Default for CoastUi {
             drag_prev: None,
             show_mask: true,
             thumb: None,
+            thumb_for: 0,
+            sel: 0,
             tex: None,
             crop_drag: None,
             history: EditHistory::default(),
@@ -97,24 +103,19 @@ impl Default for CoastUi {
 impl CoastUi {
     /// The panel's placement fields and caches, read back from the mask after the edits
     /// changed under them (undo, redo, cancel, restoring an older world).
-    fn sync_from_mask(&mut self, c: &Conditioning, old_mask: &Option<Arc<RasterMask>>) {
-        let same_raster = match (&c.mask, old_mask) {
-            (Some(a), Some(b)) => Arc::ptr_eq(&a.data, &b.data),
-            (None, None) => true,
-            _ => false,
-        };
-        if !same_raster {
-            self.thumb = None;
-            self.tex = None;
-        }
-        match &c.mask {
-            Some(m) => match import::user_placement(m) {
-                Placement::Patch { center_deg, km_per_px, rotation_deg } => {
-                    (self.patch, self.lat, self.lon, self.km_per_px, self.rotation) =
-                        (true, center_deg[0], center_deg[1], km_per_px, rotation_deg);
+    fn sync_from_mask(&mut self, c: &Conditioning) {
+        self.sel = self.sel.min(c.masks.len().saturating_sub(1));
+        match c.masks.get(self.sel) {
+            Some(m) => {
+                self.file_name = m.name.clone();
+                match import::user_placement(m) {
+                    Placement::Patch { center_deg, km_per_px, rotation_deg } => {
+                        (self.patch, self.lat, self.lon, self.km_per_px, self.rotation) =
+                            (true, center_deg[0], center_deg[1], km_per_px, rotation_deg);
+                    }
+                    Placement::WorldEquirect => self.patch = false,
                 }
-                Placement::WorldEquirect => self.patch = false,
-            },
+            }
             None => {
                 self.placing = false;
                 self.move_mark = None;
@@ -135,7 +136,7 @@ impl CoastUi {
     }
 }
 
-const SOURCES: [&str; 3] = ["Procedural (coast from heights)", "Procedural, strict coasts", "Imported mask (PNG / SVG)"];
+const SOURCES: [&str; 3] = ["Procedural (coast from heights)", "Procedural, strict coasts", "Blank ocean"];
 
 /// (lat, lon) in degrees at the centre of the current view, where a new patch goes.
 pub fn view_centre_deg(app: &RealmApp) -> (f64, f64) {
@@ -145,52 +146,61 @@ pub fn view_centre_deg(app: &RealmApp) -> (f64, f64) {
     }
 }
 
+/// The selected import layer.
+fn sel_mask(c: &Conditioning, st: &CoastUi) -> Option<Arc<RasterMask>> {
+    c.masks.get(st.sel).cloned()
+}
+
+fn sel_mask_mut<'a>(c: &'a mut Conditioning, st: &CoastUi) -> Option<&'a mut Arc<RasterMask>> {
+    c.masks.get_mut(st.sel)
+}
+
 pub fn coasts_section(app: &mut RealmApp, ui: &mut egui::Ui) {
     let centre = view_centre_deg(app);
     let seed = app.params.tectonics.seed;
     let c = &mut app.params.tectonics.conditioning;
     let st = &mut app.coasts;
-    let mut source = if c.mask.is_some() { 2 } else if c.strict { 1 } else { 0 };
-    let before = source;
-    egui::ComboBox::from_label("coasts")
-        .selected_text(SOURCES[source])
+    // Base: what's under (and around) the imports.
+    let mut base = if !c.outside_procedural { 2 } else if c.strict { 1 } else { 0 };
+    let before = base;
+    egui::ComboBox::from_label("base")
+        .selected_text(SOURCES[base])
         .show_ui(ui, |ui| {
             for (i, s) in SOURCES.iter().enumerate() {
-                ui.selectable_value(&mut source, i, *s);
+                ui.selectable_value(&mut base, i, *s);
             }
         })
         .response
-        .on_hover_text("Procedural: the coast emerges from the tectonic heights (land % sets the sea level). Strict: the coastline is drawn first and the terrain conforms to it. Imported: your own coastline map.");
-    if source != before {
-        match source {
+        .on_hover_text("Procedural: continents from the tectonics; the coast emerges from the heights (land % sets the sea level). Strict: the coastline is drawn first and the terrain conforms to it. Blank ocean: no continents, for importing your own coastlines.");
+    if base != before {
+        match base {
             0 => {
-                c.strict = false;
-                c.mask = None;
+                // Imports need strict coasts.
+                c.strict = !c.masks.is_empty();
+                c.outside_procedural = true;
             }
-            1 => {
-                c.strict = true;
-                c.mask = None;
-            }
-            _ => c.strict = true,
+            1 => (c.strict, c.outside_procedural) = (true, true),
+            _ => (c.strict, c.outside_procedural) = (true, false),
         }
     }
-    // Import is always one click away (Matt, s06: the combo box hid it).
+    // Import is always one click away (Matt, s06: the combo box hid it). Each import is a
+    // layer; a later layer wins inside its own patch.
     ui.horizontal(|ui| {
         #[cfg(not(target_arch = "wasm32"))]
         if ui
-            .button(if c.mask.is_some() { "Import another…" } else { "Import coastline…" })
-            .on_hover_text("Open a .png (land brighter than sea, or opaque land on a transparent sea; greyscale is fine) or an .svg (every filled shape is land). You can also drop the file on the window.")
+            .button("Import coastline…")
+            .on_hover_text("Add a coastline layer: a .png (land brighter than sea, or opaque land on a transparent sea; greyscale is fine) or an .svg (every filled shape is land). You can also drop the file on the window.")
             .clicked()
             && let Some(path) = rfd::FileDialog::new().add_filter("Coastline map", &["png", "svg"]).pick_file()
         {
             import_file(c, st, &path, centre);
-            source = 2;
         }
-        if source != 2 {
+        if c.masks.is_empty() {
             ui.label(egui::RichText::new("or drop a .png / .svg here").small().color(super::theme::MUTED));
         }
     });
-    if source == 2 {
+    if !c.masks.is_empty() {
+        layers_list(c, st, ui);
         mask_panel(c, st, ui);
     }
     if c.strict {
@@ -223,17 +233,14 @@ pub fn coasts_section(app: &mut RealmApp, ui: &mut egui::Ui) {
 
 /// The imported mask: file, placement, and (PNG) the adjust panel.
 fn mask_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui) {
-    let Some(m) = c.mask.clone() else {
-        ui.label(egui::RichText::new("no mask loaded yet").small().color(super::theme::MUTED));
-        return;
-    };
+    let Some(m) = sel_mask(c, st) else { return };
     let png = m.source_kind == "png";
     let channel = match m.channel_used {
         Channel::Alpha => "alpha",
         _ => "brightness",
     };
     let info = if png { format!("PNG {}×{}, land from {channel}", m.w, m.h) } else { format!("SVG, raster {}×{}", m.w, m.h) };
-    ui.label(egui::RichText::new(format!("{} · {info}", st.file_name)).small());
+    ui.label(egui::RichText::new(format!("{} · {info}", m.name)).small());
 
     // Placement.
     let was_patch = st.patch;
@@ -395,7 +402,7 @@ fn adjust_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui, m: &A
         }
     });
     if adj != m.adjust
-        && let Some(mm) = c.mask.as_mut()
+        && let Some(mm) = sel_mask_mut(c, st)
     {
         Arc::make_mut(mm).adjust = adj;
     }
@@ -404,8 +411,11 @@ fn adjust_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui, m: &A
 /// The preview texture (raw grey, land tinted green), rebuilt when the land test changes.
 /// Shared by the panel thumbnail and the viewport overlay.
 fn preview_texture(st: &mut CoastUi, m: &RasterMask, ctx: &egui::Context) -> Option<egui::TextureHandle> {
-    if st.thumb.is_none() {
+    let ptr = Arc::as_ptr(&m.data) as usize;
+    if st.thumb.is_none() || st.thumb_for != ptr {
         st.thumb = make_thumb(m);
+        st.thumb_for = ptr;
+        st.tex = None;
     }
     let th = st.thumb.as_ref()?;
     let key: TexKey = (m.adjust.threshold.to_bits(), m.adjust.invert, m.decode.crop, m.decode.channel);
@@ -418,7 +428,7 @@ fn preview_texture(st: &mut CoastUi, m: &RasterMask, ctx: &egui::Context) -> Opt
 
 /// Called by the viewport before drawing, so the overlay has its texture.
 pub fn ensure_preview(app: &mut RealmApp, ctx: &egui::Context) {
-    if let Some(m) = app.params.tectonics.conditioning.mask.clone()
+    if let Some(m) = sel_mask(&app.params.tectonics.conditioning, &app.coasts)
         && app.coasts.show_mask
     {
         preview_texture(&mut app.coasts, &m, ctx);
@@ -471,10 +481,12 @@ fn thumb_image(th: &Thumb, adj: &MaskAdjust) -> egui::ColorImage {
 /// Re-decode the current mask's file with new decode options (crop, channel) and the
 /// panel's placement.
 fn reload(c: &mut Conditioning, st: &mut CoastUi, decode: DecodeOpts, adjust: MaskAdjust) {
-    let Some(m) = c.mask.as_ref() else { return };
+    let Some(m) = sel_mask(c, st) else { return };
     match import::mask_from_bytes_with((*m.source).clone(), &m.source_kind.clone(), st.placement(), decode, adjust) {
-        Ok(new) => {
-            c.mask = Some(Arc::new(new));
+        Ok(mut new) => {
+            new.enabled = m.enabled;
+            new.name = m.name.clone();
+            c.masks[st.sel] = Arc::new(new);
             st.msg = "Generate to apply".into();
         }
         Err(e) => st.msg = e,
@@ -483,7 +495,7 @@ fn reload(c: &mut Conditioning, st: &mut CoastUi, decode: DecodeOpts, adjust: Ma
 
 /// Write the panel's placement to the mask (cheap: the raster is shared).
 fn apply_placement(c: &mut Conditioning, st: &CoastUi) {
-    if let Some(m) = c.mask.as_mut() {
+    if let Some(m) = sel_mask_mut(c, st) {
         let p = import::raster_placement(m, st.placement());
         Arc::make_mut(m).place = p;
     }
@@ -498,7 +510,7 @@ struct HandlePos {
 }
 
 fn handle_positions(app: &RealmApp, rect: egui::Rect, aspect: f64) -> Option<HandlePos> {
-    let m = app.params.tectonics.conditioning.mask.as_ref()?;
+    let m = sel_mask(&app.params.tectonics.conditioning, &app.coasts)?;
     if !matches!(m.place, Placement::Patch { .. }) {
         return None;
     }
@@ -539,7 +551,7 @@ pub fn place_drag(
     rect: egui::Rect,
     aspect: f64,
 ) -> bool {
-    if !app.coasts.placing || !app.coasts.patch || app.params.tectonics.conditioning.mask.is_none() {
+    if !app.coasts.placing || !app.coasts.patch || sel_mask(&app.params.tectonics.conditioning, &app.coasts).is_none() {
         return false;
     }
     if started {
@@ -563,7 +575,7 @@ pub fn place_drag(
             }
             Handle::Scale => {
                 // The pointer's distance from the centre becomes the corner's distance.
-                if let Some(m) = app.params.tectonics.conditioning.mask.as_ref()
+                if let Some(m) = app.params.tectonics.conditioning.masks.get(st.sel)
                     && let Placement::Patch { km_per_px: raster_km, .. } = m.place
                 {
                     let dist_km = centre.dot(d).clamp(-1.0, 1.0).acos() * r / 1000.0;
@@ -650,15 +662,14 @@ pub fn history_step(app: &mut RealmApp, redo: bool) {
 
 /// Put a snapshot's edits in place and bring the panel in step with them.
 fn apply_snapshot(app: &mut RealmApp, snap: Snapshot) {
-    let old = app.params.tectonics.conditioning.mask.clone();
     app.params.tectonics.conditioning = snap.cond;
     app.coasts.file_name = snap.file_name;
-    app.coasts.sync_from_mask(&app.params.tectonics.conditioning, &old);
+    app.coasts.sync_from_mask(&app.params.tectonics.conditioning);
 }
 
 /// After the whole params were replaced (restoring an older world): sync the panel.
-pub fn after_params_replaced(app: &mut RealmApp, old_mask: &Option<Arc<RasterMask>>) {
-    app.coasts.sync_from_mask(&app.params.tectonics.conditioning, old_mask);
+pub fn after_params_replaced(app: &mut RealmApp) {
+    app.coasts.sync_from_mask(&app.params.tectonics.conditioning);
 }
 
 /// Cursor for the patch tool: resize over a corner, rotate-ish over the knob, grab inside.
@@ -721,8 +732,10 @@ fn import_file(c: &mut Conditioning, st: &mut CoastUi, path: &std::path::Path, c
     st.patch = false;
     st.show_mask = true;
     match import::load_mask(path, Placement::WorldEquirect) {
-        Ok(m) => {
-            c.mask = Some(Arc::new(m));
+        Ok(mut m) => {
+            m.name = st.file_name.clone();
+            c.masks.push(Arc::new(m));
+            st.sel = c.masks.len() - 1;
             c.strict = true;
             st.msg = "Generate to apply".into();
         }
@@ -731,7 +744,7 @@ fn import_file(c: &mut Conditioning, st: &mut CoastUi, path: &std::path::Path, c
             return;
         }
     }
-    let m = c.mask.clone().unwrap();
+    let m = c.masks[st.sel].clone();
     let ratio = m.w as f64 / m.h.max(1) as f64;
     if (ratio - 2.0).abs() > 0.05 {
         st.patch = true;
@@ -958,8 +971,18 @@ fn projector(app: &RealmApp, rect: egui::Rect, aspect: f64) -> impl Fn(DVec3) ->
 /// The imported image over the view, before Generate: the preview (grey, land green) warped
 /// onto the sphere as a textured grid, plus a patch's outline and handles in "Move patch".
 pub fn mask_overlay(app: &RealmApp, ui: &egui::Ui, rect: egui::Rect, aspect: f64) {
-    let Some(m) = app.params.tectonics.conditioning.mask.as_ref() else { return };
     if !app.coasts.show_mask {
+        return;
+    }
+    // Other enabled layers: their outline only.
+    for (i, m) in app.params.tectonics.conditioning.masks.iter().enumerate() {
+        if i != app.coasts.sel && m.enabled {
+            layer_outline(app, ui, rect, aspect, m, egui::Color32::from_white_alpha(110));
+        }
+    }
+    let Some(m) = app.params.tectonics.conditioning.masks.get(app.coasts.sel) else { return };
+    if !m.enabled {
+        layer_outline(app, ui, rect, aspect, m, egui::Color32::from_white_alpha(70));
         return;
     }
     let r_m = app.params.tectonics.radius_m;
@@ -1106,5 +1129,80 @@ fn edits_list(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui, seed: u
     });
     if let Some(i) = delete {
         c.strokes.remove(i);
+    }
+}
+
+/// A patch layer's outline on the view (whole-world layers have none).
+fn layer_outline(app: &RealmApp, ui: &egui::Ui, rect: egui::Rect, aspect: f64, m: &RasterMask, col: egui::Color32) {
+    if !matches!(m.place, Placement::Patch { .. }) {
+        return;
+    }
+    let r_m = app.params.tectonics.radius_m;
+    let project = projector(app, rect, aspect);
+    let painter = ui.painter().with_clip_rect(rect);
+    let max_jump = rect.width() * 0.25;
+    let (w, h) = (m.w as f64, m.h as f64);
+    let n = 32;
+    let mut ring = Vec::new();
+    for k in 0..n {
+        let t = k as f64 / n as f64;
+        ring.push((t * w - 0.5, -0.5));
+        ring.push((w - 0.5, t * h - 0.5));
+        ring.push(((1.0 - t) * w - 0.5, h - 0.5));
+        ring.push((-0.5, (1.0 - t) * h - 0.5));
+    }
+    // Reorder into one loop: top, right, bottom, left.
+    let mut lp: Vec<(f64, f64)> = Vec::new();
+    for side in 0..4 {
+        lp.extend(ring.iter().skip(side).step_by(4));
+    }
+    let pts: Vec<Option<egui::Pos2>> = lp.iter().map(|&(x, y)| project(m.dir_of_pixel(x, y, r_m))).collect();
+    for k in 0..pts.len() {
+        if let (Some(p), Some(q)) = (pts[k], pts[(k + 1) % pts.len()])
+            && (p.x - q.x).abs() < max_jump
+            && (p.y - q.y).abs() < max_jump
+        {
+            painter.line_segment([p, q], (1.2, col));
+        }
+    }
+}
+
+/// The import layers, top to bottom in apply order (a later layer wins inside its patch):
+/// select one to edit, switch it off, or delete it. All undoable.
+fn layers_list(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui) {
+    let mut delete = None;
+    let mut select = None;
+    for (i, m) in c.masks.iter_mut().enumerate() {
+        ui.horizontal(|ui| {
+            let mut on = m.enabled;
+            if ui.checkbox(&mut on, "").on_hover_text("Apply this layer (off keeps it, unapplied)").changed() {
+                Arc::make_mut(m).enabled = on;
+            }
+            let kind = if matches!(m.place, Placement::Patch { .. }) { "patch" } else { "world" };
+            let name = if m.name.is_empty() { "import".to_string() } else { m.name.clone() };
+            let text = egui::RichText::new(format!("{} {name} · {kind}", i + 1)).small();
+            let text = if m.enabled { text } else { text.color(super::theme::MUTED) };
+            if ui.selectable_label(i == st.sel, text).on_hover_text("Edit this layer").clicked() {
+                select = Some(i);
+            }
+            if ui.small_button("×").on_hover_text("Delete this layer (undoable)").clicked() {
+                delete = Some(i);
+            }
+        });
+    }
+    if let Some(i) = select {
+        st.sel = i;
+        st.placing = false;
+        st.move_mark = None;
+        st.sync_from_mask(c);
+    }
+    if let Some(i) = delete {
+        c.masks.remove(i);
+        if st.sel >= i && st.sel > 0 {
+            st.sel -= 1;
+        }
+        st.placing = false;
+        st.move_mark = None;
+        st.sync_from_mask(c);
     }
 }
