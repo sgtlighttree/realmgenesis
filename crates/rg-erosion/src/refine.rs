@@ -44,6 +44,9 @@ pub struct RefineInput<'a> {
     pub fine_t: &'a CubeField<f32>,
     /// The canonical solved → committed height factor (1 if none).
     pub height_scale: f64,
+    /// Heightmap pin weight on the fine grid (s07): pinned land's detail is already in
+    /// metres, so its scale is 1 instead of `height_scale`.
+    pub fine_pin: Option<&'a CubeField<f32>>,
     /// Relative runoff (1 = land mean), any resolution, as the canonical solve used it.
     pub runoff: Option<&'a CubeField<f32>>,
 }
@@ -81,7 +84,8 @@ pub fn refine(inp: &RefineInput, radius_m: f64, p: &ErosionParams) -> Refined {
             return t_fine[i];
         }
         let detail = t_fine[i] - inp.canon_t.sample_smooth(grid.dir[i]);
-        (canon_up[i] + s * detail).max(1.0)
+        let pin = inp.fine_pin.map_or(0.0, |f| f.data[grid.node_sample[i] as usize].clamp(0.0, 1.0) as f64);
+        (canon_up[i] + (s + (1.0 - s) * pin) * detail).max(1.0)
     });
 
     // 2. Canonical lakes: each keeps its flat water level and floods the fine terrain below

@@ -257,6 +257,7 @@ fn generate_refined(params: WorldParams, canon: u32, on: &dyn Fn(Progress) -> bo
         canon_closed: &r.closed_lake,
         fine_t: &fine.height_m,
         height_scale: r.height_scale.unwrap_or(1.0),
+        fine_pin: fine.pin.as_ref(),
         runoff: Some(&runoff),
     };
     let mut ep = params.erosion.clone();

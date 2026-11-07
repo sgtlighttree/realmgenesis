@@ -476,11 +476,11 @@ mod tests {
         let pin = s.pin.as_ref().expect("pin weights with a heightmap layer");
         let spacing = g.spacing_rad() * p.radius_m;
         let (mut checked, mut top) = (0, 0.0f32);
-        for a in 0..g.n {
+        for (a, &c) in cover.iter().enumerate() {
             let smp = g.node_sample[a] as usize;
             let hh = s.height_m.data[smp];
-            assert_eq!(cover[a] > 0.5, hh > 0.0, "coast sign at node {a}");
-            if cover[a] > 0.5 && pin.data[smp] >= 1.0 {
+            assert_eq!(c > 0.5, hh > 0.0, "coast sign at node {a}");
+            if c > 0.5 && pin.data[smp] >= 1.0 {
                 let want = m.height_m(g.dir[a], p.radius_m, spacing).unwrap_or(1.0).max(1.0);
                 assert!((hh - want).abs() < 1e-2, "node {a}: {hh} vs import {want}");
                 checked += 1;

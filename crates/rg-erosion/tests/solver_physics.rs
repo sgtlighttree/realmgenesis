@@ -387,3 +387,25 @@ fn diagonal_mask_counts_four_diagonals() {
     // Seam nodes: (neighbours, diagonals) → count. Printed for the record.
     eprintln!("seam nodes: {seam_counts:?}");
 }
+
+/// s07 (heightmap layers, advisor's first gate): uplift inverted from a surface makes it a
+/// steady state. 20 full solver steps (30 Myr) leave it within 1e-6 m, without lakes and
+/// with them (closed and open lakes recomputed every step from the same surface).
+#[test]
+fn inverted_uplift_holds_the_surface() {
+    let w = world(3, 48);
+    let n = w.grid.n;
+    let p = params(20, 30.0);
+    let k = vec![p.k; n];
+    let runoff = vec![0.3; n];
+    let evap = vec![1.2; n];
+    let lakes = rg_erosion::LakeInputs { runoff_m_yr: &runoff, net_evap_m_yr: &evap };
+    for lake_in in [None, Some(&lakes)] {
+        let (u, hold) = rg_erosion::invert_uplift(&w.grid, R, &w.h0, &w.ocean, &k, None, lake_in, &p);
+        let mut h = w.h0.clone();
+        rg_erosion::solve_full(&w.grid, R, &mut h, &w.ocean, &u, &k, None, None, lake_in, &p);
+        let worst = (0..n).filter(|&i| !w.ocean[i]).map(|i| (h[i] - hold[i]).abs()).fold(0.0, f64::max);
+        assert!(worst < 1e-6, "lakes {}: moved {worst} m", lake_in.is_some());
+        assert!(u.iter().any(|&v| v > 1e-5), "real uplift somewhere");
+    }
+}

@@ -428,7 +428,7 @@ pub fn solve_full(
     lake_in: Option<&LakeInputs>,
     p: &ErosionParams,
 ) -> Solved {
-    solve_full_with_progress(grid, radius_m, h, ocean, uplift_m_yr, k, runoff, elevation_limit_m, lake_in, p, &|_, _| true)
+    solve_full_with_progress(grid, radius_m, h, ocean, uplift_m_yr, k, runoff, elevation_limit_m, lake_in, p, None, &|_, _| true)
         .expect("a solve without a cancelling callback always finishes")
 }
 
@@ -448,6 +448,7 @@ pub fn solve_full_with_progress(
     elevation_limit_m: Option<f64>,
     lake_in: Option<&LakeInputs>,
     p: &ErosionParams,
+    pin: Option<&[f64]>,
     on_step: &dyn Fn(u32, u32) -> bool,
 ) -> Option<Solved> {
     let n = grid.n;
@@ -527,7 +528,8 @@ pub fn solve_full_with_progress(
         let u_eff: Vec<f64>;
         let uplift_now: &[f64] = match elevation_limit_m {
             Some(lim) if lim > 0.0 => {
-                u_eff = (0..n).map(|i| uplift_m_yr[i] * (1.0 - h[i].max(0.0) / lim).max(0.0)).collect();
+                // Pinned (heightmap) land: no taper, its uplift was inverted for its own heights.
+                u_eff = (0..n).map(|i| uplift_m_yr[i] * taper(h[i], lim, pin.map_or(0.0, |w| w[i]))).collect();
                 &u_eff
             }
             _ => uplift_m_yr,
@@ -553,6 +555,69 @@ pub fn solve_full_with_progress(
         }
     }
     Some(Solved { net, budget, filled_steps, lakes: lakes_now })
+}
+
+/// The elevation-limit factor on uplift, `1 − h/limit` (≥ 0), faded out by a heightmap pin
+/// weight (s07: pinned land keeps the uplift inverted for its own heights).
+fn taper(h: f64, limit: f64, pin: f64) -> f64 {
+    (1.0 - (1.0 - pin) * h.max(0.0) / limit).max(0.0)
+}
+
+/// The uplift that makes `h` a **steady state** of the solve (s07, heightmap layers): with
+/// n = 1 the implicit step's fixed point is `h − h_r = U·L / (K·A^m)`, so
+/// `U = K·A^m·(h − h_r)/L` on the network the solve itself would route on `h` (same fill,
+/// lakes, Rho8 seed, runoff-weighted area and lengths: taken from a one-step, zero-uplift
+/// run of the solver). Held lake beds and the ocean get 0. U can be negative (subsidence,
+/// e.g. an open-lake bed below its receiver), which keeps the fixed point exact.
+/// Returns the uplift (m/yr) and the surface it holds (`h`, pit-filled when lakes are off,
+/// as the solve's first step does).
+#[allow(clippy::too_many_arguments)]
+pub fn invert_uplift(
+    grid: &Grid,
+    radius_m: f64,
+    h: &[f64],
+    ocean: &[bool],
+    k: &[f64],
+    runoff: Option<&[f64]>,
+    lake_in: Option<&LakeInputs>,
+    p: &ErosionParams,
+) -> (Vec<f64>, Vec<f64>) {
+    let n = grid.n;
+    let mut hf = h.to_vec();
+    if lake_in.is_none() {
+        priority_flood_fill(grid, &mut hf, ocean);
+    }
+    let one = ErosionParams { steps: 1, ..p.clone() };
+    let mut scratch = h.to_vec();
+    let zero = vec![0.0; n];
+    let solved = solve_full_with_progress(grid, radius_m, &mut scratch, ocean, &zero, k, runoff, None, lake_in, &one, None, &|_, _| true)
+        .expect("no cancelling callback");
+    let net = &solved.net;
+    // Base level as in the step: the ocean (0 m) plus held lakes (their level).
+    let mut base = ocean.to_vec();
+    let mut base_h = vec![0.0; n];
+    if let (Some(lk), Some(li)) = (&solved.lakes, lake_in) {
+        let dry = p.plateau_runoff_mm * 1e-3;
+        for i in 0..n {
+            let sub = !ocean[i] && lk.level[i] > hf[i];
+            if sub && (lk.closed_lake[i] || li.runoff_m_yr[i] < dry) {
+                base[i] = true;
+                base_h[i] = lk.level[i];
+            }
+        }
+    }
+    let u = (0..n)
+        .map(|i| {
+            if base[i] {
+                return 0.0;
+            }
+            let r = net.receiver[i] as usize;
+            let hr = if base[r] { base_h[r] } else { hf[r] };
+            let l = ((grid.dir[i] - grid.dir[r]).length() * radius_m).max(1.0);
+            k[i] * net.area[i].powf(p.m) * (hf[i] - hr) / l
+        })
+        .collect();
+    (u, hf)
 }
 
 /// Erode the tectonic snapshot. Deterministic: same input, same output, on any thread count.
@@ -618,6 +683,9 @@ pub fn erode_climate_with_progress(
         }
         None => h0.iter().map(|&h| h <= 0.0).collect(),
     };
+    // Heightmap pin weight per node (s07): 1 = the import decides this node's height.
+    let pin: Option<Vec<f64>> = tectonic.pin.as_ref().map(|f| par_map(n, |i| f.sample(grid.dir[i]).clamp(0.0, 1.0) as f64));
+    let pin_at = |i: usize| pin.as_ref().map_or(0.0, |w| w[i]);
     // Initial roughness (land only; the coast stays where tectonics put it).
     let tectonic_relief = h0.clone();
     if p.initial_roughness_m > 0.0 {
@@ -625,7 +693,8 @@ pub fn erode_climate_with_progress(
             // Scaled by local relief: on a plain flatter than the noise, the step-0 fill would
             // turn it into ε-flats whose Priority-Flood routing is straight (s01 review).
             let relief = grid.neighbors(i).iter().map(|&j| (tectonic_relief[i] - tectonic_relief[j as usize]).abs()).fold(0.0, f64::max);
-            let amp = p.initial_roughness_m.min(0.25 * relief);
+            // None on pinned (heightmap) land: it must stay a steady state of its uplift.
+            let amp = p.initial_roughness_m.min(0.25 * relief) * (1.0 - pin_at(i));
             let r = if p.roughness_wavelength_km > 0.0 {
                 // Position-keyed, so every resolution starts from the same large-scale bumps.
                 let cell_m = std::f64::consts::FRAC_PI_2 * radius_m / res as f64;
@@ -644,12 +713,21 @@ pub fn erode_climate_with_progress(
     });
     let lake_in = lake_fields.as_ref().map(|(r, e)| LakeInputs { runoff_m_yr: r, net_evap_m_yr: e });
 
-    let mut land_h: Vec<f64> = (0..n).filter(|&i| !ocean[i]).map(|i| h0[i]).collect();
+    // Calibration sees free land only: pinned (heightmap) land keeps its heights (s07).
+    let free = |i: usize| !ocean[i] && pin_at(i) < 0.5;
+    let mut land_h: Vec<f64> = (0..n).filter(|&i| free(i)).map(|i| h0[i]).collect();
     land_h.sort_by(f64::total_cmp);
     let p99 = percentile(&land_h, 0.99).max(1.0);
 
     // Uplift from tectonic process (or the elevation fallback).
-    let (uplift, uplift_used) = uplift::compute(&grid, tectonic, radius_m, &h0, &ocean, p);
+    let (mut uplift, uplift_used) = uplift::compute(&grid, tectonic, radius_m, &h0, &ocean, p);
+    // Heightmap layers (s07): inverted uplift holds the import as a steady state.
+    if let Some(w) = &pin {
+        let (u_inv, _) = invert_uplift(&grid, radius_m, &h0, &ocean, &k_field, runoff_w.as_deref(), lake_in.as_ref(), p);
+        for i in 0..n {
+            uplift[i] = w[i] * u_inv[i] + (1.0 - w[i]) * uplift[i];
+        }
+    }
 
     let mut h = h0.clone();
     let mut net = Network::new(n);
@@ -659,7 +737,7 @@ pub fn erode_climate_with_progress(
     let mut budget = MassBudget::default();
     if p.enabled && !land_h.is_empty() {
         let lim = (p.elevation_limit_m > 0.0).then_some(p.elevation_limit_m);
-        let solved = solve_full_with_progress(&grid, radius_m, &mut h, &ocean, &uplift, &k_field, runoff_w.as_deref(), lim, lake_in.as_ref(), p, on_step)?;
+        let solved = solve_full_with_progress(&grid, radius_m, &mut h, &ocean, &uplift, &k_field, runoff_w.as_deref(), lim, lake_in.as_ref(), p, pin.as_deref(), on_step)?;
         net = solved.net;
         budget = solved.budget;
         filled_steps = solved.filled_steps;
@@ -704,18 +782,23 @@ pub fn erode_climate_with_progress(
         }
     };
 
+    // Committed as ≥ 0: inverted uplift can be slightly negative under open-lake beds.
     let uplift_eff: Vec<f64> = (0..n)
-        .map(|i| if p.elevation_limit_m > 0.0 { uplift[i] * (1.0 - h[i].max(0.0) / p.elevation_limit_m).max(0.0) } else { uplift[i] })
+        .map(|i| if p.elevation_limit_m > 0.0 { uplift[i] * taper(h[i], p.elevation_limit_m, pin_at(i)) } else { uplift[i] }.max(0.0))
         .collect();
 
     // Rescale land so the 99th percentile matches tectonics (see crate docs: calibration).
-    let mut eroded_land: Vec<f64> = (0..n).filter(|&i| !ocean[i]).map(|i| h[i]).collect();
+    // Free land only; a pinned node's factor fades to 1 with its pin weight (s07). With no
+    // free land (a blank ocean plus heightmaps) there's nothing to calibrate.
+    let mut eroded_land: Vec<f64> = (0..n).filter(|&i| free(i)).map(|i| h[i]).collect();
     eroded_land.sort_by(f64::total_cmp);
     let scale = if eroded_land.is_empty() { 1.0 } else { p99 / percentile(&eroded_land, 0.99).max(1.0) };
+    let pinned_factor = |f: f64, i: usize| f + (1.0 - f) * pin_at(i);
     for i in 0..n {
         if !ocean[i] {
-            h[i] *= scale;
-            lake[i] *= scale;
+            let f = pinned_factor(scale, i);
+            h[i] *= f;
+            lake[i] *= f;
         }
     }
 
@@ -732,21 +815,28 @@ pub fn erode_climate_with_progress(
     if p.linear_mean_m > 0.0 {
         // One factor: undo the p99 rescale's arbitrariness and hit the target mean.
         let (mut sum, mut wsum) = (0.0, 0.0);
-        for i in (0..n).filter(|&i| !ocean[i]) {
+        for i in (0..n).filter(|&i| free(i)) {
             sum += h[i] * weight[i];
             wsum += weight[i];
         }
         let mean = sum / wsum.max(1e-12);
         let target = p.linear_mean_m * p.hypsometry_scale.max(1e-6);
-        let c = target / mean.max(1e-6);
+        let c = if wsum > 0.0 { target / mean.max(1e-6) } else { 1.0 };
         for i in (0..n).filter(|&i| !ocean[i]) {
-            h[i] = (h[i] * c).max(1.0e-3);
-            lake[i] *= c;
+            let f = pinned_factor(c, i);
+            h[i] = (h[i] * f).max(1.0e-3);
+            lake[i] *= f;
         }
         stats.mean_land_m = target;
         height_scale = Some(scale * c);
     } else if p.hypsometry_scale > 0.0 {
-        hypsometry::remap(&mut h, &ocean, &weight, p.hypsometry_scale);
+        // Pinned land is left out of the remap, then blended back by its pin weight.
+        let before = h.clone();
+        let excluded: Vec<bool> = (0..n).map(|i| ocean[i] || pin_at(i) >= 0.5).collect();
+        hypsometry::remap(&mut h, &excluded, &weight, p.hypsometry_scale);
+        for i in (0..n).filter(|&i| !ocean[i]) {
+            h[i] += (before[i] - h[i]) * pin_at(i);
+        }
         let (mut sum, mut wsum) = (0.0, 0.0);
         for i in (0..n).filter(|&i| !ocean[i]) {
             sum += h[i] * weight[i];

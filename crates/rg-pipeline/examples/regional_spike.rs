@@ -339,7 +339,7 @@ fn main() {
         let mut lowered = 0;
         for s in 0..steps[level] as usize {
             let solved = rg_erosion::solve_full_with_progress(
-                &grid, r, &mut h, &fixed, &uplift, &k_field, Some(&runoff), None, None, &ep, &|_, _| true,
+                &grid, r, &mut h, &fixed, &uplift, &k_field, Some(&runoff), None, None, &ep, None, &|_, _| true,
             )
             .expect("no cancel callback");
             if repose > 0.0 {

@@ -751,6 +751,72 @@ mod tests {
         assert!(a == b, "re-saved file differs");
     }
 
+    /// A greyscale dome island with radial ridges, sea grey 0.1 (no bathymetry).
+    fn dome_png(side: u32) -> Vec<u8> {
+        let mut out = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut out, side, side);
+            enc.set_color(png::ColorType::Grayscale);
+            enc.set_depth(png::BitDepth::Eight);
+            let mut wr = enc.write_header().unwrap();
+            let c = side as f32 / 2.0;
+            let data: Vec<u8> = (0..side * side)
+                .map(|k| {
+                    let (x, y) = ((k % side) as f32 - c, (k / side) as f32 - c);
+                    let r = x.hypot(y) / (0.42 * side as f32);
+                    if r >= 1.0 {
+                        return 25;
+                    }
+                    let ridges = 0.08 * (6.0 * y.atan2(x)).cos() * r;
+                    ((0.3 + 0.65 * (1.0 - r) + ridges).clamp(0.0, 1.0) * 255.0) as u8
+                })
+                .collect();
+            wr.write_image_data(&data).unwrap();
+        }
+        out
+    }
+
+    /// s07 gate (Exact, blank ocean, so no free land at all): after erosion, lakes and
+    /// calibration, pinned land keeps the imported heights (within 1% of max height outside
+    /// lakes), and rivers still drain it.
+    #[test]
+    fn exact_heightmap_survives_erosion() {
+        let place = Placement::Patch { center_deg: [5.0, 20.0], km_per_px: 50.0, rotation_deg: 0.0 };
+        let adjust = MaskAdjust { threshold: 0.2, invert: false };
+        let e = Elevation { max_m: 5000.0, fidelity: Fidelity::Exact, ..Default::default() };
+        let m = layer_from_bytes(dome_png(96), "png", place, DecodeOpts::default(), adjust, Some(e), None).unwrap();
+        let mut params = crate::WorldParams::default();
+        params.tectonics.res = 64;
+        params.erosion.canonical_res = 0; // erode at this resolution
+        let c = &mut params.tectonics.conditioning;
+        c.strict = true;
+        c.outside_procedural = false;
+        c.islands = false;
+        c.masks = vec![Arc::new(m)];
+        let snap = rg_tectonics::generate(&params.tectonics);
+        let world = crate::generate(&params);
+        let hy = world.hydrology.as_ref().expect("eroded");
+        let pin = snap.pin.as_ref().unwrap();
+        let (mut n, mut bad, mut worst, mut top) = (0, 0, 0.0f32, 0.0f32);
+        for k in 0..snap.height_m.data.len() {
+            let t = snap.height_m.data[k];
+            if t <= 0.0 || pin.data[k] < 1.0 || hy.lake_depth_m.data[k] > 0.0 {
+                continue;
+            }
+            let d = (world.tectonics.height_m.data[k] - t).abs();
+            n += 1;
+            worst = worst.max(d);
+            top = top.max(world.tectonics.height_m.data[k]);
+            if d > 0.01 * 5000.0 {
+                bad += 1;
+            }
+        }
+        assert!(n > 50, "only {n} pinned land samples");
+        assert!(bad * 50 <= n, "{bad}/{n} samples off by > 1% (worst {worst} m)");
+        assert!(top > 4000.0, "heights not rescaled: top {top}");
+        assert!(!hy.rivers.is_empty(), "rivers drain the import");
+    }
+
     /// A world saved with the s05 single-import layout (fields at the top of the block,
     /// chunk `conditioning.source`) still loads, as one import layer.
     #[test]

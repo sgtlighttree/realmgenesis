@@ -60,7 +60,7 @@ pub mod stats;
 mod uplift;
 
 pub use solver::{
-    diagonal_mask, erode, erode_climate, erode_climate_with_progress, erode_with_runoff, implicit_step, implicit_step_varying, priority_flood_fill, solve, solve_full, solve_full_with_progress, solve_with_k, Column, ErosionParams, ErosionResult, MassBudget, Network,
+    diagonal_mask, erode, erode_climate, erode_climate_with_progress, erode_with_runoff, implicit_step, implicit_step_varying, invert_uplift, priority_flood_fill, solve, solve_full, solve_full_with_progress, solve_with_k, Column, ErosionParams, ErosionResult, LakeInputs, MassBudget, Network,
     RiverSegment, Solved, UpliftSource,
 };
 pub use stats::ErosionStats;

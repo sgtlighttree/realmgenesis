@@ -40,3 +40,13 @@ Continues HANDOFF → "a fresh-context review of `docs/design/heightmap-import.m
 - `finish(.., imported)`: land = pin·import + (1 − pin)·procedural, **after** the soft peak limit (so pinned land skips it); the map's sea floor blends the same way with R3 bathymetry; strict signs re-applied. `TectonicSnapshot.pin` (erosion input, not stored; `file.rs` loads None).
 - Gate `heightmap_layer_sets_land_heights` (res 64): pinned land equals the import to 1 cm, top > 5 km (soft limit bypassed), coast signs follow the mask.
 - Not yet tested: the map-sea-floor blend (V2 path).
+
+## Steps 4–5 built (merged): pinned calibration + inverted uplift (Exact)
+- **Decision: Exact is not "no erosion steps".** In a mixed world (procedural continents + a heightmap patch) the free land still needs its solve. Instead the solve runs normally with `U = pin·U_inv + (1 − pin)·U_tect`; pinned land is a fixed point, free land erodes as before. Rejected: skipping the solve (breaks mixed worlds), or a separate code path per fidelity.
+- `solver::invert_uplift` takes the routing from a one-step, zero-uplift run of the solver itself (same fill, lakes, held lakes, Rho8 seed, runoff-weighted area, L), so the fixed point is exact by construction. U may be negative (open-lake beds below their receiver); the **committed** uplift is clamped ≥ 0.
+- **Gate (advisor 8):** `inverted_uplift_holds_the_surface`: 20 steps / 30 Myr move the surface < 1e-6 m, without and with lakes. ✓
+- Solver: no roughness and no elevation taper on pinned nodes (`taper(h, lim, pin)`); p99, the mean fit and the quantile remap use free land only (pin < 0.5); each node's factor is `f + (1 − f)·pin`; no free land (blank ocean + heightmaps) → factors 1 (advisor 7).
+- **`height_scale` decision (advisor 6):** it stays one committed scalar meaning the free-land factor (no schema change). Pinned land's factor is 1 by definition, and the pin is re-derivable from the stored conditioning. Refine takes `fine_pin` and scales detail by `s + (1 − s)·pin`. Consumers checked: refine, `file.rs`, `regional_spike`, `probe_res_coherence`.
+- **Pipeline gate:** `exact_heightmap_survives_erosion` (res 64, blank ocean, dome with ridges): pinned land within 1% of max height outside lakes (≥ 98% of samples), top > 4 km (not rescaled), rivers present. ✓
+- Non-heightmap worlds: every change multiplies by `1 − 0` or adds 0, so they should stay bit-identical; the full suite (golden hashes) is the check.
+- Full workspace suite passed (capped, exit 0).
