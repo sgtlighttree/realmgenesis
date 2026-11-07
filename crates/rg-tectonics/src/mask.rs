@@ -286,6 +286,75 @@ impl RasterMask {
     }
 }
 
+/// A mip pyramid of a raster: level 0 is the raster, each next level is 2× coarser by box
+/// averaging (a partial block at the right or bottom edge averages what it holds). Heights
+/// are sampled at a node's footprint, not at a point, so a 0.6 km/px map doesn't alias
+/// differently at Normal and Ultra (s07 review: that would break the s04 coherence guard).
+/// Built sequentially, so it's deterministic.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Pyramid {
+    /// (values, width, height) per level, finest first.
+    pub levels: Vec<(Vec<f32>, u32, u32)>,
+}
+
+impl Pyramid {
+    pub fn build(data: &[f32], w: u32, h: u32) -> Self {
+        let mut levels = vec![(data.to_vec(), w, h)];
+        while let Some((d, w, h)) = levels.last().filter(|(_, w, h)| (*w).max(*h) > 2) {
+            let (w, h) = (*w as usize, *h as usize);
+            let (nw, nh) = (w.div_ceil(2), h.div_ceil(2));
+            let mut out = Vec::with_capacity(nw * nh);
+            for y in 0..nh {
+                for x in 0..nw {
+                    let (mut sum, mut n) = (0.0f64, 0u32);
+                    for yy in 2 * y..(2 * y + 2).min(h) {
+                        for xx in 2 * x..(2 * x + 2).min(w) {
+                            sum += d[yy * w + xx] as f64;
+                            n += 1;
+                        }
+                    }
+                    out.push((sum / n as f64) as f32);
+                }
+            }
+            levels.push((out, nw as u32, nh as u32));
+        }
+        Self { levels }
+    }
+
+    /// Bilinear value at one level, at fractional **level-0** pixel `(px, py)` (pixel centres
+    /// at integers). `wrap`: the x axis wraps (a whole-world map).
+    fn bilinear(&self, level: usize, px: f64, py: f64, wrap: bool) -> f32 {
+        let (d, w, h) = &self.levels[level];
+        let (w, h) = (*w as i64, *h as i64);
+        let f = (1u64 << level) as f64;
+        let (x, y) = ((px + 0.5) / f - 0.5, (py + 0.5) / f - 0.5);
+        let at = |x: i64, y: i64| -> f32 {
+            let x = if wrap { x.rem_euclid(w) } else { x.clamp(0, w - 1) };
+            d[(y.clamp(0, h - 1) * w + x) as usize]
+        };
+        let (x0, y0) = (x.floor(), y.floor());
+        let (fx, fy) = ((x - x0) as f32, (y - y0) as f32);
+        let (x0, y0) = (x0 as i64, y0 as i64);
+        let top = at(x0, y0) * (1.0 - fx) + at(x0 + 1, y0) * fx;
+        let bot = at(x0, y0 + 1) * (1.0 - fx) + at(x0 + 1, y0 + 1) * fx;
+        top * (1.0 - fy) + bot * fy
+    }
+
+    /// Trilinear value at fractional level-0 pixel `(px, py)` for a sample `footprint_px`
+    /// level-0 pixels wide: bilinear on the two levels around log2(footprint), blended.
+    pub fn sample(&self, px: f64, py: f64, footprint_px: f64, wrap: bool) -> f32 {
+        let top = self.levels.len() - 1;
+        let lf = footprint_px.max(1.0).log2().min(top as f64);
+        let l0 = lf.floor() as usize;
+        let t = (lf - l0 as f64) as f32;
+        let a = self.bilinear(l0, px, py, wrap);
+        if t <= 0.0 || l0 >= top {
+            return a;
+        }
+        a * (1.0 - t) + self.bilinear(l0 + 1, px, py, wrap) * t
+    }
+}
+
 /// Land coverage per node, 0..1 (land = > 0.5), for strict mode. `value` is the procedural
 /// continentalness (`crust::continentalness`), thresholded straight to the land fraction.
 pub fn land_cover(grid: &Grid, p: &Params, value: &[f32]) -> Vec<f32> {
@@ -415,6 +484,29 @@ mod tests {
         assert!((d - 1.0).abs() < 1e-6, "{d}");
         assert!(s.weight(dir_of(0.0, 5.0), 6.371e6) > 0.99);
         assert!(s.weight(dir_of(5.0, 5.0), 6.371e6) == 0.0);
+    }
+
+    /// The pyramid: level sizes halve (rounding up), each level's mean matches level 0 on an
+    /// even-sized raster, a 1-px footprint is plain bilinear, and a wide footprint sees the
+    /// block mean rather than one aliased pixel.
+    #[test]
+    fn pyramid_levels_and_sampling() {
+        let (w, h) = (16u32, 8u32);
+        let data: Vec<f32> = (0..w * h).map(|k| if (k % w + k / w) % 2 == 0 { 1.0 } else { 0.0 }).collect();
+        let p = Pyramid::build(&data, w, h);
+        let sizes: Vec<(u32, u32)> = p.levels.iter().map(|l| (l.1, l.2)).collect();
+        assert_eq!(sizes, vec![(16, 8), (8, 4), (4, 2), (2, 1)]);
+        for (d, _, _) in &p.levels {
+            let mean = d.iter().sum::<f32>() / d.len() as f32;
+            assert!((mean - 0.5).abs() < 1e-6);
+        }
+        assert_eq!(p.sample(3.0, 2.0, 1.0, false), data[(2 * w + 3) as usize]);
+        // A checkerboard seen through a 4-px footprint is grey, not 0 or 1.
+        assert!((p.sample(5.3, 3.7, 4.0, false) - 0.5).abs() < 1e-5);
+        // Odd sizes round up and wrap works.
+        let p = Pyramid::build(&[1.0; 15], 5, 3);
+        assert_eq!((p.levels[1].1, p.levels[1].2), (3, 2));
+        assert!((p.sample(-0.4, 1.0, 1.0, true) - 1.0).abs() < 1e-6);
     }
 
     /// Two overlapping patches: the later one wins inside its own patch; outside both, a

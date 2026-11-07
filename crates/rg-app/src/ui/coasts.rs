@@ -436,30 +436,35 @@ pub fn ensure_preview(app: &mut RealmApp, ctx: &egui::Context) {
 }
 
 /// Downsample the whole source image (no crop) to at most 384 px, box-averaged so thin
-/// coasts survive.
+/// coasts survive. PNGs decode row by row straight into the thumbnail (s07: no full-size
+/// frame, which was ~500 MB for an 11200×5600 map).
 fn make_thumb(m: &RasterMask) -> Option<Thumb> {
-    let (raw, sw, sh) = if m.source_kind == "png" {
-        let (d, w, h, _) = import::coverage_from_png(&m.source, m.decode.channel).ok()?;
-        (d, w, h)
-    } else {
-        ((*m.data).clone(), m.w, m.h)
-    };
-    let step = (sw.max(sh) as usize).div_ceil(384).max(1);
-    let (w, h) = ((sw as usize).div_ceil(step), (sh as usize).div_ceil(step));
-    let mut out = vec![0.0f32; w * h];
-    for ty in 0..h {
-        for tx in 0..w {
-            let (mut sum, mut n) = (0.0, 0);
-            for y in ty * step..((ty + 1) * step).min(sh as usize) {
-                for x in tx * step..((tx + 1) * step).min(sw as usize) {
-                    sum += raw[y * sw as usize + x];
-                    n += 1;
+    let thumb_of = |raw: &[f32], sw: u32, sh: u32| -> Thumb {
+        let step = (sw.max(sh) as usize).div_ceil(384).max(1);
+        let (w, h) = ((sw as usize).div_ceil(step), (sh as usize).div_ceil(step));
+        let mut out = vec![0.0f32; w * h];
+        for ty in 0..h {
+            for tx in 0..w {
+                let (mut sum, mut n) = (0.0, 0);
+                for y in ty * step..((ty + 1) * step).min(sh as usize) {
+                    for x in tx * step..((tx + 1) * step).min(sw as usize) {
+                        sum += raw[y * sw as usize + x];
+                        n += 1;
+                    }
                 }
+                out[ty * w + tx] = sum / n.max(1) as f32;
             }
-            out[ty * w + tx] = sum / n.max(1) as f32;
         }
+        Thumb { raw: out, w, h, src_w: sw, src_h: sh }
+    };
+    if m.source_kind == "png" {
+        let (sw, sh) = import::png_size(&m.source).ok()?;
+        let step = sw.max(sh).div_ceil(384).max(1);
+        let (raw, w, h, _) = import::raw_from_png(&m.source, m.decode.channel, None, step).ok()?;
+        Some(Thumb { raw, w: w as usize, h: h as usize, src_w: sw, src_h: sh })
+    } else {
+        Some(thumb_of(&m.data, m.w, m.h))
     }
-    Some(Thumb { raw: out, w, h, src_w: sw, src_h: sh })
 }
 
 /// The preview: the raw grey, with land (by the same test Generate uses) tinted green.

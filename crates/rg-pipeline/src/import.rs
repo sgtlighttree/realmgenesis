@@ -14,39 +14,122 @@ use std::sync::Arc;
 /// the image has a varying one, a transparent sea around opaque land, else brightness).
 /// Returns the values, the size and the channel actually used.
 pub fn coverage_from_png(bytes: &[u8], channel: Channel) -> Result<(Vec<f32>, u32, u32, Channel), String> {
+    raw_from_png(bytes, channel, None, 1)
+}
+
+/// A PNG's size in pixels, from its header (no decode).
+pub fn png_size(bytes: &[u8]) -> Result<(u32, u32), String> {
+    let rd = png::Decoder::new(std::io::Cursor::new(bytes)).read_info().map_err(|e| format!("PNG: {e}"))?;
+    Ok((rd.info().width, rd.info().height))
+}
+
+/// Calls `f(y, row)` for each decoded row (8-bit samples, `samples` per pixel) until it
+/// returns false. Rows stream one at a time, so a huge map never needs a whole-frame buffer
+/// (s07: Klerga V2 is 11200×5600 RGBA, 250 MB). Interlaced PNGs (rare) fall back to one
+/// frame. Returns (width, height, samples per pixel, has alpha).
+fn for_each_png_row(bytes: &[u8], mut f: impl FnMut(u32, &[u8]) -> bool) -> Result<(u32, u32, usize, bool), String> {
     let mut dec = png::Decoder::new(std::io::Cursor::new(bytes));
     dec.set_transformations(png::Transformations::normalize_to_color8());
     let mut rd = dec.read_info().map_err(|e| format!("PNG: {e}"))?;
-    let mut buf = vec![0u8; rd.output_buffer_size().ok_or("PNG: image too large")?];
-    let info = rd.next_frame(&mut buf).map_err(|e| format!("PNG: {e}"))?;
-    let (w, h) = (info.width, info.height);
+    let (w, h) = (rd.info().width, rd.info().height);
     if w == 0 || h == 0 {
         return Err("PNG: empty image".into());
     }
-    let ch = info.color_type.samples();
-    let px = &buf[..info.buffer_size()];
-    let has_alpha = matches!(info.color_type, png::ColorType::GrayscaleAlpha | png::ColorType::Rgba);
+    let color = rd.output_color_type().0;
+    let ch = color.samples();
+    let has_alpha = matches!(color, png::ColorType::GrayscaleAlpha | png::ColorType::Rgba);
+    let line = w as usize * ch;
+    if rd.info().interlaced {
+        let mut buf = vec![0u8; rd.output_buffer_size().ok_or("PNG: image too large")?];
+        let info = rd.next_frame(&mut buf).map_err(|e| format!("PNG: {e}"))?;
+        for y in 0..h {
+            let at = y as usize * info.line_size;
+            if !f(y, &buf[at..at + line]) {
+                break;
+            }
+        }
+    } else {
+        let mut y = 0;
+        while let Some(row) = rd.next_row().map_err(|e| format!("PNG: {e}"))? {
+            if !f(y, &row.data()[..line]) {
+                break;
+            }
+            y += 1;
+        }
+    }
+    Ok((w, h, ch, has_alpha))
+}
+
+/// Decode a PNG into raw values 0..1 (see [`coverage_from_png`] for `channel`), keeping the
+/// source-pixel rectangle `crop` (clamped like [`crop_raster`]) and box-averaging blocks of
+/// `step`×`step` pixels (1 = full resolution; partial blocks at the right and bottom edges
+/// average what they hold). At step 1 the values are exactly those of the whole-frame decode
+/// plus `crop_raster`. Sequential, so the same bytes always give the same values.
+pub fn raw_from_png(bytes: &[u8], channel: Channel, crop: Option<[u32; 4]>, step: u32) -> Result<(Vec<f32>, u32, u32, Channel), String> {
+    let step = step.max(1) as usize;
+    // The header pass: size and layout (the closure stops at once).
+    let (w, h, ch, has_alpha) = for_each_png_row(bytes, |_, _| false)?;
     let use_alpha = match channel {
         Channel::Alpha => has_alpha,
         Channel::Brightness => false,
-        Channel::Auto => has_alpha && {
-            let first = px[ch - 1];
-            px.chunks(ch).any(|p| p[ch - 1] != first)
-        },
+        // Alpha only if it varies somewhere: a pass that stores nothing and stops early.
+        Channel::Auto => {
+            let mut first: Option<u8> = None;
+            let mut varies = false;
+            if has_alpha {
+                for_each_png_row(bytes, |_, row| {
+                    for p in row.chunks(ch) {
+                        let a = p[ch - 1];
+                        if *first.get_or_insert(a) != a {
+                            varies = true;
+                            return false;
+                        }
+                    }
+                    true
+                })?;
+            }
+            varies
+        }
     };
-    let cov: Vec<f32> = px
-        .chunks(ch)
-        .map(|p| {
-            if use_alpha {
+    let (x0, y0, cw, crows) = match crop {
+        Some(r) => {
+            let x0 = r[0].min(w - 1);
+            let y0 = r[1].min(h - 1);
+            (x0 as usize, y0 as usize, r[2].clamp(1, w - x0) as usize, r[3].clamp(1, h - y0) as usize)
+        }
+        None => (0, 0, w as usize, h as usize),
+    };
+    let (ow, oh) = (cw.div_ceil(step), crows.div_ceil(step));
+    let mut out: Vec<f32> = Vec::with_capacity(ow * oh);
+    let mut acc = vec![0.0f64; ow];
+    for_each_png_row(bytes, |y, row| {
+        let Some(ry) = (y as usize).checked_sub(y0) else { return true };
+        if ry >= crows {
+            return false;
+        }
+        for rx in 0..cw {
+            let p = &row[(x0 + rx) * ch..(x0 + rx + 1) * ch];
+            let v = if use_alpha {
                 p[ch - 1] as f32 / 255.0
             } else if ch >= 3 {
                 (0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32) / 255.0
             } else {
                 p[0] as f32 / 255.0
+            };
+            acc[rx / step] += v as f64;
+        }
+        // The last row of a block (or of the crop): write the block row out.
+        if (ry + 1) % step == 0 || ry + 1 == crows {
+            let rows = ry % step + 1;
+            for (ox, a) in acc.iter_mut().enumerate() {
+                let cols = step.min(cw - ox * step);
+                out.push((*a / (rows * cols) as f64) as f32);
+                *a = 0.0;
             }
-        })
-        .collect();
-    Ok((cov, w, h, if use_alpha { Channel::Alpha } else { Channel::Brightness }))
+        }
+        true
+    })?;
+    Ok((out, ow as u32, oh as u32, if use_alpha { Channel::Alpha } else { Channel::Brightness }))
 }
 
 /// Keep the source-pixel rectangle `[x, y, w, h]` (clamped to the image).
@@ -75,11 +158,7 @@ pub fn mask_from_bytes_with(
 ) -> Result<RasterMask, String> {
     let (data, w, h, place, used, decode, adjust) = match kind {
         "png" => {
-            let (d, w, h, used) = coverage_from_png(&bytes, decode.channel)?;
-            let (d, w, h) = match decode.crop {
-                Some(rect) => crop_raster(&d, w, h, rect),
-                None => (d, w, h),
-            };
+            let (d, w, h, used) = raw_from_png(&bytes, decode.channel, decode.crop, 1)?;
             (d, w, h, place, used, decode, adjust)
         }
         "svg" => {
@@ -358,6 +437,105 @@ mod tests {
         assert_eq!((w, h), (8, 4));
         assert_eq!(cov[0], 1.0);
         assert_eq!(cov[7], 0.0);
+    }
+
+    /// An RGBA PNG with pseudo-random colours; alpha 255 except where `alpha` says.
+    fn rgba_png(w: u32, h: u32, alpha: impl Fn(u32, u32) -> u8) -> Vec<u8> {
+        let mut out = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut out, w, h);
+            enc.set_color(png::ColorType::Rgba);
+            enc.set_depth(png::BitDepth::Eight);
+            let mut wr = enc.write_header().unwrap();
+            let mut data = Vec::new();
+            for y in 0..h {
+                for x in 0..w {
+                    let k = (x * 7919 + y * 104_729) as u64;
+                    let hsh = k.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 40;
+                    data.extend_from_slice(&[hsh as u8, (hsh >> 8) as u8, (hsh >> 16) as u8, alpha(x, y)]);
+                }
+            }
+            wr.write_image_data(&data).unwrap();
+        }
+        out
+    }
+
+    /// The pre-s07 whole-frame decoder, kept here as the reference for byte identity.
+    fn reference_decode(bytes: &[u8], channel: Channel) -> (Vec<f32>, u32, u32, Channel) {
+        let mut dec = png::Decoder::new(std::io::Cursor::new(bytes));
+        dec.set_transformations(png::Transformations::normalize_to_color8());
+        let mut rd = dec.read_info().unwrap();
+        let mut buf = vec![0u8; rd.output_buffer_size().unwrap()];
+        let info = rd.next_frame(&mut buf).unwrap();
+        let ch = info.color_type.samples();
+        let px = &buf[..info.buffer_size()];
+        let has_alpha = matches!(info.color_type, png::ColorType::GrayscaleAlpha | png::ColorType::Rgba);
+        let use_alpha = match channel {
+            Channel::Alpha => has_alpha,
+            Channel::Brightness => false,
+            Channel::Auto => has_alpha && px.chunks(ch).any(|p| p[ch - 1] != px[ch - 1]),
+        };
+        let cov = px
+            .chunks(ch)
+            .map(|p| {
+                if use_alpha {
+                    p[ch - 1] as f32 / 255.0
+                } else if ch >= 3 {
+                    (0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32) / 255.0
+                } else {
+                    p[0] as f32 / 255.0
+                }
+            })
+            .collect();
+        (cov, info.width, info.height, if use_alpha { Channel::Alpha } else { Channel::Brightness })
+    }
+
+    /// s07: the streaming decoder gives exactly the old values (crop included), so imported
+    /// worlds stay byte-identical; Auto still scans the whole image for varying alpha.
+    #[test]
+    fn streaming_decode_matches_whole_frame() {
+        let opaque = rgba_png(37, 23, |_, _| 255);
+        let late_alpha = rgba_png(37, 23, |x, y| if y == 22 && x == 36 { 10 } else { 255 });
+        for bytes in [&opaque, &late_alpha] {
+            for ch in [Channel::Auto, Channel::Brightness, Channel::Alpha] {
+                let (r, rw, rh, ru) = reference_decode(bytes, ch);
+                let (d, w, h, u) = raw_from_png(bytes, ch, None, 1).unwrap();
+                assert_eq!((w, h, u), (rw, rh, ru));
+                assert!(d.iter().zip(&r).all(|(a, b)| a.to_bits() == b.to_bits()), "{ch:?}");
+                let rect = [5, 3, 20, 100];
+                let (cr, cw, chh) = crop_raster(&r, rw, rh, rect);
+                let (cd, w, h, _) = raw_from_png(bytes, ch, Some(rect), 1).unwrap();
+                assert_eq!((w, h), (cw, chh));
+                assert!(cd.iter().zip(&cr).all(|(a, b)| a.to_bits() == b.to_bits()));
+            }
+        }
+        assert_eq!(raw_from_png(&late_alpha, Channel::Auto, None, 1).unwrap().3, Channel::Alpha);
+        assert_eq!(raw_from_png(&opaque, Channel::Auto, None, 1).unwrap().3, Channel::Brightness);
+    }
+
+    /// The box downsample: each output pixel is the mean of its block (partial at the edges).
+    #[test]
+    fn streaming_decode_box_downsamples() {
+        let bytes = rgba_png(37, 23, |_, _| 255);
+        let rect = [2, 1, 33, 21];
+        let (full, fw, fh, _) = raw_from_png(&bytes, Channel::Brightness, Some(rect), 1).unwrap();
+        let step = 4usize;
+        let (d, w, h, _) = raw_from_png(&bytes, Channel::Brightness, Some(rect), step as u32).unwrap();
+        assert_eq!((w, h), (fw.div_ceil(4), fh.div_ceil(4)));
+        for oy in 0..h as usize {
+            for ox in 0..w as usize {
+                let (mut sum, mut n) = (0.0f64, 0);
+                for y in oy * step..((oy + 1) * step).min(fh as usize) {
+                    for x in ox * step..((ox + 1) * step).min(fw as usize) {
+                        sum += full[y * fw as usize + x] as f64;
+                        n += 1;
+                    }
+                }
+                let want = (sum / n as f64) as f32;
+                assert!((d[oy * w as usize + ox] - want).abs() < 1e-6);
+            }
+        }
+        assert_eq!(png_size(&bytes).unwrap(), (37, 23));
     }
 
     /// An imported world saves its mask source and placement, loads back to the same
