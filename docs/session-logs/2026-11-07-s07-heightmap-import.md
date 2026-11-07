@@ -50,3 +50,11 @@ Continues HANDOFF → "a fresh-context review of `docs/design/heightmap-import.m
 - **Pipeline gate:** `exact_heightmap_survives_erosion` (res 64, blank ocean, dome with ridges): pinned land within 1% of max height outside lakes (≥ 98% of samples), top > 4 km (not rescaled), rivers present. ✓
 - Non-heightmap worlds: every change multiplies by `1 − 0` or adds 0, so they should stay bit-identical; the full suite (golden hashes) is the check.
 - Full workspace suite passed (capped, exit 0).
+
+## Step 7 (UI) built, before Guided; V1 checked headless
+- **Order change:** UI before Guided, so Matt can try Exact on his maps (advisor 10: look at Exact before tuning Guided).
+- Import panel (PNG layers): **kind** coastline / heightmap; max height, curve, smooth px (pyramid rebuilt on release), fidelity (Guided labelled "not built yet: behaves as Exact"), "use the map's sea floor" (default from `has_bathymetry`) + depth of black. The threshold slider becomes **"sea-level grey" 0–255** for heightmaps. New heightmap layers default to **Exact** until Guided exists.
+- App env for scripted runs: `RG_HEIGHT=max_m,sea_grey[,smooth_px]` (with `RG_MASK`), `RG_BLANK=1`. Probes (`examples/common`): `RG_MASK_HEIGHT=max_m[,smooth_px[,guided]]`, `RG_MASK_SEAFLOOR=0|1`; they print r and the share off by > 1% vs the import.
+- **Bug found + fixed:** Klerga V1 has a varying alpha, so Auto picked alpha and every height came out flat. Heightmaps read brightness unless alpha is asked for explicitly.
+- **V1 Exact (headless `river_map`, patch 20N 10E, 0.5 km/px, sea grey 50, smooth 3, blank ocean):** step 2 → 3808², r **1.0000**, 0% off by > 1%, 525 MB peak. Shape kept exactly. Rivers are a **straight D8 lattice on the smooth domes** (expected for Exact on a smooth drawing; Guided should fix it). PNG: scratchpad `v1_exact_normal.png` (not kept).
+- App screenshot not possible: the screen was locked (`CGSSessionScreenIsLocked` true), and the `RG_SHOT` run idled at 0% CPU waiting for a frame.

@@ -10,7 +10,7 @@ R1 un-grid/coherence (done differently) → R2 raster renderer (done) → **R3 c
 
 - Log: `docs/session-logs/2026-11-07-s07-heightmap-import.md`.
 - Fresh review of `docs/design/heightmap-import.md`: **go with changes, all adopted** (doc section "Revised design (s07)"): a pin weight that skips calibration/soft limit/taper; Guided = **inverted uplift** (U = K·A^m·S makes the import a steady state); Exact = the same with no erosion steps; mip-pyramid height sampling; streaming PNG decode. Both Klerga PNGs are 8-bit.
-- **Building** in the doc's 7-step order. Progress: steps 1–5 done; **Exact works end to end** (inverted uplift holds the import to 1e-6 m; pinned land out of calibration; refine scale 1 on pinned land). Next: step 6 Guided (smoothed U_inv + post clamp; needs a per-node guided weight on the snapshot), then step 7 UI (kind switch, max height, curve, smooth, fidelity, sea floor).
+- **Building** in the doc's 7-step order. Progress: steps 1–5 done; **Exact works end to end** (inverted uplift holds the import to 1e-6 m; pinned land out of calibration; refine scale 1 on pinned land). Step 7 UI built too (kind switch, max height, curve, smooth, fidelity, sea floor; new layers default to Exact). V1 Exact checked headless: r 1.0000, rivers a straight lattice on smooth domes. **Next: step 6 Guided** (smoothed U_inv + post clamp; needs a per-node guided weight on the snapshot), then Matt tries it in the app.
 
 ## s06 (2026-11-06, local): R3 feedback, round 1
 

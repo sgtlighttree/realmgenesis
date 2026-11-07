@@ -197,7 +197,10 @@ pub fn layer_from_bytes(
                 (Some(_), Some(s)) => s.max(1),
                 (Some(_), None) => heightmap_step(&bytes, decode.crop)?,
             };
-            let (d, w, h, used) = raw_from_png(&bytes, decode.channel, decode.crop, step)?;
+            // A heightmap's greys are its brightness: Auto would pick a varying alpha (Klerga
+            // V1 has one, s07) and flatten every height. Alpha only if asked for.
+            let channel = if elevation.is_some() && decode.channel == Channel::Auto { Channel::Brightness } else { decode.channel };
+            let (d, w, h, used) = raw_from_png(&bytes, channel, decode.crop, step)?;
             (d, w, h, place, used, decode, adjust, step)
         }
         "svg" if elevation.is_some() => return Err("a heightmap must be a PNG".into()),

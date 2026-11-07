@@ -90,12 +90,47 @@ pub fn world(seed: u64) -> World {
         let p_path = std::path::Path::new(&path);
         let kind = p_path.extension().and_then(|e| e.to_str()).unwrap_or("png").to_ascii_lowercase();
         let bytes = std::fs::read(p_path).expect("RG_MASK: read");
-        let m = rg_pipeline::import::mask_from_bytes_with(bytes, &kind, place, DecodeOpts::default(), adjust).expect("RG_MASK");
-        eprintln!("mask {}x{} ({:?})", m.w, m.h, m.channel_used);
+        // s07: `RG_MASK_HEIGHT=max_m[,smooth_px[,guided]]` imports it as a heightmap layer.
+        let hv: Vec<f32> = std::env::var("RG_MASK_HEIGHT").map(|v| v.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
+        let elevation = (!hv.is_empty()).then(|| rg_pipeline::mask::Elevation {
+            max_m: hv[0],
+            smooth_px: hv.get(1).copied().unwrap_or(0.0),
+            fidelity: if hv.get(2).is_some_and(|g| *g > 0.0) { rg_pipeline::mask::Fidelity::Guided } else { rg_pipeline::mask::Fidelity::Exact },
+            ..Default::default()
+        });
+        let mut m = rg_pipeline::import::layer_from_bytes(bytes, &kind, place, DecodeOpts::default(), adjust, elevation, None).expect("RG_MASK");
+        let sea_floor = env::<u8>("RG_MASK_SEAFLOOR").map_or_else(|| rg_pipeline::import::has_bathymetry(&m), |v| v != 0);
+        if let Some(e) = m.elevation.as_mut() {
+            e.sea_floor = sea_floor;
+        }
+        m.build_heights();
+        eprintln!("mask {}x{} step {} ({:?}) elevation {:?}", m.w, m.h, m.step, m.channel_used, m.elevation);
         p.tectonics.conditioning.masks = vec![std::sync::Arc::new(m)];
         p.tectonics.conditioning.strict = true;
         p.tectonics.conditioning.outside_procedural = env::<u8>("RG_MASK_OUTSIDE").is_none_or(|v| v != 0);
-        return generate(&p);
+        p.tectonics.conditioning.islands &= p.tectonics.conditioning.outside_procedural;
+        let w = generate(&p);
+        if !hv.is_empty() {
+            // How far the committed surface is from the import on pinned land.
+            let t = rg_tectonics::generate(&p.tectonics);
+            let pin = t.pin.as_ref().unwrap();
+            let lake = &w.hydrology.as_ref().unwrap().lake_depth_m;
+            let (mut n, mut sx, mut sy, mut sxx, mut syy, mut sxy, mut big) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+            for (k, _, _, _, d) in t.height_m.iter_samples() {
+                let (a, b) = (t.height_m.data[k] as f64, w.tectonics.height_m.sample(d) as f64);
+                if a <= 0.0 || pin.data[k] < 1.0 || lake.sample(d) > 0.0 {
+                    continue;
+                }
+                n += 1.0;
+                (sx, sy, sxx, syy, sxy) = (sx + a, sy + b, sxx + a * a, syy + b * b, sxy + a * b);
+                if (a - b).abs() > 0.01 * hv[0] as f64 {
+                    big += 1.0;
+                }
+            }
+            let r = (n * sxy - sx * sy) / ((n * sxx - sx * sx).sqrt() * (n * syy - sy * sy).sqrt());
+            eprintln!("heightmap vs committed (pinned land, no lakes): n {n}, r {r:.4}, off >1% {:.2}%", 100.0 * big / n.max(1.0));
+        }
+        return w;
     }
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/probe-cache");
     let path = dir.join(format!(

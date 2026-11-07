@@ -8,7 +8,7 @@
 use crate::app::RealmApp;
 use glam::{DQuat, DVec3};
 use rg_pipeline::import;
-use rg_pipeline::mask::{Channel, Conditioning, DecodeOpts, MaskAdjust, Placement, RasterMask, Stroke, StrokeOp};
+use rg_pipeline::mask::{Channel, Conditioning, DecodeOpts, Elevation, Fidelity, MaskAdjust, Placement, RasterMask, Stroke, StrokeOp};
 use crate::history::{EditHistory, Snapshot};
 use std::sync::Arc;
 
@@ -300,6 +300,8 @@ fn mask_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui) {
 
     // Adjust (PNG only: an SVG's fill is already a clean land/sea split).
     if png {
+        heightmap_panel(c, st, ui, &m);
+        let Some(m) = sel_mask(c, st) else { return };
         adjust_panel(c, st, ui, &m);
     }
     ui.checkbox(&mut st.show_mask, "show mask on the view").on_hover_text("Tint the imported land over the globe or map (before you Generate).");
@@ -307,6 +309,67 @@ fn mask_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui) {
     // blank ocean).
     if !st.msg.is_empty() {
         ui.label(egui::RichText::new(&st.msg).small().color(super::theme::MUTED));
+    }
+}
+
+/// Coastline or heightmap (s07, `docs/design/heightmap-import.md`), and a heightmap's
+/// height mapping. Max height, curve and the sea floor apply live (read at Generate); a
+/// smoothing change rebuilds the height pyramid when the slider is released.
+fn heightmap_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui, m: &Arc<RasterMask>) {
+    let was = m.elevation.is_some();
+    let mut is_h = was;
+    ui.horizontal(|ui| {
+        ui.label("kind");
+        ui.radio_value(&mut is_h, false, "coastline").on_hover_text("Only the land/sea split; heights come from the generator.");
+        ui.radio_value(&mut is_h, true, "heightmap")
+            .on_hover_text("Greys are heights: above the sea-level grey is land, rising to the max height. Erosion keeps the drawn relief.");
+    });
+    if is_h != was {
+        let elevation = is_h.then(|| Elevation {
+            // Exact until Guided is built (s07); the map's sea floor if its sea has one.
+            fidelity: Fidelity::Exact,
+            sea_floor: import::has_bathymetry(m),
+            ..Default::default()
+        });
+        match import::layer_from_bytes((*m.source).clone(), &m.source_kind, st.placement(), m.decode.clone(), m.adjust, elevation, None) {
+            Ok(mut new) => {
+                new.enabled = m.enabled;
+                new.name = m.name.clone();
+                c.masks[st.sel] = Arc::new(new);
+                st.msg = "Generate to apply".into();
+            }
+            Err(e) => st.msg = e,
+        }
+        return;
+    }
+    let Some(mut e) = m.elevation else { return };
+    let before = e;
+    ui.add(egui::Slider::new(&mut e.max_m, 200.0..=9000.0).integer().suffix(" m").text("max height"))
+        .on_hover_text("The height of white. The map has no fixed scale, so this sets it.");
+    ui.add(egui::Slider::new(&mut e.gamma, 0.3..=3.0).logarithmic(true).text("curve"))
+        .on_hover_text("1 = linear. Above 1 flattens the lowlands and sharpens the peaks; below 1 lifts the lowlands.");
+    let sm = ui
+        .add(egui::Slider::new(&mut e.smooth_px, 0.0..=16.0).text("smooth px"))
+        .on_hover_text("Blur the heights by this many source pixels: removes cell steps (Azgaar) and 8-bit terraces. The coast isn't blurred.");
+    let rebuild = sm.drag_stopped() || (sm.changed() && !sm.dragged());
+    ui.horizontal(|ui| {
+        ui.label("fidelity");
+        ui.radio_value(&mut e.fidelity, Fidelity::Exact, "exact").on_hover_text("Keep the drawn heights; rivers route over them.");
+        ui.radio_value(&mut e.fidelity, Fidelity::Guided, "guided")
+            .on_hover_text("Erosion carves real valleys close to the drawing. Not built yet: behaves as Exact.");
+    });
+    ui.checkbox(&mut e.sea_floor, "use the map's sea floor")
+        .on_hover_text("Darker than the sea-level grey becomes depth. Off: the generator's shelves, slopes and trenches.");
+    if e.sea_floor {
+        ui.add(egui::Slider::new(&mut e.sea_depth_m, 200.0..=11000.0).integer().suffix(" m").text("depth of black"));
+    }
+    if e != before || rebuild {
+        let mm = Arc::make_mut(&mut c.masks[st.sel]);
+        mm.elevation = Some(e);
+        if rebuild {
+            mm.build_heights();
+        }
+        st.msg = "Generate to apply".into();
     }
 }
 
@@ -368,14 +431,26 @@ fn adjust_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui, m: &A
 
     // Threshold and invert apply live (the raster is shared, so this is cheap).
     let mut adj = m.adjust;
-    let mut pct = adj.threshold * 100.0;
     ui.horizontal(|ui| {
-        if ui
-            .add(egui::Slider::new(&mut pct, 1.0..=99.0).integer().suffix("%").text("land above"))
-            .on_hover_text("The grey level that becomes the coast. Brighter than this is land (darker, with Invert).")
-            .changed()
-        {
-            adj.threshold = pct / 100.0;
+        if m.elevation.is_some() {
+            // Heightmaps: the sea-level grey in 8-bit levels (Klerga V2's coast step ≈ 60).
+            let mut grey = (adj.threshold * 255.0).round();
+            if ui
+                .add(egui::Slider::new(&mut grey, 1.0..=254.0).integer().text("sea-level grey"))
+                .on_hover_text("The grey of the coast (0–255). Brighter is land and rises to the max height; darker is sea.")
+                .changed()
+            {
+                adj.threshold = grey / 255.0;
+            }
+        } else {
+            let mut pct = adj.threshold * 100.0;
+            if ui
+                .add(egui::Slider::new(&mut pct, 1.0..=99.0).integer().suffix("%").text("land above"))
+                .on_hover_text("The grey level that becomes the coast. Brighter than this is land (darker, with Invert).")
+                .changed()
+            {
+                adj.threshold = pct / 100.0;
+            }
         }
     });
     ui.horizontal(|ui| {

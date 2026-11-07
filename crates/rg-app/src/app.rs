@@ -336,6 +336,32 @@ impl RealmApp {
                             st.placing = var("RG_PLACE").is_some();
                         }
                         let mut m = m;
+                        // s07: `RG_HEIGHT=max_m,sea_grey[,smooth_px]` imports it as a heightmap
+                        // (Exact); `RG_BLANK=1` puts it on a blank ocean.
+                        if let Some(v) = var("RG_HEIGHT").map(|v| v.split(',').filter_map(|x| x.trim().parse::<f32>().ok()).collect::<Vec<_>>())
+                            && v.len() >= 2
+                        {
+                            use rg_pipeline::mask::{Elevation, Fidelity, MaskAdjust};
+                            let adjust = MaskAdjust { threshold: v[1] / 255.0, invert: false };
+                            let mut probe = m.clone();
+                            probe.adjust = adjust;
+                            let e = Elevation {
+                                max_m: v[0],
+                                smooth_px: v.get(2).copied().unwrap_or(0.0),
+                                fidelity: Fidelity::Exact,
+                                sea_floor: rg_pipeline::import::has_bathymetry(&probe),
+                                ..Default::default()
+                            };
+                            let user = rg_pipeline::import::user_placement(&m);
+                            match rg_pipeline::import::layer_from_bytes((*m.source).clone(), &m.source_kind, user, m.decode.clone(), adjust, Some(e), None) {
+                                Ok(h) => m = h,
+                                Err(err) => eprintln!("RG_HEIGHT: {err}"),
+                            }
+                        }
+                        if var("RG_BLANK").is_some() {
+                            self.params.tectonics.conditioning.outside_procedural = false;
+                            self.params.tectonics.conditioning.islands = false;
+                        }
                         m.name = st.file_name.clone();
                         self.params.tectonics.conditioning.masks = vec![std::sync::Arc::new(m)];
                         self.params.tectonics.conditioning.strict = true;
