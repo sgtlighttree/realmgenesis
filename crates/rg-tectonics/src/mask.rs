@@ -75,6 +75,58 @@ impl MaskAdjust {
     }
 }
 
+/// How much erosion may move a heightmap layer's heights (s07, `docs/design/heightmap-import.md`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Fidelity {
+    /// The import is the canonical surface (drained); refine adds sub-cell detail only.
+    Exact,
+    /// Erosion runs on uplift inverted from the import, so real valleys form close to it.
+    #[default]
+    Guided,
+}
+
+/// A heightmap layer's height mapping (s07). The coast grey is the layer's
+/// `MaskAdjust::threshold` (g_sea); greys above it are land:
+/// `h = max_m · ((g − g_sea)/(1 − g_sea))^gamma`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Elevation {
+    /// Height of white, m. The panel sets the scale (Matt, s06: white has no fixed meaning).
+    pub max_m: f32,
+    /// Curve exponent on land (> 1 flattens the lowlands).
+    pub gamma: f32,
+    /// Use the map's sub-sea greys as depth (decided at import from their spread); otherwise
+    /// the sea floor is R3's bathymetry.
+    pub sea_floor: bool,
+    /// Depth of black, m, when `sea_floor`: `depth = sea_depth_m · (g_sea − g)/g_sea`.
+    pub sea_depth_m: f32,
+    /// Gaussian σ in **source** pixels, applied to the heights only (Azgaar cell steps,
+    /// 8-bit terraces). 0 = off. The coast comes from the unsmoothed raster.
+    pub smooth_px: f32,
+    pub fidelity: Fidelity,
+}
+
+impl Default for Elevation {
+    fn default() -> Self {
+        Self { max_m: 4000.0, gamma: 1.0, sea_floor: false, sea_depth_m: 4500.0, smooth_px: 0.0, fidelity: Fidelity::Guided }
+    }
+}
+
+impl Elevation {
+    /// Height (m) from a raw grey `g` (already inverted if the layer inverts) and the coast
+    /// grey `g_sea`. `None` at sea without `sea_floor` (R3 bathymetry applies there).
+    pub fn height_m(&self, g: f32, g_sea: f32) -> Option<f32> {
+        if g > g_sea {
+            let t = ((g - g_sea) / (1.0 - g_sea).max(1e-6)).clamp(0.0, 1.0);
+            Some((self.max_m * t.powf(self.gamma.max(0.05))).max(1.0))
+        } else if self.sea_floor {
+            let t = ((g_sea - g) / g_sea.max(1e-6)).clamp(0.0, 1.0);
+            Some((-self.sea_depth_m * t).min(-1.0))
+        } else {
+            None
+        }
+    }
+}
+
 /// A decoded raster: raw values 0..1 per pixel, turned into coverage (0 sea .. 1 land,
 /// 0.5 = coast) by `adjust`.
 #[derive(Clone, PartialEq)]
@@ -97,6 +149,13 @@ pub struct RasterMask {
     /// and the world regenerates anywhere. Opaque to this crate.
     pub source: Arc<Vec<u8>>,
     pub source_kind: String,
+    /// Source pixels per raster pixel (box downsample at import; s07). 1 for coastline
+    /// layers. `place.km_per_px` is per **raster** pixel.
+    pub step: u32,
+    /// `Some` for a heightmap layer (s07).
+    pub elevation: Option<Elevation>,
+    /// The smoothed raw greys as a pyramid, for heights ([`RasterMask::build_heights`]).
+    pub heights: Option<Arc<Pyramid>>,
 }
 
 impl std::fmt::Debug for RasterMask {
@@ -261,6 +320,33 @@ impl RasterMask {
         Some(self.adjust.apply(top * (1.0 - fy) + bot * fy))
     }
 
+    /// (Re)build the height pyramid from the raw greys, smoothed by `elevation.smooth_px`
+    /// (source pixels → raster pixels via `step`). No-op on a coastline layer.
+    pub fn build_heights(&mut self) {
+        let Some(e) = self.elevation else {
+            self.heights = None;
+            return;
+        };
+        let sigma = e.smooth_px as f64 / self.step.max(1) as f64;
+        let wrap = matches!(self.place, Placement::WorldEquirect);
+        let base = if sigma > 0.05 { gaussian_blur(&self.data, self.w as usize, self.h as usize, sigma, wrap) } else { (*self.data).clone() };
+        self.heights = Some(Arc::new(Pyramid::build(&base, self.w, self.h)));
+    }
+
+    /// Imported height (m) at `d` for a sample `spacing_m` wide, or `None` outside the patch,
+    /// on a coastline layer, or at sea without the map's sea floor.
+    pub fn height_m(&self, d: DVec3, radius_m: f64, spacing_m: f64) -> Option<f32> {
+        let (e, pyr) = (self.elevation?, self.heights.as_ref()?);
+        let (px, py) = self.pixel(d, radius_m)?;
+        let px_m = match self.place {
+            Placement::WorldEquirect => 2.0 * PI * radius_m / self.w as f64,
+            Placement::Patch { km_per_px, .. } => km_per_px * 1000.0,
+        };
+        let raw = pyr.sample(px, py, spacing_m / px_m.max(1e-9), matches!(self.place, Placement::WorldEquirect));
+        let g = if self.adjust.invert { 1.0 - raw } else { raw };
+        e.height_m(g, self.adjust.threshold)
+    }
+
     /// The direction at fractional pixel `(px, py)`: the inverse of [`Self::pixel`].
     pub fn dir_of_pixel(&self, px: f64, py: f64, radius_m: f64) -> DVec3 {
         let (w, h) = (self.w as f64, self.h as f64);
@@ -284,6 +370,39 @@ impl RasterMask {
             }
         }
     }
+}
+
+/// Separable Gaussian blur (σ in pixels, kernel ±3σ), edges clamped (x wraps if `wrap`).
+/// Sequential, so deterministic.
+pub fn gaussian_blur(data: &[f32], w: usize, h: usize, sigma: f64, wrap: bool) -> Vec<f32> {
+    let r = (3.0 * sigma).ceil().max(1.0) as i64;
+    let k: Vec<f64> = (-r..=r).map(|i| (-(i * i) as f64 / (2.0 * sigma * sigma)).exp()).collect();
+    let ks: f64 = k.iter().sum();
+    let (wi, hi) = (w as i64, h as i64);
+    let mut tmp = vec![0.0f32; w * h];
+    for y in 0..h {
+        for x in 0..wi {
+            let mut acc = 0.0f64;
+            for (j, kv) in k.iter().enumerate() {
+                let xx = x + j as i64 - r;
+                let xx = if wrap { xx.rem_euclid(wi) } else { xx.clamp(0, wi - 1) };
+                acc += kv * data[y * w + xx as usize] as f64;
+            }
+            tmp[y * w + x as usize] = (acc / ks) as f32;
+        }
+    }
+    let mut out = vec![0.0f32; w * h];
+    for y in 0..hi {
+        for x in 0..w {
+            let mut acc = 0.0f64;
+            for (j, kv) in k.iter().enumerate() {
+                let yy = (y + j as i64 - r).clamp(0, hi - 1);
+                acc += kv * tmp[yy as usize * w + x] as f64;
+            }
+            out[y as usize * w + x] = (acc / ks) as f32;
+        }
+    }
+    out
 }
 
 /// A mip pyramid of a raster: level 0 is the raster, each next level is 2× coarser by box
@@ -423,6 +542,9 @@ mod tests {
             name: String::new(),
             source: Arc::new(vec![]),
             source_kind: String::new(),
+            step: 1,
+            elevation: None,
+            heights: None,
         }
     }
 
@@ -484,6 +606,29 @@ mod tests {
         assert!((d - 1.0).abs() < 1e-6, "{d}");
         assert!(s.weight(dir_of(0.0, 5.0), 6.371e6) > 0.99);
         assert!(s.weight(dir_of(5.0, 5.0), 6.371e6) == 0.0);
+    }
+
+    /// Heights: the curve on land, the map's sea floor only when asked, and pyramid sampling
+    /// through the placement.
+    #[test]
+    fn heightmap_layer_heights() {
+        let e = Elevation { max_m: 4000.0, ..Default::default() };
+        assert_eq!(e.height_m(1.0, 0.2), Some(4000.0));
+        assert!((e.height_m(0.6, 0.2).unwrap() - 2000.0).abs() < 1e-3);
+        assert_eq!(e.height_m(0.1, 0.2), None);
+        let es = Elevation { sea_floor: true, sea_depth_m: 4000.0, ..e };
+        assert!((es.height_m(0.1, 0.2).unwrap() + 2000.0).abs() < 1e-3);
+        let mut m = test_mask(8, 8, Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 50.0, rotation_deg: 0.0 });
+        m.data = Arc::new(vec![0.6; 64]);
+        m.adjust.threshold = 0.2;
+        m.elevation = Some(e);
+        m.build_heights();
+        let h = m.height_m(dir_of(0.0, 0.0), 6.371e6, 20_000.0).unwrap();
+        assert!((h - 2000.0).abs() < 1e-2, "{h}");
+        assert!(m.height_m(dir_of(40.0, 0.0), 6.371e6, 20_000.0).is_none());
+        // Blur keeps a constant field constant.
+        let b = gaussian_blur(&[3.0; 30], 6, 5, 1.5, true);
+        assert!(b.iter().all(|v| (v - 3.0).abs() < 1e-5));
     }
 
     /// The pyramid: level sizes halve (rounding up), each level's mean matches level 0 on an

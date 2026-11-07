@@ -10,7 +10,7 @@ R1 un-grid/coherence (done differently) → R2 raster renderer (done) → **R3 c
 
 - Log: `docs/session-logs/2026-11-07-s07-heightmap-import.md`.
 - Fresh review of `docs/design/heightmap-import.md`: **go with changes, all adopted** (doc section "Revised design (s07)"): a pin weight that skips calibration/soft limit/taper; Guided = **inverted uplift** (U = K·A^m·S makes the import a steady state); Exact = the same with no erosion steps; mip-pyramid height sampling; streaming PNG decode. Both Klerga PNGs are 8-bit.
-- **Building** in the doc's 7-step order. Progress: step 1 done (streaming decode, V2 at 36 MB peak; `Pyramid`). Next: step 2 (`Elevation` params on the layer + header round trip; downsample cap 6,144 only for heightmaps).
+- **Building** in the doc's 7-step order. Progress: steps 1–2 done (streaming decode, V2 at 36 MB peak; `Pyramid`; `Elevation` on the layer, header round trip). Next: step 3 (imported heights in `relief::finish`, pin weight, sea-floor blend).
 
 ## s06 (2026-11-06, local): R3 feedback, round 1
 

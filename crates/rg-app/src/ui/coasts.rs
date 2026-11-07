@@ -286,7 +286,7 @@ fn mask_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui) {
                     st.move_mark = None;
                 }
             }
-            let side = st.km_per_px * m.w.max(m.h) as f64;
+            let side = st.km_per_px * (m.w.max(m.h) * m.step) as f64;
             ui.label(egui::RichText::new(format!("{side:.0} km across")).small().color(super::theme::MUTED));
         });
         if st.placing {
@@ -487,7 +487,7 @@ fn thumb_image(th: &Thumb, adj: &MaskAdjust) -> egui::ColorImage {
 /// panel's placement.
 fn reload(c: &mut Conditioning, st: &mut CoastUi, decode: DecodeOpts, adjust: MaskAdjust) {
     let Some(m) = sel_mask(c, st) else { return };
-    match import::mask_from_bytes_with((*m.source).clone(), &m.source_kind.clone(), st.placement(), decode, adjust) {
+    match import::layer_from_bytes((*m.source).clone(), &m.source_kind.clone(), st.placement(), decode, adjust, m.elevation, None) {
         Ok(mut new) => {
             new.enabled = m.enabled;
             new.name = m.name.clone();
@@ -762,7 +762,7 @@ fn import_file(c: &mut Conditioning, st: &mut CoastUi, path: &std::path::Path, c
         let side_units = if m.source_kind == "svg" {
             rg_pipeline::svg::view_side(std::str::from_utf8(&m.source).unwrap_or("")).unwrap_or(m.w.max(m.h) as f64)
         } else {
-            m.w.max(m.h) as f64
+            (m.w.max(m.h) * m.step) as f64
         };
         st.km_per_px = ((3000.0 / side_units) * 1000.0).round() / 1000.0;
         reload(c, st, DecodeOpts::default(), MaskAdjust::default());

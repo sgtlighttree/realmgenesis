@@ -5,7 +5,7 @@
 //! with it, so the world file can store them (`conditioning.source`) and regenerate the world
 //! anywhere.
 
-use rg_tectonics::mask::{Channel, Conditioning, DecodeOpts, MaskAdjust, Placement, RasterMask, Stroke, StrokeOp};
+use rg_tectonics::mask::{Channel, Conditioning, DecodeOpts, Elevation, Fidelity, MaskAdjust, Placement, RasterMask, Stroke, StrokeOp};
 use rg_world::WorldFile;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -156,18 +156,58 @@ pub fn mask_from_bytes_with(
     decode: DecodeOpts,
     adjust: MaskAdjust,
 ) -> Result<RasterMask, String> {
-    let (data, w, h, place, used, decode, adjust) = match kind {
-        "png" => {
-            let (d, w, h, used) = raw_from_png(&bytes, decode.channel, decode.crop, 1)?;
-            (d, w, h, place, used, decode, adjust)
+    layer_from_bytes(bytes, kind, place, decode, adjust, None, None)
+}
+
+/// Longest raster side kept for a heightmap layer (s07): the source is box-downsampled by an
+/// integer step to at most this. 6,144 keeps Klerga V2 (11,200 px around the world) at
+/// 7.1 km/px, finer than Ultra's ~10 km cell.
+pub const HEIGHTMAP_MAX_SIDE: u32 = 6144;
+
+/// The integer downsample step for a heightmap of this source (after `crop`).
+pub fn heightmap_step(bytes: &[u8], crop: Option<[u32; 4]>) -> Result<u32, String> {
+    let (w, h) = png_size(bytes)?;
+    let (cw, ch) = match crop {
+        Some(r) => {
+            let (x0, y0) = (r[0].min(w - 1), r[1].min(h - 1));
+            (r[2].clamp(1, w - x0), r[3].clamp(1, h - y0))
         }
+        None => (w, h),
+    };
+    Ok(cw.max(ch).div_ceil(HEIGHTMAP_MAX_SIDE).max(1))
+}
+
+/// Build a layer from a file's bytes: a coastline (`elevation` None) or a heightmap (PNG
+/// only; downsampled by `step`, or by [`heightmap_step`] when `None`, with its height
+/// pyramid built). `place` is in the user's units (km per **source** pixel), as stored in
+/// the world file; the mask holds it per raster pixel.
+pub fn layer_from_bytes(
+    bytes: Vec<u8>,
+    kind: &str,
+    place: Placement,
+    decode: DecodeOpts,
+    adjust: MaskAdjust,
+    elevation: Option<Elevation>,
+    step: Option<u32>,
+) -> Result<RasterMask, String> {
+    let (data, w, h, place, used, decode, adjust, step) = match kind {
+        "png" => {
+            let step = match (elevation, step) {
+                (None, _) => 1,
+                (Some(_), Some(s)) => s.max(1),
+                (Some(_), None) => heightmap_step(&bytes, decode.crop)?,
+            };
+            let (d, w, h, used) = raw_from_png(&bytes, decode.channel, decode.crop, step)?;
+            (d, w, h, place, used, decode, adjust, step)
+        }
+        "svg" if elevation.is_some() => return Err("a heightmap must be a PNG".into()),
         "svg" => {
             let (d, w, h, place) = crate::svg::coverage_from_svg(&bytes, &place)?;
-            (d, w, h, place, Channel::Brightness, DecodeOpts::default(), MaskAdjust::default())
+            (d, w, h, place, Channel::Brightness, DecodeOpts::default(), MaskAdjust::default(), 1)
         }
         other => return Err(format!("unsupported mask format {other:?}")),
     };
-    Ok(RasterMask {
+    let mut m = RasterMask {
         data: Arc::new(data),
         w,
         h,
@@ -179,7 +219,29 @@ pub fn mask_from_bytes_with(
         name: String::new(),
         source: Arc::new(bytes),
         source_kind: kind.to_string(),
-    })
+        step,
+        elevation,
+        heights: None,
+    };
+    if step > 1 {
+        m.place = raster_placement(&m, m.place.clone());
+    }
+    m.build_heights();
+    Ok(m)
+}
+
+/// Does a heightmap's sea hold bathymetry? True when the greys below the coast spread over
+/// more than ~5 levels (p5..p95); a flat sea (Azgaar's 0) would otherwise turn into a cliff
+/// to the full depth at the coast (s07 advisor). Decided at import, stored per layer.
+pub fn has_bathymetry(m: &RasterMask) -> bool {
+    let thr = m.adjust.threshold;
+    let mut sea: Vec<f32> = m.data.iter().map(|&v| if m.adjust.invert { 1.0 - v } else { v }).filter(|&g| g <= thr).collect();
+    if sea.len() < 16 {
+        return false;
+    }
+    sea.sort_by(f32::total_cmp);
+    let q = |f: f64| sea[((sea.len() - 1) as f64 * f) as usize];
+    q(0.95) - q(0.05) > 5.0 / 255.0
 }
 
 /// The placement as the user gave it (an SVG patch's raster scale converted back to km per
@@ -191,6 +253,10 @@ pub fn user_placement(m: &RasterMask) -> Placement {
             let side = crate::svg::view_side(text).unwrap_or(1.0);
             let scale = m.w.max(m.h) as f64 / side; // raster px per unit
             Placement::Patch { center_deg: *center_deg, km_per_px: km_per_px * scale, rotation_deg: *rotation_deg }
+        }
+        // A downsampled heightmap: km per raster pixel → per source pixel (s07).
+        (Placement::Patch { center_deg, km_per_px, rotation_deg }, _) if m.step > 1 => {
+            Placement::Patch { center_deg: *center_deg, km_per_px: km_per_px / m.step as f64, rotation_deg: *rotation_deg }
         }
         (p, _) => p.clone(),
     }
@@ -205,6 +271,9 @@ pub fn raster_placement(m: &RasterMask, user: Placement) -> Placement {
             let side = crate::svg::view_side(text).unwrap_or(1.0);
             let scale = m.w.max(m.h) as f64 / side; // raster px per unit
             Placement::Patch { center_deg, km_per_px: km_per_px / scale, rotation_deg }
+        }
+        (Placement::Patch { center_deg, km_per_px, rotation_deg }, _) if m.step > 1 => {
+            Placement::Patch { center_deg, km_per_px: km_per_px * m.step as f64, rotation_deg }
         }
         (p, _) => p,
     }
@@ -316,6 +385,19 @@ fn mask_json(m: &RasterMask) -> Value {
     if !m.name.is_empty() {
         v["name"] = json!(m.name);
     }
+    if let Some(e) = m.elevation {
+        let fidelity = match e.fidelity {
+            Fidelity::Exact => "exact",
+            Fidelity::Guided => "guided",
+        };
+        v["elevation"] = json!({
+            "max_m": e.max_m, "gamma": e.gamma, "sea_floor": e.sea_floor, "sea_depth_m": e.sea_depth_m,
+            "smooth_px": e.smooth_px, "fidelity": fidelity,
+            // The raster the heights came from: the step is stored, so a later cap change
+            // can't alter an old world (s07).
+            "step": m.step, "downsample_ver": 1,
+        });
+    }
     v
 }
 
@@ -339,7 +421,21 @@ fn mask_from_json(v: &Value, bytes: Vec<u8>) -> Result<RasterMask, String> {
             (n.len() == 4).then(|| [n[0], n[1], n[2], n[3]])
         }),
     };
-    let mut m = mask_from_bytes_with(bytes, kind, placement_from(&v["placement"]), decode, adjust)?;
+    let ev = &v["elevation"];
+    let elevation = ev.is_object().then(|| {
+        let d = Elevation::default();
+        let f = |k: &str, def: f32| ev[k].as_f64().map_or(def, |x| x as f32);
+        Elevation {
+            max_m: f("max_m", d.max_m),
+            gamma: f("gamma", d.gamma),
+            sea_floor: ev["sea_floor"].as_bool().unwrap_or(d.sea_floor),
+            sea_depth_m: f("sea_depth_m", d.sea_depth_m),
+            smooth_px: f("smooth_px", d.smooth_px),
+            fidelity: if ev["fidelity"].as_str() == Some("exact") { Fidelity::Exact } else { Fidelity::Guided },
+        }
+    });
+    let step = ev["step"].as_u64().map(|s| s as u32);
+    let mut m = layer_from_bytes(bytes, kind, placement_from(&v["placement"]), decode, adjust, elevation, step)?;
     m.enabled = v["enabled"].as_bool().unwrap_or(true);
     m.name = v["name"].as_str().unwrap_or("").to_string();
     Ok(m)
@@ -603,6 +699,47 @@ mod tests {
         params.tectonics.res = 32;
         params.erosion.enabled = false;
         params.tectonics.conditioning.masks = vec![Arc::new(mask)];
+        params.tectonics.conditioning.strict = true;
+        let w = crate::generate(&params);
+        let mut a = Vec::new();
+        crate::file::to_file(&w).write_to(&mut a).unwrap();
+        let loaded = crate::file::from_file(&WorldFile::read_from(&a[..]).unwrap()).unwrap();
+        assert_eq!(loaded.params.tectonics.conditioning, w.params.tectonics.conditioning);
+        let mut b = Vec::new();
+        crate::file::to_file(&loaded).write_to(&mut b).unwrap();
+        assert!(a == b, "re-saved file differs");
+    }
+
+    /// s07: a downsampled heightmap layer saves its elevation and step, loads back equal, and
+    /// keeps its placement in source pixels (Move patch can't jump).
+    #[test]
+    fn heightmap_layer_round_trips() {
+        // Greys: a sea ramp 0..~0.2 on the left, land ramp to white on the right.
+        let bytes = {
+            let mut out = Vec::new();
+            let mut enc = png::Encoder::new(&mut out, 64, 32);
+            enc.set_color(png::ColorType::Grayscale);
+            enc.set_depth(png::BitDepth::Eight);
+            let mut wr = enc.write_header().unwrap();
+            let data: Vec<u8> = (0..32).flat_map(|_| (0..64u32).map(|x| (x * 4) as u8)).collect();
+            wr.write_image_data(&data).unwrap();
+            drop(wr);
+            out
+        };
+        let place = Placement::Patch { center_deg: [10.0, 5.0], km_per_px: 20.0, rotation_deg: 10.0 };
+        let adjust = MaskAdjust { threshold: 0.235, invert: false };
+        let e = Elevation { max_m: 3000.0, gamma: 1.3, smooth_px: 3.0, fidelity: Fidelity::Exact, ..Default::default() };
+        let m = layer_from_bytes(bytes.clone(), "png", place.clone(), DecodeOpts::default(), adjust, Some(e), Some(4)).unwrap();
+        assert_eq!((m.w, m.h, m.step), (16, 8, 4));
+        assert_eq!(user_placement(&m), place);
+        assert!(m.heights.is_some());
+        assert!(has_bathymetry(&m), "a graded sea counts as bathymetry");
+        let flat = layer_from_bytes(test_png(32, 16, |x, _| x > 20), "png", place.clone(), DecodeOpts::default(), adjust, Some(e), None).unwrap();
+        assert!(!has_bathymetry(&flat), "a flat sea doesn't");
+        let mut params = crate::WorldParams::default();
+        params.tectonics.res = 32;
+        params.erosion.enabled = false;
+        params.tectonics.conditioning.masks = vec![Arc::new(m)];
         params.tectonics.conditioning.strict = true;
         let w = crate::generate(&params);
         let mut a = Vec::new();
