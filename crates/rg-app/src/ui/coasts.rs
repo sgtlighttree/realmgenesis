@@ -720,8 +720,10 @@ pub fn handle_keys(app: &mut RealmApp, ctx: &egui::Context) {
         return; // typing in a field (it has its own undo)
     }
     let (redo, undo) = ctx.input_mut(|i| {
-        let redo = i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z);
-        (redo, !redo && i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z))
+        // ⌘Z on macOS; Ctrl+Z works there too (s07, Matt pressed Ctrl+Z and nothing happened).
+        let redo = i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z)
+            || i.consume_key(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, egui::Key::Z);
+        (redo, !redo && (i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z) || i.consume_key(egui::Modifiers::CTRL, egui::Key::Z)))
     });
     if undo {
         history_step(app, false);
