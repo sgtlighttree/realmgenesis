@@ -208,7 +208,7 @@ pub fn coasts_section(app: &mut RealmApp, ui: &mut egui::Ui) {
         ui.label("brush");
         for (op, name, tip) in [
             (StrokeOp::Land, "land", "Paint land (switches to strict coasts)."),
-            (StrokeOp::Sea, "sea", "Paint sea (switches to strict coasts)."),
+            (StrokeOp::Sea, "erase", "Erase to open sea: clears land and offshore islands under the brush (switches to strict coasts)."),
             (StrokeOp::Active, "active", "Force a coast active: trench and mountains."),
             (StrokeOp::Passive, "passive", "Force a coast passive: wide shelf, no trench."),
         ] {

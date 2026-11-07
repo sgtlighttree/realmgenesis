@@ -428,6 +428,34 @@ mod tests {
         assert!(s2.height_m.data[g.node_sample[sea_dir] as usize] > 0.0, "painted land stays land");
     }
 
+    /// s06 (Matt: "reefs / barrier island chains" around every coast). With strict coasts and
+    /// tectonic islands on, land off the mask may only be an island on oceanic crust (arcs,
+    /// hotspots), never the continental shelf poking up at the island guard distance.
+    #[test]
+    fn strict_islands_only_on_oceanic_crust() {
+        let mut p = TectonicsParams { res: 96, ..Default::default() };
+        p.conditioning.strict = true;
+        p.conditioning.islands = true;
+        let s = generate(&p);
+        let g = grid::Grid::new(96);
+        let value = crust::continentalness(&g, &p);
+        let cover = mask::land_cover(&g, &p, &value);
+        let mut on_shelf = 0;
+        for (a, &c) in cover.iter().enumerate() {
+            let smp = g.node_sample[a] as usize;
+            if c < 0.5 && s.height_m.data[smp] > 0.0 && s.crust.data[smp] != 0 {
+                on_shelf += 1;
+            }
+        }
+        assert_eq!(on_shelf, 0, "{on_shelf} off-mask land nodes on continental crust");
+        // An erase (sea) stroke over an island leaves open water.
+        let island = (0..g.n).find(|&a| cover[a] < 0.5 && s.height_m.data[g.node_sample[a] as usize] > 0.0);
+        let a = island.expect("the default seed has an oceanic island to erase");
+        p.conditioning.strokes.push(mask::Stroke { path: vec![g.dir[a]], radius_km: 300.0, op: mask::StrokeOp::Sea });
+        let s2 = generate(&p);
+        assert!(s2.height_m.data[g.node_sample[a] as usize] < 0.0, "erased island stays sea");
+    }
+
     #[test]
     fn scales_with_parameters() {
         let base = TectonicsParams { res: 96, ..Default::default() };

@@ -432,15 +432,26 @@ pub fn compose(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Compo
 /// **Strict** (R3.1b): the land/sea split is the mask's (`crust.land`). Land nodes are lifted
 /// to ≥ 1 m; sea nodes are pushed to ≤ −1 m, and sea heights above −200 m are compressed
 /// softly into [−200, −1] m, so an arc or hotspot crest becomes a shallow bank rather than
-/// a flat sheet. With `islands`, tectonic islands may stand above sea level farther than
-/// `islands_guard_km` from the drawn coast.
+/// a flat sheet. With `islands`, tectonic islands on oceanic crust may stand above sea level
+/// farther than `islands_guard_km` from the drawn coast.
 pub fn finish(grid: &Grid, p: &Params, crust: &Crust, c: &Composed, offset: f32, strict: bool) -> Vec<f32> {
     let n = grid.n;
     let r = p.radius_m;
     let cond = &p.conditioning;
     let guard_m = (cond.islands_guard_km * 1000.0) as f32;
+    // Islands only on oceanic crust (arcs, hotspots). Strict heights aren't shifted to a
+    // solved sea level, so the continental shelf is still above zero past the guard and
+    // used to stand up as a ring of "barrier islands" around every coast (s06, Matt).
+    // Sea ("erase") strokes clear islands too: painted water stays open water.
+    let erased = |a: usize| {
+        cond.strokes.iter().any(|st| st.op == crate::mask::StrokeOp::Sea && st.weight(grid.dir[a], r) > 0.0)
+    };
     let island = |a: usize, h: f32| -> bool {
-        cond.islands && h > 0.0 && crust.coast_m.as_ref().is_some_and(|cm| cm[a] < -guard_m)
+        cond.islands
+            && h > 0.0
+            && !crust.cont[a]
+            && crust.coast_m.as_ref().is_some_and(|cm| cm[a] < -guard_m)
+            && !erased(a)
     };
     let h0: Vec<f32> = c
         .parts
