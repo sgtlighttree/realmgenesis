@@ -301,10 +301,8 @@ fn mask_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui) {
         adjust_panel(c, st, ui, &m);
     }
     ui.checkbox(&mut st.show_mask, "show mask on the view").on_hover_text("Tint the imported land over the globe or map (before you Generate).");
-    if st.patch {
-        ui.checkbox(&mut c.outside_procedural, "procedural land outside the patch")
-            .on_hover_text("Other continents around the imported region, kept 800 km away. Off: open ocean.");
-    }
+    // Around the imports: the "base" above (procedural continents, kept 800 km away, or a
+    // blank ocean).
     if !st.msg.is_empty() {
         ui.label(egui::RichText::new(&st.msg).small().color(super::theme::MUTED));
     }
