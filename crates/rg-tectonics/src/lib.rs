@@ -125,6 +125,10 @@ pub struct TectonicSnapshot {
     /// Continental dynamic topography to build during erosion (m), if generated in this run.
     /// Not stored in world files: only erosion uses it, and its result is committed.
     pub dynamic_topo_m: Option<CubeField<f32>>,
+    /// Heightmap pin weight 0..1 per sample (s07): erosion keeps pinned land's heights out
+    /// of calibration and inverts uplift from them. Derived from the conditioning (stored);
+    /// an erosion input only, not stored in world files. `None` without heightmap layers.
+    pub pin: Option<CubeField<f32>>,
 }
 
 /// Area-weighted fraction of a height field above 0 (cube-sphere cells near face corners are
@@ -178,7 +182,9 @@ pub fn generate_with_model(p: &TectonicsParams) -> (TectonicSnapshot, plates::Pl
         let target = p.land_fraction.clamp(0.0, 1.0) as f64;
         util::solve_threshold(&composed.raw(), &grid.weight, target)
     };
-    let height_node = relief::finish(&grid, p, &crust, &composed, offset, strict);
+    // Heightmap layers (s07): imported heights and their pin weights.
+    let imported = if strict { mask::imported_heights(&grid, p) } else { None };
+    let height_node = relief::finish(&grid, p, &crust, &composed, offset, strict, imported.as_ref());
     let achieved = grid.fraction(|a| height_node[a] > 0.0) as f32;
 
     // Copy node values out to every cube sample (twins on face edges get identical values).
@@ -195,6 +201,7 @@ pub fn generate_with_model(p: &TectonicsParams) -> (TectonicSnapshot, plates::Pl
         land_fraction: achieved,
         // Static offset in the heights (see relief.rs); the rate mechanism is off.
         dynamic_topo_m: None,
+        pin: imported.as_ref().map(|_| CubeField::new(p.res)),
     };
     for (s, &node) in grid.sample_node.iter().enumerate() {
         let a = node as usize;
@@ -213,6 +220,9 @@ pub fn generate_with_model(p: &TectonicsParams) -> (TectonicSnapshot, plates::Pl
         }
         if let Some(f) = snap.dynamic_topo_m.as_mut() {
             f.data[s] = composed.dyn_topo[a];
+        }
+        if let (Some(f), Some(im)) = (snap.pin.as_mut(), imported.as_ref()) {
+            f.data[s] = im.pin[a];
         }
     }
     (snap, pm, stats)
@@ -426,6 +436,61 @@ mod tests {
         p.conditioning.strokes.push(mask::Stroke::new(vec![g.dir[sea_dir]], 600.0, mask::StrokeOp::Land));
         let s2 = generate(&p);
         assert!(s2.height_m.data[g.node_sample[sea_dir] as usize] > 0.0, "painted land stays land");
+    }
+
+    /// s07 heightmap gate at the tectonics level: inside a heightmap layer (pin 1) land takes
+    /// the imported height exactly, a 6 km import isn't squashed by the soft peak limit, the
+    /// coast signs follow the mask, and a flat-sea map leaves the sea floor to bathymetry.
+    #[test]
+    fn heightmap_layer_sets_land_heights() {
+        use mask::{Elevation, Fidelity, Placement, RasterMask};
+        let (w, h) = (64u32, 64u32);
+        // Land in the middle columns, rising north → south from grey 0.4 to 1.0; sea grey 0.
+        let data: Vec<f32> = (0..w * h).map(|k| if (16..48).contains(&(k % w)) { 0.4 + 0.6 * (k / w) as f32 / 63.0 } else { 0.0 }).collect();
+        let e = Elevation { max_m: 6000.0, fidelity: Fidelity::Exact, ..Default::default() };
+        let mut m = RasterMask {
+            data: std::sync::Arc::new(data),
+            w,
+            h,
+            place: Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 60.0, rotation_deg: 0.0 },
+            adjust: mask::MaskAdjust { threshold: 0.2, invert: false },
+            decode: Default::default(),
+            channel_used: mask::Channel::Brightness,
+            enabled: true,
+            name: String::new(),
+            source: std::sync::Arc::new(vec![]),
+            source_kind: "png".into(),
+            step: 1,
+            elevation: Some(e),
+            heights: None,
+        };
+        m.build_heights();
+        let mut p = TectonicsParams { res: 64, ..Default::default() };
+        p.conditioning.strict = true;
+        p.conditioning.outside_procedural = false;
+        p.conditioning.islands = false;
+        p.conditioning.masks = vec![std::sync::Arc::new(m.clone())];
+        let s = generate(&p);
+        let g = grid::Grid::new(64);
+        let cover = mask::land_cover(&g, &p, &vec![0.0; g.n]);
+        let pin = s.pin.as_ref().expect("pin weights with a heightmap layer");
+        let spacing = g.spacing_rad() * p.radius_m;
+        let (mut checked, mut top) = (0, 0.0f32);
+        for a in 0..g.n {
+            let smp = g.node_sample[a] as usize;
+            let hh = s.height_m.data[smp];
+            assert_eq!(cover[a] > 0.5, hh > 0.0, "coast sign at node {a}");
+            if cover[a] > 0.5 && pin.data[smp] >= 1.0 {
+                let want = m.height_m(g.dir[a], p.radius_m, spacing).unwrap_or(1.0).max(1.0);
+                assert!((hh - want).abs() < 1e-2, "node {a}: {hh} vs import {want}");
+                checked += 1;
+                top = top.max(hh);
+            }
+        }
+        assert!(checked > 20, "only {checked} pinned land nodes");
+        assert!(top > 5000.0, "soft limit bypassed: top {top}");
+        // Flat-sea map: no sea floor from the import, so sea stays below −1 m (bathymetry).
+        assert!(s.height_m.data.iter().zip(&pin.data).all(|(&hh, _)| hh >= 1.0 || hh <= -1.0));
     }
 
     /// s06 (Matt: "reefs / barrier island chains" around every coast). With strict coasts and

@@ -34,3 +34,9 @@ Continues HANDOFF → "a fresh-context review of `docs/design/heightmap-import.m
 - `mask::Elevation {max_m, gamma, sea_floor, sea_depth_m, smooth_px, fidelity}`, `Fidelity {Exact, Guided}`; `RasterMask` gains `step`, `elevation`, `heights: Option<Arc<Pyramid>>` (smoothed greys; the coast still reads the unsmoothed level 0). `RasterMask::height_m(d, radius, spacing_m)` samples the pyramid at the node footprint.
 - `import::layer_from_bytes(.., elevation, step)`; cap `HEIGHTMAP_MAX_SIDE` = 6,144; `has_bathymetry` (sea greys p5..p95 spread > 5 levels; V1's flat sea → false). The header stores `elevation` + `step` + `downsample_ver: 1`; placement stays in source px (`user_placement`/`raster_placement` divide/multiply by `step`). Test `heightmap_layer_round_trips` (byte-identical re-save, placement unchanged); coastline files unchanged.
 - **Approximation (accepted):** a raster pixel = `step` source px exactly, except the partial last column/row, so a patch centre can shift < step/2 source px (< half a raster pixel).
+
+## Step 3 built: imported heights in `relief::finish`
+- `mask::imported_heights` → `Imported {h (NaN = none), pin}`: the topmost enabled layer covering a node decides (a later coastline layer removes heights under it); pin = smoothstep feather over min(150 km, 10% of the patch's shorter side) from the patch edge, 1 for a world map.
+- `finish(.., imported)`: land = pin·import + (1 − pin)·procedural, **after** the soft peak limit (so pinned land skips it); the map's sea floor blends the same way with R3 bathymetry; strict signs re-applied. `TectonicSnapshot.pin` (erosion input, not stored; `file.rs` loads None).
+- Gate `heightmap_layer_sets_land_heights` (res 64): pinned land equals the import to 1 cm, top > 5 km (soft limit bypassed), coast signs follow the mask.
+- Not yet tested: the map-sea-floor blend (V2 path).

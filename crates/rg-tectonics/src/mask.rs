@@ -474,6 +474,53 @@ impl Pyramid {
     }
 }
 
+/// Heights from heightmap layers, per node (s07).
+#[derive(Clone, Debug)]
+pub struct Imported {
+    /// Imported height, m; NaN where no heightmap applies (or at sea without the map's floor).
+    pub h: Vec<f32>,
+    /// Pin weight 0..1: how much the import decides this node (1 inside a heightmap layer,
+    /// feathered to 0 at its patch edge). Erosion leaves pinned land out of calibration.
+    pub pin: Vec<f32>,
+}
+
+/// Feather width at a heightmap patch's edge: 150 km, or a tenth of the patch's shorter
+/// side if that's less.
+const FEATHER_KM: f64 = 150.0;
+
+/// Heights and pin weights from the enabled heightmap layers, or `None` if there are none.
+/// Layer order as for coasts: only the topmost layer covering a node decides, so a later
+/// coastline layer over a heightmap takes the heights away there.
+pub fn imported_heights(grid: &Grid, p: &Params) -> Option<Imported> {
+    let layers: Vec<&Arc<RasterMask>> = p.conditioning.masks.iter().filter(|m| m.enabled).collect();
+    if !layers.iter().any(|m| m.elevation.is_some()) {
+        return None;
+    }
+    let r = p.radius_m;
+    let spacing_m = grid.spacing_rad() * r;
+    let per_node: Vec<(f32, f32)> = par_map(grid.n, |a| {
+        let d = grid.dir[a];
+        let Some(m) = layers.iter().rev().find(|m| m.pixel(d, r).is_some()) else {
+            return (f32::NAN, 0.0);
+        };
+        if m.elevation.is_none() {
+            return (f32::NAN, 0.0);
+        }
+        let pin = match m.place {
+            Placement::WorldEquirect => 1.0,
+            Placement::Patch { km_per_px, .. } => {
+                let (px, py) = m.pixel(d, r).unwrap_or((0.0, 0.0));
+                let edge_px = (px + 0.5).min(m.w as f64 - 0.5 - px).min(py + 0.5).min(m.h as f64 - 0.5 - py).max(0.0);
+                let feather_km = FEATHER_KM.min(0.1 * km_per_px * m.w.min(m.h) as f64).max(1e-3);
+                let t = (edge_px * km_per_px / feather_km).clamp(0.0, 1.0);
+                (t * t * (3.0 - 2.0 * t)) as f32
+            }
+        };
+        (m.height_m(d, r, spacing_m).unwrap_or(f32::NAN), pin)
+    });
+    Some(Imported { h: per_node.iter().map(|v| v.0).collect(), pin: per_node.iter().map(|v| v.1).collect() })
+}
+
 /// Land coverage per node, 0..1 (land = > 0.5), for strict mode. `value` is the procedural
 /// continentalness (`crust::continentalness`), thresholded straight to the land fraction.
 pub fn land_cover(grid: &Grid, p: &Params, value: &[f32]) -> Vec<f32> {

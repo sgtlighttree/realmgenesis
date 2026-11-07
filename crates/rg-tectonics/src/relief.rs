@@ -434,7 +434,11 @@ pub fn compose(grid: &Grid, p: &Params, crust: &Crust, pm: &PlateModel) -> Compo
 /// softly into [−200, −1] m, so an arc or hotspot crest becomes a shallow bank rather than
 /// a flat sheet. With `islands`, tectonic islands on oceanic crust may stand above sea level
 /// farther than `islands_guard_km` from the drawn coast.
-pub fn finish(grid: &Grid, p: &Params, crust: &Crust, c: &Composed, offset: f32, strict: bool) -> Vec<f32> {
+/// **Heightmap layers** (s07, `imported`): inside a layer the import replaces the composed
+/// land height, blended by the pin weight (the feather at a patch edge), and bypasses the
+/// soft peak limit; the map's sea floor, when it has one, blends with the bathymetry above
+/// the same way. The strict coast signs still hold.
+pub fn finish(grid: &Grid, p: &Params, crust: &Crust, c: &Composed, offset: f32, strict: bool, imported: Option<&crate::mask::Imported>) -> Vec<f32> {
     let n = grid.n;
     let r = p.radius_m;
     let cond = &p.conditioning;
@@ -511,6 +515,16 @@ pub fn finish(grid: &Grid, p: &Params, crust: &Crust, c: &Composed, offset: f32,
         }
         if h < -7000.0 {
             h = -7000.0 - 4000.0 * ((-7000.0 - h) / 4000.0).tanh();
+        }
+        if let Some(im) = imported.filter(|im| im.pin[a] > 0.0) {
+            let (w, ih) = (im.pin[a] as f64, im.h[a] as f64);
+            if h0[a] > 0.0 {
+                // Land per the mask; a smoothed import can dip below the coast grey here.
+                let ih = if ih.is_nan() { 1.0 } else { ih.max(1.0) };
+                h = w * ih + (1.0 - w) * h;
+            } else if !ih.is_nan() {
+                h = (w * ih.min(-1.0) + (1.0 - w) * h).min(-1.0);
+            }
         }
         if strict && h0[a] > 0.0 {
             h = h.max(1.0);
