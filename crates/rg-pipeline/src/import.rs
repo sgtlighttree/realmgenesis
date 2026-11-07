@@ -96,6 +96,8 @@ pub fn mask_from_bytes_with(
         adjust,
         decode,
         channel_used: used,
+        enabled: true,
+        name: String::new(),
         source: Arc::new(bytes),
         source_kind: kind.to_string(),
     })
@@ -174,10 +176,10 @@ fn placement_from(v: &Value) -> Placement {
 /// The world-file header block for the conditioning (schema 5). The mask's source bytes go
 /// in the `conditioning.source` chunk (see [`source_chunk`]).
 pub fn conditioning_header(c: &Conditioning) -> Value {
-    let mode = match (&c.mask, c.strict) {
-        (Some(_), _) => "import",
-        (None, true) => "procedural_strict",
-        (None, false) => "procedural",
+    let mode = match (c.masks.is_empty(), c.strict) {
+        (false, _) => "import",
+        (true, true) => "procedural_strict",
+        (true, false) => "procedural",
     };
     let strokes: Vec<Value> = c
         .strokes
@@ -207,28 +209,66 @@ pub fn conditioning_header(c: &Conditioning) -> Value {
         "islands_guard_km": c.islands_guard_km,
         "strokes": strokes,
     });
-    if let Some(m) = &c.mask {
-        v["placement"] = placement_json(&user_placement(m));
-        v["source_kind"] = json!(m.source_kind);
-        // s06 land test and decode options; absent = defaults (older schema-5 files).
-        if m.adjust != MaskAdjust::default() {
-            v["adjust"] = json!({"threshold": m.adjust.threshold, "invert": m.adjust.invert});
-        }
-        if m.decode != DecodeOpts::default() {
-            let channel = match m.decode.channel {
-                Channel::Auto => "auto",
-                Channel::Brightness => "brightness",
-                Channel::Alpha => "alpha",
-            };
-            v["decode"] = json!({"channel": channel, "crop": m.decode.crop});
-        }
+    // s06: several imports, each with its own source chunk `conditioning.source.{i}`.
+    if !c.masks.is_empty() {
+        v["masks"] = Value::Array(c.masks.iter().map(|m| mask_json(m)).collect());
     }
     v
 }
 
-/// The `conditioning.source` chunk (the original mask file), if any.
-pub fn source_chunk(c: &Conditioning) -> Option<rg_world::Chunk> {
-    c.mask.as_ref().map(|m| rg_world::Chunk::u8s("conditioning.source", &m.source))
+/// One import's header entry: placement, format, land test, decode options, name, on/off.
+fn mask_json(m: &RasterMask) -> Value {
+    let mut v = json!({"placement": placement_json(&user_placement(m)), "source_kind": m.source_kind});
+    // Optional fields; absent = defaults.
+    if m.adjust != MaskAdjust::default() {
+        v["adjust"] = json!({"threshold": m.adjust.threshold, "invert": m.adjust.invert});
+    }
+    if m.decode != DecodeOpts::default() {
+        let channel = match m.decode.channel {
+            Channel::Auto => "auto",
+            Channel::Brightness => "brightness",
+            Channel::Alpha => "alpha",
+        };
+        v["decode"] = json!({"channel": channel, "crop": m.decode.crop});
+    }
+    if !m.enabled {
+        v["enabled"] = json!(false);
+    }
+    if !m.name.is_empty() {
+        v["name"] = json!(m.name);
+    }
+    v
+}
+
+/// Rebuild one import from its header entry and its source bytes. Also reads the s05/early
+/// s06 single-import layout, whose fields sat at the top of the conditioning block.
+fn mask_from_json(v: &Value, bytes: Vec<u8>) -> Result<RasterMask, String> {
+    let kind = v["source_kind"].as_str().unwrap_or("png");
+    let d = MaskAdjust::default();
+    let adjust = MaskAdjust {
+        threshold: v["adjust"]["threshold"].as_f64().map_or(d.threshold, |t| t as f32),
+        invert: v["adjust"]["invert"].as_bool().unwrap_or(d.invert),
+    };
+    let decode = DecodeOpts {
+        channel: match v["decode"]["channel"].as_str() {
+            Some("brightness") => Channel::Brightness,
+            Some("alpha") => Channel::Alpha,
+            _ => Channel::Auto,
+        },
+        crop: v["decode"]["crop"].as_array().and_then(|a| {
+            let n: Vec<u32> = a.iter().filter_map(|x| x.as_u64().map(|x| x as u32)).collect();
+            (n.len() == 4).then(|| [n[0], n[1], n[2], n[3]])
+        }),
+    };
+    let mut m = mask_from_bytes_with(bytes, kind, placement_from(&v["placement"]), decode, adjust)?;
+    m.enabled = v["enabled"].as_bool().unwrap_or(true);
+    m.name = v["name"].as_str().unwrap_or("").to_string();
+    Ok(m)
+}
+
+/// The source chunks (the original mask files), one per import.
+pub fn source_chunks(c: &Conditioning) -> Vec<rg_world::Chunk> {
+    c.masks.iter().enumerate().map(|(i, m)| rg_world::Chunk::u8s(&format!("conditioning.source.{i}"), &m.source)).collect()
 }
 
 /// Read the conditioning back. Absent (schema < 5) = procedural, as before R3.
@@ -265,32 +305,25 @@ pub fn conditioning_from_file(v: &Value, f: &WorldFile) -> Result<Conditioning, 
                 .collect()
         })
         .unwrap_or_default();
-    let mask = if v["mode"].as_str() == Some("import") {
+    let masks: Vec<Arc<RasterMask>> = if let Some(list) = v["masks"].as_array() {
+        list.iter()
+            .enumerate()
+            .map(|(i, mv)| {
+                let name = format!("conditioning.source.{i}");
+                let src = f.chunk(&name).ok_or(format!("import world without its {name} chunk"))?;
+                mask_from_json(mv, src.bytes.clone()).map(Arc::new)
+            })
+            .collect::<Result<_, String>>()?
+    } else if v["mode"].as_str() == Some("import") {
+        // s05 / early s06: one import, fields at the top level, chunk `conditioning.source`.
         let src = f.chunk("conditioning.source").ok_or("import world without its conditioning.source chunk")?;
-        let kind = v["source_kind"].as_str().unwrap_or("png");
-        let d = MaskAdjust::default();
-        let adjust = MaskAdjust {
-            threshold: v["adjust"]["threshold"].as_f64().map_or(d.threshold, |t| t as f32),
-            invert: v["adjust"]["invert"].as_bool().unwrap_or(d.invert),
-        };
-        let decode = DecodeOpts {
-            channel: match v["decode"]["channel"].as_str() {
-                Some("brightness") => Channel::Brightness,
-                Some("alpha") => Channel::Alpha,
-                _ => Channel::Auto,
-            },
-            crop: v["decode"]["crop"].as_array().and_then(|a| {
-                let n: Vec<u32> = a.iter().filter_map(|x| x.as_u64().map(|x| x as u32)).collect();
-                (n.len() == 4).then(|| [n[0], n[1], n[2], n[3]])
-            }),
-        };
-        Some(Arc::new(mask_from_bytes_with(src.bytes.clone(), kind, placement_from(&v["placement"]), decode, adjust)?))
+        vec![Arc::new(mask_from_json(v, src.bytes.clone())?)]
     } else {
-        None
+        Vec::new()
     };
     Ok(Conditioning {
-        strict: v["strict"].as_bool().unwrap_or(mask.is_some()),
-        mask,
+        strict: v["strict"].as_bool().unwrap_or(!masks.is_empty()),
+        masks,
         outside_procedural: v["outside_procedural"].as_bool().unwrap_or(d.outside_procedural),
         guard_km: v["guard_km"].as_f64().unwrap_or(d.guard_km),
         islands: v["islands"].as_bool().unwrap_or(d.islands),
@@ -337,7 +370,7 @@ mod tests {
         let mut params = crate::WorldParams::default();
         params.tectonics.res = 32;
         params.erosion.enabled = false;
-        params.tectonics.conditioning.mask = Some(Arc::new(mask));
+        params.tectonics.conditioning.masks = vec![Arc::new(mask)];
         params.tectonics.conditioning.strict = true;
         params.tectonics.conditioning.outside_procedural = false;
         params.tectonics.conditioning.strokes.push(Stroke::new(vec![rg_tectonics::mask::dir_of(-40.0, 100.0)], 500.0, StrokeOp::Land));
@@ -391,7 +424,7 @@ mod tests {
         let mut params = crate::WorldParams::default();
         params.tectonics.res = 32;
         params.erosion.enabled = false;
-        params.tectonics.conditioning.mask = Some(Arc::new(mask));
+        params.tectonics.conditioning.masks = vec![Arc::new(mask)];
         params.tectonics.conditioning.strict = true;
         let w = crate::generate(&params);
         let mut a = Vec::new();
@@ -401,5 +434,33 @@ mod tests {
         let mut b = Vec::new();
         crate::file::to_file(&loaded).write_to(&mut b).unwrap();
         assert!(a == b, "re-saved file differs");
+    }
+
+    /// A world saved with the s05 single-import layout (fields at the top of the block,
+    /// chunk `conditioning.source`) still loads, as one import layer.
+    #[test]
+    fn legacy_single_import_file_loads() {
+        let svg = br#"<svg viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60"/></svg>"#.to_vec();
+        let place = Placement::Patch { center_deg: [20.0, 30.0], km_per_px: 40.0, rotation_deg: 15.0 };
+        let mask = mask_from_bytes(svg, "svg", place).unwrap();
+        let mut params = crate::WorldParams::default();
+        params.tectonics.res = 32;
+        params.erosion.enabled = false;
+        params.tectonics.conditioning.masks = vec![Arc::new(mask)];
+        params.tectonics.conditioning.strict = true;
+        let w = crate::generate(&params);
+        let mut f = crate::file::to_file(&w);
+        // Rewrite to the old layout.
+        let cond = &mut f.header["conditioning"];
+        let entry = cond["masks"][0].clone();
+        cond.as_object_mut().unwrap().remove("masks");
+        for k in ["placement", "source_kind"] {
+            cond[k] = entry[k].clone();
+        }
+        for c in f.chunks.iter_mut().filter(|c| c.name == "conditioning.source.0") {
+            c.name = "conditioning.source".into();
+        }
+        let loaded = crate::file::from_file(&f).unwrap();
+        assert_eq!(loaded.params.tectonics.conditioning, w.params.tectonics.conditioning);
     }
 }

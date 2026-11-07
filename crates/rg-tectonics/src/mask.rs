@@ -89,6 +89,10 @@ pub struct RasterMask {
     pub decode: DecodeOpts,
     /// The channel the decoder actually used (`Auto` resolved), for the UI.
     pub channel_used: Channel,
+    /// Switched off in the edit list: kept (non-destructive) but not applied (s06).
+    pub enabled: bool,
+    /// The file's name, for the edit list.
+    pub name: String,
     /// The original file (PNG/SVG bytes) and its kind, kept so the world file can store it
     /// and the world regenerates anywhere. Opaque to this crate.
     pub source: Arc<Vec<u8>>,
@@ -176,9 +180,11 @@ impl Stroke {
 pub struct Conditioning {
     /// Coasts are drawn first and the heights conform to them (no bisection).
     pub strict: bool,
-    /// An imported raster (strict only).
-    pub mask: Option<Arc<RasterMask>>,
-    /// Outside an imported patch: procedural continents (kept `guard_km` away) or ocean.
+    /// Imported rasters (strict only), applied in order: a later layer wins inside its own
+    /// patch, like image layers (s06: several coastlines on one world).
+    pub masks: Vec<Arc<RasterMask>>,
+    /// Where no import covers: procedural continents (kept `guard_km` from the imports' land),
+    /// or open ocean: a blank world (s06).
     pub outside_procedural: bool,
     pub guard_km: f64,
     /// Tectonic islands (arcs, hotspots) may rise above sea level this far from drawn coasts.
@@ -191,7 +197,7 @@ impl Default for Conditioning {
     fn default() -> Self {
         Self {
             strict: false,
-            mask: None,
+            masks: Vec::new(),
             outside_procedural: true,
             guard_km: 800.0,
             islands: true,
@@ -287,23 +293,28 @@ pub fn land_cover(grid: &Grid, p: &Params, value: &[f32]) -> Vec<f32> {
     let r = p.radius_m;
     let thr = solve_threshold(value, &grid.weight, p.land_fraction.clamp(0.0, 1.0) as f64);
     let procedural = |a: usize| if value[a] > thr { 1.0f32 } else { 0.0 };
-    let mut cover: Vec<f32> = match &c.mask {
-        None => (0..grid.n).map(procedural).collect(),
-        Some(m) => {
-            let raster: Vec<Option<f32>> = par_map(grid.n, |a| m.coverage(grid.dir[a], r));
-            // Procedural continents outside the patch keep `guard_km` from its land.
-            let patch_land: Vec<u32> =
-                (0..grid.n).filter(|&a| raster[a].is_some_and(|v| v > 0.5)).map(|a| a as u32).collect();
-            let guard = grid.nearest_source(&patch_land, ((c.guard_km * 1000.0 / r) as f32).max(1e-6));
-            (0..grid.n)
-                .map(|a| match raster[a] {
-                    Some(v) => v.clamp(0.0, 1.0),
-                    None if c.outside_procedural && guard.src[a] == u32::MAX => procedural(a),
-                    None => 0.0,
-                })
-                .collect()
+    // Imports, in order: a later layer replaces the earlier ones inside its own patch.
+    let mut cover = vec![0.0f32; grid.n];
+    let mut covered = vec![false; grid.n];
+    for m in c.masks.iter().filter(|m| m.enabled) {
+        let raster: Vec<Option<f32>> = par_map(grid.n, |a| m.coverage(grid.dir[a], r));
+        for (a, v) in raster.into_iter().enumerate() {
+            if let Some(v) = v {
+                cover[a] = v.clamp(0.0, 1.0);
+                covered[a] = true;
+            }
         }
-    };
+    }
+    // Elsewhere: procedural continents, kept `guard_km` from the imports' land, or open sea.
+    if c.outside_procedural {
+        let import_land: Vec<u32> = (0..grid.n).filter(|&a| covered[a] && cover[a] > 0.5).map(|a| a as u32).collect();
+        let guard = grid.nearest_source(&import_land, ((c.guard_km * 1000.0 / r) as f32).max(1e-6));
+        for a in 0..grid.n {
+            if !covered[a] && guard.src[a] == u32::MAX {
+                cover[a] = procedural(a);
+            }
+        }
+    }
     for st in c.strokes.iter().filter(|st| st.applies(p.seed)) {
         if !matches!(st.op, StrokeOp::Land | StrokeOp::Sea) || st.path.is_empty() {
             continue;
@@ -339,6 +350,8 @@ mod tests {
             adjust: MaskAdjust::default(),
             decode: DecodeOpts::default(),
             channel_used: Channel::Brightness,
+            enabled: true,
+            name: String::new(),
             source: Arc::new(vec![]),
             source_kind: String::new(),
         }
@@ -402,5 +415,31 @@ mod tests {
         assert!((d - 1.0).abs() < 1e-6, "{d}");
         assert!(s.weight(dir_of(0.0, 5.0), 6.371e6) > 0.99);
         assert!(s.weight(dir_of(5.0, 5.0), 6.371e6) == 0.0);
+    }
+
+    /// Two overlapping patches: the later one wins inside its own patch; outside both, a
+    /// blank base is open sea; a disabled layer doesn't apply.
+    #[test]
+    fn layers_later_wins_and_blank_base() {
+        let mut land = test_mask(10, 10, Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 100.0, rotation_deg: 0.0 });
+        land.data = Arc::new(vec![1.0; 100]);
+        let mut sea = test_mask(4, 4, Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 100.0, rotation_deg: 0.0 });
+        sea.data = Arc::new(vec![0.0; 16]);
+        let mut p = Params { res: 48, ..Default::default() };
+        p.conditioning.strict = true;
+        p.conditioning.outside_procedural = false;
+        p.conditioning.masks = vec![Arc::new(land), Arc::new(sea.clone())];
+        let g = Grid::new(48);
+        let value = vec![0.0f32; g.n];
+        let at = |cover: &[f32], lat: f64, lon: f64| cover[g.nearest_node(dir_of(lat, lon))];
+        let cover = land_cover(&g, &p, &value);
+        assert!(at(&cover, 0.0, 0.0) < 0.5, "the later (sea) layer wins at the centre");
+        assert!(at(&cover, 0.0, 3.5) > 0.5, "the earlier land shows outside the small patch");
+        assert!(at(&cover, 40.0, 120.0) < 0.5, "blank base: open sea elsewhere");
+        let mut off = sea;
+        off.enabled = false;
+        p.conditioning.masks[1] = Arc::new(off);
+        let cover = land_cover(&g, &p, &value);
+        assert!(at(&cover, 0.0, 0.0) > 0.5, "a disabled layer doesn't apply");
     }
 }

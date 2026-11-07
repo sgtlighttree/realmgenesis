@@ -121,7 +121,7 @@ pub fn to_file(w: &World) -> WorldFile {
         ]
         .into_iter()
         .chain(w.tectonics.margin.as_ref().map(|m| Chunk::u8s("tectonics.margin", &m.data)))
-        .chain(crate::import::source_chunk(&t.conditioning))
+        .chain(crate::import::source_chunks(&t.conditioning))
         .chain(w.tectonics.convergence_mm_yr.as_ref().map(|c| Chunk::f32s("tectonics.convergence_mm_yr", &c.data)))
         .chain([
             Chunk::f32s("climate.heights", &w.climate_heights.data),

@@ -92,7 +92,7 @@ pub fn world(seed: u64) -> World {
         let bytes = std::fs::read(p_path).expect("RG_MASK: read");
         let m = rg_pipeline::import::mask_from_bytes_with(bytes, &kind, place, DecodeOpts::default(), adjust).expect("RG_MASK");
         eprintln!("mask {}x{} ({:?})", m.w, m.h, m.channel_used);
-        p.tectonics.conditioning.mask = Some(std::sync::Arc::new(m));
+        p.tectonics.conditioning.masks = vec![std::sync::Arc::new(m)];
         p.tectonics.conditioning.strict = true;
         p.tectonics.conditioning.outside_procedural = env::<u8>("RG_MASK_OUTSIDE").is_none_or(|v| v != 0);
         return generate(&p);
