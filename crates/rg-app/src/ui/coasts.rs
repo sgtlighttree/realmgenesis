@@ -147,6 +147,13 @@ pub fn view_centre_deg(app: &RealmApp) -> (f64, f64) {
 }
 
 /// The selected import layer.
+impl CoastUi {
+    /// A patch handle is being dragged right now.
+    pub fn dragging_patch(&self) -> bool {
+        self.handle.is_some()
+    }
+}
+
 fn sel_mask(c: &Conditioning, st: &CoastUi) -> Option<Arc<RasterMask>> {
     c.masks.get(st.sel).cloned()
 }
@@ -253,6 +260,13 @@ fn mask_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui) {
     if st.patch != was_patch {
         // An SVG's raster depends on the placement kind, so re-decode.
         reload(c, st, m.decode.clone(), m.adjust);
+        // Becoming a patch starts Move patch, so the handles show (s07, Matt: a 2:1 map
+        // imported as a whole world, then switched to a patch, had none).
+        if st.patch && !st.placing {
+            st.placing = true;
+            st.brush = None;
+            st.move_mark = Some(st.history.checkpoint(c, &st.file_name));
+        }
         st.placing &= st.patch;
     }
     if st.patch {
@@ -291,7 +305,7 @@ fn mask_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui) {
         });
         if st.placing {
             ui.label(
-                egui::RichText::new("Drag inside to move · corners to scale · top knob to turn · Enter accepts · Esc cancels")
+                egui::RichText::new("Drag inside to move · corners to scale · top knob to turn · ⌘-drag moves the view · Enter accepts · Esc cancels")
                     .small()
                     .color(super::theme::MUTED),
             );
@@ -349,6 +363,8 @@ fn heightmap_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui, m:
         .on_hover_text("The height of white. The map has no fixed scale, so this sets it.");
     ui.add(egui::Slider::new(&mut e.gamma, 0.3..=3.0).logarithmic(true).text("curve"))
         .on_hover_text("1 = linear. Above 1 flattens the lowlands and sharpens the peaks; below 1 lifts the lowlands.");
+    ui.add(egui::Slider::new(&mut e.peak_boost, 1.0..=3.0).text("peak boost ×"))
+        .on_hover_text("Raise the upper half of the heights (up to this × at white) without moving the lowlands.");
     let sm = ui
         .add(egui::Slider::new(&mut e.smooth_px, 0.0..=16.0).text("smooth px"))
         .on_hover_text("Blur the heights by this many source pixels: removes cell steps (Azgaar) and 8-bit terraces. The coast isn't blurred.");
@@ -1110,7 +1126,9 @@ pub fn mask_overlay(app: &RealmApp, ui: &egui::Ui, rect: egui::Rect, aspect: f64
                 let k = mesh.vertices.len() as u32;
                 for (p, (ii, jj)) in [(a, (i, j)), (b, (i + 1, j)), (cc, (i + 1, j + 1)), (d, (i, j + 1))] {
                     let (x, y) = grid(ii, jj);
-                    let uv = egui::pos2((crop_x + x as f32 + 0.5) / src_w, (crop_y + y as f32 + 0.5) / src_h);
+                    // Raster px → source px (a heightmap is downsampled by `step`, s07).
+                    let k = m.step as f32;
+                    let uv = egui::pos2((crop_x + (x as f32 + 0.5) * k) / src_w, (crop_y + (y as f32 + 0.5) * k) / src_h);
                     mesh.vertices.push(egui::epaint::Vertex { pos: p, uv, color: tint });
                 }
                 mesh.add_triangle(k, k + 1, k + 2);

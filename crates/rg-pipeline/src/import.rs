@@ -412,7 +412,7 @@ fn mask_json(m: &RasterMask) -> Value {
         };
         v["elevation"] = json!({
             "max_m": e.max_m, "gamma": e.gamma, "sea_floor": e.sea_floor, "sea_depth_m": e.sea_depth_m,
-            "smooth_px": e.smooth_px, "fidelity": fidelity,
+            "smooth_px": e.smooth_px, "fidelity": fidelity, "peak_boost": e.peak_boost,
             // The raster the heights came from: the step is stored, so a later cap change
             // can't alter an old world (s07).
             "step": m.step, "downsample_ver": 1,
@@ -452,6 +452,7 @@ fn mask_from_json(v: &Value, bytes: Vec<u8>) -> Result<RasterMask, String> {
             sea_depth_m: f("sea_depth_m", d.sea_depth_m),
             smooth_px: f("smooth_px", d.smooth_px),
             fidelity: if ev["fidelity"].as_str() == Some("exact") { Fidelity::Exact } else { Fidelity::Guided },
+            peak_boost: f("peak_boost", d.peak_boost),
         }
     });
     let step = ev["step"].as_u64().map(|s| s as u32);

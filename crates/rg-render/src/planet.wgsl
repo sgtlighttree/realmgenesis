@@ -107,7 +107,13 @@ fn graticule(lon: f32, lat: f32) -> f32 {
     let pole_fade = 1.0 - smoothstep(82.0, 87.0, abs(lat) * deg);
     let lon_a = lon_line.x * pole_fade * mix(0.35, 0.6, lon_line.y);
     let lat_a = lat_line.x * mix(0.35, 0.6, lat_line.y);
-    return max(lon_a, lat_a);
+    // The prime meridian and the antimeridian: thicker and brighter, so the map's wrap
+    // point is clear when zoomed (s07, Matt). Distance in degrees to 0° or 180°.
+    let a = abs(lon * deg);
+    let d_special = min(a, 180.0 - a);
+    let fw = max(min(fwidth(lon * deg), fwidth(fract(lon * deg))), 1e-6);
+    let special = clamp(3.0 - d_special / fw, 0.0, 1.0) * pole_fade * 0.85;
+    return max(max(lon_a, lat_a), special);
 }
 
 // ---------------------------------------------------------------- globe (streamed tiles)

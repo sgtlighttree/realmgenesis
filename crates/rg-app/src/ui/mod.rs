@@ -432,7 +432,10 @@ fn viewport(app: &mut RealmApp, ui: &mut egui::Ui, rs: &egui_wgpu::RenderState) 
     };
     let primary = response.dragged_by(egui::PointerButton::Primary) && !ui.input(|i| i.modifiers.shift);
     let brush_at = response.interact_pointer_pos().and_then(|p| lat_lon_at(app, p));
-    let placing = coasts::place_drag(
+    // ⌘ held at the start of a drag: it moves the view, not the patch (s07, Matt: preview
+    // the patch on the globe without leaving Move patch).
+    let view_key = ui.input(|i| i.modifiers.command) && !app.coasts.dragging_patch();
+    let placing = !view_key && coasts::place_drag(
         app,
         response.drag_started_by(egui::PointerButton::Primary),
         primary,

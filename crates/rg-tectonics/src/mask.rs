@@ -103,11 +103,15 @@ pub struct Elevation {
     /// 8-bit terraces). 0 = off. The coast comes from the unsmoothed raster.
     pub smooth_px: f32,
     pub fidelity: Fidelity,
+    /// Peak boost (s07, Matt: "boost peaks without pulling ground levels"): heights in the
+    /// upper half of the range are multiplied up to this at white; the lower half is
+    /// untouched. 1 = off.
+    pub peak_boost: f32,
 }
 
 impl Default for Elevation {
     fn default() -> Self {
-        Self { max_m: 4000.0, gamma: 1.0, sea_floor: false, sea_depth_m: 4500.0, smooth_px: 0.0, fidelity: Fidelity::Guided }
+        Self { max_m: 4000.0, gamma: 1.0, sea_floor: false, sea_depth_m: 4500.0, smooth_px: 0.0, fidelity: Fidelity::Guided, peak_boost: 1.0 }
     }
 }
 
@@ -117,7 +121,9 @@ impl Elevation {
     pub fn height_m(&self, g: f32, g_sea: f32) -> Option<f32> {
         if g > g_sea {
             let t = ((g - g_sea) / (1.0 - g_sea).max(1e-6)).clamp(0.0, 1.0);
-            Some((self.max_m * t.powf(self.gamma.max(0.05))).max(1.0))
+            let s = ((t - 0.5) / 0.5).clamp(0.0, 1.0);
+            let boost = 1.0 + (self.peak_boost.max(1.0) - 1.0) * s * s * (3.0 - 2.0 * s);
+            Some((self.max_m * t.powf(self.gamma.max(0.05)) * boost).max(1.0))
         } else if self.sea_floor {
             let t = ((g_sea - g) / g_sea.max(1e-6)).clamp(0.0, 1.0);
             Some((-self.sea_depth_m * t).min(-1.0))
@@ -502,7 +508,13 @@ pub fn imported_heights(grid: &Grid, p: &Params) -> Option<Imported> {
     let spacing_m = grid.spacing_rad() * r;
     let per_node: Vec<(f32, f32, f32)> = par_map(grid.n, |a| {
         let d = grid.dir[a];
-        let Some(m) = layers.iter().rev().find(|m| m.pixel(d, r).is_some()) else {
+        // As in `land_cover`: the topmost layer that covers here, where a heightmap covers
+        // only with its land; failing that, the topmost heightmap (its sea floor).
+        let covers = |m: &&&Arc<RasterMask>| match m.coverage(d, r) {
+            Some(v) => m.elevation.is_none() || v > 0.5,
+            None => false,
+        };
+        let Some(m) = layers.iter().rev().find(covers).or_else(|| layers.iter().rev().find(|m| m.pixel(d, r).is_some())) else {
             return (f32::NAN, 0.0, 0.0);
         };
         let Some(e) = m.elevation else {
@@ -542,6 +554,11 @@ pub fn land_cover(grid: &Grid, p: &Params, value: &[f32]) -> Vec<f32> {
         let raster: Vec<Option<f32>> = par_map(grid.n, |a| m.coverage(grid.dir[a], r));
         for (a, v) in raster.into_iter().enumerate() {
             if let Some(v) = v {
+                // A heightmap's sea is transparent over layers below, so a planet can be
+                // built from several heightmaps (s07, Matt). A coastline layer still covers.
+                if m.elevation.is_some() && v <= 0.5 && covered[a] {
+                    continue;
+                }
                 cover[a] = v.clamp(0.0, 1.0);
                 covered[a] = true;
             }
@@ -670,6 +687,9 @@ mod tests {
         assert_eq!(e.height_m(1.0, 0.2), Some(4000.0));
         assert!((e.height_m(0.6, 0.2).unwrap() - 2000.0).abs() < 1e-3);
         assert_eq!(e.height_m(0.1, 0.2), None);
+        let b = Elevation { peak_boost: 2.0, ..e };
+        assert_eq!(b.height_m(0.6, 0.2), e.height_m(0.6, 0.2), "lowlands untouched");
+        assert_eq!(b.height_m(1.0, 0.2), Some(8000.0), "white doubled");
         let es = Elevation { sea_floor: true, sea_depth_m: 4000.0, ..e };
         assert!((es.height_m(0.1, 0.2).unwrap() + 2000.0).abs() < 1e-3);
         let mut m = test_mask(8, 8, Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 50.0, rotation_deg: 0.0 });
@@ -683,6 +703,27 @@ mod tests {
         // Blur keeps a constant field constant.
         let b = gaussian_blur(&[3.0; 30], 6, 5, 1.5, true);
         assert!(b.iter().all(|v| (v - 3.0).abs() < 1e-5));
+    }
+
+    /// s07 (Matt): a later heightmap's sea doesn't erase an earlier layer's land; its land
+    /// still wins where it has some.
+    #[test]
+    fn heightmap_sea_is_transparent() {
+        let mut land = test_mask(10, 10, Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 100.0, rotation_deg: 0.0 });
+        land.data = Arc::new(vec![1.0; 100]);
+        let mut hm = test_mask(10, 10, Placement::Patch { center_deg: [0.0, 4.0], km_per_px: 100.0, rotation_deg: 0.0 });
+        // Land only in its right half.
+        hm.data = Arc::new((0..100).map(|k| if k % 10 >= 5 { 1.0 } else { 0.0 }).collect());
+        hm.elevation = Some(Elevation::default());
+        let mut p = Params { res: 48, ..Default::default() };
+        p.conditioning.strict = true;
+        p.conditioning.outside_procedural = false;
+        p.conditioning.masks = vec![Arc::new(land), Arc::new(hm)];
+        let g = Grid::new(48);
+        let cover = land_cover(&g, &p, &vec![0.0; g.n]);
+        let at = |lat: f64, lon: f64| cover[g.nearest_node(dir_of(lat, lon))];
+        assert!(at(0.0, 0.0) > 0.5, "the earlier land survives under the heightmap's sea");
+        assert!(at(0.0, 7.0) > 0.5, "the heightmap's own land");
     }
 
     /// The pyramid: level sizes halve (rounding up), each level's mean matches level 0 on an

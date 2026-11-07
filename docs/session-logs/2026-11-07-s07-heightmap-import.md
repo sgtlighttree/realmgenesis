@@ -75,3 +75,24 @@ Continues HANDOFF → "a fresh-context review of `docs/design/heightmap-import.m
 - **Correction (refutes the earlier "rivers are a straight lattice"):** that was the probe overlay. `river_map` draws every node over 300 km², and a Normal cell is ~960 km², so every wet cell draws a segment (dense in the wet south). Guided by the numbers: r 0.993, 70% of land moved 40–400 m within the clamp, hard to see in a 31 km hillshade.
 - **V1 Exact at XHigh (640, capped):** r **0.9825** vs the import sampled at 640, 69% off by > 40 m; 85 s, 678 MB peak. Refine's no-uplift incision cuts dendritic valleys into the drawn ranges; shape and coast hold (eyes). So "the file's detail survives to XHigh" holds **roughly** (r 0.98), with the valleys being the refine's.
 - Skipped: a local full-suite rerun (the guard change is equivalent without pins; Guided sits behind `guided.is_some()`); check CI on the push instead. V2 and the map-sea-floor path are untested end to end.
+
+## Matt in the app (2026-11-07, V2 as a patch, screenshot): feedback
+1. **Move-patch handles (yellow) disappear** after importing a second heightmap.
+2. **Heightmap preview overlay looks "rotated the wrong way"**, but generation is right. Suspect: the overlay UVs mix raster px (`m.w`, downsampled by `step`) with source px (thumb `src_w`).
+3. Wants a **toggle/shortcut between moving the patch and orbiting the globe** while Move patch is on (stuck moving the map).
+4. Map view: **thicker lon lines at 0° and 180°**, so the wrap point is clear when zoomed.
+5. **Importing a new heightmap erases the terrain of an earlier one.** Wants a planet built from **several disparate heightmaps**. Today the later layer wins over its whole patch rectangle, sea included.
+6. **"Counter distort":** Azgaar has no projection. Scaled to world size as a patch (azimuthal equidistant), the map distorts. Wants an option (e.g. an equirectangular patch projection) without using "whole world".
+7. **Fidelity needs more than exact/guided:** a continuous control, plus a **"highlights"/peak boost** that raises the peaks without pulling the lowlands down (the curve does pull them).
+
+### Fixed (same session)
+1. Handles: becoming a regional patch now starts Move patch. **Cause:** V2 is 2:1, so it imports as a whole world (no Move patch); switching to a patch left it off. (n=1 read of Matt's flow; the "after another import" detail wasn't reproduced.)
+2. Overlay: **cause verified in code**: UVs divided raster px (downsampled by `step`) by source px, so a step-2 heightmap showed its left half magnified. UVs now scale by `step`.
+3. **⌘-drag moves the view** while Move patch is on (a drag already moving the patch keeps going); hint text updated.
+4. The 0° and 180° meridians are drawn thicker and brighter (`planet.wgsl`, independent of the grid step).
+5. **A heightmap's sea is transparent over layers below** (`land_cover` + `imported_heights` agree); a coastline layer still covers. Test `heightmap_sea_is_transparent`. Rejected: a later heightmap's sea erasing earlier land (that's what a coastline layer is for).
+7a. **Peak boost ×** (1–3): multiplies the upper half of the range (smoothstep from t = 0.5 to 1), lowlands untouched; stored as `elevation.peak_boost` (optional). Tested.
+
+### Queued (next session, after the weekly quota resets)
+- 6: an **equirectangular patch projection** ("counter distort" for Azgaar maps scaled to world size): a `projection` field on `Placement::Patch` (optional in the header; azimuthal stays the default).
+- 7b: **continuous fidelity**: a 0–1 "erosion freedom" slider (the guided weight is already per-node float) plus a tolerance slider instead of the fixed ±10%.
