@@ -35,6 +35,11 @@ pub struct CoastUi {
     pub rotation: f64,
     /// How the patch maps to the sphere (s08).
     pub projection: Projection,
+    /// Debug (s08b): files from `RG_DROP=<path>;<path>…`, imported one at a time as if
+    /// dropped on the window (`RG_DROP_BUTTON=1`: as if picked with the Import button), with
+    /// the layer list printed after each. `RG_DROP_EXIT=1` quits after the last.
+    debug_drops: Vec<std::path::PathBuf>,
+    debug_wait: u32,
     pub msg: String,
     /// The active brush, if painting.
     pub brush: Option<StrokeOp>,
@@ -83,6 +88,8 @@ impl Default for CoastUi {
             km_per_px: 10.0,
             rotation: 0.0,
             projection: Projection::Azimuthal,
+            debug_drops: std::env::var("RG_DROP").map(|v| v.split(';').rev().map(std::path::PathBuf::from).collect()).unwrap_or_default(),
+            debug_wait: 60,
             msg: String::new(),
             brush: None,
             brush_km: 150.0,
@@ -208,6 +215,13 @@ pub fn coasts_section(app: &mut RealmApp, ui: &mut egui::Ui) {
             && let Some(path) = rfd::FileDialog::new().add_filter("Coastline map", &["png", "svg"]).pick_file()
         {
             import_file(c, st, &path, centre);
+        }
+        if !st.debug_drops.is_empty() && std::env::var("RG_DROP_BUTTON").is_ok() {
+            ui.ctx().request_repaint();
+            if let Some(path) = next_debug_drop(st) {
+                import_file(c, st, &path, centre);
+                log_layers("button", c, st);
+            }
         }
         if c.masks.is_empty() {
             ui.label(egui::RichText::new("or drop a .png / .svg here").small().color(super::theme::MUTED));
@@ -943,10 +957,47 @@ pub fn handle_drops(app: &mut RealmApp, ui: &egui::Ui, rect: egui::Rect) {
             super::theme::TEXT,
         );
     }
-    let Some(path) = dropped.first().map(|f| f.path().to_path_buf()) else { return };
-    let centre = view_centre_deg(app);
-    import_file(&mut app.params.tectonics.conditioning, &mut app.coasts, &path, centre);
-    app.status = app.coasts.msg.clone();
+    // Every dropped file becomes its own layer (s08b: only the first used to).
+    let mut paths: Vec<std::path::PathBuf> = dropped.iter().map(|f| f.path().to_path_buf()).collect();
+    if !app.coasts.debug_drops.is_empty() && std::env::var("RG_DROP_BUTTON").is_err() {
+        ui.ctx().request_repaint();
+        paths.extend(next_debug_drop(&mut app.coasts));
+    }
+    for path in paths {
+        let centre = view_centre_deg(app);
+        import_file(&mut app.params.tectonics.conditioning, &mut app.coasts, &path, centre);
+        app.status = app.coasts.msg.clone();
+        log_layers("drop", &app.params.tectonics.conditioning, &app.coasts);
+    }
+}
+
+/// The next `RG_DROP` file, one every 60 frames.
+fn next_debug_drop(st: &mut CoastUi) -> Option<std::path::PathBuf> {
+    st.debug_wait = st.debug_wait.saturating_sub(1);
+    if st.debug_wait > 0 {
+        return None;
+    }
+    st.debug_wait = 60;
+    let p = st.debug_drops.pop();
+    if st.debug_drops.is_empty() && std::env::var("RG_DROP_EXIT").is_ok() {
+        st.debug_wait = u32::MAX; // marks "quit once this one is in"
+    }
+    p
+}
+
+/// Debug (s08b): print the import layers, to see what an import did to the others.
+fn log_layers(what: &str, c: &Conditioning, st: &CoastUi) {
+    if std::env::var("RG_DROP").is_err() {
+        return;
+    }
+    eprintln!("[layers after {what}] {} layer(s), selected {}, strict {}, placing {}", c.masks.len(), st.sel, c.strict, st.placing);
+    for (i, m) in c.masks.iter().enumerate() {
+        let kind = if m.elevation.is_some() { "heightmap" } else { "coastline" };
+        eprintln!("  {i}: {} · {kind} · {}x{} · on {} · {:?}", m.name, m.w, m.h, m.enabled, m.place);
+    }
+    if st.debug_wait == u32::MAX {
+        std::process::exit(0);
+    }
 }
 
 fn op_colour(op: StrokeOp) -> [u8; 3] {
