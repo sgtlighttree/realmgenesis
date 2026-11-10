@@ -50,3 +50,23 @@ Picks up s07's queue: item 6 (equirect patch projection, "counter distort") and 
 - **Plan approved by Matt** (`~/.claude/plans/ah-it-was-drag-buzzing-island.md`): Part 1 repro the drop with an `RG_DROP` hook, then fix; Part 2 Stage A measure, Stage B river drawing (width from the ground, curved paths, taper, density), Matt judges, Stage C routing only if the numbers call for it and after a review.
 - **Drop repro (hook, n=1 pair: Klerga V1 7616² then Klerga 2025 4326×3015):** `RG_DROP="<a>;<b>" RG_DROP_EXIT=1` (and `RG_DROP_BUTTON=1` for the button's call site) print the layer list after each import. **Both paths give the same list, both layers present**, both placed as coastline patches at the same view centre, "Move patch" on. So `import_file` and the stack are fine; suspect 2 (stale panel state) is refuted for the list. Still open: a pointer event that only a real Finder drop delivers (suspect 1), or the terrain rather than the list: a new import is a **coastline** layer at the view centre, which by design removes a heightmap's heights under its rectangle until it is switched to heightmap (suspect 3). Need from Matt: does the layer list still show both after the second drop?
 - Built: every file of a multi-file drop is imported (was: the first only).
+- **Stage A numbers (`probe_rivers`, Normal, threshold 20,000 km²; import = Klerga V2 mono as a whole world, sea grey 0.235, 4000 m, smooth 3, freedom 0, blank ocean; not Matt's exact world, n=1):**
+
+  | | procedural seed 1 | V2 import |
+  |---|---|---|
+  | segments per Mkm² land | 78 | 75 |
+  | river km per Mkm² land | 2,584 | 2,544 |
+  | drawn width on the ground | 9.8–50.8 km, median 14.4 | 9.8–50.8 km, median 14.3 |
+  | length on flat ground (< 1 m per segment) | 0% | 13% |
+  | length beside the coast | 1% | 4% |
+  | sources that are ≤ 2-segment stubs | 41% | 50% |
+
+  Read: density is the same as procedural, so "too many" is the fat lines plus the stubs, not the count. Drawing is the main fault (confirmed by arithmetic: 0.5–2.6 px × 19.5 km/px). Routing differs but modestly (13% flat): Stage C's trigger is weak; decide after Matt sees Stage B.
+- **Decision:** skip the plan's "default threshold from land area": density per land area already matches, and scaling by land share would add rivers to a small continent. Prune stubs instead.
+- **Stage B, attempt 1 (refuted by screenshot):** `draw_rivers` rewritten: stubs hidden (a headwater joining within two hops), Catmull-Rom courses through the nodes with a position-keyed sideways wander, widths 0.35–1.3 px with faint headwaters. At whole-world map zoom the rivers **vanished**. Attempt 2 (0.6–1.6 px, strength 0.8–1): still nearly invisible; the "before" trunks were 2–2.6 px.
+- **Finding:** a line baked into the layer texture is bound to its texel (19.5 km at Normal): under a texel it's lost zoomed out, at a texel or more it's a fat band zoomed in (Matt's screenshot is ~4 screen px per texel). No width suits both.
+- **Decision: rivers as a distance field.** The layer's alpha now stores `distance to the nearest centre line in texels − size bonus` (span 8, bias 2; 255 = none). `planet.wgsl` `albedo` measures texels per screen pixel from the lat/lon derivatives and draws ~1.2 px on screen at any zoom, plus the bonus (≤ 0.5 texel for the biggest rivers), fading to 35% when far zoomed out. Stubs and curves kept. Rejected: a separate high-res river texture (memory, and still texel-bound); vector lines in the renderer (a new pipeline). Build + screenshots running.
+- **Distance field in the layer's alpha (screenshot, n=1 world):** right at whole-world zoom, but zoomed in (4 px per texel) the lines **broke into dashes**. Cause (reasoned, consistent with the picture): an unsigned distance field read between texel centres is up to half a texel off, and the line was thinner than that.
+- **Built: rivers get their own finer texture.** `layers::bake_rivers(w, h, rivers)` returns a one-byte distance field; the app bakes it 8192×4096 (4.9 km per texel, 32 MB GPU; web 4096×2048) and `PlanetRenderer::set_rivers` uploads it (binding 6, `R8Unorm`). The shader's line is 1.2 px wide on screen and never under 1.2 texels. The layer's alpha is back to plain 255. Layers without rivers get a 1×1 blank.
+- **Screenshot (same world, globe close-up at 4,000 km and the map):** continuous thin curved lines, dendritic, trunks slightly wider; no dashes; visible at whole-world zoom. The old fat bands are gone. What still looks off there and is **not rivers**: blocky lake patches on the import (canonical-cell lakes at freedom 0).
+- Not done from the plan: Stage C (routing on flats, 13% of length) waits for Matt's verdict on the drawing. Drop bug: still needs Matt's answer (does the layer list keep both?).

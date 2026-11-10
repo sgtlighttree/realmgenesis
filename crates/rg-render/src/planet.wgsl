@@ -21,6 +21,7 @@ struct Globals {
 // Displayed surface gradient per cube face, [dh/d east, dh/d north] (rg_terrain::gradient).
 @group(0) @binding(4) var grad_tex: texture_2d_array<f32>;
 @group(0) @binding(5) var grad_smp: sampler;
+@group(0) @binding(6) var river_tex: texture_2d<f32>;
 
 const PI: f32 = 3.14159265358979;
 
@@ -28,12 +29,30 @@ fn lonlat_to_uv(lon: f32, lat: f32) -> vec2<f32> {
     return vec2<f32>(fract(lon / (2.0 * PI) + 0.5), clamp(0.5 - lat / PI, 0.0, 1.0));
 }
 
-// Layer colour with rivers tinted in (coverage in the layer's alpha). Rivers no longer fade
-// out when zoomed in: the drained detail network that used to carve them in 3D is gone
-// (R2, s03), so this overlay is the only place they show.
+// Layer colour with rivers tinted in. Rivers come from their own, finer texture as a
+// distance field (s08b, `rg_pipeline::layers::bake_rivers`): `r · 8 − 2` = texels from the
+// nearest river's centre line, less its size bonus; 1.0 = no river near. A river is drawn
+// about 1.2 px wide on screen at any zoom (plus the bonus), not as a baked band that the
+// view magnifies.
 fn albedo(lon: f32, lat: f32) -> vec3<f32> {
-    let t = textureSampleLevel(albedo_tex, albedo_smp, lonlat_to_uv(lon, lat), 0.0);
-    return mix(t.rgb, g.river.xyz, 1.0 - t.a);
+    let uv = lonlat_to_uv(lon, lat);
+    let t = textureSampleLevel(albedo_tex, albedo_smp, uv, 0.0);
+    let r = textureSampleLevel(river_tex, albedo_smp, uv, 0.0).r;
+    // River texels per screen pixel, from how fast lat and lon change across the screen
+    // (the lon term is capped: it jumps at the ±180° seam and near the poles).
+    let rows = f32(textureDimensions(river_tex).y);
+    let t_lat = length(vec2<f32>(dpdx(lat), dpdy(lat))) / PI * rows;
+    let t_lon = length(vec2<f32>(dpdx(lon), dpdy(lon))) * cos(lat) / PI * rows;
+    let tpp = max(max(t_lat, min(t_lon, 4.0 * t_lat)), 1e-4);
+    let d_px = (r * 8.0 - 2.0) / tpp;
+    // Half the line's width: 0.6 px, but never under 0.6 texel (a distance field read
+    // between texel centres is up to half a texel off, which would break the line up).
+    let half_px = max(0.6, 0.6 / tpp);
+    // Zoomed far out, lines would crowd the globe: thin them out.
+    let fade = clamp(1.5 / tpp, 0.35, 1.0);
+    // (No early return: the derivatives above need uniform control flow.)
+    let cover = clamp(half_px + 0.5 - d_px, 0.0, 1.0) * fade * step(r, 0.985);
+    return mix(t.rgb, g.river.xyz, cover);
 }
 
 // The local (east, north) frame, exactly as `rg_terrain::gradient::east_north` bakes it.

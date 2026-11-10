@@ -21,6 +21,16 @@ pub struct LayerImage {
     pub rgba: Vec<u8>,
 }
 
+/// The river distance field (s08b): one byte per texel, equirectangular like the layer but
+/// finer, so rivers stay thin lines when zoomed in. See `rg_pipeline::layers::bake_rivers`
+/// for the encoding; 255 everywhere = no rivers.
+#[derive(Clone, Debug)]
+pub struct RiverImage {
+    pub width: u32,
+    pub height: u32,
+    pub field: Vec<u8>,
+}
+
 /// An equirectangular height image in metres above sea level.
 #[derive(Clone, Debug)]
 /// The displayed surface's gradient on the cube faces (`rg_terrain::gradient`): six faces
@@ -139,6 +149,7 @@ pub struct PlanetRenderer {
     globals: wgpu::Buffer,
     sampler: wgpu::Sampler,
     albedo: wgpu::Texture,
+    rivers: wgpu::Texture,
     heights: wgpu::Texture,
     /// Surface gradient per cube face (`Rg16Float`, 6 layers) for per-pixel lighting.
     gradient: wgpu::Texture,
@@ -207,6 +218,7 @@ impl PlanetRenderer {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                tex_entry(6, wgpu::TextureSampleType::Float { filterable: true }),
             ],
         });
         let globals = device.create_buffer(&wgpu::BufferDescriptor {
@@ -288,7 +300,8 @@ impl PlanetRenderer {
 
         let (albedo, heights) = Self::make_textures(device, 1, 1, 1, 1);
         let gradient = Self::make_gradient_texture(device, 1);
-        let bind_group = Self::make_bind_group(device, &bgl, &globals, &albedo, &sampler, &heights, &gradient, &clamp_sampler);
+        let rivers = Self::make_river_texture(device, 1, 1);
+        let bind_group = Self::make_bind_group(device, &bgl, &globals, &albedo, &sampler, &heights, &gradient, &clamp_sampler, &rivers);
         let tiles = TileCache::new(device, tile_indices, tile_cells, tile_capacity);
         let mut r = Self {
             tile_pipeline,
@@ -297,6 +310,7 @@ impl PlanetRenderer {
             globals,
             sampler,
             albedo,
+            rivers,
             heights,
             gradient,
             clamp_sampler,
@@ -319,6 +333,19 @@ impl PlanetRenderer {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rg16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        })
+    }
+
+    fn make_river_texture(device: &wgpu::Device, w: u32, h: u32) -> wgpu::Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("river field"),
+            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         })
@@ -353,6 +380,7 @@ impl PlanetRenderer {
         heights: &wgpu::Texture,
         gradient: &wgpu::Texture,
         clamp_sampler: &wgpu::Sampler,
+        rivers: &wgpu::Texture,
     ) -> wgpu::BindGroup {
         let gradient_view = gradient.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
@@ -374,6 +402,10 @@ impl PlanetRenderer {
                 },
                 wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(&gradient_view) },
                 wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::Sampler(clamp_sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&rivers.create_view(&Default::default())),
+                },
             ],
         })
     }
@@ -388,7 +420,18 @@ impl PlanetRenderer {
             &self.heights,
             &self.gradient,
             &self.clamp_sampler,
+            &self.rivers,
         );
+    }
+
+    /// Replace the river distance field (a 1×1 image of 255 switches rivers off).
+    pub fn set_rivers(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, img: &RiverImage) {
+        assert_eq!(img.field.len(), (img.width * img.height) as usize);
+        if self.rivers.width() != img.width || self.rivers.height() != img.height {
+            self.rivers = Self::make_river_texture(device, img.width, img.height);
+            self.rebind(device);
+        }
+        write_texture(queue, &self.rivers, img.width, img.height, 1, &img.field);
     }
 
     /// Replace the layer (albedo) texture.

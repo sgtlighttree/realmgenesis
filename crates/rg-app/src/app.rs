@@ -19,6 +19,13 @@ fn layer_size(res: u32) -> (u32, u32) {
     (width, width / 2)
 }
 
+/// Size of the river distance field (s08b): 4.9 km per texel on an Earth-sized world,
+/// 32 MB on the GPU. The web build takes half.
+#[cfg(not(target_arch = "wasm32"))]
+const RIVER_FIELD_SIZE: (u32, u32) = (8192, 4096);
+#[cfg(target_arch = "wasm32")]
+const RIVER_FIELD_SIZE: (u32, u32) = (4096, 2048);
+
 /// Display-only settings (no regeneration needed).
 #[derive(Clone, Debug)]
 pub struct DisplayParams {
@@ -689,6 +696,15 @@ impl RealmApp {
         let t0 = web_time::Instant::now();
         let rgba = eq.bake(world, self.layer);
         r.set_layer(&rs.device, &rs.queue, &LayerImage { width: eq.width, height: eq.height, rgba });
+        // Rivers: their own distance-field texture, finer than the layer (s08b).
+        let rivers = match &world.hydrology {
+            Some(hy) if rg_pipeline::layers::layer_has_rivers(self.layer) => {
+                let (w, h) = RIVER_FIELD_SIZE;
+                rg_render::RiverImage { width: w, height: h, field: rg_pipeline::layers::bake_rivers(w, h, &hy.rivers) }
+            }
+            _ => rg_render::RiverImage { width: 1, height: 1, field: vec![255] },
+        };
+        r.set_rivers(&rs.device, &rs.queue, &rivers);
         self.stats.bake_ms = t0.elapsed().as_secs_f64() * 1000.0;
         // Data layers read better without strong relief shading or glare.
         self.style.relief_shading = match self.layer {

@@ -140,9 +140,6 @@ impl Equirect {
                 px.copy_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
             }
         });
-        if let (Some(hy), Layer::Satellite | Layer::Elevation | Layer::PrecipAnnual) = (&world.hydrology, layer) {
-            draw_rivers(&mut out, w, h, &hy.rivers);
-        }
         out
     }
 }
@@ -464,28 +461,101 @@ pub fn river_color(layer: Layer) -> Rgb {
     }
 }
 
-/// Rasterise river reaches into the **alpha** of an equirect RGBA image (anti-aliased
-/// coverage: alpha = 255 − coverage), leaving the colour untouched. The renderer tints by
-/// coverage and fades rivers out when zoomed in, where a texel spans kilometres and the 3D
-/// valleys show the river (s01: baked blue bands hid the terrain close up). Width grows
-/// with the square root of drainage area, in pixels relative to a 2048-wide image.
-pub fn draw_rivers(img: &mut [u8], w: u32, h: u32, rivers: &[rg_erosion::RiverSegment]) {
+/// River field range: `value/255 · RIVER_FIELD_SPAN − RIVER_FIELD_BIAS`
+/// is the distance to the nearest river's centre line in texels, less that river's size
+/// bonus. 255 = no river near. `planet.wgsl` (`albedo`) holds the same two numbers.
+pub const RIVER_FIELD_SPAN: f64 = 8.0;
+pub const RIVER_FIELD_BIAS: f64 = 2.0;
+
+/// Does this layer show rivers?
+pub fn layer_has_rivers(layer: Layer) -> bool {
+    matches!(layer, Layer::Satellite | Layer::Elevation | Layer::PrecipAnnual)
+}
+
+/// Bake the rivers into a one-byte-per-texel equirect image (`w` × `h`, row 0 = north,
+/// column 0 = 180° W) as a **distance field** (see [`RIVER_FIELD_SPAN`]). The renderer
+/// turns it into a line of constant width **on screen**, so rivers are neither fat when
+/// zoomed in nor lost when zoomed out. It has its own, finer texture than the layer
+/// (the app asks for 8192 wide), because a line can't be thinner than about a texel.
+///
+/// s08b (Matt: "too wide, too many, unnatural" on an imported continent). Before, this
+/// baked coverage 0.5–2.6 texels wide (10–50 km on the ground), which the view magnified.
+/// A thinner coverage (two widths tried) vanished at whole-world zoom: a texel-bound line
+/// can't suit both. Also new:
+/// - **stubs are hidden**: a headwater that joins a bigger river within two hops;
+/// - **courses are curved**: a Catmull-Rom spline through the nodes (so the network stays
+///   connected) plus a small sideways wander, keyed to the node's position so every bake
+///   draws the same line;
+/// - **bigger rivers are a little wider** (the size bonus, up to half a texel of a
+///   2048-wide image), growing along each reach.
+pub fn bake_rivers(w: u32, h: u32, rivers: &[rg_erosion::RiverSegment]) -> Vec<u8> {
+    use std::collections::HashMap;
+    let mut img = vec![255u8; (w * h) as usize];
     let scale = w as f64 / 2048.0;
+    let key = |d: DVec3| ((d.x * 1e6).round() as i64, (d.y * 1e6).round() as i64, (d.z * 1e6).round() as i64);
+    let by_from: HashMap<_, usize> = rivers.iter().enumerate().map(|(i, s)| (key(s.from), i)).collect();
+    let next: Vec<Option<usize>> = rivers.iter().map(|s| by_from.get(&key(s.to)).copied()).collect();
+    // Per segment: how many drawn segments flow into it, and the biggest of them.
+    let mut inflow = vec![0u32; rivers.len()];
+    let mut donor: Vec<Option<usize>> = vec![None; rivers.len()];
+    for (i, s) in rivers.iter().enumerate() {
+        if let Some(j) = next[i] {
+            inflow[j] += 1;
+            if donor[j].is_none_or(|d| rivers[d].area_km2 < s.area_km2) {
+                donor[j] = Some(i);
+            }
+        }
+    }
+    // Stubs: from a source, at most two hops before joining another river.
+    let mut hidden = vec![false; rivers.len()];
+    for i in (0..rivers.len()).filter(|&i| inflow[i] == 0) {
+        let mut run = vec![i];
+        let mut k = i;
+        let mut joins = false;
+        while let Some(j) = next[k] {
+            if inflow[j] > 1 {
+                joins = true;
+                break;
+            }
+            run.push(j);
+            k = j;
+            if run.len() > 2 {
+                break;
+            }
+        }
+        if joins && run.len() <= 2 {
+            for k in run {
+                hidden[k] = true;
+            }
+        }
+    }
     let to_px = |d: DVec3| -> (f64, f64) {
         let lat = d.z.clamp(-1.0, 1.0).asin();
         let lon = d.y.atan2(d.x);
         ((lon + PI) / (2.0 * PI) * w as f64, (PI / 2.0 - lat) / PI * h as f64)
     };
-    for r in rivers {
-        let width = ((r.area_km2 as f64 / 2.0e4).sqrt() * 0.45 * scale).clamp(0.5 * scale, 2.6 * scale);
-        let (x0, y0) = to_px(r.from);
-        let (mut x1, y1) = to_px(r.to);
+    // Size bonus in px of a 2048-wide image, from the drainage area: 0 at the threshold,
+    // 0.5 from a hundred times that.
+    let width_of = |area_km2: f64| (0.25 * (area_km2 / 2.0e4).max(1.0).log10()).min(0.5);
+    // A value in −1..1 from a node's position (the same in every bake and resolution).
+    let wander = |d: DVec3, salt: u64| -> f64 {
+        let (x, y, z) = key(d);
+        let mut v = (x as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (y as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F) ^ (z as u64).wrapping_mul(0x1656_67B1_9E37_79F9) ^ salt;
+        v ^= v >> 31;
+        v = v.wrapping_mul(0xD6E8_FEB8_6659_FD93);
+        v ^= v >> 32;
+        (v >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0
+    };
+    // How far the field reaches from a centre line, texels.
+    let reach = RIVER_FIELD_SPAN - RIVER_FIELD_BIAS;
+    let mut line = |a: DVec3, b: DVec3, bonus: f64| {
+        let (x0, y0) = to_px(a);
+        let (mut x1, y1) = to_px(b);
         if (x1 - x0).abs() > w as f64 / 2.0 {
             x1 += if x1 < x0 { w as f64 } else { -(w as f64) };
         }
-        let half = width * 0.5;
-        let (minx, maxx) = (x0.min(x1) - half - 1.0, x0.max(x1) + half + 1.0);
-        let (miny, maxy) = (y0.min(y1) - half - 1.0, y0.max(y1) + half + 1.0);
+        let (minx, maxx) = (x0.min(x1) - reach - 1.0, x0.max(x1) + reach + 1.0);
+        let (miny, maxy) = (y0.min(y1) - reach - 1.0, y0.max(y1) + reach + 1.0);
         let (dx, dy) = (x1 - x0, y1 - y0);
         let len2 = (dx * dx + dy * dy).max(1e-9);
         for py in (miny.floor() as i64)..=(maxy.ceil() as i64) {
@@ -496,18 +566,48 @@ pub fn draw_rivers(img: &mut [u8], w: u32, h: u32, rivers: &[rg_erosion::RiverSe
                 let (cx, cy) = (px as f64 + 0.5, py as f64 + 0.5);
                 let t = (((cx - x0) * dx + (cy - y0) * dy) / len2).clamp(0.0, 1.0);
                 let (qx, qy) = (x0 + dx * t - cx, y0 + dy * t - cy);
-                let d = (qx * qx + qy * qy).sqrt();
-                let cover = (half + 0.5 - d).clamp(0.0, 1.0);
-                if cover <= 0.0 {
+                let field = (qx * qx + qy * qy).sqrt() - bonus;
+                if field >= reach {
                     continue;
                 }
                 let xi = px.rem_euclid(w as i64) as u32;
-                let k = ((py as u32 * w + xi) * 4) as usize;
-                let a = 255.0 - (cover * 255.0).round();
-                img[k + 3] = img[k + 3].min(a as u8);
+                let k = (py as u32 * w + xi) as usize;
+                let a = ((field + RIVER_FIELD_BIAS) / RIVER_FIELD_SPAN * 255.0).round().clamp(0.0, 254.0);
+                img[k] = img[k].min(a as u8);
             }
         }
+    };
+    const STEPS: usize = 8;
+    for (i, s) in rivers.iter().enumerate() {
+        if hidden[i] {
+            continue;
+        }
+        let (p1, p2) = (s.from, s.to);
+        // Neighbours along the main stem give the spline its direction at each end.
+        let p0 = donor[i].filter(|&d| !hidden[d]).map_or(p1 - (p2 - p1), |d| rivers[d].from);
+        let p3 = next[i].map_or(p2 + (p2 - p1), |j| rivers[j].to);
+        let (w1, w2) = (width_of(s.area_km2 as f64), next[i].map_or(width_of(s.area_km2 as f64), |j| width_of(rivers[j].area_km2 as f64)));
+        let chord = p2 - p1;
+        let side = p1.cross(chord).normalize_or_zero() * chord.length();
+        let (s1, s2) = (wander(p1, 1), wander(p1, 2));
+        let at = |t: f64| -> DVec3 {
+            let (t2, t3) = (t * t, t * t * t);
+            let c = 0.5 * ((2.0 * p1) + (p2 - p0) * t + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2 + (3.0 * p1 - p0 - 3.0 * p2 + p3) * t3);
+            // Sideways wander, zero (and flat) at both nodes so reaches join smoothly.
+            let (sp, s2p) = ((PI * t).sin(), (2.0 * PI * t).sin());
+            (c + side * (0.22 * s1 * sp * sp + 0.12 * s2 * s2p * sp)).normalize()
+        };
+        let mut prev = at(0.0);
+        for k in 1..=STEPS {
+            let t = k as f64 / STEPS as f64;
+            let cur = at(t);
+            let width = w1 + (w2 - w1) * (t - 0.5 / STEPS as f64);
+            // The bonus must stay inside the field's bias.
+            line(prev, cur, (width * scale).min(RIVER_FIELD_BIAS - 0.1));
+            prev = cur;
+        }
     }
+    img
 }
 
 #[cfg(test)]
