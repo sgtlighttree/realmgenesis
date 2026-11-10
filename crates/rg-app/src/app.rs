@@ -309,7 +309,8 @@ impl RealmApp {
                 self.params.tectonics.res = r;
             }
             // R3: `RG_ACTIVE_SHARE=<0..1>`, `RG_STRICT=1`, `RG_MASK=<png|svg>` (whole world, or a
-            // patch with `RG_MASK_PATCH=lat,lon,km_per_px,rotation`).
+            // patch with `RG_MASK_PATCH=lat,lon,km_per_px,rotation`; `RG_MASK_PROJ=equirect`
+            // makes the patch plate carrée).
             if let Some(v) = var("RG_ACTIVE_SHARE").and_then(|v| v.parse().ok()) {
                 self.params.tectonics.active_share = v;
             }
@@ -322,6 +323,11 @@ impl RealmApp {
                         center_deg: [v[0], v[1]],
                         km_per_px: v[2],
                         rotation_deg: v.get(3).copied().unwrap_or(0.0),
+                        projection: if var("RG_MASK_PROJ").is_some_and(|v| v == "equirect") {
+                            rg_pipeline::mask::Projection::Equirect
+                        } else {
+                            rg_pipeline::mask::Projection::Azimuthal
+                        },
                     },
                     _ => rg_pipeline::mask::Placement::WorldEquirect,
                 };
@@ -330,25 +336,28 @@ impl RealmApp {
                         // Keep the coasts panel in step with the mask.
                         let st = &mut self.coasts;
                         st.file_name = std::path::Path::new(&path).file_name().map_or(path.clone(), |n| n.to_string_lossy().into_owned());
-                        if let rg_pipeline::mask::Placement::Patch { center_deg, km_per_px, rotation_deg } = place {
+                        if let rg_pipeline::mask::Placement::Patch { center_deg, km_per_px, rotation_deg, projection } = place {
                             (st.patch, st.lat, st.lon, st.km_per_px, st.rotation) = (true, center_deg[0], center_deg[1], km_per_px, rotation_deg);
+                            st.projection = projection;
                             // `RG_PLACE=1`: start in "Move patch" (handles shown), for screenshots.
                             st.placing = var("RG_PLACE").is_some();
                         }
                         let mut m = m;
-                        // s07: `RG_HEIGHT=max_m,sea_grey[,smooth_px]` imports it as a heightmap
-                        // (Exact); `RG_BLANK=1` puts it on a blank ocean.
+                        // s07: `RG_HEIGHT=max_m,sea_grey[,smooth_px[,freedom[,tolerance]]]` imports
+                        // it as a heightmap (exact unless a freedom is given); `RG_BLANK=1` puts
+                        // it on a blank ocean.
                         if let Some(v) = var("RG_HEIGHT").map(|v| v.split(',').filter_map(|x| x.trim().parse::<f32>().ok()).collect::<Vec<_>>())
                             && v.len() >= 2
                         {
-                            use rg_pipeline::mask::{Elevation, Fidelity, MaskAdjust};
+                            use rg_pipeline::mask::{DEFAULT_TOLERANCE, Elevation, MaskAdjust};
                             let adjust = MaskAdjust { threshold: v[1] / 255.0, invert: false };
                             let mut probe = m.clone();
                             probe.adjust = adjust;
                             let e = Elevation {
                                 max_m: v[0],
                                 smooth_px: v.get(2).copied().unwrap_or(0.0),
-                                fidelity: Fidelity::Exact,
+                                freedom: v.get(3).copied().unwrap_or(0.0).clamp(0.0, 1.0),
+                                tolerance: v.get(4).copied().unwrap_or(DEFAULT_TOLERANCE),
                                 sea_floor: rg_pipeline::import::has_bathymetry(&probe),
                                 ..Default::default()
                             };

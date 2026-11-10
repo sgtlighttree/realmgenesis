@@ -560,8 +560,9 @@ pub fn solve_full_with_progress(
 /// Guided heightmaps (s07): σ of the smoothing applied to the inverted uplift, km. About
 /// three canonical cells: drawn ranges (hundreds of km) hold, valleys are the solver's own.
 pub const GUIDED_SIGMA_KM: f64 = 100.0;
-/// Guided heightmaps: after the solve, land stays within this fraction of its imported
-/// height (or `GUIDED_TOLERANCE_MIN_M`, whichever is more).
+/// Guided heightmaps: after the solve, land stays within the layer's tolerance (a fraction
+/// of its imported height; this is the value when the snapshot carries none), or
+/// `GUIDED_TOLERANCE_MIN_M`, whichever is more.
 pub const GUIDED_TOLERANCE: f64 = 0.10;
 pub const GUIDED_TOLERANCE_MIN_M: f64 = 30.0;
 
@@ -733,7 +734,12 @@ pub fn erode_climate_with_progress(
     // Guided smooths it over land (σ `GUIDED_SIGMA_KM`, floored at the base rate), so the
     // relief's large-scale pattern holds while the physics cuts its own valleys.
     let guided: Option<Vec<f64>> = tectonic.guided.as_ref().map(|f| par_map(n, |i| f.sample(grid.dir[i]).clamp(0.0, 1.0) as f64));
-    let guided_at = |i: usize| guided.as_ref().map_or(0.0, |g| g[i]) * pin_at(i);
+    // The layer's erosion freedom (0 = exact). Erosion itself is all or nothing: any freedom
+    // runs the guided solve in full, and the freedom then says how much of its change to keep
+    // (s08: blending the uplift instead gave no gradation, see the s08 log).
+    let freedom_at = |i: usize| guided.as_ref().map_or(0.0, |g| g[i]);
+    let guided_at = |i: usize| if freedom_at(i) > 0.0 { pin_at(i) } else { 0.0 };
+    let tolerance: Option<Vec<f64>> = tectonic.guided_tolerance.as_ref().map(|f| par_map(n, |i| f.sample(grid.dir[i]).clamp(0.0, 1.0) as f64));
     if let Some(w) = &pin {
         let (mut u_inv, _) = invert_uplift(&grid, radius_m, &h0, &ocean, &k_field, runoff_w.as_deref(), lake_in.as_ref(), p);
         if (0..n).any(|i| guided_at(i) > 0.0) {
@@ -767,14 +773,22 @@ pub fn erode_climate_with_progress(
         budget = solved.budget;
         filled_steps = solved.filled_steps;
     }
-    // Guided heightmap land stays near the drawing: within ±max(10%, 30 m) of the import.
+    // Guided heightmap land stays near the drawing: within ±max(tolerance, 30 m) of the
+    // import, and of that change the layer's freedom is the share kept (s08). So a layer at
+    // freedom 0.3 has the guided valleys at 30% of their depth, always inside the tolerance.
+    // Freedom 0 (exact) is left alone, bit for bit.
     if guided.is_some() {
         for i in (0..n).filter(|&i| !ocean[i]) {
             let g = guided_at(i);
             if g > 0.0 {
-                let tol = (GUIDED_TOLERANCE * h0[i].abs()).max(GUIDED_TOLERANCE_MIN_M);
+                // The default arrives as an f32 0.1; use the exact constant for it, so worlds
+                // from before s08 keep their heights bit for bit.
+                let frac = tolerance.as_ref().map_or(GUIDED_TOLERANCE, |t| if (t[i] - GUIDED_TOLERANCE).abs() < 1e-6 { GUIDED_TOLERANCE } else { t[i] });
+                let tol = (frac * h0[i].abs()).max(GUIDED_TOLERANCE_MIN_M);
                 let clamped = h0[i] + (h[i] - h0[i]).clamp(-tol, tol);
-                h[i] += (clamped - h[i]) * g;
+                let f = freedom_at(i);
+                let target = if f >= 1.0 { clamped } else { h0[i] + (clamped - h0[i]) * f };
+                h[i] += (target - h[i]) * g;
             }
         }
     }

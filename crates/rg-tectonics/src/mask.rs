@@ -21,9 +21,23 @@ use std::sync::Arc;
 pub enum Placement {
     /// A 2:1 image covering the whole sphere, plate carrée (row 0 = north, column 0 = 180° W).
     WorldEquirect,
-    /// A regional map in an azimuthal-equidistant projection about its centre.
+    /// A regional map about its centre, in `projection`.
     /// `rotation_deg`: degrees clockwise from north of the image's "up".
-    Patch { center_deg: [f64; 2], km_per_px: f64, rotation_deg: f64 },
+    Patch { center_deg: [f64; 2], km_per_px: f64, rotation_deg: f64, projection: Projection },
+}
+
+/// How a patch's pixels map to the sphere (s08).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Projection {
+    /// Azimuthal equidistant: distances and directions from the centre are true. Right for
+    /// a regional map; a patch can sit anywhere without changing shape.
+    #[default]
+    Azimuthal,
+    /// Plate carrée about the centre: x is longitude, y is latitude, the same degrees per
+    /// pixel on both (`km_per_px` is measured along a meridian). For flat maps drawn as a
+    /// lat/lon rectangle (Azgaar) scaled to a large part of the world (Matt, s07: "counter
+    /// distort"). Like any plate carrée it widens towards the poles.
+    Equirect,
 }
 
 /// Which channel of a PNG is the land signal.
@@ -75,16 +89,6 @@ impl MaskAdjust {
     }
 }
 
-/// How much erosion may move a heightmap layer's heights (s07, `docs/design/heightmap-import.md`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum Fidelity {
-    /// The import is the canonical surface (drained); refine adds sub-cell detail only.
-    Exact,
-    /// Erosion runs on uplift inverted from the import, so real valleys form close to it.
-    #[default]
-    Guided,
-}
-
 /// A heightmap layer's height mapping (s07). The coast grey is the layer's
 /// `MaskAdjust::threshold` (g_sea); greys above it are land:
 /// `h = max_m · ((g − g_sea)/(1 − g_sea))^gamma`.
@@ -102,16 +106,26 @@ pub struct Elevation {
     /// Gaussian σ in **source** pixels, applied to the heights only (Azgaar cell steps,
     /// 8-bit terraces). 0 = off. The coast comes from the unsmoothed raster.
     pub smooth_px: f32,
-    pub fidelity: Fidelity,
+    /// Erosion freedom 0..1 (s08; was Exact/Guided). 0 = exact: the import is the canonical
+    /// surface (drained) and refine adds sub-cell detail only. 1 = guided: erosion runs on
+    /// uplift smoothed from the import, so real valleys form close to it. In between, the
+    /// guided result is kept at that share of its change from the import.
+    pub freedom: f32,
+    /// With `freedom` > 0: land stays within this fraction of its imported height (or
+    /// `rg_erosion`'s 30 m floor, whichever is more).
+    pub tolerance: f32,
     /// Peak boost (s07, Matt: "boost peaks without pulling ground levels"): heights in the
     /// upper half of the range are multiplied up to this at white; the lower half is
     /// untouched. 1 = off.
     pub peak_boost: f32,
 }
 
+/// The guided tolerance before s08 made it a setting: ±10% of the imported height.
+pub const DEFAULT_TOLERANCE: f32 = 0.10;
+
 impl Default for Elevation {
     fn default() -> Self {
-        Self { max_m: 4000.0, gamma: 1.0, sea_floor: false, sea_depth_m: 4500.0, smooth_px: 0.0, fidelity: Fidelity::Guided, peak_boost: 1.0 }
+        Self { max_m: 4000.0, gamma: 1.0, sea_floor: false, sea_depth_m: 4500.0, smooth_px: 0.0, freedom: 1.0, tolerance: DEFAULT_TOLERANCE, peak_boost: 1.0 }
     }
 }
 
@@ -288,7 +302,22 @@ impl RasterMask {
                 let lon = d.y.atan2(d.x);
                 Some(((lon + PI) / (2.0 * PI) * w - 0.5, (PI / 2.0 - lat) / PI * h - 0.5))
             }
-            Placement::Patch { center_deg, km_per_px, rotation_deg } => {
+            Placement::Patch { center_deg, km_per_px, rotation_deg, projection: Projection::Equirect } => {
+                // East and north offsets from the centre in km (plate carrée: a degree of
+                // longitude counts the same as a degree of latitude), then turned into the
+                // image's axes.
+                let r_km = radius_m / 1000.0;
+                let lat = d.z.clamp(-1.0, 1.0).asin();
+                let dlon = (d.y.atan2(d.x) - center_deg[1].to_radians() + PI).rem_euclid(2.0 * PI) - PI;
+                let (u_km, v_km) = (dlon * r_km, (lat - center_deg[0].to_radians()) * r_km);
+                let (sr, cr) = rotation_deg.to_radians().sin_cos();
+                let (x_km, y_km) = (u_km * cr - v_km * sr, u_km * sr + v_km * cr);
+                let px = w * 0.5 + x_km / km_per_px.max(1e-9) - 0.5;
+                let py = h * 0.5 - y_km / km_per_px.max(1e-9) - 0.5;
+                let inside = (-0.5..=w - 0.5).contains(&px) && (-0.5..=h - 0.5).contains(&py);
+                inside.then_some((px, py))
+            }
+            Placement::Patch { center_deg, km_per_px, rotation_deg, projection: Projection::Azimuthal } => {
                 let c = dir_of(center_deg[0], center_deg[1]);
                 let (sp, cp) = center_deg[0].to_radians().sin_cos();
                 let (sl, cl) = center_deg[1].to_radians().sin_cos();
@@ -362,7 +391,18 @@ impl RasterMask {
                 let lat = PI / 2.0 - (py + 0.5) / h * PI;
                 DVec3::new(lat.cos() * lon.cos(), lat.cos() * lon.sin(), lat.sin())
             }
-            Placement::Patch { center_deg, km_per_px, rotation_deg } => {
+            Placement::Patch { center_deg, km_per_px, rotation_deg, projection: Projection::Equirect } => {
+                let r_km = radius_m / 1000.0;
+                let x_km = (px + 0.5 - w * 0.5) * km_per_px;
+                let y_km = (h * 0.5 - py - 0.5) * km_per_px;
+                let (sr, cr) = rotation_deg.to_radians().sin_cos();
+                let (u_km, v_km) = (x_km * cr + y_km * sr, -x_km * sr + y_km * cr);
+                // Rows past a pole stop at the pole (the overlay and the handles ask for them).
+                let lat = (center_deg[0].to_radians() + v_km / r_km).clamp(-PI / 2.0, PI / 2.0);
+                let lon = center_deg[1].to_radians() + u_km / r_km;
+                DVec3::new(lat.cos() * lon.cos(), lat.cos() * lon.sin(), lat.sin())
+            }
+            Placement::Patch { center_deg, km_per_px, rotation_deg, projection: Projection::Azimuthal } => {
                 let c = dir_of(center_deg[0], center_deg[1]);
                 let (sp, cp) = center_deg[0].to_radians().sin_cos();
                 let (sl, cl) = center_deg[1].to_radians().sin_cos();
@@ -488,8 +528,11 @@ pub struct Imported {
     /// Pin weight 0..1: how much the import decides this node (1 inside a heightmap layer,
     /// feathered to 0 at its patch edge). Erosion leaves pinned land out of calibration.
     pub pin: Vec<f32>,
-    /// 1 where the deciding layer is Guided (erosion may reshape it within limits), else 0.
+    /// The deciding layer's erosion freedom 0..1 (0 = exact; s08), 0 where none decides.
     pub guided: Vec<f32>,
+    /// The deciding layer's tolerance (fraction of the imported height); the default where
+    /// none decides, so interpolating the field near a patch edge doesn't tighten it.
+    pub tolerance: Vec<f32>,
 }
 
 /// Feather width at a heightmap patch's edge: 150 km, or a tenth of the patch's shorter
@@ -506,7 +549,7 @@ pub fn imported_heights(grid: &Grid, p: &Params) -> Option<Imported> {
     }
     let r = p.radius_m;
     let spacing_m = grid.spacing_rad() * r;
-    let per_node: Vec<(f32, f32, f32)> = par_map(grid.n, |a| {
+    let per_node: Vec<(f32, f32, f32, f32)> = par_map(grid.n, |a| {
         let d = grid.dir[a];
         // As in `land_cover`: the topmost layer that covers here, where a heightmap covers
         // only with its land; failing that, the topmost heightmap (its sea floor).
@@ -515,10 +558,10 @@ pub fn imported_heights(grid: &Grid, p: &Params) -> Option<Imported> {
             None => false,
         };
         let Some(m) = layers.iter().rev().find(covers).or_else(|| layers.iter().rev().find(|m| m.pixel(d, r).is_some())) else {
-            return (f32::NAN, 0.0, 0.0);
+            return (f32::NAN, 0.0, 0.0, DEFAULT_TOLERANCE);
         };
         let Some(e) = m.elevation else {
-            return (f32::NAN, 0.0, 0.0);
+            return (f32::NAN, 0.0, 0.0, DEFAULT_TOLERANCE);
         };
         let pin = match m.place {
             Placement::WorldEquirect => 1.0,
@@ -530,13 +573,13 @@ pub fn imported_heights(grid: &Grid, p: &Params) -> Option<Imported> {
                 (t * t * (3.0 - 2.0 * t)) as f32
             }
         };
-        let guided = if e.fidelity == Fidelity::Guided { 1.0 } else { 0.0 };
-        (m.height_m(d, r, spacing_m).unwrap_or(f32::NAN), pin, guided)
+        (m.height_m(d, r, spacing_m).unwrap_or(f32::NAN), pin, e.freedom.clamp(0.0, 1.0), e.tolerance.clamp(0.0, 1.0))
     });
     Some(Imported {
         h: per_node.iter().map(|v| v.0).collect(),
         pin: per_node.iter().map(|v| v.1).collect(),
         guided: per_node.iter().map(|v| v.2).collect(),
+        tolerance: per_node.iter().map(|v| v.3).collect(),
     })
 }
 
@@ -625,9 +668,9 @@ mod tests {
         let r = 6.371e6;
         let places = [
             Placement::WorldEquirect,
-            Placement::Patch { center_deg: [10.0, 20.0], km_per_px: 10.0, rotation_deg: 0.0 },
-            Placement::Patch { center_deg: [-35.0, 170.0], km_per_px: 25.0, rotation_deg: 37.0 },
-            Placement::Patch { center_deg: [88.0, -60.0], km_per_px: 15.0, rotation_deg: -120.0 },
+            Placement::Patch { center_deg: [10.0, 20.0], km_per_px: 10.0, rotation_deg: 0.0, projection: Projection::Azimuthal },
+            Placement::Patch { center_deg: [-35.0, 170.0], km_per_px: 25.0, rotation_deg: 37.0, projection: Projection::Azimuthal },
+            Placement::Patch { center_deg: [88.0, -60.0], km_per_px: 15.0, rotation_deg: -120.0, projection: Projection::Azimuthal },
         ];
         for place in places {
             let m = test_mask(200, 100, place.clone());
@@ -637,6 +680,44 @@ mod tests {
                 let (qx, qy) = m.pixel(d, r).unwrap();
                 assert!((qx - px).abs() < 1e-6 && (qy - py).abs() < 1e-6, "{place:?} ({px},{py}) -> ({qx},{qy})");
             }
+        }
+    }
+
+    /// The plate carrée patch (s08): the round trip, and that it really is lat/lon-linear.
+    #[test]
+    fn equirect_patch_round_trips_and_is_lat_lon_linear() {
+        let r = 6.371e6;
+        let km_per_deg = r / 1000.0 * PI / 180.0;
+        let eq = |center_deg, km_per_px, rotation_deg| Placement::Patch { center_deg, km_per_px, rotation_deg, projection: Projection::Equirect };
+        // Round trips, including a centre near the antimeridian and a turned image.
+        for place in [eq([10.0, 20.0], 10.0, 0.0), eq([-35.0, 170.0], 25.0, 37.0), eq([50.0, -175.0], 40.0, -120.0)] {
+            let m = test_mask(200, 100, place.clone());
+            for (px, py) in [(0.0, 0.0), (199.0, 99.0), (57.3, 12.8), (100.0, 50.0), (3.0, 97.0)] {
+                let d = m.dir_of_pixel(px, py, r);
+                assert!((d.length() - 1.0).abs() < 1e-9);
+                let (qx, qy) = m.pixel(d, r).unwrap();
+                assert!((qx - px).abs() < 1e-6 && (qy - py).abs() < 1e-6, "{place:?} ({px},{py}) -> ({qx},{qy})");
+            }
+        }
+        // One degree per pixel, centred on 40 N 30 E: 10 px right is 10 degrees of longitude
+        // at any latitude (azimuthal would give fewer), 10 px up is 10 degrees of latitude.
+        let m = test_mask(100, 60, eq([40.0, 30.0], km_per_deg, 0.0));
+        let (cx, cy) = m.pixel(dir_of(40.0, 30.0), r).unwrap();
+        assert!((cx - 49.5).abs() < 1e-9 && (cy - 29.5).abs() < 1e-9);
+        let (x, y) = m.pixel(dir_of(60.0, 40.0), r).unwrap();
+        assert!((x - 59.5).abs() < 1e-6 && (y - 9.5).abs() < 1e-6, "{x} {y}");
+        // Outside the rectangle: no pixel.
+        assert!(m.pixel(dir_of(40.0, 150.0), r).is_none() && m.pixel(dir_of(-10.0, 30.0), r).is_none());
+        // A map taller than the globe: rows past the pole stop at the pole, never NaN.
+        let tall = test_mask(360, 400, eq([0.0, 0.0], km_per_deg, 0.0));
+        let top = tall.dir_of_pixel(100.0, -0.5, r);
+        assert!((top.z - 1.0).abs() < 1e-9, "{top:?}");
+        // Fitted to 360 degrees wide and 2:1, it is the whole-world placement.
+        let world = test_mask(360, 180, Placement::WorldEquirect);
+        let patch = test_mask(360, 180, eq([0.0, 0.0], km_per_deg, 0.0));
+        for (lat, lon) in [(12.0, 34.0), (-70.0, -160.0), (85.0, 179.0)] {
+            let (a, b) = (world.pixel(dir_of(lat, lon), r).unwrap(), patch.pixel(dir_of(lat, lon), r).unwrap());
+            assert!((a.0 - b.0).abs() < 1e-6 && (a.1 - b.1).abs() < 1e-6, "{a:?} {b:?}");
         }
     }
 
@@ -659,7 +740,7 @@ mod tests {
 
     #[test]
     fn patch_centre_and_distance() {
-        let m = test_mask(100, 100, Placement::Patch { center_deg: [10.0, 20.0], km_per_px: 10.0, rotation_deg: 0.0 });
+        let m = test_mask(100, 100, Placement::Patch { center_deg: [10.0, 20.0], km_per_px: 10.0, rotation_deg: 0.0, projection: Projection::Azimuthal });
         let r = 6.371e6;
         let (x, y) = m.pixel(dir_of(10.0, 20.0), r).unwrap();
         assert!((x - 49.5).abs() < 1e-6 && (y - 49.5).abs() < 1e-6);
@@ -692,7 +773,7 @@ mod tests {
         assert_eq!(b.height_m(1.0, 0.2), Some(8000.0), "white doubled");
         let es = Elevation { sea_floor: true, sea_depth_m: 4000.0, ..e };
         assert!((es.height_m(0.1, 0.2).unwrap() + 2000.0).abs() < 1e-3);
-        let mut m = test_mask(8, 8, Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 50.0, rotation_deg: 0.0 });
+        let mut m = test_mask(8, 8, Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 50.0, rotation_deg: 0.0, projection: Projection::Azimuthal });
         m.data = Arc::new(vec![0.6; 64]);
         m.adjust.threshold = 0.2;
         m.elevation = Some(e);
@@ -709,9 +790,9 @@ mod tests {
     /// still wins where it has some.
     #[test]
     fn heightmap_sea_is_transparent() {
-        let mut land = test_mask(10, 10, Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 100.0, rotation_deg: 0.0 });
+        let mut land = test_mask(10, 10, Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 100.0, rotation_deg: 0.0, projection: Projection::Azimuthal });
         land.data = Arc::new(vec![1.0; 100]);
-        let mut hm = test_mask(10, 10, Placement::Patch { center_deg: [0.0, 4.0], km_per_px: 100.0, rotation_deg: 0.0 });
+        let mut hm = test_mask(10, 10, Placement::Patch { center_deg: [0.0, 4.0], km_per_px: 100.0, rotation_deg: 0.0, projection: Projection::Azimuthal });
         // Land only in its right half.
         hm.data = Arc::new((0..100).map(|k| if k % 10 >= 5 { 1.0 } else { 0.0 }).collect());
         hm.elevation = Some(Elevation::default());
@@ -753,9 +834,9 @@ mod tests {
     /// blank base is open sea; a disabled layer doesn't apply.
     #[test]
     fn layers_later_wins_and_blank_base() {
-        let mut land = test_mask(10, 10, Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 100.0, rotation_deg: 0.0 });
+        let mut land = test_mask(10, 10, Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 100.0, rotation_deg: 0.0, projection: Projection::Azimuthal });
         land.data = Arc::new(vec![1.0; 100]);
-        let mut sea = test_mask(4, 4, Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 100.0, rotation_deg: 0.0 });
+        let mut sea = test_mask(4, 4, Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 100.0, rotation_deg: 0.0, projection: Projection::Azimuthal });
         sea.data = Arc::new(vec![0.0; 16]);
         let mut p = Params { res: 48, ..Default::default() };
         p.conditioning.strict = true;

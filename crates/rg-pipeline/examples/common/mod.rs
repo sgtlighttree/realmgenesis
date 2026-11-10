@@ -74,12 +74,14 @@ pub fn world(seed: u64) -> World {
     // An imported coast mask (`RG_MASK=<png|svg>`, optional `RG_MASK_PATCH=lat,lon,km_per_px[,rot]`,
     // `RG_MASK_THRESHOLD`, `RG_MASK_INVERT=1`), as in the app. Not cached: the key can't see the file.
     if let Ok(path) = std::env::var("RG_MASK") {
-        use rg_pipeline::mask::{Placement, MaskAdjust, DecodeOpts};
+        use rg_pipeline::mask::{Placement, Projection, MaskAdjust, DecodeOpts};
         let v: Vec<f64> = std::env::var("RG_MASK_PATCH")
             .map(|v| v.split(',').filter_map(|x| x.trim().parse().ok()).collect())
             .unwrap_or_default();
         let place = if v.len() >= 3 {
-            Placement::Patch { center_deg: [v[0], v[1]], km_per_px: v[2], rotation_deg: v.get(3).copied().unwrap_or(0.0) }
+            // `RG_MASK_PROJ=equirect`: plate carrée about the centre (s08).
+            let projection = if std::env::var("RG_MASK_PROJ").is_ok_and(|v| v == "equirect") { Projection::Equirect } else { Projection::Azimuthal };
+            Placement::Patch { center_deg: [v[0], v[1]], km_per_px: v[2], rotation_deg: v.get(3).copied().unwrap_or(0.0), projection }
         } else {
             Placement::WorldEquirect
         };
@@ -90,12 +92,14 @@ pub fn world(seed: u64) -> World {
         let p_path = std::path::Path::new(&path);
         let kind = p_path.extension().and_then(|e| e.to_str()).unwrap_or("png").to_ascii_lowercase();
         let bytes = std::fs::read(p_path).expect("RG_MASK: read");
-        // s07: `RG_MASK_HEIGHT=max_m[,smooth_px[,guided]]` imports it as a heightmap layer.
+        // s07: `RG_MASK_HEIGHT=max_m[,smooth_px[,freedom[,tolerance]]]` imports it as a heightmap
+        // layer (freedom 0 = exact, 1 = guided).
         let hv: Vec<f32> = std::env::var("RG_MASK_HEIGHT").map(|v| v.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
         let elevation = (!hv.is_empty()).then(|| rg_pipeline::mask::Elevation {
             max_m: hv[0],
             smooth_px: hv.get(1).copied().unwrap_or(0.0),
-            fidelity: if hv.get(2).is_some_and(|g| *g > 0.0) { rg_pipeline::mask::Fidelity::Guided } else { rg_pipeline::mask::Fidelity::Exact },
+            freedom: hv.get(2).copied().unwrap_or(0.0).clamp(0.0, 1.0),
+            tolerance: hv.get(3).copied().unwrap_or(rg_pipeline::mask::DEFAULT_TOLERANCE),
             ..Default::default()
         });
         let mut m = rg_pipeline::import::layer_from_bytes(bytes, &kind, place, DecodeOpts::default(), adjust, elevation, None).expect("RG_MASK");

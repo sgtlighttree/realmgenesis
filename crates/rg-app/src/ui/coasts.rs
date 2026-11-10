@@ -8,7 +8,7 @@
 use crate::app::RealmApp;
 use glam::{DQuat, DVec3};
 use rg_pipeline::import;
-use rg_pipeline::mask::{Channel, Conditioning, DecodeOpts, Elevation, Fidelity, MaskAdjust, Placement, RasterMask, Stroke, StrokeOp};
+use rg_pipeline::mask::{Channel, Conditioning, DecodeOpts, Elevation, MaskAdjust, Placement, Projection, RasterMask, Stroke, StrokeOp};
 use crate::history::{EditHistory, Snapshot};
 use std::sync::Arc;
 
@@ -33,6 +33,8 @@ pub struct CoastUi {
     pub lon: f64,
     pub km_per_px: f64,
     pub rotation: f64,
+    /// How the patch maps to the sphere (s08).
+    pub projection: Projection,
     pub msg: String,
     /// The active brush, if painting.
     pub brush: Option<StrokeOp>,
@@ -80,6 +82,7 @@ impl Default for CoastUi {
             lon: 0.0,
             km_per_px: 10.0,
             rotation: 0.0,
+            projection: Projection::Azimuthal,
             msg: String::new(),
             brush: None,
             brush_km: 150.0,
@@ -109,9 +112,10 @@ impl CoastUi {
             Some(m) => {
                 self.file_name = m.name.clone();
                 match import::user_placement(m) {
-                    Placement::Patch { center_deg, km_per_px, rotation_deg } => {
+                    Placement::Patch { center_deg, km_per_px, rotation_deg, projection } => {
                         (self.patch, self.lat, self.lon, self.km_per_px, self.rotation) =
                             (true, center_deg[0], center_deg[1], km_per_px, rotation_deg);
+                        self.projection = projection;
                     }
                     Placement::WorldEquirect => self.patch = false,
                 }
@@ -129,7 +133,7 @@ impl CoastUi {
 
     fn placement(&self) -> Placement {
         if self.patch {
-            Placement::Patch { center_deg: [self.lat, self.lon], km_per_px: self.km_per_px, rotation_deg: self.rotation }
+            Placement::Patch { center_deg: [self.lat, self.lon], km_per_px: self.km_per_px, rotation_deg: self.rotation, projection: self.projection }
         } else {
             Placement::WorldEquirect
         }
@@ -165,6 +169,7 @@ fn sel_mask_mut<'a>(c: &'a mut Conditioning, st: &CoastUi) -> Option<&'a mut Arc
 pub fn coasts_section(app: &mut RealmApp, ui: &mut egui::Ui) {
     let centre = view_centre_deg(app);
     let seed = app.params.tectonics.seed;
+    let radius_m = app.params.tectonics.radius_m;
     let c = &mut app.params.tectonics.conditioning;
     let st = &mut app.coasts;
     // Base: what's under (and around) the imports.
@@ -210,7 +215,7 @@ pub fn coasts_section(app: &mut RealmApp, ui: &mut egui::Ui) {
     });
     if !c.masks.is_empty() {
         layers_list(c, st, ui);
-        mask_panel(c, st, ui);
+        mask_panel(c, st, ui, radius_m);
     }
     if c.strict {
         ui.checkbox(&mut c.islands, "tectonic islands offshore")
@@ -241,7 +246,7 @@ pub fn coasts_section(app: &mut RealmApp, ui: &mut egui::Ui) {
 }
 
 /// The imported mask: file, placement, and (PNG) the adjust panel.
-fn mask_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui) {
+fn mask_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui, radius_m: f64) {
     let Some(m) = sel_mask(c, st) else { return };
     let png = m.source_kind == "png";
     let channel = match m.channel_used {
@@ -282,9 +287,21 @@ fn mask_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui) {
                 .changed();
             changed |= ui.add(egui::DragValue::new(&mut st.rotation).range(-180.0..=180.0).speed(0.5).prefix("rot° ")).changed();
         });
+        ui.horizontal(|ui| {
+            ui.label("projection");
+            changed |= ui
+                .radio_value(&mut st.projection, Projection::Azimuthal, "regional")
+                .on_hover_text("Azimuthal equidistant: true distances from the centre. Right for a map of one region; it keeps its shape wherever it sits.")
+                .changed();
+            changed |= ui
+                .radio_value(&mut st.projection, Projection::Equirect, "flat lat/lon")
+                .on_hover_text("Plate carrée: x is longitude, y is latitude. For a flat map drawn as a lat/lon rectangle (Azgaar) covering a large part of the world. It widens towards the poles, as that map would on a globe.")
+                .changed();
+        });
         if changed {
             apply_placement(c, st);
         }
+        let mut fit = false;
         ui.horizontal(|ui| {
             if ui
                 .selectable_label(st.placing, "Move patch")
@@ -301,8 +318,25 @@ fn mask_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui) {
                 }
             }
             let side = st.km_per_px * (m.w.max(m.h) * m.step) as f64;
-            ui.label(egui::RichText::new(format!("{side:.0} km across")).small().color(super::theme::MUTED));
+            let text = if st.projection == Projection::Equirect {
+                // Plate carrée: the size that matters is the span in degrees.
+                let deg_per_km = 360.0 / (2.0 * std::f64::consts::PI * radius_m / 1000.0);
+                let (lon, lat) = (st.km_per_px * (m.w * m.step) as f64 * deg_per_km, st.km_per_px * (m.h * m.step) as f64 * deg_per_km);
+                format!("{lon:.0}° × {lat:.0}°")
+            } else {
+                format!("{side:.0} km across")
+            };
+            ui.label(egui::RichText::new(text).small().color(super::theme::MUTED));
+            if st.projection == Projection::Equirect
+                && ui.small_button("fit 360°").on_hover_text("Scale the map so its width wraps the whole globe once.").clicked()
+            {
+                st.km_per_px = (2.0 * std::f64::consts::PI * radius_m / 1000.0 / (m.w * m.step) as f64).clamp(0.01, 500.0);
+                fit = true;
+            }
         });
+        if fit {
+            apply_placement(c, st);
+        }
         if st.placing {
             ui.label(
                 egui::RichText::new("Drag inside to move · corners to scale · top knob to turn · ⌘-drag moves the view · Enter accepts · Esc cancels")
@@ -339,8 +373,8 @@ fn heightmap_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui, m:
             .on_hover_text("Greys are heights: above the sea-level grey is land, rising to the max height. Erosion keeps the drawn relief.");
     });
     if is_h != was {
-        // Exact by default until Matt has judged Guided (s07).
-        let elevation = is_h.then(|| Elevation { fidelity: Fidelity::Exact, ..Default::default() });
+        // Exact (freedom 0) by default until Matt has judged Guided (s07).
+        let elevation = is_h.then(|| Elevation { freedom: 0.0, ..Default::default() });
         match import::layer_from_bytes((*m.source).clone(), &m.source_kind, st.placement(), m.decode.clone(), m.adjust, elevation, None) {
             Ok(mut new) => {
                 // The map's sea floor if its sea has one, judged on the heightmap's own greys.
@@ -369,12 +403,17 @@ fn heightmap_panel(c: &mut Conditioning, st: &mut CoastUi, ui: &mut egui::Ui, m:
         .add(egui::Slider::new(&mut e.smooth_px, 0.0..=16.0).text("smooth px"))
         .on_hover_text("Blur the heights by this many source pixels: removes cell steps (Azgaar) and 8-bit terraces. The coast isn't blurred.");
     let rebuild = sm.drag_stopped() || (sm.changed() && !sm.dragged());
-    ui.horizontal(|ui| {
-        ui.label("fidelity");
-        ui.radio_value(&mut e.fidelity, Fidelity::Exact, "exact").on_hover_text("Keep the drawn heights; rivers route over them.");
-        ui.radio_value(&mut e.fidelity, Fidelity::Guided, "guided")
-            .on_hover_text("Erosion reshapes the drawing within ±10% of each height (smoothed uplift, then clamped), so drainage is the solver's own.");
-    });
+    ui.add(egui::Slider::new(&mut e.freedom, 0.0..=1.0).text("erosion freedom"))
+        .on_hover_text("0 = exact: the drawn heights are kept and rivers route over them. 1 = guided: erosion cuts its own valleys into the drawing. In between, the same valleys at that share of their depth.");
+    let mut tol_pct = e.tolerance * 100.0;
+    if ui
+        .add_enabled(e.freedom > 0.0, egui::Slider::new(&mut tol_pct, 1.0..=50.0).suffix(" %").text("tolerance"))
+        .on_hover_text("How far erosion may move each height from the drawing (never less than 30 m).")
+        .on_disabled_hover_text("Erosion freedom is 0, so the heights don't move.")
+        .changed()
+    {
+        e.tolerance = tol_pct / 100.0;
+    }
     ui.checkbox(&mut e.sea_floor, "use the map's sea floor")
         .on_hover_text("Darker than the sea-level grey becomes depth. Off: the generator's shelves, slopes and trenches.");
     if e.sea_floor {
@@ -680,11 +719,17 @@ pub fn place_drag(
             Handle::Scale => {
                 // The pointer's distance from the centre becomes the corner's distance.
                 if let Some(m) = app.params.tectonics.conditioning.masks.get(st.sel)
-                    && let Placement::Patch { km_per_px: raster_km, .. } = m.place
+                    && let Placement::Patch { km_per_px: raster_km, projection, .. } = m.place
                 {
                     let dist_km = centre.dot(d).clamp(-1.0, 1.0).acos() * r / 1000.0;
                     let corner_px = (m.w as f64 * 0.5).hypot(m.h as f64 * 0.5);
-                    let f = dist_km / (corner_px * raster_km).max(1e-9);
+                    // Plate carrée: a corner isn't `corner_px` km away on the globe, so
+                    // measure where it really is.
+                    let corner_km = match projection {
+                        Projection::Azimuthal => corner_px * raster_km,
+                        Projection::Equirect => centre.dot(m.dir_of_pixel(-0.5, -0.5, r)).clamp(-1.0, 1.0).acos() * r / 1000.0,
+                    };
+                    let f = dist_km / corner_km.max(1e-9);
                     if f.is_finite() && f > 0.0 {
                         st.km_per_px = (st.km_per_px * f).clamp(0.01, 500.0);
                     }

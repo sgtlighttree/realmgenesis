@@ -375,10 +375,10 @@ pub fn coverage_from_svg(bytes: &[u8], place: &Placement) -> Result<(Vec<f32>, u
     let (polys, v) = parse(text)?;
     let (w, h, place) = match place {
         Placement::WorldEquirect => (MAX_SIDE as usize, (MAX_SIDE / 2.0) as usize, Placement::WorldEquirect),
-        Placement::Patch { center_deg, km_per_px, rotation_deg } => {
+        Placement::Patch { center_deg, km_per_px, rotation_deg, projection } => {
             let scale = MAX_SIDE / v[2].max(v[3]); // pixels per unit
             let (w, h) = ((v[2] * scale).round().max(1.0) as usize, (v[3] * scale).round().max(1.0) as usize);
-            (w, h, Placement::Patch { center_deg: *center_deg, km_per_px: km_per_px / scale, rotation_deg: *rotation_deg })
+            (w, h, Placement::Patch { center_deg: *center_deg, km_per_px: km_per_px / scale, rotation_deg: *rotation_deg, projection: *projection })
         }
     };
     let (sx, sy) = (w as f64 / v[2], h as f64 / v[3]);
@@ -406,7 +406,7 @@ mod tests {
     #[test]
     fn even_odd_hole() {
         let svg = br#"<svg width="10" height="10"><path d="M0 0 L10 0 L10 10 L0 10 Z M3 3 L7 3 L7 7 L3 7 Z"/></svg>"#;
-        let (cov, w, _, _) = coverage_from_svg(svg, &Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 100.0, rotation_deg: 0.0 }).unwrap();
+        let (cov, w, _, _) = coverage_from_svg(svg, &Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 100.0, rotation_deg: 0.0, projection: Default::default() }).unwrap();
         let w = w as usize;
         assert!(cov[w / 10 * w + w / 10] > 0.99);
         assert!(cov[(w / 2) * w + w / 2] < 0.01);

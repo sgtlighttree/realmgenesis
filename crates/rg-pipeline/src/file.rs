@@ -214,6 +214,7 @@ pub fn from_file(f: &WorldFile) -> Result<World, String> {
         dynamic_topo_m: None,
         pin: None,
         guided: None,
+        guided_tolerance: None,
     };
     let ch = &h["climate"];
     let (cw, chh) = (num(ch, "width")? as u32, num(ch, "height")? as u32);

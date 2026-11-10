@@ -6,6 +6,15 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 
 R1 un-grid/coherence (done differently) → R2 raster renderer (done) → **R3 coastline conditioning + plate plausibility pass + coastal bathymetry (built s05; Matt's feedback next)** → R3b open-ocean seafloor → R4 regional bakes → R5 exports → alive world. Table with definitions: `ROADMAP.md` top. Matt: land terrain "largely satisfied"; active coasts: automatic + repaintable ("both").
 
+## s08 (2026-11-10, local): equirect patch projection + continuous fidelity
+
+- Log: `docs/session-logs/2026-11-10-s08-equirect-patch-fidelity.md`.
+- **Equirect patch ("counter distort", s07 item 6):** `Placement::Patch` has a `projection` (`Azimuthal` default, `Equirect` = plate carrée about the centre, equal degrees per pixel, `km_per_px` along a meridian). UI: "projection: regional / flat lat/lon", the span in degrees, a "fit 360°" button. `RG_MASK_PROJ=equirect` in the app and probes. Limits: a one-pixel seam opposite the centre at exactly 360°; rotation turns the image in its own plane.
+- **Continuous fidelity (7b):** `Elevation.fidelity` is gone; `freedom` 0..1 + `tolerance`. **Freedom = the share of the guided erosion's change that is kept**, inside the tolerance (any freedom > 0 runs the full guided solve). Blending the uplift instead was tried twice and gave no gradation (log). UI: "erosion freedom" and "tolerance %" sliders. New layers still start at 0 (exact).
+- **Gates:** Exact and Guided worlds are bit-identical to before (Klerga V1, `world_hash`); world files written at the old settings have the same header.
+- **Next: Matt tries both in the app** (an Azgaar map as a flat lat/lon patch with "fit 360°"; the freedom slider at 0.3 / 0.6 / 1 on V1). Then: flip the default freedom if Guided earns it; R3b.
+- **Sharing the Mac with TCHQ (Blender):** message the `claude-playground` session before heavy runs and hold builds when it asks; RAM/swap is the tight resource, so `-j 2`.
+
 ## s07 (2026-11-07, local): heightmap import
 
 - Log: `docs/session-logs/2026-11-07-s07-heightmap-import.md`.

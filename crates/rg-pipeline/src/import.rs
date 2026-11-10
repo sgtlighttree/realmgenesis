@@ -5,7 +5,7 @@
 //! with it, so the world file can store them (`conditioning.source`) and regenerate the world
 //! anywhere.
 
-use rg_tectonics::mask::{Channel, Conditioning, DecodeOpts, Elevation, Fidelity, MaskAdjust, Placement, RasterMask, Stroke, StrokeOp};
+use rg_tectonics::mask::{Channel, Conditioning, DecodeOpts, Elevation, MaskAdjust, Placement, Projection, RasterMask, Stroke, StrokeOp};
 use rg_world::WorldFile;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -268,15 +268,15 @@ pub fn has_bathymetry(m: &RasterMask) -> bool {
 /// viewBox unit), for the world file: loading re-runs [`mask_from_bytes`] with it.
 pub fn user_placement(m: &RasterMask) -> Placement {
     match (&m.place, m.source_kind.as_str()) {
-        (Placement::Patch { center_deg, km_per_px, rotation_deg }, "svg") => {
+        (Placement::Patch { center_deg, km_per_px, rotation_deg, projection }, "svg") => {
             let text = std::str::from_utf8(&m.source).unwrap_or("");
             let side = crate::svg::view_side(text).unwrap_or(1.0);
             let scale = m.w.max(m.h) as f64 / side; // raster px per unit
-            Placement::Patch { center_deg: *center_deg, km_per_px: km_per_px * scale, rotation_deg: *rotation_deg }
+            Placement::Patch { center_deg: *center_deg, km_per_px: km_per_px * scale, rotation_deg: *rotation_deg, projection: *projection }
         }
         // A downsampled heightmap: km per raster pixel → per source pixel (s07).
-        (Placement::Patch { center_deg, km_per_px, rotation_deg }, _) if m.step > 1 => {
-            Placement::Patch { center_deg: *center_deg, km_per_px: km_per_px / m.step as f64, rotation_deg: *rotation_deg }
+        (Placement::Patch { center_deg, km_per_px, rotation_deg, projection }, _) if m.step > 1 => {
+            Placement::Patch { center_deg: *center_deg, km_per_px: km_per_px / m.step as f64, rotation_deg: *rotation_deg, projection: *projection }
         }
         (p, _) => p.clone(),
     }
@@ -286,14 +286,14 @@ pub fn user_placement(m: &RasterMask) -> Placement {
 /// the user's units (an SVG patch's km per viewBox unit becomes km per raster pixel).
 pub fn raster_placement(m: &RasterMask, user: Placement) -> Placement {
     match (user, m.source_kind.as_str()) {
-        (Placement::Patch { center_deg, km_per_px, rotation_deg }, "svg") => {
+        (Placement::Patch { center_deg, km_per_px, rotation_deg, projection }, "svg") => {
             let text = std::str::from_utf8(&m.source).unwrap_or("");
             let side = crate::svg::view_side(text).unwrap_or(1.0);
             let scale = m.w.max(m.h) as f64 / side; // raster px per unit
-            Placement::Patch { center_deg, km_per_px: km_per_px / scale, rotation_deg }
+            Placement::Patch { center_deg, km_per_px: km_per_px / scale, rotation_deg, projection }
         }
-        (Placement::Patch { center_deg, km_per_px, rotation_deg }, _) if m.step > 1 => {
-            Placement::Patch { center_deg, km_per_px: km_per_px * m.step as f64, rotation_deg }
+        (Placement::Patch { center_deg, km_per_px, rotation_deg, projection }, _) if m.step > 1 => {
+            Placement::Patch { center_deg, km_per_px: km_per_px * m.step as f64, rotation_deg, projection }
         }
         (p, _) => p,
     }
@@ -322,9 +322,14 @@ fn op_name(op: StrokeOp) -> &'static str {
 fn placement_json(p: &Placement) -> Value {
     match p {
         Placement::WorldEquirect => json!({"kind": "world_equirect"}),
-        Placement::Patch { center_deg, km_per_px, rotation_deg } => json!({
-            "kind": "patch", "center_deg": center_deg, "km_per_px": km_per_px, "rotation_deg": rotation_deg,
-        }),
+        Placement::Patch { center_deg, km_per_px, rotation_deg, projection } => {
+            let mut v = json!({"kind": "patch", "center_deg": center_deg, "km_per_px": km_per_px, "rotation_deg": rotation_deg});
+            // Written only when it isn't the default, so older worlds' headers don't change.
+            if *projection == Projection::Equirect {
+                v["projection"] = json!("equirect");
+            }
+            v
+        }
     }
 }
 
@@ -335,6 +340,7 @@ fn placement_from(v: &Value) -> Placement {
             center_deg: [c(0), c(1)],
             km_per_px: v["km_per_px"].as_f64().unwrap_or(10.0),
             rotation_deg: v["rotation_deg"].as_f64().unwrap_or(0.0),
+            projection: if v["projection"].as_str() == Some("equirect") { Projection::Equirect } else { Projection::Azimuthal },
         }
     } else {
         Placement::WorldEquirect
@@ -406,10 +412,9 @@ fn mask_json(m: &RasterMask) -> Value {
         v["name"] = json!(m.name);
     }
     if let Some(e) = m.elevation {
-        let fidelity = match e.fidelity {
-            Fidelity::Exact => "exact",
-            Fidelity::Guided => "guided",
-        };
+        // "exact"/"guided" as before s08 at the two ends, so those worlds' headers don't
+        // change; a freedom in between is written as a number beside it.
+        let fidelity = if e.freedom <= 0.0 { "exact" } else { "guided" };
         v["elevation"] = json!({
             "max_m": e.max_m, "gamma": e.gamma, "sea_floor": e.sea_floor, "sea_depth_m": e.sea_depth_m,
             "smooth_px": e.smooth_px, "fidelity": fidelity, "peak_boost": e.peak_boost,
@@ -417,6 +422,12 @@ fn mask_json(m: &RasterMask) -> Value {
             // can't alter an old world (s07).
             "step": m.step, "downsample_ver": 1,
         });
+        if e.freedom > 0.0 && e.freedom < 1.0 {
+            v["elevation"]["freedom"] = json!(e.freedom);
+        }
+        if e.tolerance != Elevation::default().tolerance {
+            v["elevation"]["tolerance"] = json!(e.tolerance);
+        }
     }
     v
 }
@@ -451,7 +462,8 @@ fn mask_from_json(v: &Value, bytes: Vec<u8>) -> Result<RasterMask, String> {
             sea_floor: ev["sea_floor"].as_bool().unwrap_or(d.sea_floor),
             sea_depth_m: f("sea_depth_m", d.sea_depth_m),
             smooth_px: f("smooth_px", d.smooth_px),
-            fidelity: if ev["fidelity"].as_str() == Some("exact") { Fidelity::Exact } else { Fidelity::Guided },
+            freedom: f("freedom", if ev["fidelity"].as_str() == Some("exact") { 0.0 } else { 1.0 }),
+            tolerance: f("tolerance", d.tolerance),
             peak_boost: f("peak_boost", d.peak_boost),
         }
     });
@@ -660,7 +672,7 @@ mod tests {
     #[test]
     fn imported_world_round_trips() {
         let svg = br#"<svg viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60"/></svg>"#.to_vec();
-        let place = Placement::Patch { center_deg: [20.0, 30.0], km_per_px: 40.0, rotation_deg: 15.0 };
+        let place = Placement::Patch { center_deg: [20.0, 30.0], km_per_px: 40.0, rotation_deg: 15.0, projection: Projection::Azimuthal };
         let mask = mask_from_bytes(svg, "svg", place).unwrap();
         let mut params = crate::WorldParams::default();
         params.tectonics.res = 32;
@@ -709,7 +721,7 @@ mod tests {
         };
         let decode = DecodeOpts { channel: Channel::Brightness, crop: Some([4, 2, 32, 16]) };
         let adjust = MaskAdjust { threshold: 0.4, invert: true };
-        let place = Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 100.0, rotation_deg: 0.0 };
+        let place = Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 100.0, rotation_deg: 0.0, projection: Projection::Azimuthal };
         let mask = mask_from_bytes_with(bytes, "png", place, decode, adjust).unwrap();
         assert_eq!((mask.w, mask.h), (32, 16));
         // Inverted, dark grey is land; the left of the crop (x < 16) is land.
@@ -747,9 +759,9 @@ mod tests {
             drop(wr);
             out
         };
-        let place = Placement::Patch { center_deg: [10.0, 5.0], km_per_px: 20.0, rotation_deg: 10.0 };
+        let place = Placement::Patch { center_deg: [10.0, 5.0], km_per_px: 20.0, rotation_deg: 10.0, projection: Projection::Azimuthal };
         let adjust = MaskAdjust { threshold: 0.235, invert: false };
-        let e = Elevation { max_m: 3000.0, gamma: 1.3, smooth_px: 3.0, fidelity: Fidelity::Exact, ..Default::default() };
+        let e = Elevation { max_m: 3000.0, gamma: 1.3, smooth_px: 3.0, freedom: 0.0, ..Default::default() };
         let m = layer_from_bytes(bytes.clone(), "png", place.clone(), DecodeOpts::default(), adjust, Some(e), Some(4)).unwrap();
         assert_eq!((m.w, m.h, m.step), (16, 8, 4));
         assert_eq!(user_placement(&m), place);
@@ -805,9 +817,9 @@ mod tests {
     /// lakes), and rivers still drain it.
     #[test]
     fn exact_heightmap_survives_erosion() {
-        let place = Placement::Patch { center_deg: [5.0, 20.0], km_per_px: 50.0, rotation_deg: 0.0 };
+        let place = Placement::Patch { center_deg: [5.0, 20.0], km_per_px: 50.0, rotation_deg: 0.0, projection: Projection::Azimuthal };
         let adjust = MaskAdjust { threshold: 0.2, invert: false };
-        let e = Elevation { max_m: 5000.0, fidelity: Fidelity::Exact, ..Default::default() };
+        let e = Elevation { max_m: 5000.0, freedom: 0.0, ..Default::default() };
         let m = layer_from_bytes(dome_png(96), "png", place, DecodeOpts::default(), adjust, Some(e), None).unwrap();
         let mut params = crate::WorldParams::default();
         params.tectonics.res = 64;
@@ -842,7 +854,7 @@ mod tests {
         // Guided on the same map must move some pinned land (> 1%): the solve really runs
         // when all land is pinned (s07: it was skipped, and the Exact checks passed vacuously).
         let mut gm = (*params.tectonics.conditioning.masks[0]).clone();
-        gm.elevation.as_mut().unwrap().fidelity = Fidelity::Guided;
+        gm.elevation.as_mut().unwrap().freedom = 1.0;
         params.tectonics.conditioning.masks = vec![Arc::new(gm)];
         let guided = crate::generate(&params);
         let moved = (0..snap.height_m.data.len())
@@ -852,12 +864,79 @@ mod tests {
         assert!(moved * 10 > n, "Guided moved only {moved}/{n} pinned samples");
     }
 
+    /// s08: a freedom between exact and guided still holds its tolerance (the clamp's
+    /// strength is the pin, not the freedom), and less freedom moves the land less.
+    #[test]
+    fn freedom_and_tolerance_are_honoured() {
+        let place = Placement::Patch { center_deg: [5.0, 20.0], km_per_px: 50.0, rotation_deg: 0.0, projection: Projection::Azimuthal };
+        let adjust = MaskAdjust { threshold: 0.2, invert: false };
+        let run = |freedom: f32, tolerance: f32| {
+            let e = Elevation { max_m: 5000.0, freedom, tolerance, ..Default::default() };
+            let m = layer_from_bytes(dome_png(96), "png", place.clone(), DecodeOpts::default(), adjust, Some(e), None).unwrap();
+            let mut params = crate::WorldParams::default();
+            params.tectonics.res = 64;
+            params.erosion.canonical_res = 0; // erode at this resolution
+            let c = &mut params.tectonics.conditioning;
+            c.strict = true;
+            c.outside_procedural = false;
+            c.islands = false;
+            c.masks = vec![Arc::new(m)];
+            let snap = rg_tectonics::generate(&params.tectonics);
+            let world = crate::generate(&params);
+            let hy = world.hydrology.as_ref().expect("eroded");
+            let pin = snap.pin.as_ref().unwrap();
+            // (imported height, |change|) on fully pinned dry land.
+            (0..snap.height_m.data.len())
+                .filter(|&k| snap.height_m.data[k] > 0.0 && pin.data[k] >= 1.0 && hy.lake_depth_m.data[k] <= 0.0)
+                .map(|k| (snap.height_m.data[k], (world.tectonics.height_m.data[k] - snap.height_m.data[k]).abs()))
+                .collect::<Vec<(f32, f32)>>()
+        };
+        let mean = |v: &[(f32, f32)]| v.iter().map(|x| x.1 as f64).sum::<f64>() / v.len() as f64;
+        let over = |v: &[(f32, f32)], tol: f32| v.iter().filter(|(t, d)| *d > (tol * t).max(30.0) + 5.0).count();
+        let full = run(1.0, 0.10);
+        let part = run(0.3, 0.10);
+        let tight = run(0.3, 0.02);
+        assert!(full.len() > 50, "only {} pinned land samples", full.len());
+        assert!(mean(&part) < mean(&full), "freedom 0.3 moved {} m, freedom 1 moved {} m", mean(&part), mean(&full));
+        assert!(mean(&part) > 0.0, "freedom 0.3 moved nothing");
+        for (name, v, tol) in [("1.0/10%", &full, 0.10), ("0.3/10%", &part, 0.10), ("0.3/2%", &tight, 0.02)] {
+            let n = over(v, tol);
+            assert!(n * 50 <= v.len(), "{name}: {n}/{} samples past the tolerance", v.len());
+        }
+    }
+
+    /// s08: the plate carrée projection, a freedom in between and a tolerance survive the
+    /// world file; a layer at the defaults writes none of the new keys.
+    #[test]
+    fn projection_freedom_tolerance_round_trip() {
+        let place = Placement::Patch { center_deg: [10.0, 5.0], km_per_px: 20.0, rotation_deg: 10.0, projection: Projection::Equirect };
+        let adjust = MaskAdjust { threshold: 0.2, invert: false };
+        let e = Elevation { max_m: 3000.0, freedom: 0.4, tolerance: 0.25, ..Default::default() };
+        let m = layer_from_bytes(dome_png(32), "png", place.clone(), DecodeOpts::default(), adjust, Some(e), Some(2)).unwrap();
+        assert_eq!(user_placement(&m), place, "the projection survives the step rescale");
+        let j = mask_json(&m);
+        assert_eq!(j["placement"]["projection"], "equirect");
+        let back = mask_from_json(&j, (*m.source).clone()).unwrap();
+        assert_eq!(back.place, m.place);
+        assert_eq!(back.elevation, m.elevation);
+        // Defaults: nothing new in the header, and the old strings read as before.
+        let old = Placement::Patch { center_deg: [10.0, 5.0], km_per_px: 20.0, rotation_deg: 10.0, projection: Projection::Azimuthal };
+        for (freedom, word) in [(0.0, "exact"), (1.0, "guided")] {
+            let e = Elevation { freedom, ..Default::default() };
+            let m = layer_from_bytes(dome_png(32), "png", old.clone(), DecodeOpts::default(), adjust, Some(e), None).unwrap();
+            let j = mask_json(&m);
+            assert!(j["placement"].get("projection").is_none() && j["elevation"].get("freedom").is_none() && j["elevation"].get("tolerance").is_none());
+            assert_eq!(j["elevation"]["fidelity"], word);
+            assert_eq!(mask_from_json(&j, (*m.source).clone()).unwrap().elevation, m.elevation);
+        }
+    }
+
     /// A world saved with the s05 single-import layout (fields at the top of the block,
     /// chunk `conditioning.source`) still loads, as one import layer.
     #[test]
     fn legacy_single_import_file_loads() {
         let svg = br#"<svg viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60"/></svg>"#.to_vec();
-        let place = Placement::Patch { center_deg: [20.0, 30.0], km_per_px: 40.0, rotation_deg: 15.0 };
+        let place = Placement::Patch { center_deg: [20.0, 30.0], km_per_px: 40.0, rotation_deg: 15.0, projection: Projection::Azimuthal };
         let mask = mask_from_bytes(svg, "svg", place).unwrap();
         let mut params = crate::WorldParams::default();
         params.tectonics.res = 32;

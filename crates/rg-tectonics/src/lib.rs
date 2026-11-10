@@ -129,8 +129,10 @@ pub struct TectonicSnapshot {
     /// of calibration and inverts uplift from them. Derived from the conditioning (stored);
     /// an erosion input only, not stored in world files. `None` without heightmap layers.
     pub pin: Option<CubeField<f32>>,
-    /// 1 where that heightmap layer is Guided (s07), else 0. Same lifetime as `pin`.
+    /// That heightmap layer's erosion freedom 0..1 (0 = exact; s07/s08). Same lifetime as `pin`.
     pub guided: Option<CubeField<f32>>,
+    /// That layer's guided tolerance (fraction of the imported height; s08). Same lifetime.
+    pub guided_tolerance: Option<CubeField<f32>>,
 }
 
 /// Area-weighted fraction of a height field above 0 (cube-sphere cells near face corners are
@@ -205,6 +207,7 @@ pub fn generate_with_model(p: &TectonicsParams) -> (TectonicSnapshot, plates::Pl
         dynamic_topo_m: None,
         pin: imported.as_ref().map(|_| CubeField::new(p.res)),
         guided: imported.as_ref().map(|_| CubeField::new(p.res)),
+        guided_tolerance: imported.as_ref().map(|_| CubeField::new(p.res)),
     };
     for (s, &node) in grid.sample_node.iter().enumerate() {
         let a = node as usize;
@@ -229,6 +232,9 @@ pub fn generate_with_model(p: &TectonicsParams) -> (TectonicSnapshot, plates::Pl
         }
         if let (Some(f), Some(im)) = (snap.guided.as_mut(), imported.as_ref()) {
             f.data[s] = im.guided[a];
+        }
+        if let (Some(f), Some(im)) = (snap.guided_tolerance.as_mut(), imported.as_ref()) {
+            f.data[s] = im.tolerance[a];
         }
     }
     (snap, pm, stats)
@@ -449,16 +455,16 @@ mod tests {
     /// coast signs follow the mask, and a flat-sea map leaves the sea floor to bathymetry.
     #[test]
     fn heightmap_layer_sets_land_heights() {
-        use mask::{Elevation, Fidelity, Placement, RasterMask};
+        use mask::{Elevation, Placement, Projection, RasterMask};
         let (w, h) = (64u32, 64u32);
         // Land in the middle columns, rising north → south from grey 0.4 to 1.0; sea grey 0.
         let data: Vec<f32> = (0..w * h).map(|k| if (16..48).contains(&(k % w)) { 0.4 + 0.6 * (k / w) as f32 / 63.0 } else { 0.0 }).collect();
-        let e = Elevation { max_m: 6000.0, fidelity: Fidelity::Exact, ..Default::default() };
+        let e = Elevation { max_m: 6000.0, freedom: 0.0, ..Default::default() };
         let mut m = RasterMask {
             data: std::sync::Arc::new(data),
             w,
             h,
-            place: Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 60.0, rotation_deg: 0.0 },
+            place: Placement::Patch { center_deg: [0.0, 0.0], km_per_px: 60.0, rotation_deg: 0.0, projection: Projection::Azimuthal },
             adjust: mask::MaskAdjust { threshold: 0.2, invert: false },
             decode: Default::default(),
             channel_used: mask::Channel::Brightness,
