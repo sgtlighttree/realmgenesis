@@ -51,6 +51,7 @@
 //! comes from the physics; overall amplitude from the curve. The [`ErosionStats`] check the
 //! shape against Earth's laws before the remap.
 
+pub mod condition;
 pub mod hypsometry;
 pub mod lakes;
 mod jitter;

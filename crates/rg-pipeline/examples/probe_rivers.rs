@@ -86,6 +86,43 @@ fn main() {
     trib.sort_by(f64::total_cmp);
     let stubs = trib.iter().filter(|&&n| n <= 2.0).count();
 
+    // s09: where rivers end, how long they run, and how much land is lake.
+    let lake = &hy.lake_depth_m;
+    let lake_frac = lake.iter_samples().filter(|&(k, _, _, _, d)| lake.data[k] > 2.0 && hm.sample(d) > 0.0).count() as f64 / lake.data.len() as f64;
+    let (mut end_sea, mut end_lake, mut end_dry) = (0, 0, 0);
+    let (mut len_in_lake, mut len_desc) = (0.0, vec![0.0f64; rivers.len()]);
+    for (i, s) in rivers.iter().enumerate() {
+        if lake.sample(s.from) > 2.0 {
+            len_in_lake += len_km(s);
+        }
+        if !by_from.contains_key(&key(s.to)) {
+            if hm.sample(s.to) <= 0.0 {
+                end_sea += 1;
+            } else if lake.sample(s.to) > 2.0 || lake.sample(s.from) > 2.0 {
+                end_lake += 1;
+            } else {
+                end_dry += 1;
+            }
+        }
+        let _ = i;
+    }
+    // Course length from each source to where its water leaves the drawn network.
+    let mut courses: Vec<f64> = sources
+        .iter()
+        .map(|&i| {
+            let (mut k, mut l) = (i, len_km(&rivers[i]));
+            while let Some(&j) = by_from.get(&key(rivers[k].to)) {
+                k = j;
+                l += len_km(&rivers[k]);
+            }
+            l
+        })
+        .collect();
+    courses.sort_by(f64::total_cmp);
+    len_desc.clear();
+    println!("lakes: {:.2}% of the globe's nodes are lake on land ({:.1}% of land); river length under lakes {:.0}%", lake_frac * 100.0, lake_frac / land_frac.max(1e-9) * 100.0, 100.0 * len_in_lake / total.max(1.0));
+    println!("river ends: sea {end_sea}, lake {end_lake}, on dry land {end_dry}");
+    println!("source-to-end course km: median {:.0}, p90 {:.0}, max {:.0}; courses ≥ 1000 km: {}", pct(&courses, 0.5), pct(&courses, 0.9), pct(&courses, 1.0), courses.iter().filter(|&&l| l >= 1000.0).count());
     println!("seed {seed}: land {:.1}% = {land_mkm2:.1} Mkm², cell {cell_km:.1} km, threshold {:.0} km²", land_frac * 100.0, w.params.erosion.river_min_area_km2);
     println!("segments {} ({:.0} per Mkm² land), length {total:.0} km ({:.0} km per Mkm² land)", rivers.len(), rivers.len() as f64 / land_mkm2, total / land_mkm2);
     println!("pre-s08b drawn width on the ground: min {:.1} km, median {:.1} km, p90 {:.1} km, max {:.1} km", pct(&widths, 0.0), pct(&widths, 0.5), pct(&widths, 0.9), pct(&widths, 1.0));

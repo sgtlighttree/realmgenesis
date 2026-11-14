@@ -6,6 +6,12 @@ The current state, for the next session. History lives in `docs/session-logs/`. 
 
 R1 un-grid/coherence (done differently) → R2 raster renderer (done) → **R3 coastline conditioning + plate plausibility pass + coastal bathymetry (built s05; Matt's feedback next)** → R3b open-ocean seafloor → R4 regional bakes → R5 exports → alive world. Table with definitions: `ROADMAP.md` top. Matt: land terrain "largely satisfied"; active coasts: automatic + repaintable ("both").
 
+## s09 (2026-11-14, local): rivers on imports — WIP, stopped by the usage limit
+
+- Log: `docs/session-logs/2026-11-14-s09-import-rivers.md` (findings, what was tried, next steps).
+- **State: prototype committed, not finished.** `rg-erosion/src/condition.rs` + `Network::wander` route imports' final drainage on a conditioned copy (shallow pits filled, stochastic slope-weighted receivers). Heights untouched. It has `RG_COND_*` env knobs and debug blocks in a core crate: remove before calling it done. Untested: `cargo test`, clippy, the hash gates.
+- **Open:** the app's rivers didn't change (refine path suspected, unverified); zoomed-in rivers are fat (4.9 km texels).
+
 ## s08 (2026-11-10, local): equirect patch projection + continuous fidelity
 
 - Log: `docs/session-logs/2026-11-10-s08-equirect-patch-fidelity.md`.

@@ -703,7 +703,7 @@ pub fn erode_climate_with_progress(
             // turn it into ε-flats whose Priority-Flood routing is straight (s01 review).
             let relief = grid.neighbors(i).iter().map(|&j| (tectonic_relief[i] - tectonic_relief[j as usize]).abs()).fold(0.0, f64::max);
             // None on pinned (heightmap) land: it must stay a steady state of its uplift.
-            let amp = p.initial_roughness_m.min(0.25 * relief) * (1.0 - pin_at(i));
+            let amp = p.initial_roughness_m.min(0.25 * relief) * if std::env::var("RG_PIN_ROUGH").is_ok() { 1.0 } else { 1.0 - pin_at(i) };
             let r = if p.roughness_wavelength_km > 0.0 {
                 // Position-keyed, so every resolution starts from the same large-scale bumps.
                 let cell_m = std::f64::consts::FRAC_PI_2 * radius_m / res as f64;
@@ -741,7 +741,7 @@ pub fn erode_climate_with_progress(
     let guided_at = |i: usize| if freedom_at(i) > 0.0 { pin_at(i) } else { 0.0 };
     let tolerance: Option<Vec<f64>> = tectonic.guided_tolerance.as_ref().map(|f| par_map(n, |i| f.sample(grid.dir[i]).clamp(0.0, 1.0) as f64));
     if let Some(w) = &pin {
-        let (mut u_inv, _) = invert_uplift(&grid, radius_m, &h0, &ocean, &k_field, runoff_w.as_deref(), lake_in.as_ref(), p);
+        let (mut u_inv, _) = invert_uplift(&grid, radius_m, if std::env::var("RG_PIN_ROUGH").is_ok() { &tectonic_relief } else { &h0 }, &ocean, &k_field, runoff_w.as_deref(), lake_in.as_ref(), p);
         if (0..n).any(|i| guided_at(i) > 0.0) {
             let land: Vec<f64> = (0..n).map(|i| if ocean[i] { 0.0 } else { 1.0 }).collect();
             let u_land: Vec<f64> = (0..n).map(|i| u_inv[i] * land[i]).collect();
@@ -805,22 +805,80 @@ pub fn erode_climate_with_progress(
     let mut endorheic_frac = 0.0;
     let mut lake_frac = 0.0;
     let mut closed_nodes = vec![false; n];
+    // Heightmap land (s09): lakes and rivers are routed on a conditioned copy (`condition`),
+    // the committed heights stay as they are. Without a heightmap this is `h` itself.
+    let mut flat_cost: Option<Vec<f64>> = None;
+    let routed_h: Option<Vec<f64>> = match &pin {
+        Some(w) if std::env::var("RG_COND_OFF").is_err() => {
+            let c = crate::condition::condition(&grid, radius_m, &h, &ocean, w, p.seed, &Default::default());
+            net.wander = Some(c.wander);
+            flat_cost = Some(c.flat_cost);
+            Some(c.surface)
+        }
+        _ => None,
+    };
     let mut lake: Vec<f64> = match &lake_in {
         Some(li) => {
-            let lk = crate::lakes::compute(&grid, &h, &ocean, li.runoff_m_yr, li.net_evap_m_yr, &area_m2);
+            let hr: &[f64] = routed_h.as_deref().unwrap_or(&h);
+            let lk = crate::lakes::compute(&grid, hr, &ocean, li.runoff_m_yr, li.net_evap_m_yr, &area_m2);
             closed_nodes.clone_from(&lk.closed_lake);
-            let sub: Vec<bool> = (0..n).map(|i| !ocean[i] && lk.level[i] > h[i]).collect();
+            let sub: Vec<bool> = (0..n).map(|i| !ocean[i] && lk.level[i] > hr[i]).collect();
             let sink: Vec<bool> = (0..n).map(|i| ocean[i] || lk.closed_lake[i]).collect();
             let base_h: Vec<f64> = (0..n).map(|i| if sub[i] { lk.level[i] } else { 0.0 }).collect();
-            let mut f: Vec<f64> = (0..n).map(|i| if sub[i] { lk.level[i] } else { h[i] }).collect();
-            priority_flood_fill_to(&grid, &mut f, &sink, Some(&base_h));
+            let mut f: Vec<f64> = (0..n).map(|i| if sub[i] { lk.level[i] } else { hr[i] }).collect();
+            priority_flood_fill_eps(&grid, &mut f, &sink, Some(&base_h), FLAT_EPS_PER_RAD, flat_cost.as_deref());
             net.route(&grid, &f, &sink);
+            if std::env::var("RG_COND_DEBUG").is_ok() && net.wander.is_some() {
+                let with = net.receiver.clone();
+                let w = net.wander.take();
+                net.route(&grid, &f, &sink);
+                let land_n = (0..n).filter(|&i| !ocean[i]).count();
+                let changed = (0..n).filter(|&i| !ocean[i] && with[i] != net.receiver[i]).count();
+                let mut amps: Vec<f64> = w.as_ref().unwrap().iter().zip(&ocean).filter(|(_, o)| !**o).map(|(a, _)| a.abs()).collect();
+                amps.sort_by(f64::total_cmp);
+                let mut drops: Vec<f64> = (0..n).filter(|&i| !ocean[i]).map(|i| f[i] - f[with[i] as usize]).collect();
+                drops.sort_by(f64::total_cmp);
+                let q = |v: &[f64], p: f64| v[((v.len() - 1) as f64 * p) as usize];
+                eprintln!("wander: {changed} of {land_n} receivers changed; |wander| m p10 {:.2} p50 {:.2} p90 {:.2}; drop to receiver m p10 {:.4} p50 {:.3} p90 {:.1}", q(&amps, 0.1), q(&amps, 0.5), q(&amps, 0.9), q(&drops, 0.1), q(&drops, 0.5), q(&drops, 0.9));
+                // Longest straight run: follow receivers while the step direction repeats.
+                let step = |i: usize| grid.dir[with[i] as usize] - grid.dir[i];
+                let mut best: (usize, usize) = (0, 0);
+                for s0 in (0..n).filter(|&i| !ocean[i]) {
+                    let (mut i, mut len) = (s0, 0);
+                    loop {
+                        let r = with[i] as usize;
+                        if r == i || ocean[r] || with[r] as usize == r {
+                            break;
+                        }
+                        if step(i).normalize().dot(step(r).normalize()) < 0.9995 {
+                            break;
+                        }
+                        i = r;
+                        len += 1;
+                    }
+                    if len > best.1 {
+                        best = (s0, len);
+                    }
+                }
+                eprintln!("longest straight run: {} steps", best.1);
+                let ww = w.as_ref().unwrap();
+                let mut i = best.0;
+                for _ in 0..best.1.min(8) {
+                    let r = with[i] as usize;
+                    let d = grid.dir[i];
+                    let nb: Vec<String> = grid.neighbors(i).iter().map(|&j| format!("{}{:.1}/{:.0}", if j as usize == r { "*" } else { "" }, f[j as usize] - f[i], ww[j as usize] - ww[i])).collect();
+                    eprintln!("  lat {:.1} lon {:.1} f {:.1} h {:.1} pinned {} neighbours (df/dw): {}", d.z.asin().to_degrees(), d.y.atan2(d.x).to_degrees(), f[i], h[i], pin_at(i), nb.join(" "));
+                    i = r;
+                }
+                net.wander = w;
+                net.receiver = with;
+            }
             net.build_stack();
             net.accumulate(&wet, &sink);
             let land: f64 = (0..n).filter(|&i| !ocean[i]).map(|i| area_m2[i]).sum::<f64>().max(1.0);
             endorheic_frac = (0..n).filter(|&i| !ocean[i] && lk.endorheic[i]).map(|i| area_m2[i]).sum::<f64>() / land;
             lake_frac = (0..n).filter(|&i| sub[i]).map(|i| area_m2[i]).sum::<f64>() / land;
-            (0..n).map(|i| if sub[i] { lk.level[i] - h[i] } else { 0.0 }).collect()
+            (0..n).map(|i| if sub[i] { lk.level[i] - hr[i] } else { 0.0 }).collect()
         }
         None => {
             let pre_fill = h.clone();
@@ -998,6 +1056,10 @@ pub struct Network {
     pub area: Vec<f64>,
     /// `Some(seed)` routes with Rho8 (see [`ErosionParams::rho8`]); `None` is plain D8.
     pub rho8_seed: Option<u64>,
+    /// Heightmap land (s09, `condition`): metres added per node when comparing slopes. Only
+    /// neighbours lower on the real surface are candidates, so this bends courses without
+    /// making pits. None = plain steepest descent.
+    pub wander: Option<Vec<f64>>,
     /// Per node, bit k set if adjacency slot k is a diagonal neighbour (see
     /// [`diagonal_mask`]). Filled on the first Rho8 route.
     diag: Vec<u16>,
@@ -1012,6 +1074,7 @@ impl Network {
             stack: Vec::with_capacity(n),
             area: vec![0.0; n],
             rho8_seed: None,
+            wander: None,
             diag: Vec::new(),
             donors_start: vec![0; n + 1],
             donors: vec![0; n],
@@ -1026,9 +1089,48 @@ impl Network {
             self.diag = diagonal_mask(grid);
         }
         let diag = &self.diag;
+        let wander = self.wander.as_deref();
         let rec: Vec<u32> = par_map(grid.n, |i| {
             if ocean[i] {
                 return i as u32;
+            }
+            if let Some(w) = wander.filter(|w| w[i] != 0.0) {
+                // Among the truly lower neighbours, one is drawn with odds ∝ (slope on
+                // surface + wander)^power: the mean course follows the real gradient in any
+                // direction (plain steepest descent only knows the lattice's eight), and
+                // courses come out irregular. One fixed random number per node.
+                let power = std::env::var("RG_COND_POW").ok().and_then(|v| v.parse().ok()).unwrap_or(2.0);
+                let mut cand: [(f64, u32); 8] = [(0.0, 0); 8];
+                let (mut m, mut total) = (0, 0.0);
+                let mut least_bad = (f64::NEG_INFINITY, i as u32);
+                for &j in grid.neighbors(i) {
+                    let hj = if ocean[j as usize] { 0.0f64.min(h[j as usize]) } else { h[j as usize] };
+                    if hj >= h[i] {
+                        continue;
+                    }
+                    let d = (grid.dir[i] - grid.dir[j as usize]).length();
+                    let s = (h[i] + w[i] - hj - w[j as usize]) / d;
+                    if s > least_bad.0 {
+                        least_bad = (s, j);
+                    }
+                    if s > 0.0 {
+                        let wgt = s.powf(power);
+                        cand[m] = (wgt, j);
+                        m += 1;
+                        total += wgt;
+                    }
+                }
+                if m == 0 {
+                    return least_bad.1;
+                }
+                let mut u = unit_hash(rho8.unwrap_or(0) ^ 0x5709_CA57, i as u64) * total;
+                for &(wgt, j) in &cand[..m] {
+                    if u < wgt {
+                        return j;
+                    }
+                    u -= wgt;
+                }
+                return cand[m - 1].1;
             }
             // Rho8: one random number per node, fixed for the whole run.
             let diag_len = rho8.map(|seed| 2.0 - unit_hash(seed, i as u64));
@@ -1111,6 +1213,20 @@ pub fn priority_flood_fill(grid: &Grid, h: &mut [f64], ocean: &[bool]) {
 /// As [`priority_flood_fill`], with outlets seeded at their own `base` height instead of 0
 /// (closed lakes are outlets at their water level).
 pub fn priority_flood_fill_to(grid: &Grid, h: &mut [f64], ocean: &[bool], base: Option<&[f64]>) {
+    // ε per metre of arc: ~1 mm per km, too small to see, enough to route flats.
+    priority_flood_fill_eps(grid, h, ocean, base, FLAT_EPS_PER_RAD, None)
+}
+
+/// ε per radian of arc across filled flats (~1 mm per km).
+pub(crate) const FLAT_EPS_PER_RAD: f64 = 1.0e-3 * 6_371.0;
+
+/// As [`priority_flood_fill_to`] with the gradient given (`eps_per_rad` = 0: plain fill to
+/// the spill height, for measuring how deep a depression is).
+///
+/// `cost` (s09, heightmap land) multiplies the gradient per node. Across a flat the flood
+/// then spreads from the outlet as a weighted shortest path, so the routes over it wander
+/// and merge like a drainage tree instead of running straight.
+pub(crate) fn priority_flood_fill_eps(grid: &Grid, h: &mut [f64], ocean: &[bool], base: Option<&[f64]>, eps_per_rad: f64, cost: Option<&[f64]>) {
     #[derive(PartialEq)]
     struct Item(f64, u32);
     impl Eq for Item {}
@@ -1140,8 +1256,6 @@ pub fn priority_flood_fill_to(grid: &Grid, h: &mut [f64], ocean: &[bool], base: 
         done[lowest] = true;
         heap.push(Item(h[lowest], lowest as u32));
     }
-    // ε per metre of arc: ~1 mm per km, too small to see, enough to route flats.
-    let eps_per_rad = 1.0e-3 * 6_371.0;
     while let Some(Item(hc, c)) = heap.pop() {
         for &j in grid.neighbors(c as usize) {
             let j = j as usize;
@@ -1150,7 +1264,7 @@ pub fn priority_flood_fill_to(grid: &Grid, h: &mut [f64], ocean: &[bool], base: 
             }
             done[j] = true;
             let d = (grid.dir[c as usize] - grid.dir[j]).length();
-            let min_h = hc + eps_per_rad * d;
+            let min_h = hc + eps_per_rad * d * cost.map_or(1.0, |c| c[j]);
             if h[j] < min_h {
                 h[j] = min_h;
             }
